@@ -1,0 +1,212 @@
+# Frontend design v1 — ASR EN VI
+
+> **Đã chốt ngày 15/10/2026.** Người dùng duyệt phương án **A — Bàn biên tập**, dark theme, theo prototype hiện tại; bao gồm đặt tên người nói thủ công, lịch sử bằng lịch tháng và footer GitHub/version đã chỉnh.
+
+Tài liệu này là chuẩn thiết kế frontend v1 để triển khai. [Đặc tả sản phẩm](specification-v1.md) quy định hành vi, dữ liệu, xác thực và phạm vi nghiệm thu; tài liệu này cụ thể hóa cách trình bày và tương tác. Việc duyệt thiết kế không có nghĩa backend, model, lưu trữ hoặc xác thực đã được triển khai.
+
+## 1. Bản thiết kế được chọn
+
+- Ứng dụng web dùng trên trình duyệt laptop/desktop; v1 truy cập qua localhost bằng token.
+- Giao diện điều khiển bằng tiếng Việt, giữ các nhãn quen thuộc như **Transcript**, **Meeting notes**, **Speaker 1** và **English**. Nội dung notes luôn bằng tiếng Anh; transcript giữ ngôn ngữ đã nói.
+- Bố cục chính gồm sidebar bên trái, transcript và notes cạnh nhau, trình phát bên dưới vùng duyệt.
+- Dark theme áp dụng thống nhất cho màn hình duyệt, lịch, trang truy cập, các hộp thoại và thông báo.
+- Phương án B/C chỉ là các phương án so sánh trong prototype. Frontend v1 triển khai phương án A; không có bộ chuyển bố cục A/B/C hoặc bộ chọn light theme trong phạm vi đã chốt.
+- Chưa chọn framework frontend, thư viện component hoặc cách tổ chức API trong tài liệu này.
+
+### 1.1. Nguồn tham chiếu
+
+- [Hướng dẫn chạy prototype](../prototype/ui/README.md).
+- [Markup và tương tác](../prototype/ui/app.js), [stylesheet](../prototype/ui/styles.css).
+- URL khi chạy server prototype: `http://localhost:8765/prototype/meeting-notes/?variant=A`.
+- Hai ảnh dưới đây lưu trạng thái thiết kế đã duyệt ở viewport 1440 × 1000. Nội dung cuộc họp là dữ liệu mẫu. Thanh **PROTOTYPE** ở đáy ảnh là công cụ thử thiết kế, không thuộc frontend sản phẩm.
+
+**Màn hình duyệt transcript và notes:**
+
+![Phương án A: sidebar, transcript, notes và trình phát trên dark theme](assets/frontend-v1/meeting-review.png)
+
+**Màn hình lịch sử theo tháng:**
+
+![Lịch tháng lớn, lịch nhỏ trong sidebar và danh sách cuộc họp của ngày được chọn](assets/frontend-v1/meeting-calendar.png)
+
+## 2. Bố cục và điều hướng
+
+| Vùng | Nội dung và hành vi |
+| --- | --- |
+| Sidebar | Logo và tên phần mềm, tạo cuộc họp, tìm kiếm, danh sách gần đây, lịch nhỏ, footer |
+| Đầu vùng duyệt | Tên cuộc họp, ngày nếu có, ngôn ngữ chính, thời lượng, trạng thái và thao tác xóa |
+| Transcript | Danh sách đoạn phát biểu có người nói, timestamp, nội dung và thao tác sửa |
+| Meeting notes | Notes tiếng Anh, chọn bản notes, chỉnh sửa, tạo lại, copy và xuất Markdown |
+| Trình phát | Phát/tạm dừng, vị trí hiện tại, tổng thời lượng và thanh tua; dùng chung cho cuộc họp đang mở |
+| Lịch lớn | Thay vùng duyệt khi mở lịch; sidebar vẫn giữ nguyên để điều hướng |
+
+Ở desktop, sidebar có chiều rộng tham chiếu **228 px**. Phần còn lại là vùng làm việc co giãn; trong màn hình duyệt, transcript chiếm khoảng **43%**, notes khoảng **57%** của vùng nội dung. Hai vùng nội dung dài có thể cuộn riêng, giữ đường truy cập tới tiêu đề, công cụ và trình phát.
+
+Ở màn hình lịch, phần tháng chiếm diện tích chính, danh sách ngày được chọn nằm bên phải với chiều rộng tham chiếu **240 px**. Với viewport từ 1150 px trở xuống, danh sách ngày chuyển xuống dưới lịch. Đây là bố cục đã có trong prototype, không phải một màn hình mới.
+
+Kích thước trên là mốc tham chiếu khi triển khai; ưu tiên giữ thứ bậc, tỷ lệ và khả năng đọc/thao tác. Không sao chép cứng các kích thước chữ quá nhỏ hoặc khoảng trống dành riêng cho thanh công cụ prototype.
+
+## 3. Ngôn ngữ thị giác
+
+### 3.1. Màu sắc
+
+Giữ bảng màu A hiện tại làm nền tảng:
+
+| Vai trò | Giá trị tham chiếu |
+| --- | --- |
+| Nền ứng dụng | `#10191e` |
+| Bề mặt panel/hộp thoại | `#172329` |
+| Bề mặt phụ | `#1c2b31` |
+| Chữ chính | `#dce8e9` |
+| Chữ phụ | `#a2b5ba` |
+| Viền và đường phân cách | `#2c3e45` |
+| Màu nhấn teal | `#7ac9b7` |
+| Nền lựa chọn/màu nhấn dịu | `#223c38` |
+| Cảnh báo amber | `#e4bc7d` |
+| Nền cảnh báo | `#302b24` |
+
+Màu teal dùng cho hành động chính, lựa chọn hiện tại và liên kết tới nguồn. Amber dùng cho nội dung chưa rõ hoặc notes cần cập nhật. Thao tác xóa có kiểu nguy hiểm riêng và hộp thoại xác nhận. Mỗi trạng thái cần có nhãn hoặc biểu tượng đi kèm; màu không phải dấu hiệu duy nhất.
+
+### 3.2. Chữ, biểu tượng và bề mặt
+
+- Chữ sans-serif cho điều khiển và nội dung chính; stack tham chiếu là `Inter, Noto Sans, Arial, sans-serif`. Font mono dùng cho timestamp, version và một số metadata ngắn. Hỗ trợ đầy đủ dấu tiếng Việt.
+- Dùng font có sẵn hoặc đóng gói cùng frontend; không tải font hay icon từ Internet trong runtime.
+- Giữ mật độ gọn của prototype: tiêu đề rõ, metadata nhẹ hơn, phân cấp nội dung bằng cỡ chữ, độ đậm và khoảng cách.
+- Icon nét đơn, đồng nhất; logo ứng dụng là biểu tượng sóng âm trong ô vuông bo góc. GitHub dùng biểu tượng GitHub riêng.
+- Panel có viền mảnh, bo góc khoảng 12 px; nút khoảng 7 px; hộp thoại khoảng 15 px. Dùng khoảng trắng và đường phân cách nhẹ để chia nhóm.
+- Hover, focus, disabled và selected phải phân biệt được trên nền tối. Hiệu ứng chuyển trạng thái ngắn, tôn trọng tùy chọn giảm chuyển động của trình duyệt.
+
+## 4. Sidebar
+
+Thứ tự từ trên xuống được chốt như sau:
+
+1. Logo sóng âm và tên **ASR EN VI**; thay chữ thương hiệu cũ “ghi.”.
+2. Nhãn **KHÔNG GIAN CÁ NHÂN** và nút chính **Cuộc họp mới**.
+3. Ô **Tìm cuộc họp…**.
+4. **Cuộc họp gần đây**: danh sách ngắn, mặc định tối đa ba cuộc họp có ngày, mới nhất trước. Mỗi mục có tên, ngày và thời lượng; mục đang mở có nền/viền lựa chọn.
+5. Lịch tháng nhỏ nằm ngay dưới danh sách gần đây.
+6. Footer ở đáy sidebar, tách bằng đường kẻ nhẹ.
+
+Tìm kiếm theo tên trên toàn bộ lịch sử, không chỉ ba mục gần đây; hiện kết quả hoặc trạng thái không tìm thấy. Lịch là cách chính để duyệt các cuộc họp cũ theo thời gian, tránh buộc người dùng cuộn một danh sách gần đây dài.
+
+Footer căn giữa theo chiều dọc: **chỉ biểu tượng GitHub**, phía dưới là **Version &lt;phiên bản&gt;**, ví dụ `Version 1.0`. Không có dòng “Mã nguồn …”. Icon dẫn tới [repository](https://github.com/nguyencanhtrung/asr-en-vi); dòng version dẫn tới [releases](https://github.com/nguyencanhtrung/asr-en-vi/releases). Cả hai chỉ mở trang bên ngoài khi người dùng chọn.
+
+Icon GitHub phải có tên truy cập và tooltip dù không có text hiển thị. Version phản ánh bản ứng dụng thực tế; dùng **Version dev** khi chưa có version phát hành. `1.0` là ví dụ định dạng, không phải số release đã được công bố. Tên sản phẩm, URL repository và version lấy từ metadata dùng chung.
+
+## 5. Lịch sử bằng lịch tháng
+
+### 5.1. Lịch nhỏ
+
+- Tuần bắt đầu từ thứ Hai, gồm bảy cột **T2–CN**. Ô ngày ngoài tháng hiển thị mờ hơn.
+- Tiêu đề tháng/năm có nút trước/sau; cho chọn trực tiếp tháng, nhập/chọn năm và về **Hôm nay**.
+- Ngày có cuộc họp được đánh dấu bằng số lượng từ dữ liệu đã lưu. Ngày hiện tại có viền; ngày được chọn có nền nhấn.
+- Bấm ngày để mở lịch lớn và chọn ngày đó. Nút **Mở lịch** mở tháng đang duyệt trong vùng làm việc chính.
+- Mục **Chưa đặt ngày** kèm số lượng luôn cho phép tìm các cuộc họp thiếu ngày.
+
+### 5.2. Lịch lớn
+
+- Tiêu đề **Lịch cuộc họp**, nút **Quay lại notes**, điều khiển tháng/năm và **Hôm nay**.
+- Hiển thị tổng số cuộc họp trong tháng; tháng trống có thông báo rõ.
+- Lưới tháng hiển thị tên cuộc họp trong từng ngày. Prototype hiển thị tối đa hai mục trong ô và nút `+N khác` để mở danh sách đầy đủ của ngày đó.
+- Panel ngày được chọn hiển thị ngày, số lượng và toàn bộ cuộc họp của ngày. Mỗi cuộc họp có tên, thời lượng và trạng thái; chọn mục để mở đúng transcript/notes.
+- Ngày trống và nhóm **Chưa đặt ngày** trống đều có thông báo phù hợp.
+- **Quay lại notes** trở về cuộc họp đang mở trước khi duyệt lịch. Chọn trực tiếp một cuộc họp trong lịch chuyển sang cuộc họp đó.
+
+### 5.3. Quy tắc dữ liệu và trạng thái
+
+- Lịch nhỏ và lịch lớn dùng chung tháng/ngày đang chọn. Duyệt tháng hoặc năm không thay đổi metadata cuộc họp.
+- Xếp lịch theo **ngày họp** người dùng cung cấp, không tự lấy ngày upload/xử lý. Không có ngày thì vào **Chưa đặt ngày**.
+- Ngày họp là giá trị ngày, không tự lệch sang ngày khác do chuyển đổi UTC. UI trình bày theo dạng `dd/mm/yyyy` như prototype.
+- Nhập/xóa cuộc họp cập nhật dấu ngày, số lượng và danh sách tương ứng. Frontend sản phẩm phải đọc dữ liệu thật từ backend.
+- Không hiển thị giờ bắt đầu giả khi chỉ có ngày và thời lượng. Lịch v1 phục vụ duyệt lịch sử; không có đặt lịch tương lai, kéo thả đổi lịch hay đồng bộ Google Calendar.
+- Duyệt lịch không làm mất chỉnh sửa đã lưu, tên người nói hoặc các bản notes. Khi có tác vụ đang chạy, vẫn thấy trạng thái và thao tác hủy trong màn hình lịch.
+
+## 6. Duyệt transcript, người nói và notes
+
+### 6.1. Transcript và trình phát
+
+Mỗi đoạn transcript gồm nhãn/tên người nói, timestamp có thể bấm, nội dung và nút sửa. Đoạn chưa rõ được đánh dấu bằng amber và chỉ dẫn nghe lại. Đoạn nguồn đang được đối chiếu phải nổi bật để người dùng định vị được trong danh sách.
+
+Bấm timestamp trong transcript hoặc notes đưa trình phát tới đoạn nguồn tương ứng và đưa đoạn transcript vào tầm nhìn. Trình phát nằm dưới vùng duyệt, có phát/tạm dừng, thanh tua, thời gian hiện tại và tổng thời lượng. Trong sản phẩm, phát âm thanh từ bản sao đã lưu tại backend; dạng sóng và chuyển động trong prototype không chứng minh đã có phát âm thanh thật.
+
+Sửa một đoạn transcript bằng ô nhập tại đoạn đó, có lưu/bỏ qua. Sau khi lưu, notes hiện có được đánh dấu cần cập nhật; không tự thay nội dung notes.
+
+Theo quyết định backend được chốt sau khi duyệt prototype, khi đang tạo notes cho cuộc họp này, UI khóa sửa transcript và tên người nói, giải thích lý do và vẫn cho đọc nguồn. Backend phải thực thi cùng điều kiện ở API; chỉ mở lại chỉnh sửa sau khi tác vụ đã kết thúc, không ngay khi vừa gửi yêu cầu hủy. Các bản notes đã có và các cuộc họp khác vẫn sửa được. Xem [backend design v1](backend-design-v1.md).
+
+### 6.2. Tên người nói
+
+- Mặc định dùng **Speaker 1**, **Speaker 2**, … theo từng cuộc họp.
+- Nút **Tên người nói** ở đầu transcript hoặc bấm nhãn người nói mở hộp thoại nhập tên cho từng nhãn.
+- Cho phép thêm, sửa, xóa tên; để trống thì dùng nhãn mặc định. Giữ nhãn gốc cạnh tên để đối chiếu.
+- Tên chỉ áp dụng cho cuộc họp hiện tại. Lưu tên cập nhật transcript và đánh dấu notes cần cập nhật.
+- Khi chủ động tạo lại notes, bản mới sử dụng tên đã đặt; các bản cũ và chỉnh sửa thủ công giữ nguyên.
+- Tự học/nhận diện và điền tên từ dữ liệu training là **advanced feature ở phase sau**. V1 không có giao diện huấn luyện hoặc tự nhận diện danh tính.
+
+### 6.3. Meeting notes
+
+Panel **Meeting notes** có nhãn **EN**, thao tác **Tạo lại**, chọn bản notes, chỉnh sửa, copy và xuất Markdown. Nội dung có thứ bậc đọc rõ và các nhóm theo đặc tả: **Overview**, **Key Topics and Rationale**, **Decisions**, **Open Questions**, **Confirmed Action Items**, **Items Requiring Confirmation**.
+
+Quyết định/action item có liên kết timestamp để đối chiếu. Các mục cần xác nhận được trình bày riêng với mức nhấn amber; không trộn với công việc đã thống nhất. Không tự đặt người phụ trách hoặc deadline còn thiếu.
+
+Chỉnh sửa notes mở hộp thoại rộng có vùng soạn thảo và nút lưu/bỏ qua. UI phân biệt bản đang xem, bản mới nhất, bản đã sửa thủ công và bản chưa phản ánh transcript/tên người nói mới. **Tạo lại** tạo bản mới; bản trước vẫn mở, copy và xuất được. Copy/xuất luôn dùng đúng bản đang chọn, kể cả chỉnh sửa của bản đó.
+
+Nội dung soạn thảo là Markdown tự do theo [ADR 0005](adr/0005-markdown-notes.md). Khi lưu, thao tác luôn nhắm đúng bản notes đã mở trong trình soạn thảo, kể cả nếu một bản mới được tạo xong trong lúc người dùng đang sửa.
+
+## 7. Nhập bản ghi, truy cập và trạng thái tác vụ
+
+| Luồng/trạng thái | Thiết kế và hành vi cần giữ khi triển khai |
+| --- | --- |
+| Chưa xác thực | Trang tối với logo/tên sản phẩm, hướng dẫn mở link từ terminal và ô nhập token; lỗi token có thông báo, không lộ dữ liệu cuộc họp |
+| Link có token hợp lệ | Vào ứng dụng, giữ phiên bằng cookie và loại token khỏi thanh địa chỉ theo đặc tả |
+| Chưa có cuộc họp | Trạng thái trống có hành động tạo cuộc họp; lịch không có dấu ngày giả |
+| Cuộc họp mới | Hộp thoại có vùng kéo thả/chọn audio hoặc video, tên cuộc họp, ngôn ngữ chính **Tiếng Việt/English**, ngày họp tùy chọn và nút bắt đầu |
+| Đang upload | Tiến độ upload riêng; upload bị ngắt báo chưa hoàn tất và cho chọn file tải lại |
+| Đang xử lý/tạo lại notes | Hiển thị giai đoạn, tiến độ do backend cung cấp và nút hủy; chỉ một tác vụ tại một thời điểm |
+| Backend đang bận | Giải thích vì sao chưa bắt đầu được tác vụ mới; vẫn cho xem/sửa cuộc họp đã hoàn tất, không tạo hàng đợi ẩn |
+| Đã sẵn sàng | Mở transcript và notes để duyệt; không diễn đạt bản nháp là nội dung chắc chắn đúng |
+| Lỗi/đã hủy/bị gián đoạn | Phân biệt trạng thái, nêu vấn đề và đường thử lại phù hợp; không hiển thị là đã hoàn tất hoặc tự chạy lại |
+| Mất kết nối trình duyệt | Thông báo mất kết nối; khi kết nối lại, lấy trạng thái hiện tại từ backend. Đóng tab không hủy tác vụ đã được nhận |
+| Xóa cuộc họp | Hộp thoại nêu tên cuộc họp, nút giữ lại/xóa; cuộc họp đang có tác vụ phải hủy và chờ backend xác nhận đã dừng trước khi xóa. Xóa dữ liệu ứng dụng quản lý theo đặc tả, không xóa file nguồn bên ngoài |
+| Lưu/copy/xuất | Phản hồi thành công hoặc lỗi rõ ràng; không báo đã lưu thành công trước khi backend xác nhận |
+
+Giữ lời nhắc trong form nhập: **Transcript giữ ngôn ngữ đã nói. Meeting notes luôn bằng tiếng Anh.** Định dạng và giới hạn file phải phản ánh khả năng backend đã công bố; không lấy `audio/*,video/*` trong prototype làm cam kết hỗ trợ mọi codec.
+
+QR/link truy cập được cung cấp từ terminal. Không hiển thị token dùng chung hoặc cơ chế tự cấp quyền ở trang chưa xác thực. Chi tiết theo [ADR về token](adr/0002-localhost-reusable-token.md); không bổ sung tài khoản/mật khẩu hoặc quản lý nhiều người dùng trong v1.
+
+## 8. Khả năng sử dụng và kích thước màn hình
+
+- Nghiệm thu trên Chrome và Firefox bản ổn định ở laptop/desktop. Các mốc tham chiếu đã xem trong prototype là **1440 × 1000**, **1280 × 800** và **1024 × 768**.
+- Ở các kích thước đó, không tràn ngang toàn trang; sidebar và công cụ chính vẫn truy cập được. Nội dung dài được cuộn trong vùng phù hợp, không bị trình phát hoặc thanh cố định che mất.
+- Giữ hai cột transcript/notes khi đủ chỗ. Với chiều rộng nhỏ hơn, có thể xếp dọc theo hành vi responsive trong prototype; tối ưu riêng cho điện thoại/tablet nằm ngoài v1.
+- Nút chỉ có icon phải có tên truy cập. Ô nhập/select có label. Focus bàn phím rõ; thứ tự Tab hợp lý, hộp thoại giữ focus và có cách đóng bằng bàn phím.
+- Dùng chữ hoặc biểu tượng đi cùng màu để phân biệt ngày có cuộc họp, ngày được chọn, trạng thái tác vụ và cảnh báo.
+- Nội dung người dùng nhập phải được hiển thị an toàn. Tên dài, notes dài và nhiều cuộc họp cùng ngày không được làm vỡ bố cục hoặc mất đường truy cập nội dung đầy đủ.
+
+## 9. Ranh giới prototype và frontend sản phẩm
+
+Thiết kế đã chốt; code prototype vẫn là bản thử dùng để đối chiếu, không mặc nhiên trở thành nền tảng production. Các hành vi lưu dữ liệu, upload, phát âm thanh, model, tiến độ và token phải được nối với backend thật và nghiệm thu riêng.
+
+Các thành phần chỉ phục vụ prototype phải được loại khỏi frontend sản phẩm:
+
+- Thanh **PROTOTYPE**, chuyển A/B/C, bảng trạng thái nội bộ, nút reset dữ liệu mẫu và mở phiên demo.
+- Dữ liệu cuộc họp mẫu, nhãn **Dữ liệu minh họa**, nút **Dùng bản ghi mẫu để thử** và token `demo-local`.
+- Tiến độ theo bộ đếm mô phỏng, playback không có âm thanh và trạng thái chỉ lưu trong bộ nhớ rồi mất khi refresh.
+- Khoảng đệm chỉ để tránh thanh công cụ thử thiết kế ở đáy trang.
+
+Prototype hiện có không chứng minh các trạng thái backend trong mục 7 đã hoạt động. Khi triển khai, giữ thiết kế đã duyệt và thay các mô phỏng bằng hành vi thật theo [đặc tả v1](specification-v1.md).
+
+## 10. Tiêu chí đối chiếu frontend
+
+| Mã | Điều kiện đạt |
+| --- | --- |
+| FE-01 | Bố cục A và dark theme thống nhất, có sidebar, transcript/notes cạnh nhau và trình phát; đối chiếu AC-29 |
+| FE-02 | Brand là ASR EN VI; footer chỉ có icon GitHub và dòng Version ngắn, đúng metadata bản chạy |
+| FE-03 | Danh sách gần đây gọn, tìm kiếm toàn lịch sử, lịch nhỏ ngay dưới danh sách và mở được lịch lớn |
+| FE-04 | Lịch nhỏ/lớn đồng bộ; xử lý tháng/năm cũ, tháng 12 sang tháng 1, năm nhuận, tháng trống, nhiều cuộc họp cùng ngày và thiếu ngày; đối chiếu AC-30 |
+| FE-05 | Mở đúng cuộc họp từ lịch, dấu ngày cập nhật sau nhập/xóa; điều hướng giữ nguyên metadata và chỉnh sửa đã lưu |
+| FE-06 | Đặt/sửa/xóa tên người nói riêng từng cuộc họp; giữ nhãn gốc và không ghi đè notes cũ; đối chiếu AC-28 |
+| FE-07 | Timestamp dẫn tới nguồn, chỉnh sửa làm notes cần cập nhật, tạo lại có bản mới, copy/xuất đúng bản chọn; đối chiếu AC-05/07/11 |
+| FE-08 | Upload, xử lý, bận, hủy, lỗi và gián đoạn được thể hiện đúng; đóng tab không làm frontend suy diễn tác vụ đã hủy; đối chiếu AC-12/16/19/20/21 |
+| FE-09 | Dùng được bằng bàn phím và ở ba viewport tham chiếu; không để nội dung/công cụ bị che hoặc tràn ngang |
+| FE-10 | Không có UI dành riêng cho demo; hoạt động với backend và lưu trữ thật, kiểm soát token và không tải tài nguyên bên ngoài khi runtime; đối chiếu AC-10/15/22/23 |
+
+Việc chốt tài liệu này xác nhận hướng thiết kế. Các tiêu chí trên là điều kiện kiểm tra frontend khi triển khai, không phải báo cáo nghiệm thu sản phẩm đã hoàn thành.
