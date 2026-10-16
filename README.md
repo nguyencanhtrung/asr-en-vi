@@ -41,14 +41,10 @@ Lệnh in link và QR mới. Việc này chỉ thay auth state; SQLite và worke
 
 ## Phát triển và kiểm tra
 
-Cài Python 3.12 và uv. Đồng bộ dependency theo lockfile rồi chạy các check:
+Cài Python 3.12, uv, Node.js và Docker Compose rồi chạy toàn bộ quality gate bằng một lệnh:
 
 ```sh
-uv sync --all-groups
-uv run ruff check src tests
-uv run ruff format --check src tests
-uv run pytest
-docker compose config --quiet
+./scripts/check.sh
 ```
 
 Một kiểm thử Chromium thực chạy HTTP server và xác nhận fragment được loại khỏi URL, token chỉ
@@ -59,6 +55,19 @@ và đặt `ASR_RUN_BROWSER_TESTS=1`:
 uv run playwright install chromium
 ASR_RUN_BROWSER_TESTS=1 uv run pytest -m browser
 ```
+
+## CI/CD
+
+GitHub Actions chạy cùng `./scripts/check.sh` cho mọi pull request và mọi push lên `main`, đồng
+thời build Docker image để chặn lỗi đóng gói. Pipeline chỉ phát hành sau khi cả quality gate và
+container build thành công:
+
+- Push lên `main` phát hành image `ghcr.io/nguyencanhtrung/asr-en-vi` với tag `edge` và tag SHA.
+- Push tag dạng `v1.2.3` phát hành các tag version, `latest` và SHA.
+- Image phát hành cho `linux/amd64` và `linux/arm64`, kèm SBOM, provenance và attestation.
+
+Workflow chỉ dùng `GITHUB_TOKEN`; không cần secret registry riêng. Các action được pin bằng commit
+SHA bất biến, còn Dependabot kiểm tra cập nhật hằng tuần cho uv, GitHub Actions và Docker base image.
 
 Trong production image, Docker build context chỉ chứa `pyproject.toml`, `README.md`, `uv.lock` và
 `src/asr_en_vi`. Hướng dẫn, tài liệu thiết kế và prototype không được đưa vào image.
