@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="color-scheme" content="dark" />
+    <title>Workspace · ASR EN VI</title>
+    <link rel="stylesheet" href="/assets/shell.css" />
+  </head>
+  <body>
+    <div class="app-frame">
+      <aside class="sidebar" aria-label="Điều hướng chính">
+        <a class="brand" href="/" aria-label="ASR EN VI workspace">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 40 40" fill="none">
+              <path d="M8 22v-4m6 10V12m6 18V10m6 20V14m6 16V18" />
+            </svg>
+          </span>
+          <span class="brand-wordmark">ASR <span>/</span> EN VI</span>
+        </a>
+
+        <div class="sidebar-label">WORKSPACE</div>
+        <div class="nav-item" aria-current="page">
+          <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <rect x="3.5" y="3.5" width="13" height="13" rx="2.2" />
+            <path d="M7 7.2h6m-6 3h6m-6 3h3.5" />
+          </svg>
+          <span>Cuộc họp</span>
+        </div>
+
+        <section class="recent-section" aria-labelledby="recent-heading">
+          <div class="section-heading">
+            <h2 id="recent-heading">Gần đây</h2>
+            <span class="section-rule" aria-hidden="true"></span>
+          </div>
+          <p class="sidebar-empty">Cuộc họp đã lưu sẽ xuất hiện tại đây.</p>
+        </section>
+
+        <footer class="sidebar-footer">
+          <a
+            class="github-link"
+            href="https://github.com/nguyencanhtrung/asr-en-vi"
+            aria-label="Mã nguồn ASR EN VI trên GitHub"
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 .9a11.1 11.1 0 0 0-3.51 21.63c.56.1.76-.24.76-.54v-2.1c-3.1.68-3.76-1.32-3.76-1.32-.5-1.3-1.24-1.65-1.24-1.65-1.02-.7.08-.68.08-.68 1.13.08 1.72 1.17 1.72 1.17 1 .1.74 1.92 3.42 1.38.1-.72.39-1.2.7-1.48-2.48-.28-5.08-1.24-5.08-5.52 0-1.22.44-2.22 1.16-3-.12-.28-.5-1.42.11-2.96 0 0 .95-.3 3.06 1.15a10.6 10.6 0 0 1 5.57 0c2.12-1.45 3.06-1.15 3.06-1.15.61 1.54.23 2.68.11 2.96.72.78 1.16 1.78 1.16 3 0 4.3-2.61 5.23-5.1 5.5.4.35.75 1.02.75 2.06v3.05c0 .3.2.65.77.54A11.1 11.1 0 0 0 12 .9Z" />
+            </svg>
+          </a>
+          <span>Version 0.1.0</span>
+        </footer>
+      </aside>
+
+      <main class="workspace">
+        <header class="workspace-header">
+          <div>
+            <p class="eyebrow">LOCAL WORKSPACE</p>
+            <h1>Bàn biên tập</h1>
+          </div>
+          <div class="local-status">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span>Đang chạy trên máy này</span>
+          </div>
+        </header>
+
+        <section class="empty-stage" aria-labelledby="empty-title">
+          <div class="signal-mark" aria-hidden="true">
+            <svg viewBox="0 0 88 72" fill="none">
+              <path d="M8 39h13l7-14 10 29 10-42 11 50 9-28 7 14h5" />
+              <path class="signal-base" d="M8 63h72" />
+            </svg>
+          </div>
+          <p class="stage-kicker">TRANSCRIPT · MEETING NOTES</p>
+          <h2 id="empty-title">Không có cuộc họp nào được lưu</h2>
+          <p class="empty-copy">
+            Cuộc họp đã lưu trên máy này sẽ xuất hiện ở đây để bạn xem transcript
+            và meeting notes cạnh nhau.
+          </p>
+        </section>
+
+        <section class="review-panels" aria-label="Vùng duyệt transcript và meeting notes">
+          <article class="review-panel transcript-panel">
+            <header class="panel-heading">
+              <div class="panel-index" aria-hidden="true">T</div>
+              <h2>Transcript</h2>
+            </header>
+            <p>Transcript giữ nguyên ngôn ngữ đã nói.</p>
+            <div class="panel-rule" aria-hidden="true"></div>
+            <span class="panel-placeholder">Chưa có nội dung transcript</span>
+          </article>
+          <article class="review-panel notes-panel">
+            <header class="panel-heading">
+              <div class="panel-index" aria-hidden="true">N</div>
+              <h2>Meeting notes</h2>
+            </header>
+            <p>Meeting notes được viết bằng tiếng Anh.</p>
+            <div class="panel-rule" aria-hidden="true"></div>
+            <span class="panel-placeholder">Chưa có meeting notes</span>
+          </article>
+        </section>
+
+        <div class="workspace-footnote">
+          <span class="footnote-line" aria-hidden="true"></span>
+          <span>Dữ liệu và phiên truy cập được lưu riêng trên bản cài này.</span>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

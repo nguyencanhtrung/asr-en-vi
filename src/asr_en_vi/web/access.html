@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="color-scheme" content="dark" />
+    <title>Truy cập · ASR EN VI</title>
+    <link rel="stylesheet" href="/assets/access.css" />
+    <script src="/assets/access.js" defer></script>
+  </head>
+  <body>
+    <main class="access-layout">
+      <section class="access-card" aria-labelledby="access-title">
+        <a class="brand" href="/access" aria-label="ASR EN VI">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 40 40" fill="none">
+              <path d="M8 22v-4m6 10V12m6 18V10m6 20V14m6 16V18" />
+            </svg>
+          </span>
+          <span>ASR <span class="brand-separator">/</span> EN VI</span>
+        </a>
+
+        <p class="eyebrow">LOCAL MEETING WORKSPACE</p>
+        <h1 id="access-title">Mở không gian làm việc</h1>
+        <p class="intro">
+          Dùng link truy cập được in trong terminal, hoặc nhập token đã được cấp.
+          Token chỉ dùng để mở phiên trên trình duyệt này.
+        </p>
+
+        <form id="access-form" class="access-form" novalidate>
+          <label for="access-token">Access token</label>
+          <div class="token-field">
+            <input
+              id="access-token"
+              name="token"
+              type="password"
+              inputmode="text"
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+              placeholder="Dán token tại đây"
+              aria-describedby="access-help access-status"
+            />
+            <span class="lock-mark" aria-hidden="true">
+              <svg viewBox="0 0 20 20" fill="none">
+                <rect x="4" y="8" width="12" height="9" rx="2" />
+                <path d="M7 8V5.8a3 3 0 0 1 6 0V8m-3 4v2" />
+              </svg>
+            </span>
+          </div>
+          <p id="access-help" class="field-help">
+            Link từ terminal sẽ xác thực tự động và xóa token khỏi thanh địa chỉ.
+          </p>
+          <button id="access-submit" type="submit">
+            <span>Mở workspace</span>
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M4 10h11m-4-4 4 4-4 4" />
+            </svg>
+          </button>
+          <p id="access-status" class="status" role="status" aria-live="polite"></p>
+        </form>
+
+        <div class="privacy-note">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span>Chỉ truy cập được trên máy đang chạy ứng dụng.</span>
+        </div>
+      </section>
+      <div class="access-orbit" aria-hidden="true">
+        <div class="orbit-ring orbit-ring-one"></div>
+        <div class="orbit-ring orbit-ring-two"></div>
+        <svg viewBox="0 0 320 112" fill="none">
+          <path d="M8 57h48l15-25 20 49 22-66 24 82 23-63 20 45 16-22h106" />
+          <path class="orbit-trace" d="M8 91h91m122 0h91" />
+        </svg>
+      </div>
+    </main>
+  </body>
+</html>
