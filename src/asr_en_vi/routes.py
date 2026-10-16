@@ -1,24 +1,119 @@
-"""HTTP routes for access, liveness, and the authenticated empty workspace."""
+"""HTTP routes for access, uploads, meetings and the authenticated workspace."""
 
 from __future__ import annotations
 
+import asyncio
+import os
+from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
+from starlette.requests import ClientDisconnect
 
 from asr_en_vi.auth import AuthStateError, create_session_cookie, token_matches
 from asr_en_vi.config import Settings
+from asr_en_vi.media import ALLOWED_EXTENSIONS, OUTPUT_BITRATE, OUTPUT_CODEC
+from asr_en_vi.recordings import (
+    RecordingError,
+    begin_upload,
+    complete_upload,
+    create_meeting,
+    create_upload,
+    delete_upload,
+    fail_upload,
+    finish_upload,
+    get_audio_recording,
+    get_meeting,
+    get_upload,
+    open_audio,
+)
 
 SESSION_COOKIE = "asr_en_vi_session"
 WEB_DIR = Path(__file__).parent / "web"
+_AUDIO_CHUNK_SIZE = 1024 * 1024
+_UPLOAD_IDLE_TIMEOUT_SECONDS = 60
+_MEDIA_VALIDATION_CONCURRENCY = 2
+_RangeResult = tuple[int, int] | Literal["ignore", "unsatisfiable"]
 
 
 def _asset_response(filename: str, media_type: str) -> FileResponse:
     return FileResponse(WEB_DIR / filename, media_type=media_type)
 
 
+def _raise_recording_error(error: RecordingError) -> None:
+    raise HTTPException(
+        status_code=error.status_code,
+        detail={"code": error.code, "message": error.message},
+    ) from None
+
+
+async def _json_object(
+    request: Request,
+    *,
+    required: set[str],
+    optional: set[str] | None = None,
+) -> dict[str, Any]:
+    try:
+        payload = await request.json()
+    except (UnicodeDecodeError, ValueError):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_json", "message": "Provide a valid JSON object."},
+        ) from None
+    allowed = required | (optional or set())
+    if (
+        not isinstance(payload, dict)
+        or not required.issubset(payload)
+        or not set(payload).issubset(allowed)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_request", "message": "The JSON fields are invalid."},
+        )
+    return payload
+
+
+def _parse_byte_range(value: str, size: int) -> _RangeResult:
+    if "=" not in value:
+        return "ignore"
+    unit, specification = value.split("=", maxsplit=1)
+    if unit.strip().lower() != "bytes" or "," in specification:
+        return "ignore"
+    specification = specification.strip()
+    if "-" not in specification:
+        return "ignore"
+    first, last = specification.split("-", maxsplit=1)
+    if not first:
+        if not last.isascii() or not last.isdecimal() or len(last) > 20:
+            return "ignore"
+        suffix_length = int(last)
+        if suffix_length < 1:
+            return "unsatisfiable"
+        if size < 1:
+            return "unsatisfiable"
+        return max(0, size - suffix_length), size - 1
+    if (
+        not first.isascii()
+        or not first.isdecimal()
+        or len(first) > 20
+        or (last and (not last.isascii() or not last.isdecimal() or len(last) > 20))
+    ):
+        return "ignore"
+    start = int(first)
+    end = int(last) if last else size - 1
+    if start >= size:
+        return "unsatisfiable"
+    if end < start:
+        return "ignore"
+    return start, min(end, size - 1)
+
+
 def install_routes(app: FastAPI, settings: Settings) -> None:
+    validation_slots = asyncio.Semaphore(_MEDIA_VALIDATION_CONCURRENCY)
+
     @app.api_route("/healthz", methods=["GET", "HEAD"], include_in_schema=False)
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
@@ -42,6 +137,242 @@ def install_routes(app: FastAPI, settings: Settings) -> None:
     @app.get("/assets/shell.css", include_in_schema=False)
     async def shell_css() -> FileResponse:
         return _asset_response("shell.css", "text/css")
+
+    @app.get("/assets/shell.js", include_in_schema=False)
+    async def shell_js() -> Response:
+        asset_path = WEB_DIR / "shell.js"
+        if not asset_path.is_file():
+            return Response(status_code=404)
+        return FileResponse(asset_path, media_type="text/javascript")
+
+    @app.get("/meetings/{meeting_id}", include_in_schema=False)
+    async def meeting_page(meeting_id: str) -> FileResponse:
+        return _asset_response("shell.html", "text/html")
+
+    @app.get("/api/uploads/policy")
+    async def upload_policy() -> dict[str, Any]:
+        return {
+            "extensions": list(ALLOWED_EXTENSIONS),
+            "max_size_bytes": settings.max_upload_bytes,
+            "max_duration_seconds": settings.max_recording_seconds,
+            "output": {
+                "container": "m4a",
+                "audio_codec": OUTPUT_CODEC,
+                "bitrate_kbps": int(OUTPUT_BITRATE.removesuffix("k")),
+                "faststart": True,
+            },
+        }
+
+    @app.post("/api/uploads", status_code=201)
+    async def start_upload(request: Request) -> dict[str, object]:
+        payload = await _json_object(request, required={"filename", "size_bytes"})
+        try:
+            return await run_in_threadpool(
+                create_upload,
+                settings.data_dir,
+                filename=payload["filename"],
+                size_bytes=payload["size_bytes"],
+                max_upload_bytes=settings.max_upload_bytes,
+            )
+        except RecordingError as error:
+            _raise_recording_error(error)
+
+    @app.put("/api/uploads/{upload_id}/content")
+    async def upload_content(upload_id: str, request: Request) -> dict[str, object]:
+        try:
+            raw_path, declared_size = await run_in_threadpool(
+                begin_upload, settings.data_dir, upload_id
+            )
+        except RecordingError as error:
+            _raise_recording_error(error)
+
+        file_handle = None
+        received_size = 0
+        try:
+            flags = os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(raw_path, flags)
+            os.fchmod(descriptor, 0o600)
+            file_handle = os.fdopen(descriptor, "wb", buffering=0)
+            stream = request.stream().__aiter__()
+            while True:
+                try:
+                    async with asyncio.timeout(_UPLOAD_IDLE_TIMEOUT_SECONDS):
+                        chunk = await anext(stream)
+                except StopAsyncIteration:
+                    break
+                except TimeoutError:
+                    raise RecordingError(
+                        408,
+                        "upload_timeout",
+                        "No upload bytes arrived in time. Start a new upload.",
+                    ) from None
+                if not chunk:
+                    continue
+                received_size += len(chunk)
+                if received_size > settings.max_upload_bytes:
+                    raise RecordingError(
+                        413,
+                        "upload_too_large",
+                        f"The file exceeds the {settings.max_upload_bytes}-byte upload limit.",
+                    )
+                if received_size > declared_size:
+                    raise RecordingError(
+                        400,
+                        "size_mismatch",
+                        "The received byte count does not match size_bytes.",
+                    )
+                written = await run_in_threadpool(file_handle.write, chunk)
+                if written != len(chunk):
+                    raise RecordingError(
+                        500, "storage_failed", "The upload could not be written safely."
+                    )
+            if received_size != declared_size:
+                raise RecordingError(
+                    400,
+                    "size_mismatch",
+                    "The received byte count does not match size_bytes.",
+                )
+            await run_in_threadpool(os.fsync, file_handle.fileno())
+            await run_in_threadpool(finish_upload, settings.data_dir, upload_id)
+        except BaseException as error:
+            if file_handle is not None:
+                file_handle.close()
+                file_handle = None
+            if isinstance(error, (asyncio.CancelledError, ClientDisconnect)):
+                fail_upload(settings.data_dir, upload_id, code="upload_interrupted")
+                raise
+            await run_in_threadpool(
+                fail_upload,
+                settings.data_dir,
+                upload_id,
+                code=error.code if isinstance(error, RecordingError) else "upload_interrupted",
+            )
+            if isinstance(error, RecordingError):
+                _raise_recording_error(error)
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "upload_interrupted",
+                    "message": "The upload was interrupted. Start a new upload.",
+                },
+            ) from None
+        finally:
+            if file_handle is not None:
+                await run_in_threadpool(file_handle.close)
+        return {"id": upload_id, "status": "uploaded", "size_bytes": received_size}
+
+    @app.post("/api/uploads/{upload_id}/complete")
+    async def complete_upload_route(upload_id: str) -> dict[str, object]:
+        try:
+            async with validation_slots:
+                return await run_in_threadpool(
+                    complete_upload,
+                    settings.data_dir,
+                    upload_id,
+                    max_duration_seconds=settings.max_recording_seconds,
+                )
+        except RecordingError as error:
+            _raise_recording_error(error)
+
+    @app.get("/api/uploads/{upload_id}")
+    async def read_upload(upload_id: str) -> dict[str, object]:
+        try:
+            return await run_in_threadpool(get_upload, settings.data_dir, upload_id)
+        except RecordingError as error:
+            _raise_recording_error(error)
+
+    @app.delete("/api/uploads/{upload_id}")
+    async def remove_upload(upload_id: str) -> dict[str, object]:
+        try:
+            return await run_in_threadpool(delete_upload, settings.data_dir, upload_id)
+        except RecordingError as error:
+            _raise_recording_error(error)
+
+    @app.post("/api/meetings", status_code=201)
+    async def make_meeting(request: Request) -> dict[str, object]:
+        payload = await _json_object(
+            request,
+            required={"upload_id", "title", "language_hint"},
+            optional={"meeting_date"},
+        )
+        try:
+            return await run_in_threadpool(
+                create_meeting,
+                settings.data_dir,
+                upload_id=payload["upload_id"],
+                title=payload["title"],
+                meeting_date=payload.get("meeting_date"),
+                language_hint=payload["language_hint"],
+            )
+        except RecordingError as error:
+            _raise_recording_error(error)
+
+    @app.get("/api/meetings/{meeting_id}")
+    async def read_meeting(meeting_id: str) -> dict[str, object]:
+        try:
+            return await run_in_threadpool(get_meeting, settings.data_dir, meeting_id)
+        except RecordingError as error:
+            _raise_recording_error(error)
+
+    @app.api_route("/api/meetings/{meeting_id}/audio", methods=["GET", "HEAD"])
+    async def meeting_audio(meeting_id: str, request: Request) -> Response:
+        try:
+            recording = await run_in_threadpool(get_audio_recording, settings.data_dir, meeting_id)
+            size, audio_file = await run_in_threadpool(
+                open_audio, settings.data_dir, recording["storage_key"]
+            )
+        except RecordingError as error:
+            _raise_recording_error(error)
+
+        requested_range = request.headers.get("range")
+        byte_range = _parse_byte_range(requested_range, size) if requested_range else "ignore"
+        if byte_range == "unsatisfiable":
+            await run_in_threadpool(audio_file.close)
+            return Response(
+                status_code=416,
+                headers={"Accept-Ranges": "bytes", "Content-Range": f"bytes */{size}"},
+            )
+
+        if not isinstance(byte_range, tuple):
+            start, end, status_code = 0, max(size - 1, 0), 200
+        else:
+            start, end = byte_range
+            status_code = 206
+        content_length = max(0, end - start + 1)
+        headers = {
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(content_length),
+        }
+        if status_code == 206:
+            headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+        if request.method == "HEAD":
+            await run_in_threadpool(audio_file.close)
+            headers["Content-Type"] = recording["content_type"]
+            return Response(status_code=status_code, headers=headers)
+
+        await run_in_threadpool(audio_file.seek, start)
+
+        async def stream_audio() -> AsyncIterator[bytes]:
+            remaining = content_length
+            try:
+                while remaining > 0:
+                    chunk = await run_in_threadpool(
+                        audio_file.read,
+                        min(_AUDIO_CHUNK_SIZE, remaining),
+                    )
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+            finally:
+                audio_file.close()
+
+        return StreamingResponse(
+            stream_audio(),
+            status_code=status_code,
+            media_type=recording["content_type"],
+            headers=headers,
+        )
 
     @app.post("/api/access/session", status_code=204, include_in_schema=False)
     async def create_access_session(

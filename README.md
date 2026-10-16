@@ -1,8 +1,9 @@
 # ASR EN VI Meeting Notes
 
 Ứng dụng web chạy trên máy tự quản để chuyển bản ghi họp thành transcript và meeting notes.
-Issue đầu tiên cung cấp lớp truy cập localhost, SQLite bền, app/worker Compose và dark workspace
-trống. Upload, xử lý ASR, diarization, lịch sử cuộc họp và provider notes chưa được triển khai.
+Hiện ứng dụng có lớp truy cập localhost, SQLite bền, app/worker Compose và workspace để nhập,
+kiểm tra, lưu và phát lại bản ghi. Xử lý ASR, diarization, lịch sử nhiều cuộc họp và provider
+notes chưa được triển khai.
 
 ## Chạy trên máy local
 
@@ -29,6 +30,11 @@ Restart hoặc recreate container vẫn giữ hai volume. Một Compose project/
 riêng. Đổi cổng bằng `ASR_PORT` trong `.env`; link mặc định tự theo cổng đó. Có thể đặt
 `ASR_PUBLIC_URL` nếu cần một URL loopback cụ thể. `ASR_COOKIE_SECURE` mặc định là `false` cho
 HTTP localhost; bật khi đặt một TLS terminator local phía trước app.
+
+Workspace nhận `wav`, `mp3`, `m4a`, `mp4`, `mov`, `webm`, `ogg`, `opus` và `flac`. Backend
+kiểm tra codec/thời lượng bằng FFmpeg, rồi lưu một bản M4A/AAC do ứng dụng quản lý; file nguồn
+không còn cần thiết sau khi upload hoàn tất. Mặc định mỗi file tối đa 4 GiB và 4 giờ. Có thể đổi
+hai giới hạn bằng `ASR_MAX_UPLOAD_BYTES` và `ASR_MAX_RECORDING_SECONDS` trong `.env`.
 
 Để thay token và vô hiệu link/session cũ:
 

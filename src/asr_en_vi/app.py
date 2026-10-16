@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse,
 
 from asr_en_vi.auth import AuthStateError, AuthStore, session_is_valid
 from asr_en_vi.config import Settings
+from asr_en_vi.recordings import recover_recordings
 from asr_en_vi.routes import SESSION_COOKIE, install_routes
 from asr_en_vi.storage import initialize
 
@@ -79,7 +80,7 @@ def _with_security_headers(response: Response) -> Response:
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     response.headers["Content-Security-Policy"] = (
         "default-src 'none'; img-src 'self' data:; style-src 'self'; "
-        "script-src 'self'; connect-src 'self'; font-src 'self'; "
+        "script-src 'self'; connect-src 'self'; media-src 'self'; font-src 'self'; "
         "base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
     )
     return response
@@ -97,6 +98,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             runtime_settings.auth_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             auth_store.ensure()
             initialize(runtime_settings.data_dir)
+            recover_recordings(runtime_settings.data_dir)
             yield
         finally:
             os.umask(previous_umask)

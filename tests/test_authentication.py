@@ -19,6 +19,7 @@ async def test_access_page_is_minimal_and_security_headers_are_set(client):
     assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["Referrer-Policy"] == "no-referrer"
     assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
+    assert "media-src 'self'" in response.headers["Content-Security-Policy"]
 
 
 async def test_fragment_token_exchange_sets_generation_bound_cookie(client, settings):
@@ -103,9 +104,14 @@ async def test_protected_by_default_paths_deny_missing_and_invalid_auth(client):
     protected_paths = [
         "/api/meetings",
         "/api/meetings/meeting-1/audio",
+        "/api/uploads/policy",
+        "/api/uploads/upload-1",
+        "/api/uploads/upload-1/content",
+        "/meetings/meeting-1",
         "/api/notes/note-1/export",
         "/recordings/private.wav",
         "/assets/shell.css",
+        "/assets/shell.js",
     ]
 
     for path in protected_paths:

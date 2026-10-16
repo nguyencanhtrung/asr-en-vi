@@ -29,6 +29,8 @@ services:
       ASR_AUTH_DIR: /var/lib/asr-en-vi/auth
       ASR_PUBLIC_URL: ${ASR_PUBLIC_URL:-http://127.0.0.1:${ASR_PORT:-8765}}
       ASR_COOKIE_SECURE: ${ASR_COOKIE_SECURE:-false}
+      ASR_MAX_UPLOAD_BYTES: ${ASR_MAX_UPLOAD_BYTES:-4294967296}
+      ASR_MAX_RECORDING_SECONDS: ${ASR_MAX_RECORDING_SECONDS:-14400}
     volumes:
       - data:/var/lib/asr-en-vi/data
       - auth:/var/lib/asr-en-vi/auth

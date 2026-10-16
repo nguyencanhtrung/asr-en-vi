@@ -6,7 +6,7 @@ import sqlite3
 from asr_en_vi.storage import initialize
 
 
-def test_sqlite_persists_across_reopen_without_prescribing_domain_schema(tmp_path):
+def test_sqlite_persists_across_reopen_with_current_domain_schema(tmp_path):
     data_dir = tmp_path / "persistent-data"
     database = initialize(data_dir)
     with sqlite3.connect(database) as connection:
@@ -22,6 +22,44 @@ def test_sqlite_persists_across_reopen_without_prescribing_domain_schema(tmp_pat
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
-    assert tables == {"schema_migrations", "acceptance_seed"}
+        versions = [row[0] for row in connection.execute("SELECT version FROM schema_migrations")]
+    assert tables == {
+        "schema_migrations",
+        "acceptance_seed",
+        "meetings",
+        "uploads",
+        "recordings",
+    }
+    assert versions == [1, 2]
     assert os.stat(data_dir).st_mode & 0o777 == 0o700
     assert os.stat(database).st_mode & 0o777 == 0o600
+
+
+def test_schema_v1_database_migrates_transactionally_and_preserves_existing_data(tmp_path):
+    data_dir = tmp_path / "legacy-data"
+    data_dir.mkdir(mode=0o700)
+    database = data_dir / "app.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE schema_migrations ("
+            "version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+        )
+        connection.execute("INSERT INTO schema_migrations(version) VALUES (1)")
+        connection.execute("CREATE TABLE legacy_values (value TEXT NOT NULL)")
+        connection.execute("INSERT INTO legacy_values(value) VALUES ('kept')")
+
+    initialize(data_dir)
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT value FROM legacy_values").fetchone() == ("kept",)
+        assert connection.execute(
+            "SELECT version FROM schema_migrations ORDER BY version"
+        ).fetchall() == [
+            (1,),
+            (2,),
+        ]
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        assert {"meetings", "uploads", "recordings"}.issubset(tables)

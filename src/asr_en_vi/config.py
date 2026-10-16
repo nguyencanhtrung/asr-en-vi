@@ -9,6 +9,8 @@ from urllib.parse import urlsplit
 
 DEFAULT_PUBLIC_URL = "http://127.0.0.1:8765"
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost"})
+DEFAULT_MAX_UPLOAD_BYTES = 4 * 1024**3
+DEFAULT_MAX_RECORDING_SECONDS = 4 * 60 * 60
 
 
 def _bool_from_env(name: str, default: bool) -> bool:
@@ -21,6 +23,19 @@ def _bool_from_env(name: str, default: bool) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     raise ValueError(f"{name} must be a boolean value")
+
+
+def _positive_int_from_env(name: str, default: int) -> int:
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a positive integer") from exc
+    if value < 1:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
 
 
 def _validate_public_url(raw_url: str) -> str:
@@ -51,11 +66,17 @@ class Settings:
     auth_dir: Path
     public_url: str = DEFAULT_PUBLIC_URL
     cookie_secure: bool = False
+    max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
+    max_recording_seconds: int = DEFAULT_MAX_RECORDING_SECONDS
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "data_dir", Path(self.data_dir))
         object.__setattr__(self, "auth_dir", Path(self.auth_dir))
         object.__setattr__(self, "public_url", _validate_public_url(self.public_url))
+        if isinstance(self.max_upload_bytes, bool) or self.max_upload_bytes < 1:
+            raise ValueError("max_upload_bytes must be a positive integer")
+        if isinstance(self.max_recording_seconds, bool) or self.max_recording_seconds < 1:
+            raise ValueError("max_recording_seconds must be a positive integer")
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -64,6 +85,12 @@ class Settings:
             auth_dir=Path(os.environ.get("ASR_AUTH_DIR", "/var/lib/asr-en-vi/auth")),
             public_url=os.environ.get("ASR_PUBLIC_URL", DEFAULT_PUBLIC_URL),
             cookie_secure=_bool_from_env("ASR_COOKIE_SECURE", False),
+            max_upload_bytes=_positive_int_from_env(
+                "ASR_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES
+            ),
+            max_recording_seconds=_positive_int_from_env(
+                "ASR_MAX_RECORDING_SECONDS", DEFAULT_MAX_RECORDING_SECONDS
+            ),
         )
 
     @property
