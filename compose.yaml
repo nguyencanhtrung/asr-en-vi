@@ -1,0 +1,72 @@
+services:
+  app:
+    image: asr-en-vi:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      - uvicorn
+      - asr_en_vi.app:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8765"
+      - --no-proxy-headers
+      - --no-server-header
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "127.0.0.1:${ASR_PORT:-8765}:8765"
+    environment:
+      ASR_DATA_DIR: /var/lib/asr-en-vi/data
+      ASR_AUTH_DIR: /var/lib/asr-en-vi/auth
+      ASR_PUBLIC_URL: ${ASR_PUBLIC_URL:-http://127.0.0.1:${ASR_PORT:-8765}}
+      ASR_COOKIE_SECURE: ${ASR_COOKIE_SECURE:-false}
+    volumes:
+      - data:/var/lib/asr-en-vi/data
+      - auth:/var/lib/asr-en-vi/auth
+    healthcheck:
+      test: ["CMD", "python", "-m", "asr_en_vi.cli", "health"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 5
+    stop_grace_period: 15s
+
+  worker:
+    image: asr-en-vi:local
+    command: ["python", "-m", "asr_en_vi.worker"]
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      ASR_DATA_DIR: /var/lib/asr-en-vi/data
+    volumes:
+      - data:/var/lib/asr-en-vi/data
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "asr_en_vi.worker", "--health-check"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    stop_grace_period: 10s
+
+volumes:
+  data:
+  auth:
