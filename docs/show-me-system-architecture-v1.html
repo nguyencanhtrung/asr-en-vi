@@ -1,0 +1,851 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASR EN VI — Kiến trúc hệ thống v1</title>
+  <style>
+    :root {
+      --bg: #10191e;
+      --panel: #172329;
+      --panel-2: #1c2b31;
+      --panel-3: #132026;
+      --text: #dce8e9;
+      --muted: #a2b5ba;
+      --line: #2c3e45;
+      --line-strong: #456069;
+      --teal: #7ac9b7;
+      --teal-deep: #223c38;
+      --amber: #e4bc7d;
+      --amber-bg: #302b24;
+      --blue: #7fb7d2;
+      --blue-bg: #1d303a;
+      --rose: #d18e94;
+      --rose-bg: #35252a;
+      --purple: #b5a1d8;
+      --purple-bg: #2c2938;
+      --shadow: 0 18px 50px rgba(0, 0, 0, .22);
+      --radius: 14px;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --sans: Inter, "Noto Sans", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 12% -5%, rgba(122, 201, 183, .10), transparent 30rem),
+        radial-gradient(circle at 90% 15%, rgba(127, 183, 210, .08), transparent 28rem),
+        var(--bg);
+      font-family: var(--sans);
+      line-height: 1.55;
+    }
+
+    button, a { font: inherit; }
+    a { color: var(--teal); }
+    button { color: inherit; }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      min-height: 66px;
+      padding: 12px clamp(18px, 4vw, 52px);
+      border-bottom: 1px solid rgba(69, 96, 105, .68);
+      background: rgba(16, 25, 30, .88);
+      backdrop-filter: blur(18px);
+    }
+
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 36px;
+      height: 36px;
+      border: 1px solid rgba(122, 201, 183, .45);
+      border-radius: 10px;
+      background: var(--teal-deep);
+      color: var(--teal);
+      font-family: var(--mono);
+      font-weight: 800;
+      letter-spacing: -2px;
+    }
+    .brand strong { display: block; letter-spacing: .03em; }
+    .brand small { display: block; color: var(--muted); font-size: 11px; }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 11px;
+      border: 1px solid var(--line);
+      border-radius: 99px;
+      color: var(--muted);
+      background: rgba(23, 35, 41, .72);
+      font-size: 12px;
+    }
+    .status-pill::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--amber);
+      box-shadow: 0 0 0 4px rgba(228, 188, 125, .1);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 230px minmax(0, 1fr);
+      max-width: 1680px;
+      margin: 0 auto;
+    }
+
+    .rail {
+      position: sticky;
+      top: 66px;
+      height: calc(100vh - 66px);
+      padding: 30px 18px;
+      border-right: 1px solid var(--line);
+    }
+    .rail-label {
+      margin: 0 10px 10px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .rail a {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      border-radius: 8px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 13px;
+    }
+    .rail a:hover, .rail a:focus-visible { color: var(--text); background: var(--panel-2); outline: none; }
+    .rail .num { width: 19px; color: var(--teal); font-family: var(--mono); font-size: 10px; }
+    .rail-note {
+      position: absolute;
+      right: 22px;
+      bottom: 24px;
+      left: 22px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    main { min-width: 0; padding: 54px clamp(24px, 5vw, 78px) 100px; }
+    section { scroll-margin-top: 92px; margin-bottom: 88px; }
+    .eyebrow {
+      color: var(--teal);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .15em;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 960px;
+      margin: 12px 0 18px;
+      font-size: clamp(34px, 5vw, 68px);
+      line-height: 1.02;
+      letter-spacing: -.045em;
+    }
+    .lede {
+      max-width: 880px;
+      margin: 0;
+      color: var(--muted);
+      font-size: clamp(16px, 2vw, 20px);
+    }
+    .callout {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 12px;
+      max-width: 960px;
+      margin-top: 28px;
+      padding: 15px 17px;
+      border: 1px solid rgba(228, 188, 125, .25);
+      border-radius: 12px;
+      background: var(--amber-bg);
+      color: #d9c7aa;
+      font-size: 13px;
+    }
+    .callout strong { color: var(--amber); }
+
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 20px;
+    }
+    .section-head h2 { margin: 5px 0 0; font-size: clamp(25px, 3vw, 36px); letter-spacing: -.025em; }
+    .section-head p { max-width: 500px; margin: 0; color: var(--muted); font-size: 13px; }
+
+    .legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; }
+    .legend span, .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 9px;
+      border: 1px solid var(--line);
+      border-radius: 99px;
+      color: var(--muted);
+      background: rgba(19, 32, 38, .68);
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--teal); }
+    .dot.blue { background: var(--blue); }
+    .dot.amber { background: var(--amber); }
+    .dot.purple { background: var(--purple); }
+
+    .architecture {
+      position: relative;
+      overflow: hidden;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background:
+        linear-gradient(rgba(255,255,255,.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.015) 1px, transparent 1px),
+        rgba(14, 24, 29, .76);
+      background-size: 28px 28px;
+      box-shadow: var(--shadow);
+    }
+    .boundary-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+    }
+    .arch-grid {
+      display: grid;
+      grid-template-columns: 1.05fr 1.15fr 1fr 1.25fr .95fr;
+      gap: 12px;
+      align-items: stretch;
+    }
+    .lane {
+      min-width: 0;
+      padding: 12px;
+      border: 1px solid rgba(69, 96, 105, .6);
+      border-radius: 13px;
+      background: rgba(23, 35, 41, .65);
+    }
+    .lane.external { border-style: dashed; border-color: rgba(181, 161, 216, .5); background: rgba(44, 41, 56, .45); }
+    .lane-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      min-height: 36px;
+      padding: 0 3px 10px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .lane-title b { color: var(--text); font-family: var(--mono); }
+    .node {
+      width: 100%;
+      margin: 0 0 9px;
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel-3);
+      text-align: left;
+      cursor: pointer;
+      transition: transform .16s ease, border-color .16s ease, background .16s ease;
+    }
+    .node:hover, .node:focus-visible, .node.active {
+      transform: translateY(-2px);
+      border-color: rgba(122, 201, 183, .72);
+      background: var(--teal-deep);
+      outline: none;
+    }
+    .node[data-tone="blue"]:hover, .node[data-tone="blue"].active { border-color: var(--blue); background: var(--blue-bg); }
+    .node[data-tone="purple"]:hover, .node[data-tone="purple"].active { border-color: var(--purple); background: var(--purple-bg); }
+    .node-kicker { display: block; margin-bottom: 3px; color: var(--teal); font-family: var(--mono); font-size: 9px; text-transform: uppercase; }
+    .node[data-tone="blue"] .node-kicker { color: var(--blue); }
+    .node[data-tone="purple"] .node-kicker { color: var(--purple); }
+    .node strong { display: block; margin-bottom: 4px; font-size: 13px; }
+    .node small { display: block; color: var(--muted); font-size: 11px; line-height: 1.4; }
+    .lane-arrow { display: grid; place-items: center; height: 28px; color: var(--line-strong); font-family: var(--mono); }
+    .node-detail {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(220px, .8fr);
+      gap: 22px;
+      margin-top: 16px;
+      padding: 18px 20px;
+      border: 1px solid rgba(122, 201, 183, .32);
+      border-radius: 13px;
+      background: rgba(34, 60, 56, .56);
+    }
+    .node-detail h3 { margin: 2px 0 6px; font-size: 17px; }
+    .node-detail p { margin: 0; color: var(--muted); font-size: 13px; }
+    .detail-rule { padding-left: 15px; border-left: 2px solid var(--teal); }
+    .detail-rule b { display: block; margin-bottom: 4px; color: var(--teal); font-family: var(--mono); font-size: 10px; text-transform: uppercase; }
+
+    .contracts {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .contract { padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+    .contract code { color: var(--teal); font-size: 11px; }
+    .contract p { margin: 4px 0 0; color: var(--muted); font-size: 10px; }
+
+    .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+    .tab {
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .tab:hover, .tab:focus-visible, .tab.active { border-color: var(--teal); background: var(--teal-deep); color: var(--text); outline: none; }
+    .flow-panel { display: none; }
+    .flow-panel.active { display: block; }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(145px, 1fr));
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(14, 24, 29, .72);
+    }
+    .flow-col { min-width: 145px; border-right: 1px solid var(--line); }
+    .flow-col:last-child { border-right: 0; }
+    .flow-head { position: sticky; top: 65px; z-index: 3; padding: 11px 12px; border-bottom: 1px solid var(--line); background: var(--panel-2); color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .flow-step { position: relative; min-height: 102px; padding: 13px 12px; border-bottom: 1px solid rgba(44, 62, 69, .7); }
+    .flow-step:last-child { border-bottom: 0; }
+    .flow-step.empty { background: rgba(255,255,255,.008); }
+    .flow-step .step-num { color: var(--teal); font-family: var(--mono); font-size: 9px; }
+    .flow-step strong { display: block; margin: 3px 0; font-size: 12px; }
+    .flow-step p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.42; }
+    .flow-step.locked { background: rgba(228, 188, 125, .055); }
+    .flow-step.locked .step-num { color: var(--amber); }
+    .flow-note { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
+    .flow-note article { padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+    .flow-note b { display: block; margin-bottom: 5px; color: var(--teal); font-size: 11px; }
+    .flow-note p { margin: 0; color: var(--muted); font-size: 11px; }
+
+    .state-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(290px, .65fr); gap: 16px; }
+    .state-card, .side-card { padding: 20px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+    .state-track { display: flex; align-items: center; gap: 7px; overflow-x: auto; padding: 10px 0 18px; }
+    .state {
+      flex: 0 0 auto;
+      padding: 9px 11px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-3);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+    .state.hot { border-color: rgba(122, 201, 183, .45); color: var(--teal); }
+    .state.stop { border-color: rgba(228, 188, 125, .45); color: var(--amber); }
+    .state.terminal { border-color: rgba(127, 183, 210, .45); color: var(--blue); }
+    .arrow { color: var(--line-strong); }
+    .fork { display: flex; flex-wrap: wrap; gap: 5px; }
+    .state-card h3, .side-card h3 { margin: 0 0 10px; font-size: 16px; }
+    .state-card > p, .side-card > p { margin: 0; color: var(--muted); font-size: 12px; }
+    .rule-list { display: grid; gap: 9px; margin-top: 15px; }
+    .rule-item { display: grid; grid-template-columns: 26px 1fr; gap: 9px; align-items: start; padding-top: 9px; border-top: 1px solid var(--line); }
+    .rule-item span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--teal-deep); color: var(--teal); font-family: var(--mono); font-size: 10px; }
+    .rule-item b { display: block; font-size: 12px; }
+    .rule-item p { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
+
+    .matrix-wrap { overflow-x: auto; margin-top: 16px; border: 1px solid var(--line); border-radius: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    tr:last-child td { border-bottom: 0; }
+    th { color: var(--muted); background: var(--panel-2); font-size: 10px; letter-spacing: .05em; text-transform: uppercase; }
+    td:first-child { color: var(--text); font-weight: 700; }
+    .yes { color: var(--teal); }
+    .no { color: var(--amber); }
+
+    .data-map {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .entity {
+      position: relative;
+      min-height: 145px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+    }
+    .entity::after {
+      content: attr(data-rel);
+      position: absolute;
+      top: 50%;
+      right: -12px;
+      z-index: 2;
+      transform: translate(50%, -50%);
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      background: var(--bg);
+      color: var(--teal);
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+    .entity:nth-child(4)::after, .entity:last-child::after { display: none; }
+    .entity.snapshot { border-color: rgba(228, 188, 125, .5); background: var(--amber-bg); }
+    .entity h3 { margin: 0 0 7px; font-family: var(--mono); font-size: 13px; }
+    .entity ul { margin: 0; padding-left: 17px; color: var(--muted); font-size: 11px; }
+    .entity li { margin: 3px 0; }
+    .entity .badge { display: inline-block; margin-top: 10px; padding: 3px 6px; border-radius: 5px; background: var(--teal-deep); color: var(--teal); font-size: 9px; font-weight: 800; text-transform: uppercase; }
+    .entity.snapshot .badge { background: rgba(228, 188, 125, .13); color: var(--amber); }
+    .history-strip { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: stretch; margin-top: 12px; }
+    .history-card { padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-3); }
+    .history-card.old { opacity: .76; }
+    .history-card b { display: block; font-size: 12px; }
+    .history-card p { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
+    .history-arrow { display: grid; place-items: center; color: var(--line-strong); }
+
+    .decisions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    details.decision { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+    details.decision[open] { border-color: rgba(122, 201, 183, .42); }
+    details.decision summary { min-height: 112px; padding: 16px; cursor: pointer; list-style: none; }
+    details.decision summary::-webkit-details-marker { display: none; }
+    .decision-num { display: block; margin-bottom: 8px; color: var(--teal); font-family: var(--mono); font-size: 10px; }
+    details.decision strong { display: block; font-size: 14px; line-height: 1.35; }
+    details.decision summary span:last-child { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; }
+    .decision-body { padding: 0 16px 16px; border-top: 1px solid var(--line); }
+    .decision-body p { margin: 12px 0 0; color: var(--muted); font-size: 11px; }
+    .decision-body b { color: var(--text); }
+
+    .summary-banner {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 20px;
+      align-items: center;
+      padding: 24px;
+      border: 1px solid rgba(122, 201, 183, .34);
+      border-radius: 16px;
+      background: linear-gradient(120deg, rgba(34, 60, 56, .9), rgba(23, 35, 41, .86));
+    }
+    .summary-banner h2 { margin: 0 0 7px; font-size: 22px; }
+    .summary-banner p { margin: 0; color: var(--muted); font-size: 13px; }
+    .summary-banner .formula { color: var(--teal); font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+    .sources { margin-top: 24px; color: var(--muted); font-size: 11px; }
+    .sources a { margin-right: 14px; }
+
+    @media (max-width: 1180px) {
+      .arch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .lane.external { grid-column: 1 / -1; }
+      .contracts { grid-template-columns: repeat(2, 1fr); }
+      .decisions { grid-template-columns: repeat(2, 1fr); }
+      .data-map { grid-template-columns: repeat(2, 1fr); }
+      .entity:nth-child(2)::after { display: none; }
+    }
+    @media (max-width: 840px) {
+      .layout { display: block; }
+      .rail { display: none; }
+      main { padding-top: 38px; }
+      .topbar { padding-inline: 18px; }
+      .status-pill { display: none; }
+      .section-head { display: block; }
+      .section-head p { margin-top: 8px; }
+      .state-layout { grid-template-columns: 1fr; }
+      .node-detail { grid-template-columns: 1fr; }
+      .flow-note { grid-template-columns: 1fr; }
+      .summary-banner { grid-template-columns: 1fr; }
+      .summary-banner .formula { white-space: normal; }
+    }
+    @media (max-width: 600px) {
+      .arch-grid, .contracts, .decisions, .data-map { grid-template-columns: 1fr; }
+      .lane.external { grid-column: auto; }
+      .entity::after { display: none; }
+      .history-strip { grid-template-columns: 1fr; }
+      .history-arrow { transform: rotate(90deg); }
+      .architecture { padding: 12px; }
+      main { padding-inline: 16px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { transition: none !important; }
+    }
+    @media print {
+      .topbar, .rail, .tabs { display: none; }
+      .layout { display: block; }
+      main { padding: 0; }
+      body { background: white; color: #172329; }
+      section { break-inside: avoid; }
+      .architecture, .state-card, .side-card, .entity, details.decision, .contract { box-shadow: none; background: white; color: #172329; }
+      .flow-panel { display: block; margin-bottom: 20px; }
+      details.decision .decision-body { display: block; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">≋</div>
+      <div><strong>ASR EN VI</strong><small>System architecture · v1</small></div>
+    </div>
+    <div class="status-pill">Thiết kế đã chốt · chưa phải hệ thống đã triển khai</div>
+  </header>
+
+  <div class="layout">
+    <nav class="rail" aria-label="Mục lục">
+      <p class="rail-label">Bản đồ</p>
+      <a href="#overview"><span class="num">01</span>Tổng quan</a>
+      <a href="#architecture"><span class="num">02</span>Kiến trúc</a>
+      <a href="#flows"><span class="num">03</span>Luồng xử lý</a>
+      <a href="#state"><span class="num">04</span>State &amp; khóa</a>
+      <a href="#data"><span class="num">05</span>Mô hình dữ liệu</a>
+      <a href="#decisions"><span class="num">06</span>Quyết định chính</a>
+      <div class="rail-note">Bấm vào từng khối kiến trúc để xem trách nhiệm và bất biến.</div>
+    </nav>
+
+    <main>
+      <section id="overview">
+        <div class="eyebrow">01 · Mental model</div>
+        <h1>Một ứng dụng local, hai pipeline, một nguồn sự thật.</h1>
+        <p class="lede">Frontend giúp người vận hành nhập bản ghi và duyệt kết quả. FastAPI bảo vệ quy tắc nghiệp vụ. Worker dùng GPU local để chép lời, rồi chỉ gửi transcript đã chụp sang đúng provider cloud mà người dùng chọn để tạo notes tiếng Anh.</p>
+        <div class="callout">
+          <strong>Phạm vi</strong>
+          <span>Đây là kiến trúc mục tiêu từ Q1–Q27 và các tài liệu v1. Nó mô tả hành vi phải triển khai; chưa khẳng định model, đăng nhập provider, hiệu năng hai giờ hay các API đã chạy thật.</span>
+        </div>
+      </section>
+
+      <section id="architecture">
+        <div class="section-head">
+          <div><div class="eyebrow">02 · System map</div><h2>Ranh giới frontend, backend và model</h2></div>
+          <p>Đường biên quan trọng nằm giữa control plane và execution plane: app nhận lệnh, worker chạy model, SQLite điều phối và giữ trạng thái bền.</p>
+        </div>
+
+        <div class="legend" aria-label="Chú thích">
+          <span><i class="dot"></i>UI / nghiệp vụ</span>
+          <span><i class="dot blue"></i>Dữ liệu local</span>
+          <span><i class="dot amber"></i>Model local</span>
+          <span><i class="dot purple"></i>Dịch vụ bên ngoài</span>
+        </div>
+
+        <div class="architecture">
+          <div class="boundary-label"><span>Thiết bị local · Docker Compose + trình duyệt</span><span>Internet chỉ cần cho bước notes</span></div>
+          <div class="arch-grid">
+            <div class="lane">
+              <div class="lane-title"><span>Frontend</span><b>01</b></div>
+              <button class="node active" data-node="ui"><span class="node-kicker">Browser · localhost</span><strong>Review workspace</strong><small>Sidebar, lịch, transcript, notes, player</small></button>
+              <div class="lane-arrow">↓ HTTP JSON · cookie</div>
+              <button class="node" data-node="clientstate"><span class="node-kicker">Client state</span><strong>Draft &amp; polling</strong><small>Giữ bản nháp khi conflict, poll task ~1s</small></button>
+            </div>
+
+            <div class="lane">
+              <div class="lane-title"><span>FastAPI app</span><b>02</b></div>
+              <button class="node" data-node="access"><span class="node-kicker">Access</span><strong>Local session</strong><small>Token → cookie, auth mọi dữ liệu</small></button>
+              <button class="node" data-node="meetings"><span class="node-kicker">Domain</span><strong>Meetings &amp; revisions</strong><small>Version, lock, generations, snapshots</small></button>
+              <button class="node" data-node="tasks"><span class="node-kicker">Control plane</span><strong>Task coordinator</strong><small>Nhận 1 task, cancel, recovery, publish</small></button>
+              <button class="node" data-node="providers"><span class="node-kicker">Connections</span><strong>Provider facade</strong><small>Login/model status; không trả credential</small></button>
+            </div>
+
+            <div class="lane">
+              <div class="lane-title"><span>Durable state</span><b>03</b></div>
+              <button class="node" data-node="sqlite" data-tone="blue"><span class="node-kicker">SQLite</span><strong>Source of truth</strong><small>Metadata, task, transcript, notes, versions</small></button>
+              <button class="node" data-node="media" data-tone="blue"><span class="node-kicker">Filesystem</span><strong>Audio storage</strong><small>Upload tạm, audio bền, playback</small></button>
+              <button class="node" data-node="secrets" data-tone="blue"><span class="node-kicker">Isolated store</span><strong>Provider credentials</strong><small>Tách khỏi cấu hình coding cá nhân</small></button>
+            </div>
+
+            <div class="lane">
+              <div class="lane-title"><span>Worker</span><b>04</b></div>
+              <button class="node" data-node="runner"><span class="node-kicker">Execution plane</span><strong>Task runner</strong><small>Atomic claim, owner, heartbeat, subprocess</small></button>
+              <button class="node" data-node="audio" data-tone="blue"><span class="node-kicker">Local · GPU tuần tự</span><strong>Audio pipeline</strong><small>faster-whisper → pyannote</small></button>
+              <button class="node" data-node="notes"><span class="node-kicker">Orchestrator</span><strong>Notes pipeline</strong><small>Chunk → extract → merge → validate → render</small></button>
+            </div>
+
+            <div class="lane external">
+              <div class="lane-title"><span>Cloud boundary</span><b>05</b></div>
+              <button class="node" data-node="chatgpt" data-tone="purple"><span class="node-kicker">Option A</span><strong>ChatGPT</strong><small>Sign in with ChatGPT → Responses API</small></button>
+              <div class="lane-arrow">hoặc</div>
+              <button class="node" data-node="antigravity" data-tone="purple"><span class="node-kicker">Option B</span><strong>OMP + Antigravity</strong><small>OMP RPC → model người dùng chọn</small></button>
+              <button class="node" data-node="payload" data-tone="purple"><span class="node-kicker">Data sent</span><strong>Transcript snapshot</strong><small>Text, source IDs, speakers, date — không có audio</small></button>
+            </div>
+          </div>
+
+          <div class="node-detail" aria-live="polite">
+            <div>
+              <span class="eyebrow" id="detail-kicker">Frontend</span>
+              <h3 id="detail-title">Review workspace</h3>
+              <p id="detail-copy">Hiển thị lịch sử cuộc họp, transcript song song với notes và trình phát. Người dùng chọn provider/model cho từng lần tạo notes và luôn thấy cấu hình trước khi chạy.</p>
+            </div>
+            <div class="detail-rule">
+              <b>Bất biến cần giữ</b>
+              <p id="detail-rule">UI không tự suy diễn tác vụ đã hủy hoặc đã hoàn tất; mọi trạng thái quan trọng phải lấy lại từ backend.</p>
+            </div>
+          </div>
+
+          <div class="contracts" aria-label="Các contract giữa lớp">
+            <div class="contract"><code>HTTP JSON</code><p>Thao tác đồng bộ; task status được polling, không giả ETA.</p></div>
+            <div class="contract"><code>SQLite transaction</code><p>Claim, version check và chiếm slot là thao tác nguyên tử ngắn.</p></div>
+            <div class="contract"><code>Task ownership</code><p>Mọi publish phải khớp task ID + owner + trạng thái.</p></div>
+            <div class="contract"><code>Provider adapter</code><p>Cùng một notes contract cho ChatGPT và OMP/Antigravity.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="flows">
+        <div class="section-head">
+          <div><div class="eyebrow">03 · Runtime</div><h2>Hai luồng xử lý độc lập</h2></div>
+          <p>ASR có thể hoàn tất khi chưa đăng nhập provider. Tạo notes về sau dùng transcript hiện có và không cần chạy lại audio.</p>
+        </div>
+        <div class="tabs" role="tablist" aria-label="Chọn luồng">
+          <button class="tab active" role="tab" aria-selected="true" data-tab="recording">A · Bản ghi → transcript</button>
+          <button class="tab" role="tab" aria-selected="false" data-tab="notes-flow">B · Transcript → notes</button>
+          <button class="tab" role="tab" aria-selected="false" data-tab="rerun">C · Chạy lại &amp; lịch sử</button>
+        </div>
+
+        <div class="flow-panel active" id="recording" role="tabpanel">
+          <div class="flow" aria-label="Luồng xử lý bản ghi">
+            <div class="flow-col"><div class="flow-head">Frontend</div>
+              <div class="flow-step"><span class="step-num">01</span><strong>Chọn file + metadata</strong><p>Tên, ngày tùy chọn, ngôn ngữ gợi ý; provider notes có thể chưa sẵn sàng.</p></div>
+              <div class="flow-step empty"></div><div class="flow-step empty"></div>
+              <div class="flow-step"><span class="step-num">07</span><strong>Duyệt transcript</strong><p>Nghe lại, sửa text, đổi speaker từng segment.</p></div>
+            </div>
+            <div class="flow-col"><div class="flow-head">FastAPI app</div>
+              <div class="flow-step"><span class="step-num">02</span><strong>Upload + validate</strong><p>File chỉ “ready” sau khi nhận đủ và kiểm tra thành công.</p></div>
+              <div class="flow-step"><span class="step-num">03</span><strong>Nhận task</strong><p>Kiểm tra worker, meeting và slot; request ID chống tạo trùng.</p></div>
+              <div class="flow-step empty"></div><div class="flow-step"><span class="step-num">06</span><strong>Công bố nguyên tử</strong><p>Chỉ generation hoàn tất mới trở thành current.</p></div>
+            </div>
+            <div class="flow-col"><div class="flow-head">SQLite / files</div>
+              <div class="flow-step"><span class="step-num">02a</span><strong>Lưu audio bền</strong><p>Đường dẫn do backend quản lý; nguồn bên ngoài không bị xóa.</p></div>
+              <div class="flow-step"><span class="step-num">03a</span><strong>Chiếm 1 slot</strong><p>Không xếp hàng nhiều task trong v1.</p></div>
+              <div class="flow-step empty"></div><div class="flow-step"><span class="step-num">06a</span><strong>Generation + segments</strong><p>Lưu ID, timestamp, original speaker và speaker hiện dùng.</p></div>
+            </div>
+            <div class="flow-col"><div class="flow-head">Worker / local GPU</div>
+              <div class="flow-step empty"></div><div class="flow-step"><span class="step-num">04</span><strong>Atomic claim</strong><p>Gắn owner của lần worker khởi động.</p></div>
+              <div class="flow-step"><span class="step-num">05</span><strong>ASR rồi diarization</strong><p>faster-whisper large-v3 và pyannote Community-1 chạy tuần tự.</p></div>
+              <div class="flow-step empty"></div>
+            </div>
+            <div class="flow-col"><div class="flow-head">Cloud</div>
+              <div class="flow-step empty"></div><div class="flow-step empty"></div>
+              <div class="flow-step"><span class="step-num">—</span><strong>Không bắt buộc</strong><p>Âm thanh và nhận dạng vẫn local. Không có provider vẫn hoàn tất transcript_only.</p></div>
+              <div class="flow-step empty"></div>
+            </div>
+          </div>
+          <div class="flow-note">
+            <article><b>Không có provider?</b><p>Task kết thúc với transcript đầy đủ. Người dùng tạo notes riêng sau khi đăng nhập.</p></article>
+            <article><b>Model audio lỗi?</b><p>Không công bố transcript dở thành current generation.</p></article>
+            <article><b>Đóng trình duyệt?</b><p>Task tiếp tục; khi mở lại UI đọc state hiện tại từ backend.</p></article>
+          </div>
+        </div>
+
+        <div class="flow-panel" id="notes-flow" role="tabpanel">
+          <div class="flow" aria-label="Luồng tạo notes">
+            <div class="flow-col"><div class="flow-head">Frontend</div>
+              <div class="flow-step"><span class="step-num">01</span><strong>Chọn provider + model</strong><p>Dùng lựa chọn gần nhất nhưng hiển thị rõ; người dùng có thể đổi.</p></div>
+              <div class="flow-step locked"><span class="step-num">LOCK</span><strong>Nguồn chuyển read-only</strong><p>Vẫn xem/nghe; notes cũ và meeting khác vẫn sửa được.</p></div>
+              <div class="flow-step empty"></div><div class="flow-step"><span class="step-num">08</span><strong>Duyệt revision mới</strong><p>Copy/export đúng Markdown của revision đang chọn.</p></div>
+            </div>
+            <div class="flow-col"><div class="flow-head">FastAPI app</div>
+              <div class="flow-step"><span class="step-num">02</span><strong>Validate selection</strong><p>Kết nối, quyền model, source version và slot đều hợp lệ.</p></div>
+              <div class="flow-step locked"><span class="step-num">03</span><strong>Snapshot + lock</strong><p>Một transaction tạo nguồn bất biến và chiếm slot.</p></div>
+              <div class="flow-step empty"></div><div class="flow-step"><span class="step-num">07</span><strong>Publish có điều kiện</strong><p>Chỉ lưu revision hoàn chỉnh nếu owner/state vẫn cho phép.</p></div>
+            </div>
+            <div class="flow-col"><div class="flow-head">SQLite</div>
+              <div class="flow-step"><span class="step-num">02a</span><strong>Pin config task</strong><p>Provider, model và account version không đổi giữa chừng.</p></div>
+              <div class="flow-step locked"><span class="step-num">03a</span><strong>notes_source</strong><p>Text, ID, timestamp, speaker hiện dùng + gốc, tên và ngày.</p></div>
+              <div class="flow-step empty"></div><div class="flow-step"><span class="step-num">07a</span><strong>notes_revision</strong><p>Markdown + provider/model + schema/prompt version.</p></div>
+            </div>
+            <div class="flow-col"><div class="flow-head">Worker</div>
+              <div class="flow-step empty"></div><div class="flow-step"><span class="step-num">04</span><strong>Chunk theo utterance</strong><p>Có overlap, giữ source ID, không cắt phần cuối.</p></div>
+              <div class="flow-step"><span class="step-num">05</span><strong>Extract → merge</strong><p>Hợp nhất phân cấp nếu dài; xử lý trùng ở overlap.</p></div>
+              <div class="flow-step"><span class="step-num">06</span><strong>Validate → render</strong><p>Schema + source IDs; tối đa 1 repair cho toàn task rồi render Markdown.</p></div>
+            </div>
+            <div class="flow-col"><div class="flow-head">Cloud provider</div>
+              <div class="flow-step"><span class="step-num">PIN</span><strong>Một nhánh duy nhất</strong><p>ChatGPT hoặc OMP/Antigravity theo lựa chọn.</p></div>
+              <div class="flow-step"><span class="step-num">SEND</span><strong>Chỉ snapshot</strong><p>Không gửi audio; gửi transcript và metadata cần thiết.</p></div>
+              <div class="flow-step"><span class="step-num">RETURN</span><strong>Structured output</strong><p>Sáu nhóm notes kèm source IDs.</p></div>
+              <div class="flow-step empty"></div>
+            </div>
+          </div>
+          <div class="flow-note">
+            <article><b>Mạng lỗi?</b><p>Không tự gửi lại inference. Task lỗi, giữ transcript và notes cũ; người dùng chủ động retry.</p></article>
+            <article><b>Đầu ra sai schema?</b><p>Cho một lượt repair duy nhất trong toàn task. Vẫn sai thì không publish.</p></article>
+            <article><b>Cancel?</b><p>Chuyển stopping; chỉ mở khóa sau khi runner/request đã thật sự dừng.</p></article>
+          </div>
+        </div>
+
+        <div class="flow-panel" id="rerun" role="tabpanel">
+          <div class="history-strip">
+            <div class="history-card old"><span class="tag">Generation 1 · readonly</span><b>Transcript đã sửa + Notes revision A/B</b><p>Giữ nguyên text, speaker và các snapshot từng được dùng. Notes cũ vẫn sửa/copy/export được.</p></div>
+            <div class="history-arrow">→ chạy lại audio →</div>
+            <div class="history-card"><span class="tag">Generation 2 · current</span><b>Transcript mới, speaker labels mới</b><p>Trở thành current chỉ sau khi lưu đầy đủ. Không tự kế thừa tên người nói hay ghép segment từ generation 1.</p></div>
+          </div>
+          <div class="flow-note">
+            <article><b>Chạy lại audio</b><p>Tạo transcript generation mới từ recording đã lưu.</p></article>
+            <article><b>Tạo lại notes</b><p>Tạo notes revision mới từ current transcript; không chạy lại audio.</p></article>
+            <article><b>Notes mới lỗi</b><p>Generation mới vẫn current nếu transcript của nó đã được công bố đầy đủ.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section id="state">
+        <div class="section-head">
+          <div><div class="eyebrow">04 · Concurrency</div><h2>State machine, khóa và cạnh tranh</h2></div>
+          <p>V1 ưu tiên đúng dữ liệu hơn throughput: chỉ có một slot xử lý cho toàn hệ thống, nhưng việc đọc và chỉnh sửa dữ liệu không liên quan vẫn tiếp tục.</p>
+        </div>
+        <div class="state-layout">
+          <div class="state-card">
+            <h3>Vòng đời của một task</h3>
+            <div class="state-track" aria-label="Task state machine">
+              <span class="state hot">accepted</span><span class="arrow">→</span>
+              <span class="state hot">running</span><span class="arrow">→</span>
+              <span class="state stop">stopping</span><span class="arrow">→</span>
+              <span class="fork"><span class="state terminal">succeeded</span><span class="state terminal">failed</span><span class="state terminal">canceled</span><span class="state terminal">interrupted</span></span>
+            </div>
+            <p><code>stopping</code> là trạng thái thật, không phải nhãn UI tạm: slot, source lock và provider account vẫn bị giữ cho đến khi backend biết runner cũ không thể ghi kết quả nữa.</p>
+            <div class="rule-list">
+              <div class="rule-item"><span>1</span><div><b>Claim nguyên tử</b><p>Chỉ một worker owner được quyền chạy và publish task.</p></div></div>
+              <div class="rule-item"><span>2</span><div><b>Kết quả đến muộn bị loại</b><p>Task ID + owner + state phải khớp tại thời điểm commit.</p></div></div>
+              <div class="rule-item"><span>3</span><div><b>Heartbeat không tự giải phóng</b><p>Mất heartbeat chưa chứng minh process/model cũ đã dừng.</p></div></div>
+            </div>
+          </div>
+          <aside class="side-card">
+            <h3>Vì sao chỉ một slot?</h3>
+            <p>RTX 5080 16 GB phải chạy ASR và diarization tuần tự. Một slot làm rõ quyền sở hữu GPU, hủy và phục hồi; app từ chối task mới thay vì giấu một queue không kiểm soát.</p>
+            <div class="rule-list">
+              <div class="rule-item"><span>✓</span><div><b>Vẫn xem/sửa được</b><p>Meeting khác và notes revision đã có không bị khóa.</p></div></div>
+              <div class="rule-item"><span>×</span><div><b>Không xóa meeting đang chạy</b><p>Hủy và chờ task terminal trước.</p></div></div>
+            </div>
+          </aside>
+        </div>
+
+        <div class="matrix-wrap">
+          <table>
+            <thead><tr><th>Tài nguyên / thao tác</th><th>Idle</th><th>ASR meeting A</th><th>Tạo notes meeting A</th><th>Stopping</th></tr></thead>
+            <tbody>
+              <tr><td>Text / speaker / ngày của meeting A</td><td class="yes">Được sửa</td><td class="no">Không sửa generation đang hình thành</td><td class="no">Khóa nguồn snapshot</td><td class="no">Tiếp tục khóa</td></tr>
+              <tr><td>Notes revision cũ của meeting A</td><td class="yes">Được sửa</td><td class="yes">Được sửa</td><td class="yes">Được sửa theo notes ID</td><td class="yes">Được sửa</td></tr>
+              <tr><td>Meeting B đã hoàn tất</td><td class="yes">Được sửa</td><td class="yes">Được sửa</td><td class="yes">Được sửa</td><td class="yes">Được sửa</td></tr>
+              <tr><td>Nhận task mới</td><td class="yes">Nếu worker sẵn sàng</td><td class="no">system_busy</td><td class="no">system_busy</td><td class="no">system_busy</td></tr>
+              <tr><td>Logout provider task đang dùng</td><td class="yes">Được phép</td><td class="no">Nếu task đã pin provider đó</td><td class="no">provider_in_use</td><td class="no">provider_in_use</td></tr>
+              <tr><td>Xóa meeting A</td><td class="yes">Được phép</td><td class="no">Phải hủy trước</td><td class="no">Phải hủy trước</td><td class="no">Chờ terminal</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="data">
+        <div class="section-head">
+          <div><div class="eyebrow">05 · Persistence</div><h2>Dữ liệu có lịch sử, không ghi đè</h2></div>
+          <p>Meeting là container dài hạn. Transcript và notes là các thế hệ/revision; snapshot nối notes với đúng bằng chứng đã dùng lúc sinh.</p>
+        </div>
+        <div class="data-map">
+          <article class="entity" data-rel="1:N"><h3>meetings</h3><ul><li>title, meeting_date</li><li>metadata_version</li><li>current_generation_id</li><li>deletion state</li></ul><span class="badge">aggregate root</span></article>
+          <article class="entity" data-rel="1:N"><h3>transcript_generations</h3><ul><li>source_version</li><li>model/language config</li><li>completed_at</li><li>current hoặc readonly</li></ul><span class="badge">append generation</span></article>
+          <article class="entity" data-rel="snapshot"><h3>segments + speakers</h3><ul><li>stable segment ID + time</li><li>text</li><li>original_speaker_id</li><li>speaker_id + display name</li></ul><span class="badge">optimistic version</span></article>
+          <article class="entity snapshot"><h3>notes_sources</h3><ul><li>payload bất biến</li><li>text + source IDs + time</li><li>speaker mapping + names</li><li>meeting date lúc tạo</li></ul><span class="badge">immutable evidence</span></article>
+          <article class="entity" data-rel="1:1"><h3>recordings / uploads</h3><ul><li>backend-owned path</li><li>receiving / verified / ready</li><li>media metadata</li><li>cleanup state</li></ul><span class="badge">filesystem backed</span></article>
+          <article class="entity" data-rel="pins"><h3>tasks + processing_slot</h3><ul><li>kind, state, stage</li><li>owner + heartbeat</li><li>provider/model/account version</li><li>snapshot ID</li></ul><span class="badge">coordination</span></article>
+          <article class="entity" data-rel="1:N"><h3>provider_connections</h3><ul><li>provider + account label</li><li>connection_version</li><li>status only</li><li>secret stored separately</li></ul><span class="badge">no secret to UI</span></article>
+          <article class="entity"><h3>notes_revisions</h3><ul><li>snapshot ID</li><li>Markdown + edit_version</li><li>provider/model actually used</li><li>prompt/schema/task ID</li></ul><span class="badge">append revision</span></article>
+        </div>
+
+        <div class="history-strip">
+          <div class="history-card"><span class="tag">Mutable current source</span><b>Transcript generation 2 · source_version 7</b><p>Người dùng sửa text hoặc speaker → version 8 → notes hiện có được đánh dấu cần cập nhật.</p></div>
+          <div class="history-arrow">→ tạo snapshot một lần →</div>
+          <div class="history-card"><span class="tag">Immutable evidence</span><b>Notes source S-42 · source_version 7</b><p>Notes revision N-9 luôn mở đúng text/speaker/date của S-42, dù current source đã đổi.</p></div>
+        </div>
+      </section>
+
+      <section id="decisions">
+        <div class="section-head">
+          <div><div class="eyebrow">06 · Design rationale</div><h2>12 quyết định chi phối kiến trúc</h2></div>
+          <p>Mở từng thẻ để xem lý do và hệ quả. Đây là những quyết định dễ bị “đơn giản hóa” sai khi bắt đầu code.</p>
+        </div>
+        <div class="decisions">
+          <details class="decision"><summary><span class="decision-num">D01 · Q1/Q8</span><strong>Tách FastAPI app và worker</strong><span>Giữ UI/API sống khi runtime model gặp lỗi.</span></summary><div class="decision-body"><p><b>Lý do:</b> inference có vòng đời, memory và đường hủy khác request HTTP.</p><p><b>Hệ quả:</b> hai process dùng chung schema nghiệp vụ; worker không được tự bỏ qua version/lock khi ghi DB.</p></div></details>
+          <details class="decision"><summary><span class="decision-num">D02 · Q2/Q9</span><strong>SQLite + một processing slot</strong><span>Điều phối đơn giản, bền và phù hợp một người dùng.</span></summary><div class="decision-body"><p><b>Lý do:</b> không cần vận hành PostgreSQL/queue chỉ cho một máy cá nhân.</p><p><b>Hệ quả:</b> transaction phải ngắn; inference tuyệt đối không nằm trong transaction.</p></div></details>
+          <details class="decision"><summary><span class="decision-num">D03 · Q3</span><strong>Khóa nguồn khi tạo notes</strong><span>Model và người dùng không nhìn hai phiên bản nguồn khác nhau.</span></summary><div class="decision-body"><p><b>Lý do:</b> đảm bảo notes có một cơ sở chứng cứ xác định.</p><p><b>Hệ quả:</b> khóa ở backend, kéo dài qua stopping; notes cũ và meeting khác vẫn chỉnh sửa.</p></div></details>
+          <details class="decision"><summary><span class="decision-num">D04 · Q10/Q21</span><strong>Transcript theo generation</strong><span>Chạy lại không xóa chỉnh sửa và lịch sử cũ.</span></summary><div class="decision-body"><p><b>Lý do:</b> kết quả model mới không chắc tốt hơn kết quả đã được con người sửa.</p><p><b>Hệ quả:</b> chỉ generation mới nhất hoàn tất là current; generation cũ readonly, không tự ghép speaker.</p></div></details>
+          <details class="decision"><summary><span class="decision-num">D05 · Q19</span><strong>Snapshot nguồn bất biến</strong><span>Mỗi notes revision luôn trỏ về đúng bằng chứng lúc sinh.</span></summary><div class="decision-body"><p><b>Lý do:</b> transcript mutable; timestamp/link trong notes cũ phải vẫn có nghĩa.</p><p><b>Hệ quả:</b> tốn thêm text storage nhưng audit và review rõ ràng.</p></div></details>
+          <details class="decision"><summary><span class="decision-num">D06 · Q20</span><strong>Optimistic concurrency</strong><span>Tab cũ không âm thầm ghi đè thay đổi mới.</span></summary><div class="decision-body"><p><b>Lý do:</b> localhost vẫn có thể mở nhiều tab và chỉnh cùng dữ liệu.</p><p><b>Hệ quả:</b> API yêu cầu expected version; UI giữ local draft khi nhận stale_version.</p></div></details>
+          <details class="decision"><summary><span class="decision-num">D07 · Q7/Q12</span><strong>Audio local, notes cloud</strong><span>Dành VRAM cho Whisper/pyannote và triển khai v1 nhanh hơn.</span></summary><div class="decision-body"><p><b>Lý do:</b> Qwen local bị hoãn do chi phí VRAM; audio không cần rời máy.</p><p><b>Hệ quả:</b> transcript-only hoạt động offline; tạo notes cần Internet và gửi snapshot text.</p></div></details>
+          <details class="decision"><summary><span class="decision-num">D08 · Q12/Q16/Q27</span><strong>Hai provider, cấu hình pin theo task</strong><span>ChatGPT direct hoặc OMP/Antigravity do người dùng chọn.</span></summary><div class="decision-body"><p><b>Lý do:</b> tận dụng subscription sẵn có mà không buộc một nhà cung cấp.</p><p><b>Hệ quả:</b> không đổi provider/model/account giữa các chunk; preference chỉ chọn sẵn cho lần sau.</p></div></details>
+          <details class="decision"><summary><span class="decision-num">D09 · Q11/Q17</span><strong>Structured intermediate + source IDs</strong><span>Backend kiểm tra được hình dạng và bằng chứng trước khi render.</span></summary><div class="decision-body"><p><b>Lý do:</b> Markdown model sinh trực tiếp khó xác minh tham chiếu.</p><p><b>Hệ quả:</b> chunk theo utterance, merge vẫn giữ ID; renderer mới tạo link/timestamp.</p></div></details>
+          <details class="decision"><summary><span class="decision-num">D10 · Q18/Q25</span><strong>Một repair; không auto retry inference</strong><span>Giới hạn chi phí và tránh vô tình tạo nhiều kết quả cloud.</span></summary><div class="decision-body"><p><b>Lý do:</b> lỗi schema khác với lỗi transport. Retry mù có thể tính quota hai lần.</p><p><b>Hệ quả:</b> chỉ sửa một đầu ra đầy đủ nhưng invalid; lỗi mạng cần thao tác retry mới của người dùng.</p></div></details>
+          <details class="decision"><summary><span class="decision-num">D11 · Q5/Q26</span><strong>Markdown là nội dung chính</strong><span>Người dùng có toàn quyền sửa, copy và export.</span></summary><div class="decision-body"><p><b>Lý do:</b> sau review, notes là tài liệu của người dùng chứ không còn là object model cứng.</p><p><b>Hệ quả:</b> link nguồn sửa tay bị hỏng vẫn lưu nguyên văn với cảnh báo; model output ban đầu vẫn phải strict.</p></div></details>
+          <details class="decision"><summary><span class="decision-num">D12 · Q4/Q14/Q15</span><strong>Giữ mọi kết quả hoàn tất độc lập</strong><span>Notes lỗi không làm mất transcript; ASR không chờ login.</span></summary><div class="decision-body"><p><b>Lý do:</b> pipeline cloud có failure mode khác pipeline audio.</p><p><b>Hệ quả:</b> UI có trạng thái transcript_only; không tự chạy notes khi login được khôi phục.</p></div></details>
+        </div>
+      </section>
+
+      <section>
+        <div class="summary-banner">
+          <div><h2>Quy tắc bao trùm</h2><p>Mọi tối ưu triển khai sau này phải giữ ba điều: dữ liệu đã hoàn tất không bị mất, notes luôn truy được đúng nguồn đã dùng, và không có tiến trình cũ được ghi kết quả sau khi mất quyền sở hữu.</p></div>
+          <div class="formula">durability + evidence + ownership</div>
+        </div>
+        <div class="sources">Nguồn thiết kế: <a href="backend-design-v1.md">Backend design v1</a><a href="backend-contract-v1.md">Backend contract v1</a><a href="frontend-design-v1.md">Frontend design v1</a><a href="specification-v1.md">Specification v1</a><a href="../CONTEXT.md">Domain language</a></div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const details = {
+      ui: ["Frontend", "Review workspace", "Hiển thị lịch sử cuộc họp, transcript song song với notes và trình phát. Người dùng chọn provider/model cho từng lần tạo notes và luôn thấy cấu hình trước khi chạy.", "UI không tự suy diễn tác vụ đã hủy hoặc hoàn tất; mọi trạng thái quan trọng phải lấy lại từ backend."],
+      clientstate: ["Frontend state", "Draft & polling", "Giữ text đang sửa ở client cho đến khi backend xác nhận save. Polling chỉ hỏi trạng thái bền và giảm tần suất khi tab bị ẩn hoặc mất mạng.", "Khi stale_version, giữ bản nháp để người dùng đối chiếu; không tự merge hoặc gửi lại lệnh tạo task."],
+      access: ["FastAPI · Access", "Local session", "Đổi token localhost dùng lại thành cookie và loại token khỏi URL. Audio, snapshot và export đều đi qua cùng ranh giới xác thực.", "Đăng nhập ứng dụng local độc lập hoàn toàn với đăng nhập ChatGPT/Google cho inference."],
+      meetings: ["FastAPI · Domain", "Meetings & revisions", "Sở hữu metadata, generation, segment, speaker, snapshot và notes revision. Đây là nơi thực thi expected version và trạng thái read-only.", "Mọi đường ghi, kể cả API trực tiếp hay tab khác, phải cùng tuân thủ source lock và optimistic concurrency."],
+      tasks: ["FastAPI · Control plane", "Task coordinator", "Nhận recording/notes task, chiếm slot, ghi cấu hình bất biến, yêu cầu hủy và quyết định khi nào được publish hoặc mở khóa.", "Một request ID chỉ tạo một task; một active task chiếm slot cho đến trạng thái terminal thật."],
+      providers: ["FastAPI · Connections", "Provider facade", "Trả trạng thái kết nối, model khả dụng và login flow cho UI; quản lý connection version để pin account vào task.", "UI không nhận credential inference/refresh; provider đang được task sử dụng không được logout hay đổi account."],
+      sqlite: ["Durable state", "SQLite source of truth", "Lưu toàn bộ metadata, lịch sử transcript/notes, task state, locks, ownership và processing slot. Hai process cùng dựa vào cùng bất biến dữ liệu.", "Transaction chỉ bao quanh thay đổi ngắn; không giữ lock DB trong lúc upload, model inference hoặc gọi cloud."],
+      media: ["Durable state", "Audio storage", "Phân biệt upload tạm, audio bền để xử lý/phát lại và trạng thái cleanup. API stream audio mà không lộ filesystem path.", "Chỉ công bố recording ready khi file đã lưu và kiểm tra xong; xóa chỉ nhắm file do ứng dụng quản lý."],
+      secrets: ["Durable state", "Provider credential store", "Lưu phiên/refresh material của ChatGPT và Antigravity trong vùng riêng của bản cài, tồn tại qua restart.", "Không mount hoặc tái sử dụng cấu hình coding cá nhân của OMP/ChatGPT; DB/UI chỉ biết trạng thái và account label."],
+      runner: ["Worker", "Task runner", "Claim task bằng điều kiện nguyên tử, gắn owner, cập nhật heartbeat/progress và quản lý subprocess/request có đường hủy.", "Mỗi publish phải khớp task ID, owner và state; output đến muộn từ runner cũ luôn bị từ chối."],
+      audio: ["Worker · Local GPU", "Audio pipeline", "Chuẩn bị audio rồi chạy faster-whisper large-v3 và pyannote Community-1 tuần tự để phù hợp VRAM 16 GB.", "Transcript dở không thay current generation; original speaker assignment được giữ dù người dùng gán lại."],
+      notes: ["Worker · Orchestration", "Notes pipeline", "Chia nguồn theo utterance, trích xuất có source IDs, merge trong context budget, kiểm tra schema/ID và render Markdown.", "Tối đa một repair call cho toàn task. Chunk riêng lẻ không bao giờ được công bố như notes hoàn chỉnh."],
+      chatgpt: ["Cloud option A", "ChatGPT", "Luồng thiết kế dùng Sign in with ChatGPT trực tiếp và Responses API bằng quyền tài khoản người dùng cấp.", "Provider/model/account version được pin khi task được nhận; eligibility và callback Docker vẫn cần kiểm chứng runtime."],
+      antigravity: ["Cloud option B", "OMP + Google Antigravity", "Worker gọi một OMP RPC runner bị giới hạn để sử dụng model Antigravity mà người dùng đã đăng nhập.", "Runner phải tắt tools, skills, MCP, project context và auto-compaction; khả năng inference/quota cần được test thật."],
+      payload: ["Cloud data boundary", "Transcript snapshot", "Cloud nhận text, source IDs/timestamps, speaker labels/display names và ngày họp cần thiết để tạo notes tiếng Anh.", "Không gửi bản ghi audio qua notes adapter. Snapshot đã gửi là bất biến và gắn với revision được tạo."],
+    };
+
+    document.querySelectorAll('.node').forEach((node) => {
+      node.addEventListener('click', () => {
+        document.querySelectorAll('.node').forEach((item) => item.classList.remove('active'));
+        node.classList.add('active');
+        const item = details[node.dataset.node];
+        document.getElementById('detail-kicker').textContent = item[0];
+        document.getElementById('detail-title').textContent = item[1];
+        document.getElementById('detail-copy').textContent = item[2];
+        document.getElementById('detail-rule').textContent = item[3];
+      });
+    });
+
+    document.querySelectorAll('.tab').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach((item) => {
+          item.classList.remove('active');
+          item.setAttribute('aria-selected', 'false');
+        });
+        document.querySelectorAll('.flow-panel').forEach((panel) => panel.classList.remove('active'));
+        tab.classList.add('active');
+        tab.setAttribute('aria-selected', 'true');
+        document.getElementById(tab.dataset.tab).classList.add('active');
+      });
+    });
+  </script>
+</body>
+</html>
