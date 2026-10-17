@@ -38,11 +38,20 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
+      - name: Install media tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          command -v ffmpeg
+          command -v ffprobe
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
       - name: Install Chromium
         run: uv run --locked playwright install --with-deps chromium
       - name: Run repository checks
         env:
           ASR_RUN_BROWSER_TESTS: "1"
+          ASR_REQUIRE_MEDIA_TOOLS: "1"
         run: ./scripts/check.sh
 
   container:
@@ -59,8 +68,12 @@ jobs:
         with:
           context: .
           push: false
+          load: true
+          tags: asr-en-vi:ci
           cache-from: type=gha,scope=container
           cache-to: type=gha,mode=max,scope=container
+      - name: Smoke-test container runtime
+        run: ./scripts/container-smoke.sh asr-en-vi:ci
 
   publish:
     name: Publish container

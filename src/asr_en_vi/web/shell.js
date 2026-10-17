@@ -528,58 +528,6 @@ function sameOriginAudioSource(audioUrl, meetingId) {
   }
 }
 
-function showMeetingError(message) {
-  document.querySelector("#home-view").hidden = true;
-  document.querySelector("#meeting-loading").hidden = true;
-  document.querySelector("#meeting-view").hidden = true;
-  const errorView = document.querySelector("#meeting-error");
-  document.querySelector("#meeting-error-copy").textContent = message;
-  errorView.hidden = false;
-}
-
-async function loadMeeting(meetingId) {
-  document.querySelector("#home-view").hidden = true;
-  document.querySelector("#meeting-error").hidden = true;
-  document.querySelector("#meeting-view").hidden = true;
-  document.querySelector("#meeting-loading").hidden = false;
-  document.querySelector("#page-eyebrow").textContent = "SAVED MEETING";
-  document.querySelector("#page-title").textContent = "Cuộc họp";
-  document.querySelector("#workspace-link").removeAttribute("aria-current");
-  try {
-    const payload = await requestJson(`/api/meetings/${encodeURIComponent(meetingId)}`);
-    const meeting = payload && payload.meeting && typeof payload.meeting === "object" ? payload.meeting : payload;
-    if (!meeting || typeof meeting.title !== "string" || typeof meeting.id !== "string") {
-      throw new Error("Máy chủ không trả về metadata cuộc họp hợp lệ.");
-    }
-    const languageLabels = { en: "English", vi: "Tiếng Việt" };
-    if (!languageLabels[meeting.language_hint]) throw new Error("Cuộc họp chưa có ngôn ngữ chính hợp lệ.");
-    document.querySelector("#page-title").textContent = meeting.title;
-    document.querySelector("#meeting-title").textContent = meeting.title;
-    const date = formatMeetingDate(meeting.meeting_date);
-    const dateElement = document.querySelector("#meeting-date");
-    dateElement.textContent = date.label;
-    if (date.dateTime) dateElement.setAttribute("datetime", date.dateTime);
-    else dateElement.removeAttribute("datetime");
-    document.querySelector("#meeting-language").textContent = languageLabels[meeting.language_hint];
-    const meetingLink = document.querySelector("#current-meeting-link");
-    meetingLink.textContent = meeting.title;
-    meetingLink.href = `/meetings/${encodeURIComponent(meeting.id)}`;
-    meetingLink.hidden = false;
-    document.querySelector("#sidebar-empty").hidden = true;
-    const audio = document.querySelector("#meeting-audio");
-    const audioUrl = meeting.audio_url || (meeting.recording && meeting.recording.audio_url);
-    audio.src = sameOriginAudioSource(audioUrl, meeting.id);
-    audio.load();
-    document.querySelector("#meeting-error").hidden = true;
-    document.querySelector("#meeting-loading").hidden = true;
-    document.querySelector("#meeting-view").hidden = false;
-    document.title = `${meeting.title} · ASR EN VI`;
-  } catch (error) {
-    const message = error instanceof ApiError ? error.message : (error && error.message) || "Không thể tải dữ liệu cuộc họp.";
-    showMeetingError(`${message} Hãy kiểm tra phiên truy cập hoặc mở lại cuộc họp từ workspace.`);
-  }
-}
-
 function resetDialog() {
   appState.runId += 1;
   appState.policyRunId += 1;
@@ -762,6 +710,3 @@ dialog.addEventListener("cancel", (event) => {
 dialog.addEventListener("click", (event) => {
   if (event.target === dialog) void closeDialog();
 });
-
-const savedMeetingId = meetingIdFromPath();
-if (savedMeetingId) void loadMeeting(savedMeetingId);

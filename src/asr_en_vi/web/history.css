@@ -1,0 +1,485 @@
+/* Meeting history: sidebar search/recent, calendars, day panel, metadata editor. */
+
+.history-search {
+  width: 100%;
+  min-height: 34px;
+  margin: 0 0 18px;
+  padding: 0 10px;
+  border: 1px solid #34494f;
+  border-radius: 6px;
+  background: #111d22;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.history-search::placeholder {
+  color: #667d82;
+}
+
+.recent-section {
+  margin-top: 24px;
+}
+
+.search-error {
+  color: var(--danger);
+}
+
+.recent-list,
+.day-panel-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recent-link,
+.day-meeting {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.recent-link {
+  white-space: normal;
+}
+
+.recent-link .link-title,
+.day-meeting .link-title {
+  overflow: hidden;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-date {
+  color: #8da39f;
+  font-family: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
+  font-size: 9px;
+}
+
+.recent-link[aria-current="page"] {
+  border-color: #587970;
+  background: #29463f;
+}
+
+.mini-calendar-section {
+  margin-top: 26px;
+}
+
+.mini-calendar-section .section-heading .text-button {
+  min-height: 0;
+  padding: 0;
+  font-size: 10px;
+}
+
+/* ---- shared calendar ---- */
+.calendar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cal-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cal-title {
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.cal-step,
+.cal-today,
+.cal-month,
+.cal-year,
+.cal-undated,
+.cal-more {
+  border: 1px solid #34494f;
+  border-radius: 6px;
+  background: #111d22;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.cal-step {
+  width: 28px;
+  height: 28px;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.cal-step:hover,
+.cal-today:hover,
+.cal-undated:hover,
+.cal-more:hover {
+  border-color: #587970;
+  background: #1c2f33;
+}
+
+.cal-pick {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 56px auto;
+  gap: 6px;
+}
+
+.cal-month,
+.cal-year,
+.cal-today {
+  min-height: 28px;
+  padding: 0 6px;
+}
+
+.cal-year {
+  cursor: text;
+}
+
+.cal-summary {
+  margin: 0;
+  color: #8da39f;
+  font-size: 10px;
+}
+
+.cal-weekdays,
+.cal-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.cal-weekdays span {
+  color: #7f9498;
+  font-size: 9px;
+  text-align: center;
+}
+
+.cal-cell {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cal-day {
+  position: relative;
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #cfe0e1;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.cal-day:hover {
+  background: #1c2f33;
+}
+
+.cal-day.is-outside {
+  color: #5f7378;
+}
+
+.cal-day.is-today {
+  border-color: #6b9c8f;
+}
+
+.cal-day.is-selected {
+  background: var(--teal-wash);
+  color: #e0f0ec;
+}
+
+/* Small calendar: count sits under the day number so it never covers it. */
+.calendar:not(.calendar-large) .cal-day {
+  min-height: 34px;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.calendar:not(.calendar-large) .cal-count {
+  position: static;
+}
+
+.cal-count {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  min-width: 12px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: #2f574d;
+  color: #d6efe8;
+  font-size: 8px;
+  line-height: 12px;
+  text-align: center;
+}
+
+.cal-undated {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 9px;
+  text-align: left;
+}
+
+.cal-undated.is-selected {
+  border-color: #587970;
+  background: var(--teal-wash);
+}
+
+/* ---- large calendar ---- */
+.calendar-view {
+  display: flex;
+  width: 100%;
+  flex: 1;
+  flex-direction: column;
+  gap: 18px;
+  padding: 28px 0 24px;
+}
+
+.calendar-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.calendar-head h2 {
+  margin: 6px 0 4px;
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+
+.calendar-sub {
+  margin: 0;
+  color: #8da39f;
+  font-size: 11px;
+}
+
+.calendar-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 16px;
+  align-items: start;
+}
+
+.calendar-large,
+.day-panel {
+  padding: 16px;
+  border: 1px solid #2c3e45;
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.calendar-large .cal-nav {
+  justify-content: center;
+  gap: 16px;
+}
+
+.calendar-large .cal-title {
+  font-size: 13px;
+}
+
+.calendar-large .cal-pick {
+  grid-template-columns: minmax(0, 220px) 80px auto;
+  justify-content: start;
+}
+
+.calendar-large .cal-weekdays {
+  gap: 6px;
+}
+
+.calendar-large .cal-days {
+  gap: 6px;
+}
+
+.calendar-large .cal-cell {
+  min-height: 86px;
+  padding: 4px;
+  border: 1px solid #263840;
+  border-radius: 6px;
+  background: #162126;
+}
+
+.calendar-large .cal-day {
+  min-height: 22px;
+  justify-content: flex-start;
+  padding: 0 4px;
+}
+
+.calendar-large .cal-day.is-selected {
+  outline: 1px solid #6b9c8f;
+}
+
+.calendar-large .cal-count {
+  top: 3px;
+  right: 3px;
+}
+
+.cal-chip {
+  overflow: hidden;
+  padding: 2px 5px;
+  border-left: 2px solid var(--teal);
+  border-radius: 3px;
+  background: #1f3a3a;
+  color: #d4ebe5;
+  font-size: 9px;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-chip:hover {
+  background: #2a4a47;
+}
+
+.cal-more {
+  min-height: 18px;
+  padding: 0 5px;
+  font-size: 9px;
+  text-align: left;
+}
+
+.calendar-large .cal-undated {
+  align-self: flex-start;
+  min-width: 220px;
+}
+
+.day-panel header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #2c3e45;
+}
+
+.day-panel h3 {
+  margin: 6px 0 0;
+  font-size: 17px;
+  font-weight: 560;
+}
+
+.day-panel-count {
+  min-width: 24px;
+  padding: 3px 7px;
+  border-radius: 12px;
+  background: var(--teal-wash);
+  color: #bfe3d9;
+  font-size: 10px;
+  text-align: center;
+}
+
+.day-panel-empty {
+  margin: 12px 0 0;
+  color: #8da39f;
+  font-size: 11px;
+}
+
+.day-meeting {
+  margin-top: 8px;
+  padding: 9px 10px;
+  border: 1px solid #304640;
+  border-left: 2px solid var(--teal);
+  border-radius: 6px;
+  background: #1a2b2d;
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.day-meeting:hover {
+  border-color: #587970;
+  background: #223a38;
+}
+
+/* ---- metadata editor ---- */
+.edit-meeting-button {
+  margin-top: 12px;
+}
+
+.edit-status {
+  min-height: 1em;
+  margin: 8px 0 0;
+  color: #abd4c9;
+  font-size: 10px;
+}
+
+.meeting-edit {
+  margin: 0 0 18px;
+  padding: 16px 18px;
+  border: 1px solid #2c3e45;
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.edit-date-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.edit-date-row .text-button {
+  white-space: nowrap;
+}
+
+.meeting-edit .field-help {
+  margin-top: 12px;
+}
+
+.edit-conflict {
+  margin: 10px 0 0;
+  padding: 9px 11px;
+  border: 1px solid #6b5a38;
+  border-radius: 7px;
+  background: rgb(80 62 30 / 40%);
+  color: var(--amber);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+@media (max-width: 1150px) {
+  .calendar-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 680px) {
+  .mini-calendar-section {
+    display: none;
+  }
+
+  .calendar-head {
+    flex-direction: column;
+  }
+
+  .calendar-large .cal-cell {
+    min-height: 54px;
+  }
+
+  .calendar-large .cal-chip,
+  .calendar-large .cal-more {
+    display: none;
+  }
+
+  .calendar-large .cal-pick {
+    grid-template-columns: minmax(0, 1fr) 70px auto;
+  }
+
+  .edit-actions {
+    flex-direction: column-reverse;
+  }
+}

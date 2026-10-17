@@ -279,6 +279,19 @@ def test_managed_recording_upload_saves_and_restores_meeting(tmp_path):
             expect(page.locator("#meeting-language")).to_have_text("English")
             expect(page.locator("#meeting-audio")).to_be_visible()
 
+            # The meeting made through the real upload/import path is durable history.
+            history = context.request.get(f"{public_url}/api/meetings").json()
+            assert [item["id"] for item in history["meetings"]] == [meeting_id]
+            assert history["recent"][0]["meeting_date"] == "2026-10-15"
+            assert 0.5 < history["recent"][0]["duration_seconds"] < 2
+            recent_link = page.locator("#recent-list a")
+            expect(recent_link).to_have_count(1)
+            expect(recent_link).to_contain_text("Điều phối sản phẩm — tuần 42")
+            expect(recent_link.locator(".link-date")).to_have_text("15/10/2026 · 1 giây")
+            expect(recent_link).to_have_attribute("aria-current", "page")
+            page.get_by_label("Tìm cuộc họp theo tên").fill("TUẦN 42")
+            expect(recent_link).to_have_count(1)
+
             methods_and_paths = [
                 (request["method"], request["url"].removeprefix(public_url))
                 for request in api_requests

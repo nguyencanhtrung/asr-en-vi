@@ -7,6 +7,7 @@ import re
 import secrets
 import sqlite3
 import stat
+import unicodedata
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
@@ -398,12 +399,13 @@ def delete_upload(data_dir: Path, upload_id: str) -> dict[str, object]:
     return {"id": upload_id, "status": "failed"}
 
 
-def _validate_meeting(
-    title: object, meeting_date: object, language_hint: object
-) -> tuple[str, str | None, str]:
+def _validate_title(title: object) -> str:
     if not isinstance(title, str) or not title.strip() or len(title.strip()) > 200:
         raise RecordingError(400, "invalid_title", "Title must contain 1 to 200 characters.")
-    normalized_title = title.strip()
+    return title.strip()
+
+
+def _validate_date(meeting_date: object) -> str | None:
     if meeting_date is not None:
         if not isinstance(meeting_date, str):
             raise RecordingError(400, "invalid_meeting_date", "Use a YYYY-MM-DD meeting date.")
@@ -415,9 +417,17 @@ def _validate_meeting(
             ) from None
         if parsed_date.isoformat() != meeting_date:
             raise RecordingError(400, "invalid_meeting_date", "Use a YYYY-MM-DD meeting date.")
+    return meeting_date
+
+
+def _validate_meeting(
+    title: object, meeting_date: object, language_hint: object
+) -> tuple[str, str | None, str]:
+    normalized_title = _validate_title(title)
+    normalized_date = _validate_date(meeting_date)
     if not isinstance(language_hint, str) or language_hint not in {"en", "vi"}:
         raise RecordingError(400, "invalid_language_hint", "language_hint must be en or vi.")
-    return normalized_title, meeting_date, language_hint
+    return normalized_title, normalized_date, language_hint
 
 
 def create_meeting(
@@ -509,6 +519,7 @@ def _meeting_summary(row: sqlite3.Row) -> dict[str, object]:
         "meeting_date": row["meeting_date"],
         "language_hint": row["language_hint"],
         "metadata_version": row["metadata_version"],
+        "notes_source_version": row["notes_source_version"],
         "created_at": row["created_at"],
         "recording": {
             "id": row["recording_id"],
@@ -531,6 +542,88 @@ def get_meeting(data_dir: Path, meeting_id: str) -> dict[str, object]:
     if row is None:
         raise RecordingError(404, "meeting_not_found", "Meeting not found.")
     return _meeting_summary(row)
+
+
+def _history_item(row: sqlite3.Row) -> dict[str, object]:
+    return {
+        "id": row["id"],
+        "meeting_url": f"/meetings/{row['id']}",
+        "title": row["title"],
+        "meeting_date": row["meeting_date"],
+        "metadata_version": row["metadata_version"],
+        "duration_seconds": row["duration_seconds"],
+    }
+
+
+def _search_key(text: str) -> str:
+    return unicodedata.normalize("NFC", text).casefold()
+
+
+def list_meetings(data_dir: Path, *, query: str | None = None) -> dict[str, object]:
+    """Meeting history: newest meeting date first, undated last, title search over all rows.
+
+    ``recent`` ignores the search and holds at most three dated meetings.
+    """
+    with _connect(data_dir) as connection:
+        rows = connection.execute(
+            "SELECT meetings.id, meetings.title, meetings.meeting_date, "
+            "meetings.metadata_version, recordings.duration_seconds "
+            "FROM meetings JOIN recordings ON recordings.meeting_id = meetings.id "
+            "ORDER BY meetings.meeting_date IS NULL, meetings.meeting_date DESC, "
+            "meetings.created_at DESC, meetings.rowid DESC"
+        ).fetchall()
+    items = [_history_item(row) for row in rows]
+    needle = _search_key(query.strip()) if query else ""
+    matches = [item for item in items if needle in _search_key(str(item["title"]))]
+    return {
+        "meetings": matches,
+        "total": len(items),
+        "recent": [item for item in items if item["meeting_date"] is not None][:3],
+    }
+
+
+def update_meeting(
+    data_dir: Path,
+    meeting_id: str,
+    *,
+    expected_version: object,
+    fields: dict[str, object],
+) -> dict[str, object]:
+    """Edit title and/or meeting date under optimistic concurrency.
+
+    Only a date change bumps ``notes_source_version``; language is never editable here.
+    """
+    if isinstance(expected_version, bool) or not isinstance(expected_version, int):
+        raise RecordingError(400, "invalid_expected_version", "Provide expected_metadata_version.")
+    if not fields:
+        raise RecordingError(400, "invalid_request", "Provide a title or meeting_date change.")
+    new_title = _validate_title(fields["title"]) if "title" in fields else None
+    new_date = _validate_date(fields["meeting_date"]) if "meeting_date" in fields else None
+    with _connect(data_dir) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        current = connection.execute(
+            "SELECT title, meeting_date, metadata_version FROM meetings WHERE id = ?",
+            (meeting_id,),
+        ).fetchone()
+        if current is None:
+            raise RecordingError(404, "meeting_not_found", "Meeting not found.")
+        if current["metadata_version"] != expected_version:
+            raise RecordingError(
+                409,
+                "stale_version",
+                "Meeting metadata changed in another tab. Reload it and compare your draft.",
+            )
+        title = current["title"] if new_title is None else new_title
+        meeting_date = current["meeting_date"] if "meeting_date" not in fields else new_date
+        date_changed = meeting_date != current["meeting_date"]
+        if title != current["title"] or date_changed:
+            connection.execute(
+                "UPDATE meetings SET title = ?, meeting_date = ?, "
+                "metadata_version = metadata_version + 1, "
+                "notes_source_version = notes_source_version + ? WHERE id = ?",
+                (title, meeting_date, int(date_changed), meeting_id),
+            )
+    return get_meeting(data_dir, meeting_id)
 
 
 def get_audio_recording(data_dir: Path, meeting_id: str) -> dict[str, object]:
