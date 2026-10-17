@@ -16,6 +16,8 @@ from seeding import seed_meeting
 from asr_en_vi.app import create_app
 from asr_en_vi.auth import AuthStore
 from asr_en_vi.config import Settings
+from asr_en_vi.runtime import RuntimeProfile, write_runtime_profile
+from asr_en_vi.worker import acquire_worker_lock, write_heartbeat
 
 pytestmark = pytest.mark.browser
 
@@ -1013,6 +1015,30 @@ def test_stale_meeting_read_answering_after_a_save_cannot_roll_the_ui_back(live,
         "2026-10-20",
         3,
     )
+
+
+def test_runtime_profile_and_saved_status_render_without_collapsing(live, browser_context):
+    _context, page = browser_context
+    meeting_id = seed_meeting(live.settings.data_dir, "Runtime profile")
+    lock_fd = acquire_worker_lock(live.settings.data_dir)
+    assert lock_fd is not None
+    write_runtime_profile(
+        live.settings.data_dir,
+        RuntimeProfile(
+            device="cuda",
+            compute_type="float16",
+            model_path="/models/whisper-large-v3",
+        ),
+    )
+    write_heartbeat(live.settings.data_dir, "idle")
+    try:
+        page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
+        expect(page.locator("#runtime-backend")).to_have_text("GPU · CUDA · float16")
+        expect(page.locator("#runtime-model")).to_have_text("whisper-large-v3")
+        expect(page.locator("#meeting-status-text")).to_have_text("Đã lưu, chưa xử lý")
+        assert page.locator("#meeting-status-text").bounding_box()["width"] > 80
+    finally:
+        os.close(lock_fd)
 
 
 def test_transcription_requires_explicit_start_and_renders_poll_cancel_and_rerun(

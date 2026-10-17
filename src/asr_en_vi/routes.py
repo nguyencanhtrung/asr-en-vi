@@ -32,6 +32,7 @@ from asr_en_vi.recordings import (
     open_audio,
     update_meeting,
 )
+from asr_en_vi.runtime import read_runtime_profile
 from asr_en_vi.tasks import TaskError, accept_transcription_task, cancel_task, get_task
 from asr_en_vi.worker import is_healthy as worker_is_healthy
 
@@ -351,7 +352,16 @@ def install_routes(app: FastAPI, settings: Settings) -> None:
     @app.get("/api/meetings/{meeting_id}")
     async def read_meeting(meeting_id: str) -> dict[str, object]:
         try:
-            return await run_in_threadpool(get_meeting, settings.data_dir, meeting_id)
+            meeting = await run_in_threadpool(get_meeting, settings.data_dir, meeting_id)
+            profile = (
+                await run_in_threadpool(read_runtime_profile, settings.data_dir)
+                if worker_is_healthy(settings.data_dir)
+                else None
+            )
+            transcription = meeting["transcription"]
+            assert isinstance(transcription, dict)
+            transcription["runtime"] = profile.public_summary() if profile is not None else None
+            return meeting
         except RecordingError as error:
             _raise_recording_error(error)
 
@@ -359,16 +369,19 @@ def install_routes(app: FastAPI, settings: Settings) -> None:
     async def start_transcription_task(request: Request) -> dict[str, object]:
         payload = await _json_object(request, required={"meeting_id", "request_id"})
         worker_ready = worker_is_healthy(settings.data_dir)
+        profile = read_runtime_profile(settings.data_dir) if worker_ready else None
         try:
             return await run_in_threadpool(
                 accept_transcription_task,
                 settings.data_dir,
                 meeting_id=payload["meeting_id"],
                 request_id=payload["request_id"],
-                model_path=settings.asr_model_path,
-                device=settings.asr_device,
-                compute_type=settings.asr_compute_type,
-                worker_ready=worker_ready,
+                model_path=profile.model_path
+                if profile is not None
+                else settings.asr_gpu_model_path,
+                device=profile.device if profile is not None else "auto",
+                compute_type=profile.compute_type if profile is not None else "default",
+                worker_ready=worker_ready and profile is not None,
             )
         except TaskError as error:
             _raise_task_error(error)

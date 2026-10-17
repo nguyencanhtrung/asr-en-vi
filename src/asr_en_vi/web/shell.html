@@ -225,6 +225,16 @@
                 <button class="secondary-button" id="cancel-transcription" type="button" hidden>Hủy xử lý</button>
               </div>
             </header>
+            <dl class="runtime-profile" id="runtime-profile" aria-live="polite">
+              <div>
+                <dt>Compute backend</dt>
+                <dd id="runtime-backend">Đang chờ worker</dd>
+              </div>
+              <div>
+                <dt>Model tự chọn</dt>
+                <dd id="runtime-model">Chưa xác định</dd>
+              </div>
+            </dl>
             <p class="transcription-status" id="transcription-status" role="status" aria-live="polite">
               Bản ghi đã lưu. Bấm “Bắt đầu chép lời” khi bạn muốn chạy nhận dạng local.
             </p>

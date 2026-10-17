@@ -20,6 +20,11 @@ from typing import Any
 
 from asr_en_vi.config import Settings
 from asr_en_vi.recordings import RecordingError, recording_path
+from asr_en_vi.runtime import (
+    RuntimeConfigurationError,
+    select_runtime,
+    write_runtime_profile,
+)
 from asr_en_vi.storage import initialize
 from asr_en_vi.tasks import (
     TaskError,
@@ -621,6 +626,8 @@ def run_worker(settings: Settings) -> None:
         lock_fd = acquire_worker_lock(settings.data_dir)
         if lock_fd is None:
             raise WorkerAlreadyRunning("Another worker still owns the local processing lock.")
+        profile = select_runtime(settings)
+        write_runtime_profile(settings.data_dir, profile)
         write_heartbeat(settings.data_dir, "starting")
         recover_abandoned_tasks(settings.data_dir)
         write_heartbeat(settings.data_dir, "idle")
@@ -644,7 +651,7 @@ def main() -> int:
         return 0 if is_healthy(settings.data_dir) else 1
     try:
         run_worker(settings)
-    except WorkerAlreadyRunning as error:
+    except (RuntimeConfigurationError, WorkerAlreadyRunning) as error:
         print(str(error), file=sys.stderr, flush=True)
         return 1
     return 0

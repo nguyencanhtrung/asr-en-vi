@@ -12,6 +12,7 @@ from asr_en_vi import routes
 from asr_en_vi.app import create_app
 from asr_en_vi.auth import AuthStore
 from asr_en_vi.config import Settings
+from asr_en_vi.runtime import RuntimeProfile, write_runtime_profile
 from asr_en_vi.tasks import claim_next_task, transcription_state
 from asr_en_vi.worker import acquire_worker_lock, write_heartbeat
 
@@ -69,6 +70,12 @@ async def test_task_routes_accept_poll_cancel_and_rediscover_meeting_state(tmp_p
             meeting_id = seed_meeting(settings.data_dir, "Task routes")
             lock_fd = acquire_worker_lock(settings.data_dir)
             assert lock_fd is not None
+            write_runtime_profile(
+                settings.data_dir,
+                RuntimeProfile(
+                    device="cuda", compute_type="float16", model_path=settings.asr_model_path
+                ),
+            )
             write_heartbeat(settings.data_dir, "idle")
             try:
                 payload = {"meeting_id": meeting_id, "request_id": "api-request-001"}
@@ -79,10 +86,18 @@ async def test_task_routes_accept_poll_cancel_and_rediscover_meeting_state(tmp_p
                 assert retry.json()["id"] == accepted.json()["id"]
                 assert accepted.json()["request_id"] == payload["request_id"]
                 assert accepted.json()["worker_state"] == "checking-worker"
+                assert accepted.json()["device"] == "cuda"
+                assert accepted.json()["compute_type"] == "float16"
+                assert accepted.json()["model_name"] == "model"
 
                 detail = (await client.get(f"/api/meetings/{meeting_id}")).json()
                 assert detail["transcription"]["task"]["id"] == accepted.json()["id"]
                 assert detail["transcription"]["generation"] is None
+                assert detail["transcription"]["runtime"] == {
+                    "device": "cuda",
+                    "compute_type": "float16",
+                    "model_name": "model",
+                }
 
                 claimed = claim_next_task(settings.data_dir, owner_id="api-test-worker")
                 assert claimed and claimed["id"] == accepted.json()["id"]
@@ -125,6 +140,12 @@ async def test_task_api_rejects_missing_worker_model_and_invalid_request(tmp_pat
 
             lock_fd = acquire_worker_lock(settings.data_dir)
             assert lock_fd is not None
+            write_runtime_profile(
+                settings.data_dir,
+                RuntimeProfile(
+                    device="cpu", compute_type="int8", model_path=settings.asr_model_path
+                ),
+            )
             write_heartbeat(settings.data_dir, "idle")
             try:
                 unavailable_model = await client.post(

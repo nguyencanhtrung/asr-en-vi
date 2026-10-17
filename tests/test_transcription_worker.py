@@ -14,6 +14,7 @@ from seeding import seed_meeting
 
 from asr_en_vi import worker
 from asr_en_vi.config import Settings
+from asr_en_vi.runtime import RuntimeProfile
 from asr_en_vi.storage import database_path, initialize
 from asr_en_vi.tasks import (
     TaskError,
@@ -404,6 +405,13 @@ def test_worker_publishes_starting_before_recovery_and_idle_after(tmp_path, monk
 
     monkeypatch.setattr(worker, "recover_abandoned_tasks", inspect_recovery)
     monkeypatch.setattr(worker, "_worker_loop", inspect_loop)
+    monkeypatch.setattr(
+        worker,
+        "select_runtime",
+        lambda _settings: RuntimeProfile(
+            device="cpu", compute_type="int8", model_path=tmp_path / "model"
+        ),
+    )
     worker.run_worker(settings)
 
     assert recovery_states == ["starting"]
@@ -422,6 +430,8 @@ def test_worker_subprocess_recovers_old_task_and_shuts_down_cleanly(tmp_path):
             "ASR_DATA_DIR": str(data_dir),
             "ASR_AUTH_DIR": str(settings.auth_dir),
             "ASR_MODEL_PATH": str(model_dir),
+            "ASR_DEVICE": "cpu",
+            "ASR_COMPUTE_TYPE": "int8",
         }
     )
     source_root = str(Path(__file__).parents[1] / "src")

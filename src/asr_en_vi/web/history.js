@@ -571,6 +571,22 @@
     }
   }
 
+  function renderRuntimeProfile(runtime) {
+    const panel = $("#runtime-profile");
+    const device = runtime && runtime.device;
+    panel.dataset.device = device || "unavailable";
+    if (device === "cuda") {
+      $("#runtime-backend").textContent = `GPU · CUDA · ${runtime.compute_type}`;
+    } else if (device === "cpu") {
+      $("#runtime-backend").textContent = `CPU fallback · ${runtime.compute_type}`;
+    } else {
+      $("#runtime-backend").textContent = "Worker chưa sẵn sàng";
+    }
+    $("#runtime-model").textContent = runtime && runtime.model_name
+      ? runtime.model_name
+      : "Chưa xác định";
+  }
+
   function renderTranscription(transcription) {
     const task = transcription && transcription.task;
     const generation = transcription && transcription.generation;
@@ -580,6 +596,8 @@
     const cancelButton = $("#cancel-transcription");
     const measurements = $("#task-measurements");
     const error = $("#transcription-error");
+
+    renderRuntimeProfile(transcription && transcription.runtime);
 
     startButton.hidden = active;
     startButton.disabled = state.taskRequestInFlight;

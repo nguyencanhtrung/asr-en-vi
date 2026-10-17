@@ -1,16 +1,28 @@
 FROM ghcr.io/astral-sh/uv:0.11.15 AS uv-bin
 
-FROM python:3.12-slim AS builder
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04 AS python-base
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        ffmpeg \
+        libgomp1 \
+        python3 \
+        python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM python-base AS builder
 COPY --from=uv-bin /uv /uvx /bin/
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
-    UV_PROJECT_ENVIRONMENT=/app/.venv
+    UV_PROJECT_ENVIRONMENT=/app/.venv \
+    UV_PYTHON=/usr/bin/python3
 WORKDIR /app
 COPY pyproject.toml README.md uv.lock ./
 COPY src/ ./src/
 RUN uv sync --locked --no-dev --no-editable
 
-FROM python:3.12-slim AS runtime
+FROM python-base AS runtime
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -18,10 +30,7 @@ ENV PATH="/app/.venv/bin:${PATH}" \
     ASR_AUTH_DIR=/var/lib/asr-en-vi/auth
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg libgomp1 \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd --gid 10001 asr \
+RUN groupadd --gid 10001 asr \
     && useradd --uid 10001 --gid asr --no-create-home --shell /usr/sbin/nologin asr \
     && mkdir -p /var/lib/asr-en-vi/data /var/lib/asr-en-vi/auth \
     && chown -R 10001:10001 /var/lib/asr-en-vi \

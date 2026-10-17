@@ -6,7 +6,8 @@ khai.
 
 ## Chạy trên máy local
 
-Cần Docker Engine và Docker Compose v2. Mặc định ứng dụng mở tại
+Cần Docker Engine và Docker Compose 2.30 trở lên. Máy có NVIDIA GPU cần thêm NVIDIA driver và
+NVIDIA Container Toolkit; máy không có GPU tự dùng CPU. Mặc định ứng dụng mở tại
 `http://127.0.0.1:8765`; Compose chỉ publish cổng trên loopback của máy chạy Docker.
 Hãy mở đúng URL được in trong terminal; host khác (kể cả `localhost` khi cấu hình dùng
 `127.0.0.1`) bị từ chối để bảo vệ khỏi DNS rebinding.
@@ -20,9 +21,12 @@ Script build image, chờ app và worker healthy, rồi in access link cùng QR 
 Link chứa token trong URL fragment. Trang truy cập xóa fragment trước khi gửi token trong
 JSON body để đổi lấy phiên trình duyệt.
 
-Trước khi khởi động service, script kiểm tra model được mount bằng cùng validator mà runtime sử
-dụng. Model thiếu, sai đường dẫn hoặc thiếu file bắt buộc làm setup dừng ngay thay vì khởi động
-một workspace chưa thể chép lời.
+Script tự dò compute backend bằng chính image runtime. Nếu Docker nhìn thấy NVIDIA GPU, worker
+dùng CUDA, `float16` và `whisper-large-v3`; nếu máy không có GPU, worker dùng CPU, `int8` và
+`whisper-small` để giảm tài nguyên với độ chính xác thấp hơn. Nếu host có GPU nhưng Docker không
+truy cập được GPU, setup dừng và báo lỗi NVIDIA Container Toolkit thay vì âm thầm rơi về CPU.
+Model được chọn sẽ được tải một lần khi còn thiếu, sau đó script kiểm tra model, CUDA/cuDNN và
+compute type trước khi khởi động service.
 
 Compose tạo hai volume riêng:
 
@@ -47,23 +51,24 @@ PyAV được giữ dưới phiên bản 19 để tương thích với API giả
 Để cài dependencies phát triển, chạy `uv sync --all-groups --locked`; runtime-only dùng
 `uv sync --locked --no-dev`.
 
-Chuẩn bị trước một model Whisper đã chuyển sang định dạng CTranslate2 của faster-whisper. Mặc
-định, Compose đọc model từ `./models/whisper-large-v3` trên host và gắn thư mục đó ở chế độ chỉ
-đọc vào app/worker. Thư mục model cần có `model.bin`, `config.json`, `tokenizer.json` và
-`preprocessor_config.json`. Preprocessor config phải là JSON hợp lệ, khai báo `feature_size`,
-`sampling_rate` là `16000`, `hop_length`, `n_fft` và `chunk_length` dưới dạng số nguyên dương.
-Tokenizer phải là file `tokenizer.json`; `vocabulary.json` không thay thế file này. Không đặt tên
-model Hub ở `ASR_MODEL_PATH`; chỉ dùng đường dẫn tới thư mục model đã chuẩn bị.
+Mặc định `./scripts/start.sh` tải model CTranslate2 còn thiếu từ bộ model công khai của Systran:
+`faster-whisper-large-v3` cho GPU hoặc `faster-whisper-small` cho CPU. Các lần chạy sau dùng bản
+local trong `./models`; app và worker gắn thư mục này chỉ đọc khi phục vụ. Có thể chuẩn bị model
+thủ công trước khi chạy nếu máy cần setup offline:
 
 ```sh
 mkdir -p ./models
 cp -a /path/to/prepared-whisper-model ./models/whisper-large-v3
+cp -a /path/to/prepared-whisper-small ./models/whisper-small
 ```
 
-`ASR_MODEL_HOST_PATH` chọn thư mục model trên host; `ASR_MODEL_PATH` chọn thư mục con trong
-container. Worker mặc định dùng CPU với `int8`. Đặt `ASR_DEVICE` và `ASR_COMPUTE_TYPE` trong
-`.env` để chọn cấu hình phù hợp. Runtime chỉ mở model từ đường dẫn local, bật chế độ offline và
-tắt telemetry của Hugging Face; audio không được gửi ra ngoài.
+Mỗi model phải có `model.bin`, `config.json`, `tokenizer.json` và `preprocessor_config.json` hợp
+lệ. `ASR_MODEL_HOST_PATH` chọn thư mục model trên host; `ASR_GPU_MODEL_PATH` và
+`ASR_CPU_MODEL_PATH` chọn hai thư mục trong container. `ASR_DEVICE=auto` là mặc định; có thể đặt
+`cpu` hoặc `cuda` để chủ động khóa backend. `ASR_MODEL_PATH` và `ASR_COMPUTE_TYPE` vẫn là override
+tường minh cho kiểm thử chuyên biệt. Image chứa CUDA 12.8 và cuDNN 9. Sau bước tải model, runtime
+chỉ mở model từ đường dẫn local, bật chế độ offline và tắt telemetry; audio không được gửi ra
+ngoài. UI hiển thị compute backend, compute type và model worker đang dùng.
 
 Import cuộc họp chỉ lưu bản ghi. Mở cuộc họp rồi bấm **Bắt đầu chép lời** để chiếm slot xử lý.
 Sau khi có transcript, nút **Chạy lại bản ghi** tạo một thế hệ transcript riêng; thế hệ cũ còn
