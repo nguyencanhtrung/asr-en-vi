@@ -21,7 +21,10 @@ pytestmark = pytest.mark.browser
 
 # Far ahead of UTC so any date arithmetic done in local time would drift a day.
 TIMEZONE = "Pacific/Kiritimati"
-FIXED_NOW = "2026-10-17T10:00:00"
+# Keep the UTC offset explicit (+14:00 is Kiritimati's, i.e. 2026-10-17 10:00 local):
+# Chromium versions parse a timezone-naive string differently (UTC vs context-local),
+# which shifted "today" by a day on newer Chrome.
+FIXED_NOW = "2026-10-17T10:00:00+14:00"
 
 
 class LiveServer:
