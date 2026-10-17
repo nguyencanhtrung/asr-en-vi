@@ -51,15 +51,22 @@ def test_media_gate_skips_locally_but_fails_when_ci_requires_tools(monkeypatch):
 
 
 def test_container_job_runs_runtime_smoke_check_on_the_built_image():
-    steps = load_yaml(PIPELINE_PATH)["jobs"]["container"]["steps"]
+    container = load_yaml(PIPELINE_PATH)["jobs"]["container"]
+    steps = container["steps"]
     build = next(step for step in steps if step["name"] == "Build container")
     smoke = next(step for step in steps if step["name"] == "Smoke-test container runtime")
 
+    assert container["timeout-minutes"] >= 30
     assert build["with"]["load"] is True
+    assert build["with"]["cache-from"] == "type=gha,scope=container"
+    assert build["with"]["cache-to"] == (
+        "${{ github.event_name == 'push' && 'type=gha,mode=max,scope=container' || '' }}"
+    )
     assert steps.index(smoke) > steps.index(build)
     assert smoke["run"] == f"./scripts/container-smoke.sh {build['with']['tags']}"
     script = (ROOT / "scripts" / "container-smoke.sh").read_text(encoding="utf-8")
     assert "normalize_media" in script and "/healthz" in script
+    assert "from torchcodec.decoders import AudioDecoder" in script
 
 
 def test_startup_detects_gpu_prepares_model_and_preflights_before_services():
@@ -81,6 +88,7 @@ def test_publish_waits_for_every_gate_and_has_only_required_write_permissions():
 
     assert publish["if"] == "github.event_name == 'push'"
     assert publish["needs"] == ["quality", "container"]
+    assert publish["timeout-minutes"] >= 60
     assert publish["permissions"] == {
         "contents": "read",
         "packages": "write",

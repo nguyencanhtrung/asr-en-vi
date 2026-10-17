@@ -27,6 +27,13 @@ def test_compose_separates_services_volumes_and_loopback_publish():
     assert worker["environment"]["ASR_DEVICE"] == "${ASR_DEVICE:-auto}"
     assert worker["environment"]["ASR_GPU_MODEL_PATH"].endswith("whisper-large-v3}")
     assert worker["environment"]["ASR_CPU_MODEL_PATH"].endswith("whisper-small}")
+    assert worker["environment"]["ASR_DIARIZATION_MODEL_PATH"].endswith(
+        "speaker-diarization-community-1}"
+    )
+    assert app["environment"]["ASR_DIARIZATION_MODEL_PATH"].endswith(
+        "speaker-diarization-community-1}"
+    )
+    assert "HF_TOKEN" not in app["environment"] and "HF_TOKEN" not in worker["environment"]
     assert "gpus" not in worker
     gpu_override = yaml.safe_load((ROOT / "compose.gpu.yaml").read_text(encoding="utf-8"))
     assert gpu_override["services"]["worker"]["gpus"] == "all"
@@ -50,6 +57,7 @@ def test_image_build_context_is_allowlisted_and_excludes_user_owned_files():
     assert "COPY pyproject.toml README.md uv.lock ./" in dockerfile
     assert "uv sync --locked --no-dev --no-editable" in dockerfile
     assert "nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04" in dockerfile
+    assert "libpython3.12" in dockerfile
     assert "faster-whisper==1.2.1" in pyproject
     assert '"av>=11,<19"' in pyproject
     assert not (ROOT / "requirements-asr.txt").exists()
@@ -67,6 +75,9 @@ def test_example_environment_selects_hardware_profiles_automatically():
     assert "ASR_CPU_MODEL_PATH=/models/whisper-small" in example.splitlines()
     assert "ASR_GPU_COMPUTE_TYPE=float16" in example.splitlines()
     assert "ASR_CPU_COMPUTE_TYPE=int8" in example.splitlines()
+    assert (
+        "ASR_DIARIZATION_MODEL_PATH=/models/speaker-diarization-community-1" in example.splitlines()
+    )
 
 
 def test_status_badge_sizes_only_its_dot_and_runtime_details_have_ui_targets():
@@ -100,6 +111,17 @@ def test_worker_grace_period_exceeds_runner_worst_case_stop_time():
 
     assert grace.endswith("s")
     assert float(grace.removesuffix("s")) >= worst_case + 5
+
+
+def test_start_preflight_maps_the_configured_container_diarization_path_to_the_host_mount():
+    script = (ROOT / "scripts/start.sh").read_text(encoding="utf-8")
+
+    assert "ASR_DIARIZATION_MODEL_PATH=" in script
+    assert "${diarization_container_path#/models/}" in script
+    assert "ASR_DIARIZATION_MODEL_PATH must be below /models" in script
+    assert "embedding/pytorch_model.bin" in script
+    assert "plda/xvec_transform.npz" in script
+    assert "segmentation/pytorch_model.bin" in script
 
 
 def test_claimed_task_starting_stage_has_a_vietnamese_label():

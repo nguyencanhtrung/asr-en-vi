@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import json
+import math
 import os
 import select
 import signal
@@ -18,7 +19,12 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+from asr_en_vi.alignment import AlignmentError, align_segments_to_speakers, validate_turns
 from asr_en_vi.config import Settings
+from asr_en_vi.diarization_runner import (
+    DiarizationConfigurationError,
+    prepared_diarization_directory,
+)
 from asr_en_vi.recordings import RecordingError, recording_path
 from asr_en_vi.runtime import (
     RuntimeConfigurationError,
@@ -192,10 +198,38 @@ def _safe_runner_environment() -> dict[str, str]:
             "HF_HUB_OFFLINE": "1",
             "TRANSFORMERS_OFFLINE": "1",
             "HF_HUB_DISABLE_TELEMETRY": "1",
+            "PYANNOTE_METRICS_ENABLED": "0",
             "DO_NOT_TRACK": "1",
         }
     )
+    for name in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "HUGGINGFACEHUB_API_TOKEN", "HF_API_TOKEN"):
+        environment.pop(name, None)
     return environment
+
+
+def _verify_torch_cuda() -> None:
+    """Probe torch CUDA in a short-lived process so the worker keeps no model state."""
+    command = (
+        "import torch; "
+        "raise SystemExit(0 if torch.cuda.is_available() "
+        "and torch.empty(1, device='cuda').is_cuda else 1)"
+    )
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", command],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=30,
+            check=False,
+            env=_safe_runner_environment(),
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RuntimeConfigurationError("Cannot verify the PyTorch CUDA runtime.") from error
+    if result.returncode != 0:
+        raise RuntimeConfigurationError(
+            "PyTorch cannot allocate on the selected CUDA device for speaker diarization."
+        )
 
 
 def _decode_event(line: bytes) -> dict[str, Any]:
@@ -222,45 +256,51 @@ def _runner_command(task: dict[str, Any], audio_path: Path) -> list[str]:
     ]
 
 
-def _run_task(
+def _diarization_command(task: dict[str, Any], audio_path: Path) -> list[str]:
+    """Build a local-path-only Community-1 command."""
+    return [
+        sys.executable,
+        "-m",
+        "asr_en_vi.diarization_runner",
+        "--model",
+        str(task["diarization_model_path"]),
+        "--audio",
+        str(audio_path),
+        "--device",
+        str(task["device"]),
+    ]
+
+
+def _run_child(
     settings: Settings,
     lock_fd: int,
-    task: dict[str, Any],
+    task_id: str,
+    owner_id: str,
+    command: list[str],
     stop_event: threading.Event,
-) -> None:
-    task_id = str(task["id"])
-    owner_id = str(task["owner_id"])
-    started = time.monotonic()
-    segments: list[dict[str, Any]] = []
-    latest_segment_end = 0.0
-    language_probability: float | None = None
-    completed_event: dict[str, Any] | None = None
-    runner_error: dict[str, str] | None = None
-    protocol_error = False
+    task_started: float,
+    progress: Any,
+    on_event: Any,
+) -> dict[str, object]:
+    """Run one isolated phase and return only after its process group is gone."""
     process: subprocess.Popen[bytes] | None = None
-    latest_progress_write = 0.0
-    latest_heartbeat = 0.0
-    stage = "starting_runner"
+    result: dict[str, object] = {
+        "return_code": None,
+        "stop_reason": None,
+        "protocol_error": False,
+    }
+    runtime_state = task_runtime_state(settings.data_dir, task_id)
+    if runtime_state is None or runtime_state[1] != owner_id:
+        result["stop_reason"] = "ownership_lost"
+        return result
+    if runtime_state[0] == "stopping":
+        result["stop_reason"] = "canceled"
+        return result
+    if stop_event.is_set():
+        result["stop_reason"] = "interrupted"
+        return result
 
     try:
-        audio_path = recording_path(settings.data_dir, task["meeting_id"])
-        update_task_progress(
-            settings.data_dir,
-            task_id,
-            owner_id=owner_id,
-            stage=stage,
-            elapsed_seconds=0,
-            transcript_end_seconds=0,
-            segment_count=0,
-        )
-        runtime_state = task_runtime_state(settings.data_dir, task_id)
-        if runtime_state is None or runtime_state[1] != owner_id:
-            return
-        if runtime_state[0] == "stopping":
-            finish_canceled_task(settings.data_dir, task_id, owner_id=owner_id, elapsed_seconds=0)
-            return
-
-        command = _runner_command(task, audio_path)
         process = subprocess.Popen(
             command,
             stdin=subprocess.DEVNULL,
@@ -278,7 +318,15 @@ def _run_task(
         reached_eof = False
         post_eof_deadline: float | None = None
         child_exit_time: float | None = None
-        stop_reason: str | None = None
+        last_progress_write = 0.0
+        last_heartbeat = 0.0
+
+        def consume_line(line: bytes) -> bool:
+            try:
+                event = _decode_event(line)
+                return bool(on_event(event))
+            except (UnicodeDecodeError, ValueError, TypeError, json.JSONDecodeError):
+                return False
 
         while not reached_eof or process.poll() is None:
             if reached_eof:
@@ -298,69 +346,40 @@ def _run_task(
                     while b"\n" in pending:
                         raw_line, _, remainder = pending.partition(b"\n")
                         pending = bytearray(remainder)
-                        try:
-                            event = _decode_event(raw_line)
-                            event_type = event["type"]
-                            if event_type == "stage" and event.get("stage") in {
-                                "loading_model",
-                                "transcribing",
-                            }:
-                                stage = event["stage"]
-                            elif event_type == "segment":
-                                segment = {
-                                    key: value for key, value in event.items() if key != "type"
-                                }
-                                segments.append(segment)
-                                latest_segment_end = max(
-                                    latest_segment_end,
-                                    float(segment.get("end_seconds") or 0.0),
-                                )
-                                stage = "transcribing"
-                            elif event_type == "complete":
-                                completed_event = event
-                                language_probability = event.get("language_probability")
-                            elif event_type == "error":
-                                runner_error = {
-                                    "code": str(event.get("code") or "transcription_failed"),
-                                    "message": str(
-                                        event.get("message")
-                                        or "Local transcription failed. Check the worker logs "
-                                        "and try again."
-                                    ),
-                                }
-                            else:
-                                raise ValueError("Unknown runner event")
-                        except (UnicodeDecodeError, ValueError, TypeError, json.JSONDecodeError):
-                            protocol_error = True
+                        if not consume_line(raw_line):
+                            result["protocol_error"] = True
                             break
-                    if protocol_error:
+                    if result["protocol_error"]:
                         break
+
             now = time.monotonic()
             runtime_state = task_runtime_state(settings.data_dir, task_id)
             if runtime_state is None or runtime_state[1] != owner_id:
-                stop_reason = "ownership_lost"
+                result["stop_reason"] = "ownership_lost"
             elif runtime_state[0] == "stopping":
-                stop_reason = "canceled"
+                result["stop_reason"] = "canceled"
             elif stop_event.is_set():
-                stop_reason = "interrupted"
-            if stop_reason is not None or protocol_error:
+                result["stop_reason"] = "interrupted"
+            if result["stop_reason"] is not None:
                 break
-            if now - latest_progress_write >= TASK_PROGRESS_INTERVAL_SECONDS:
+
+            if now - last_progress_write >= TASK_PROGRESS_INTERVAL_SECONDS:
+                stage, transcript_end, segment_count = progress()
                 if not update_task_progress(
                     settings.data_dir,
                     task_id,
                     owner_id=owner_id,
                     stage=stage,
-                    elapsed_seconds=now - started,
-                    transcript_end_seconds=latest_segment_end,
-                    segment_count=len(segments),
+                    elapsed_seconds=now - task_started,
+                    transcript_end_seconds=transcript_end,
+                    segment_count=segment_count,
                 ):
-                    stop_reason = "ownership_lost"
+                    result["stop_reason"] = "ownership_lost"
                     break
-                latest_progress_write = now
-            if now - latest_heartbeat >= HEARTBEAT_INTERVAL_SECONDS:
+                last_progress_write = now
+            if now - last_heartbeat >= HEARTBEAT_INTERVAL_SECONDS:
                 write_heartbeat(settings.data_dir, "running")
-                latest_heartbeat = now
+                last_heartbeat = now
             if process.poll() is not None and child_exit_time is None:
                 child_exit_time = now
             if (
@@ -369,204 +388,36 @@ def _run_task(
                 and post_eof_deadline is not None
                 and now >= post_eof_deadline
             ):
-                protocol_error = True
+                result["protocol_error"] = True
                 break
             if child_exit_time is not None and not reached_eof and now - child_exit_time > 2:
-                protocol_error = True
+                result["protocol_error"] = True
                 break
 
-        if stop_reason is not None or protocol_error:
-            write_heartbeat(settings.data_dir, "stopping")
-            reaped = terminate_and_reap_process_group(process)
-            if not reaped:
-                # Keep the task and slot owned. The loop below retries until the group is gone.
-                while not reaped:
-                    if stop_event.wait(0.5):
-                        pass
-                    write_heartbeat(settings.data_dir, "stopping")
-                    reaped = terminate_and_reap_process_group(process, term_grace_seconds=0.1)
-            if process.stdout is not None:
-                process.stdout.close()
-            elapsed = time.monotonic() - started
-            if stop_reason == "canceled":
-                finish_canceled_task(
-                    settings.data_dir, task_id, owner_id=owner_id, elapsed_seconds=elapsed
-                )
-            elif stop_reason == "interrupted" or stop_event.is_set():
-                finish_interrupted_task(
-                    settings.data_dir, task_id, owner_id=owner_id, elapsed_seconds=elapsed
-                )
-            elif protocol_error:
-                fail_task(
-                    settings.data_dir,
-                    task_id,
-                    owner_id=owner_id,
-                    error_code="runner_protocol_error",
-                    message="The local transcription runner returned an invalid result.",
-                    elapsed_seconds=elapsed,
-                )
-            return
-
-        if pending.strip():
-            try:
-                event = _decode_event(bytes(pending))
-                if event.get("type") == "complete":
-                    completed_event = event
-                    language_probability = event.get("language_probability")
-                elif event.get("type") == "error":
-                    runner_error = {
-                        "code": str(event.get("code") or "transcription_failed"),
-                        "message": str(event.get("message") or "Local transcription failed."),
-                    }
-                else:
-                    protocol_error = True
-            except (UnicodeDecodeError, ValueError, TypeError, json.JSONDecodeError):
-                protocol_error = True
-
-        return_code = process.wait()
-        if _group_exists(process.pid):
-            if not terminate_and_reap_process_group(process):
-                while not terminate_and_reap_process_group(process, term_grace_seconds=0.1):
-                    write_heartbeat(settings.data_dir, "stopping")
-                    time.sleep(0.5)
-            protocol_error = True
-        if process.stdout is not None:
-            process.stdout.close()
-        elapsed = time.monotonic() - started
-        runtime_state = task_runtime_state(settings.data_dir, task_id)
-        if runtime_state is None or runtime_state[1] != owner_id:
-            return
-        if runtime_state[0] == "stopping":
-            finish_canceled_task(
-                settings.data_dir, task_id, owner_id=owner_id, elapsed_seconds=elapsed
-            )
-            return
-        if stop_event.is_set():
-            finish_interrupted_task(
-                settings.data_dir, task_id, owner_id=owner_id, elapsed_seconds=elapsed
-            )
-            return
-        if runner_error is not None:
-            fail_task(
-                settings.data_dir,
-                task_id,
-                owner_id=owner_id,
-                error_code=runner_error["code"],
-                message=runner_error["message"],
-                elapsed_seconds=elapsed,
-            )
-            return
-        if protocol_error or return_code != 0 or completed_event is None:
-            fail_task(
-                settings.data_dir,
-                task_id,
-                owner_id=owner_id,
-                error_code="transcription_failed",
-                message=(
-                    "Local transcription did not return a complete result. Check the worker logs "
-                    "and try again."
-                ),
-                elapsed_seconds=elapsed,
-            )
-            return
-        if completed_event.get("segment_count") != len(segments):
-            fail_task(
-                settings.data_dir,
-                task_id,
-                owner_id=owner_id,
-                error_code="runner_protocol_error",
-                message="The local transcription runner returned an incomplete result.",
-                elapsed_seconds=elapsed,
-            )
-            return
-        if not update_task_progress(
-            settings.data_dir,
-            task_id,
-            owner_id=owner_id,
-            stage="publishing",
-            elapsed_seconds=elapsed,
-            transcript_end_seconds=latest_segment_end,
-            segment_count=len(segments),
+        if (
+            pending.strip()
+            and result["stop_reason"] is None
+            and not result["protocol_error"]
+            and not consume_line(bytes(pending))
         ):
-            runtime_state = task_runtime_state(settings.data_dir, task_id)
-            if runtime_state is not None and runtime_state[0] == "stopping":
-                finish_canceled_task(
-                    settings.data_dir, task_id, owner_id=owner_id, elapsed_seconds=elapsed
-                )
-            return
-        generation = publish_complete_generation(
-            settings.data_dir,
-            task_id,
-            owner_id=owner_id,
-            segments=segments,
-            language_probability=language_probability,
-            elapsed_seconds=elapsed,
-        )
-        if generation is None:
-            runtime_state = task_runtime_state(settings.data_dir, task_id)
-            if (
-                runtime_state is not None
-                and runtime_state[1] == owner_id
-                and runtime_state[0] == "stopping"
-            ):
-                finish_canceled_task(
-                    settings.data_dir, task_id, owner_id=owner_id, elapsed_seconds=elapsed
-                )
-    except RecordingError:
-        fail_task(
-            settings.data_dir,
-            task_id,
-            owner_id=owner_id,
-            error_code="recording_unavailable",
-            message="Meeting recording is unavailable to the worker.",
-            elapsed_seconds=time.monotonic() - started,
-        )
-    except (OSError, subprocess.SubprocessError):
-        if process is not None:
-            reaped = terminate_and_reap_process_group(process)
-            if not reaped:
+            result["protocol_error"] = True
+
+        if result["stop_reason"] is not None or result["protocol_error"]:
+            write_heartbeat(settings.data_dir, "stopping")
+            while not terminate_and_reap_process_group(process):
+                if stop_event.wait(0.5):
+                    pass
+                write_heartbeat(settings.data_dir, "stopping")
+        else:
+            result["return_code"] = process.wait()
+            if _group_exists(process.pid):
                 while not terminate_and_reap_process_group(process, term_grace_seconds=0.1):
                     write_heartbeat(settings.data_dir, "stopping")
                     time.sleep(0.5)
-            if process.stdout is not None:
-                process.stdout.close()
-        runtime_state = task_runtime_state(settings.data_dir, task_id)
-        elapsed = time.monotonic() - started
-        if runtime_state is not None and runtime_state[1] == owner_id:
-            if runtime_state[0] == "stopping":
-                finish_canceled_task(
-                    settings.data_dir, task_id, owner_id=owner_id, elapsed_seconds=elapsed
-                )
-            elif stop_event.is_set():
-                finish_interrupted_task(
-                    settings.data_dir, task_id, owner_id=owner_id, elapsed_seconds=elapsed
-                )
-            else:
-                fail_task(
-                    settings.data_dir,
-                    task_id,
-                    owner_id=owner_id,
-                    error_code="runner_start_failed",
-                    message="The local transcription runner could not be started.",
-                    elapsed_seconds=elapsed,
-                )
-    except TaskError as error:
-        if process is not None:
-            reaped = terminate_and_reap_process_group(process)
-            if not reaped:
-                while not terminate_and_reap_process_group(process, term_grace_seconds=0.1):
-                    time.sleep(0.5)
-            if process.stdout is not None:
-                process.stdout.close()
-        fail_task(
-            settings.data_dir,
-            task_id,
-            owner_id=owner_id,
-            error_code=error.code,
-            message=error.message,
-            elapsed_seconds=time.monotonic() - started,
-        )
-    except Exception:
+                result["protocol_error"] = True
+        result["return_code"] = process.returncode
+        return result
+    except BaseException:
         if process is not None:
             reaped = terminate_and_reap_process_group(process)
             while not reaped:
@@ -574,28 +425,292 @@ def _run_task(
                 reaped = terminate_and_reap_process_group(process, term_grace_seconds=0.1)
                 if not reaped:
                     time.sleep(0.5)
-            if process.stdout is not None:
-                process.stdout.close()
-        runtime_state = task_runtime_state(settings.data_dir, task_id)
+        raise
+    finally:
+        if process is not None and process.stdout is not None:
+            process.stdout.close()
+
+
+def _finish_after_child_stop(
+    settings: Settings,
+    task_id: str,
+    owner_id: str,
+    stop_event: threading.Event,
+    elapsed_seconds: float,
+) -> None:
+    runtime_state = task_runtime_state(settings.data_dir, task_id)
+    if runtime_state is None or runtime_state[1] != owner_id:
+        return
+    if runtime_state[0] == "stopping":
+        finish_canceled_task(
+            settings.data_dir, task_id, owner_id=owner_id, elapsed_seconds=elapsed_seconds
+        )
+    elif stop_event.is_set():
+        finish_interrupted_task(
+            settings.data_dir, task_id, owner_id=owner_id, elapsed_seconds=elapsed_seconds
+        )
+
+
+def _run_task(
+    settings: Settings,
+    lock_fd: int,
+    task: dict[str, Any],
+    stop_event: threading.Event,
+) -> None:
+    task_id = str(task["id"])
+    owner_id = str(task["owner_id"])
+    started = time.monotonic()
+    phase = "transcription"
+    state: dict[str, Any] = {
+        "stage": "starting_runner",
+        "segments": [],
+        "latest_segment_end": 0.0,
+        "language_probability": None,
+        "asr_complete": None,
+        "asr_error": None,
+        "regular_turns": [],
+        "exclusive_turns": [],
+        "diarization_complete": None,
+        "diarization_error": None,
+    }
+
+    def progress() -> tuple[str, float, int]:
+        return state["stage"], state["latest_segment_end"], len(state["segments"])
+
+    def finish_error(code: str, message: str) -> None:
         elapsed = time.monotonic() - started
-        if runtime_state is not None and runtime_state[1] == owner_id:
-            if runtime_state[0] == "stopping":
-                finish_canceled_task(
-                    settings.data_dir, task_id, owner_id=owner_id, elapsed_seconds=elapsed
-                )
-            elif stop_event.is_set():
-                finish_interrupted_task(
-                    settings.data_dir, task_id, owner_id=owner_id, elapsed_seconds=elapsed
-                )
-            else:
-                fail_task(
-                    settings.data_dir,
-                    task_id,
-                    owner_id=owner_id,
-                    error_code="transcription_failed",
-                    message="Local transcription failed. Check the worker logs and try again.",
-                    elapsed_seconds=elapsed,
-                )
+        _finish_after_child_stop(settings, task_id, owner_id, stop_event, elapsed)
+        runtime_state = task_runtime_state(settings.data_dir, task_id)
+        if runtime_state is None or runtime_state[1] != owner_id:
+            return
+        if runtime_state[0] in {"stopping", "canceled"} or stop_event.is_set():
+            return
+        fail_task(
+            settings.data_dir,
+            task_id,
+            owner_id=owner_id,
+            error_code=code,
+            message=message,
+            elapsed_seconds=elapsed,
+        )
+
+    def handle_asr_event(event: dict[str, Any]) -> bool:
+        event_type = event["type"]
+        if state["asr_complete"] is not None or state["asr_error"] is not None:
+            return False
+        if event_type == "stage" and event.get("stage") in {"loading_model", "transcribing"}:
+            state["stage"] = event["stage"]
+            return True
+        if event_type == "segment":
+            start = event.get("start_seconds")
+            end = event.get("end_seconds")
+            text = event.get("text")
+            segment_id = event.get("id")
+            if (
+                isinstance(start, bool)
+                or not isinstance(start, (int, float))
+                or not math.isfinite(float(start))
+                or start < 0
+                or isinstance(end, bool)
+                or not isinstance(end, (int, float))
+                or not math.isfinite(float(end))
+                or end < start
+                or not isinstance(text, str)
+                or not isinstance(segment_id, str)
+            ):
+                return False
+            segment = {key: value for key, value in event.items() if key != "type"}
+            state["segments"].append(segment)
+            state["latest_segment_end"] = max(state["latest_segment_end"], float(end))
+            state["stage"] = "transcribing"
+            return True
+        if event_type == "complete":
+            count = event.get("segment_count")
+            if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                return False
+            state["asr_complete"] = event
+            state["language_probability"] = event.get("language_probability")
+            return True
+        if event_type == "error":
+            state["asr_error"] = {
+                "code": str(event.get("code") or "transcription_failed"),
+                "message": str(event.get("message") or "Local transcription failed."),
+            }
+            return True
+        return False
+
+    def handle_diarization_event(event: dict[str, Any]) -> bool:
+        event_type = event["type"]
+        if state["diarization_complete"] is not None or state["diarization_error"] is not None:
+            return False
+        if event_type == "stage" and event.get("stage") in {
+            "loading_diarization_model",
+            "diarizing",
+        }:
+            state["stage"] = event["stage"]
+            return True
+        if event_type == "turn":
+            kind = event.get("kind")
+            if kind not in {"regular", "exclusive"}:
+                return False
+            turn = {
+                "start_seconds": event.get("start_seconds"),
+                "end_seconds": event.get("end_seconds"),
+                "speaker_id": event.get("speaker_id"),
+            }
+            (state["regular_turns"] if kind == "regular" else state["exclusive_turns"]).append(turn)
+            return True
+        if event_type == "complete":
+            for key in ("regular_turn_count", "exclusive_turn_count"):
+                value = event.get(key)
+                if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                    return False
+            state["diarization_complete"] = event
+            return True
+        if event_type == "error":
+            state["diarization_error"] = {
+                "code": str(event.get("code") or "diarization_failed"),
+                "message": str(event.get("message") or "Local diarization failed."),
+            }
+            return True
+        return False
+
+    try:
+        audio_path = recording_path(settings.data_dir, task["meeting_id"])
+        update_task_progress(
+            settings.data_dir,
+            task_id,
+            owner_id=owner_id,
+            stage=state["stage"],
+            elapsed_seconds=0,
+            transcript_end_seconds=0,
+            segment_count=0,
+        )
+        asr_result = _run_child(
+            settings,
+            lock_fd,
+            task_id,
+            owner_id,
+            _runner_command(task, audio_path),
+            stop_event,
+            started,
+            progress,
+            handle_asr_event,
+        )
+        if asr_result["stop_reason"] is not None:
+            _finish_after_child_stop(
+                settings, task_id, owner_id, stop_event, time.monotonic() - started
+            )
+            return
+        if state["asr_error"] is not None:
+            finish_error(state["asr_error"]["code"], state["asr_error"]["message"])
+            return
+        if (
+            asr_result["protocol_error"]
+            or asr_result["return_code"] != 0
+            or state["asr_complete"] is None
+            or state["asr_complete"].get("segment_count") != len(state["segments"])
+        ):
+            finish_error(
+                "runner_protocol_error",
+                "The local transcription runner did not return a complete result.",
+            )
+            return
+
+        phase = "diarization"
+        state["stage"] = "starting_diarization"
+        diarization_result = _run_child(
+            settings,
+            lock_fd,
+            task_id,
+            owner_id,
+            _diarization_command(task, audio_path),
+            stop_event,
+            started,
+            progress,
+            handle_diarization_event,
+        )
+        if diarization_result["stop_reason"] is not None:
+            _finish_after_child_stop(
+                settings, task_id, owner_id, stop_event, time.monotonic() - started
+            )
+            return
+        if state["diarization_error"] is not None:
+            finish_error(state["diarization_error"]["code"], state["diarization_error"]["message"])
+            return
+        completed = state["diarization_complete"]
+        if (
+            diarization_result["protocol_error"]
+            or diarization_result["return_code"] != 0
+            or completed is None
+            or completed["regular_turn_count"] != len(state["regular_turns"])
+            or completed["exclusive_turn_count"] != len(state["exclusive_turns"])
+        ):
+            finish_error(
+                "diarization_protocol_error",
+                "The local diarization runner did not return a complete result.",
+            )
+            return
+
+        try:
+            regular_turns = validate_turns(state["regular_turns"])
+            exclusive_turns = validate_turns(state["exclusive_turns"])
+            alignment = align_segments_to_speakers(
+                state["segments"], regular_turns, exclusive_turns
+            )
+        except AlignmentError:
+            finish_error(
+                "diarization_protocol_error",
+                "The diarization result could not be aligned to source timestamps.",
+            )
+            return
+
+        elapsed = time.monotonic() - started
+        if not update_task_progress(
+            settings.data_dir,
+            task_id,
+            owner_id=owner_id,
+            stage="publishing",
+            elapsed_seconds=elapsed,
+            transcript_end_seconds=state["latest_segment_end"],
+            segment_count=len(state["segments"]),
+        ):
+            _finish_after_child_stop(settings, task_id, owner_id, stop_event, elapsed)
+            return
+        generation = publish_complete_generation(
+            settings.data_dir,
+            task_id,
+            owner_id=owner_id,
+            segments=alignment["segments"],
+            speakers=alignment["speakers"],
+            regular_turn_count=alignment["regular_turn_count"],
+            exclusive_turn_count=alignment["exclusive_turn_count"],
+            alignment_policy=alignment["alignment_policy"],
+            language_probability=state["language_probability"],
+            elapsed_seconds=elapsed,
+        )
+        if generation is None:
+            _finish_after_child_stop(settings, task_id, owner_id, stop_event, elapsed)
+    except RecordingError:
+        finish_error("recording_unavailable", "Meeting recording is unavailable to the worker.")
+    except TaskError as error:
+        finish_error(error.code, error.message)
+    except (OSError, subprocess.SubprocessError):
+        if phase == "diarization":
+            finish_error(
+                "diarization_start_failed", "The local diarization runner could not be started."
+            )
+        else:
+            finish_error(
+                "runner_start_failed", "The local transcription runner could not be started."
+            )
+    except Exception:
+        if phase == "diarization":
+            finish_error("diarization_failed", "Local diarization failed. Check the worker logs.")
+        else:
+            finish_error(
+                "transcription_failed", "Local transcription failed. Check the worker logs."
+            )
 
 
 def _worker_loop(settings: Settings, lock_fd: int, stop_event: threading.Event) -> None:
@@ -630,6 +745,15 @@ def run_worker(settings: Settings) -> None:
         if lock_fd is None:
             raise WorkerAlreadyRunning("Another worker still owns the local processing lock.")
         profile = select_runtime(settings)
+        if profile.device == "cuda":
+            _verify_torch_cuda()
+        try:
+            prepared_diarization_directory(settings.diarization_model_path)
+        except DiarizationConfigurationError as error:
+            raise RuntimeConfigurationError(
+                "Local Community-1 model is not prepared at "
+                f"{settings.diarization_model_path}: {error}"
+            ) from error
         write_runtime_profile(settings.data_dir, profile)
         write_heartbeat(settings.data_dir, "starting")
         recover_abandoned_tasks(settings.data_dir)

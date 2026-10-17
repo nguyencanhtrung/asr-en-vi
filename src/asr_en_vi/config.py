@@ -13,6 +13,7 @@ DEFAULT_MAX_UPLOAD_BYTES = 4 * 1024**3
 DEFAULT_MAX_RECORDING_SECONDS = 4 * 60 * 60
 DEFAULT_ASR_GPU_MODEL_PATH = Path("/models/whisper-large-v3")
 DEFAULT_ASR_CPU_MODEL_PATH = Path("/models/whisper-small")
+DEFAULT_DIARIZATION_MODEL_PATH = Path("/models/speaker-diarization-community-1")
 ASR_DEVICES = frozenset({"auto", "cpu", "cuda"})
 ASR_COMPUTE_TYPES = frozenset(
     {"default", "float16", "float32", "int8", "int8_float16", "int8_float32"}
@@ -81,6 +82,7 @@ class Settings:
     asr_cpu_model_path: Path = DEFAULT_ASR_CPU_MODEL_PATH
     asr_gpu_compute_type: str = "float16"
     asr_cpu_compute_type: str = "int8"
+    diarization_model_path: Path = DEFAULT_DIARIZATION_MODEL_PATH
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "data_dir", Path(self.data_dir))
@@ -89,6 +91,7 @@ class Settings:
             object.__setattr__(self, "asr_model_path", Path(self.asr_model_path))
         object.__setattr__(self, "asr_gpu_model_path", Path(self.asr_gpu_model_path))
         object.__setattr__(self, "asr_cpu_model_path", Path(self.asr_cpu_model_path))
+        object.__setattr__(self, "diarization_model_path", Path(self.diarization_model_path))
         object.__setattr__(self, "public_url", _validate_public_url(self.public_url))
         if isinstance(self.max_upload_bytes, bool) or self.max_upload_bytes < 1:
             raise ValueError("max_upload_bytes must be a positive integer")
@@ -130,6 +133,9 @@ class Settings:
             ),
             asr_gpu_compute_type=os.environ.get("ASR_GPU_COMPUTE_TYPE", "float16"),
             asr_cpu_compute_type=os.environ.get("ASR_CPU_COMPUTE_TYPE", "int8"),
+            diarization_model_path=Path(
+                os.environ.get("ASR_DIARIZATION_MODEL_PATH", str(DEFAULT_DIARIZATION_MODEL_PATH))
+            ),
         )
 
     @property

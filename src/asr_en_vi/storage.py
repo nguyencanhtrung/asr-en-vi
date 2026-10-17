@@ -6,7 +6,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def _migrate_v2(connection: sqlite3.Connection) -> None:
@@ -155,6 +155,90 @@ def _migrate_v4(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v5(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        "ALTER TABLE tasks ADD COLUMN diarization_model_path TEXT NOT NULL DEFAULT ''"
+    )
+    connection.execute("ALTER TABLE transcript_generations ADD COLUMN diarization_model_name TEXT")
+    connection.execute(
+        "ALTER TABLE transcript_generations ADD COLUMN regular_turn_count INTEGER NOT NULL "
+        "DEFAULT 0 CHECK(regular_turn_count >= 0)"
+    )
+    connection.execute(
+        "ALTER TABLE transcript_generations ADD COLUMN exclusive_turn_count INTEGER NOT NULL "
+        "DEFAULT 0 CHECK(exclusive_turn_count >= 0)"
+    )
+    connection.execute("ALTER TABLE transcript_generations ADD COLUMN alignment_policy TEXT")
+    connection.execute(
+        "ALTER TABLE transcript_segments ADD COLUMN review_reasons TEXT NOT NULL DEFAULT '[]' "
+        "CHECK(json_valid(review_reasons))"
+    )
+    connection.execute(
+        "ALTER TABLE transcript_segments ADD COLUMN overlap INTEGER NOT NULL DEFAULT 0 "
+        "CHECK(overlap IN (0, 1))"
+    )
+    connection.execute(
+        "ALTER TABLE transcript_segments ADD COLUMN speaker_dominance REAL CHECK("
+        "speaker_dominance IS NULL OR (speaker_dominance >= 0 AND speaker_dominance <= 1))"
+    )
+    connection.execute(
+        "ALTER TABLE transcript_segments ADD COLUMN assignment_version INTEGER NOT NULL "
+        "DEFAULT 1 CHECK(assignment_version >= 1)"
+    )
+    connection.execute(
+        "CREATE TABLE generation_speakers ("
+        "generation_id TEXT NOT NULL REFERENCES transcript_generations(id) ON DELETE RESTRICT, "
+        "speaker_id TEXT NOT NULL CHECK(length(trim(speaker_id)) BETWEEN 1 AND 80), "
+        "display_name TEXT NOT NULL CHECK(length(trim(display_name)) BETWEEN 1 AND 80), "
+        "first_seen_seconds REAL NOT NULL CHECK(first_seen_seconds >= 0), "
+        "last_seen_seconds REAL NOT NULL CHECK(last_seen_seconds >= first_seen_seconds), "
+        "PRIMARY KEY(generation_id, speaker_id), "
+        "UNIQUE(generation_id, display_name)"
+        ")"
+    )
+    connection.execute(
+        "INSERT INTO generation_speakers(generation_id, speaker_id, display_name, "
+        "first_seen_seconds, last_seen_seconds) "
+        "SELECT generation_id, speaker_id, speaker_id, MIN(start_seconds), MAX(end_seconds) "
+        "FROM ("
+        "SELECT generation_id, original_speaker_id AS speaker_id, start_seconds, end_seconds "
+        "FROM transcript_segments WHERE original_speaker_id IS NOT NULL "
+        "UNION ALL "
+        "SELECT generation_id, speaker_id, start_seconds, end_seconds "
+        "FROM transcript_segments WHERE speaker_id IS NOT NULL"
+        ") GROUP BY generation_id, speaker_id"
+    )
+    connection.execute(
+        "CREATE TRIGGER transcript_segments_speakers_insert "
+        "BEFORE INSERT ON transcript_segments WHEN "
+        "(NEW.original_speaker_id IS NOT NULL AND NOT EXISTS ("
+        "SELECT 1 FROM generation_speakers WHERE generation_id = NEW.generation_id "
+        "AND speaker_id = NEW.original_speaker_id)) OR "
+        "(NEW.speaker_id IS NOT NULL AND NOT EXISTS ("
+        "SELECT 1 FROM generation_speakers WHERE generation_id = NEW.generation_id "
+        "AND speaker_id = NEW.speaker_id)) "
+        "BEGIN SELECT RAISE(ABORT, 'speaker_generation_mismatch'); END"
+    )
+    connection.execute(
+        "CREATE TRIGGER transcript_segments_speakers_update "
+        "BEFORE UPDATE OF generation_id, original_speaker_id, speaker_id "
+        "ON transcript_segments WHEN "
+        "(NEW.generation_id != OLD.generation_id) OR "
+        "(NEW.original_speaker_id IS NOT OLD.original_speaker_id) OR "
+        "(NEW.original_speaker_id IS NOT NULL AND NOT EXISTS ("
+        "SELECT 1 FROM generation_speakers WHERE generation_id = NEW.generation_id "
+        "AND speaker_id = NEW.original_speaker_id)) OR "
+        "(NEW.speaker_id IS NOT NULL AND NOT EXISTS ("
+        "SELECT 1 FROM generation_speakers WHERE generation_id = NEW.generation_id "
+        "AND speaker_id = NEW.speaker_id)) "
+        "BEGIN SELECT RAISE(ABORT, 'speaker_generation_mismatch'); END"
+    )
+    connection.execute(
+        "CREATE TRIGGER generation_speakers_delete_guard BEFORE DELETE ON generation_speakers "
+        "BEGIN SELECT RAISE(ABORT, 'generation_speakers_are_immutable'); END"
+    )
+
+
 def database_path(data_dir: Path) -> Path:
     return Path(data_dir) / "app.sqlite3"
 
@@ -199,6 +283,9 @@ def initialize(data_dir: Path) -> Path:
         if current_version < 4:
             _migrate_v4(connection)
             connection.execute("INSERT INTO schema_migrations(version) VALUES (4)")
+        if current_version < 5:
+            _migrate_v5(connection)
+            connection.execute("INSERT INTO schema_migrations(version) VALUES (5)")
         connection.commit()
     finally:
         connection.close()

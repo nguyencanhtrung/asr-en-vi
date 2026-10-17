@@ -94,6 +94,32 @@ def test_runtime_check_rejects_missing_cuda_libraries(tmp_path, monkeypatch, cap
     assert "CUDA runtime library is unavailable" in captured.err
 
 
+def test_runtime_check_rejects_unloadable_diarization_audio_decoder(tmp_path, monkeypatch, capsys):
+    model = _prepared_model(tmp_path / "prepared-model")
+    monkeypatch.setenv("ASR_MODEL_PATH", str(model))
+    monkeypatch.setenv("ASR_DEVICE", "cpu")
+    monkeypatch.setenv("ASR_COMPUTE_TYPE", "int8")
+    monkeypatch.setattr(cli.ctranslate2, "get_cuda_device_count", lambda: 0)
+    monkeypatch.setattr(
+        cli.ctranslate2,
+        "get_supported_compute_types",
+        lambda _device: {"int8", "float32"},
+    )
+
+    def broken_decoder():
+        raise RuntimeError("missing libpython3.12.so.1.0")
+
+    monkeypatch.setattr(cli, "_load_torchcodec_audio_decoder", broken_decoder)
+
+    assert main(["runtime", "check"]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Local diarization audio decoder is unavailable" in captured.err
+    assert "libpython3.12.so.1.0" in captured.err
+    assert "Traceback" not in captured.err
+
+
 def test_runtime_check_accepts_cuda_model_device_and_compute_type(tmp_path, monkeypatch, capsys):
     model = _prepared_model(tmp_path / "prepared-model")
     monkeypatch.setenv("ASR_MODEL_PATH", str(model))
@@ -106,6 +132,7 @@ def test_runtime_check_accepts_cuda_model_device_and_compute_type(tmp_path, monk
         "get_supported_compute_types",
         lambda _device: {"float16", "float32", "int8_float16"},
     )
+    monkeypatch.setattr(cli, "_load_torchcodec_audio_decoder", lambda: object())
 
     assert main(["runtime", "check"]) == 0
 

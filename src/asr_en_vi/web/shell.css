@@ -1796,6 +1796,13 @@ input:focus-visible {
   background: rgb(16 25 30 / 45%);
 }
 
+.transcript-segment.is-playback-active,
+.transcript-segment[aria-current="true"] {
+  border-color: #8ed7c5;
+  background: rgb(38 75 67 / 65%);
+  box-shadow: inset 3px 0 #8ed7c5;
+}
+
 .segment-timestamp {
   justify-self: start;
   padding: 0;
@@ -1811,6 +1818,40 @@ input:focus-visible {
 
 .segment-timestamp:hover {
   text-decoration: underline;
+}
+
+.segment-speaker-control {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #81969a;
+  font-size: 9px;
+}
+
+.segment-speaker-select {
+  max-width: 150px;
+  min-height: 28px;
+  padding: 3px 22px 3px 7px;
+  border: 1px solid #34494f;
+  border-radius: 5px;
+  background: #111d22;
+  color: #dce8e9;
+  font: inherit;
+}
+
+.segment-speaker-select:focus-visible {
+  outline: 2px solid #8ed7c5;
+  outline-offset: 2px;
+}
+
+.segment-speaker-select:disabled {
+  opacity: 0.72;
+}
+
+.segment-original-speaker {
+  grid-column: 2;
+  color: #81969a;
+  font-size: 9px;
 }
 
 .segment-speaker {

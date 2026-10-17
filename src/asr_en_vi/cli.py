@@ -104,9 +104,20 @@ def prepare_model(settings: Settings) -> int:
     return 0
 
 
+def _load_torchcodec_audio_decoder():
+    from torchcodec.decoders import AudioDecoder
+
+    return AudioDecoder
+
+
 def check_runtime(settings: Settings) -> int:
     profile = _select_runtime(settings)
     if profile is None:
+        return 1
+    try:
+        _load_torchcodec_audio_decoder()
+    except (ImportError, OSError, RuntimeError) as error:
+        print(f"Local diarization audio decoder is unavailable: {error}", file=sys.stderr)
         return 1
     if profile.device == "cuda":
         print(

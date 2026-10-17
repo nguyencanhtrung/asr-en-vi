@@ -33,7 +33,13 @@ from asr_en_vi.recordings import (
     update_meeting,
 )
 from asr_en_vi.runtime import read_runtime_profile
-from asr_en_vi.tasks import TaskError, accept_transcription_task, cancel_task, get_task
+from asr_en_vi.tasks import (
+    TaskError,
+    accept_transcription_task,
+    cancel_task,
+    get_task,
+    reassign_current_generation_speaker,
+)
 from asr_en_vi.worker import is_healthy as worker_is_healthy
 
 SESSION_COOKIE = "asr_en_vi_session"
@@ -379,6 +385,7 @@ def install_routes(app: FastAPI, settings: Settings) -> None:
                 model_path=profile.model_path
                 if profile is not None
                 else settings.asr_gpu_model_path,
+                diarization_model_path=settings.diarization_model_path,
                 device=profile.device if profile is not None else "auto",
                 compute_type=profile.compute_type if profile is not None else "default",
                 worker_ready=worker_ready and profile is not None,
@@ -397,6 +404,33 @@ def install_routes(app: FastAPI, settings: Settings) -> None:
     async def cancel_transcription_task(task_id: str) -> dict[str, object]:
         try:
             return await run_in_threadpool(cancel_task, settings.data_dir, task_id)
+        except TaskError as error:
+            _raise_task_error(error)
+
+    @app.patch("/api/meetings/{meeting_id}/transcript-segments/{segment_id}/speaker")
+    async def reassign_transcript_speaker(
+        meeting_id: str, segment_id: str, request: Request
+    ) -> dict[str, object]:
+        payload = await _json_object(
+            request,
+            required={
+                "expected_generation_id",
+                "expected_source_version",
+                "expected_assignment_version",
+                "speaker_id",
+            },
+        )
+        try:
+            return await run_in_threadpool(
+                reassign_current_generation_speaker,
+                settings.data_dir,
+                meeting_id,
+                segment_id,
+                expected_generation_id=payload["expected_generation_id"],
+                expected_source_version=payload["expected_source_version"],
+                expected_assignment_version=payload["expected_assignment_version"],
+                speaker_id=payload["speaker_id"],
+            )
         except TaskError as error:
             _raise_task_error(error)
 
