@@ -6,14 +6,19 @@ from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from seeding import seed_meeting
+from seeding import prepare_diarization_model, seed_meeting
 
 from asr_en_vi import routes
 from asr_en_vi.app import create_app
 from asr_en_vi.auth import AuthStore
 from asr_en_vi.config import Settings
 from asr_en_vi.runtime import RuntimeProfile, write_runtime_profile
-from asr_en_vi.tasks import claim_next_task, transcription_state
+from asr_en_vi.tasks import (
+    claim_next_task,
+    publish_complete_generation,
+    transcription_state,
+    update_task_progress,
+)
 from asr_en_vi.worker import acquire_worker_lock, write_heartbeat
 
 pytestmark = pytest.mark.anyio
@@ -56,11 +61,13 @@ async def _run_inline(function, *args, **kwargs):
 
 async def test_task_routes_accept_poll_cancel_and_rediscover_meeting_state(tmp_path, monkeypatch):
     monkeypatch.setattr(routes, "run_in_threadpool", _run_inline)
+    diarization_model_dir = prepare_diarization_model(tmp_path / "diarization-model")
     settings = Settings(
         data_dir=tmp_path / "data",
         auth_dir=tmp_path / "auth",
         public_url="http://127.0.0.1:8765",
         asr_model_path=_prepared_model(tmp_path / "model"),
+        diarization_model_path=diarization_model_dir,
     )
     app = create_app(settings)
     async with app.router.lifespan_context(app):
@@ -79,6 +86,12 @@ async def test_task_routes_accept_poll_cancel_and_rediscover_meeting_state(tmp_p
             write_heartbeat(settings.data_dir, "idle")
             try:
                 payload = {"meeting_id": meeting_id, "request_id": "api-request-001"}
+                invalid_model = await client.post(
+                    "/api/tasks",
+                    headers=headers,
+                    json={**payload, "model_id": "cloud-model", "hf_token": "hidden"},
+                )
+                assert invalid_model.status_code == 400
                 accepted = await client.post("/api/tasks", headers=headers, json=payload)
                 retry = await client.post("/api/tasks", headers=headers, json=payload)
                 assert accepted.status_code == 202
@@ -112,6 +125,122 @@ async def test_task_routes_accept_poll_cancel_and_rediscover_meeting_state(tmp_p
                     transcription_state(settings.data_dir, meeting_id)["task"]["status"]
                     == "stopping"
                 )
+            finally:
+                os.close(lock_fd)
+
+
+async def test_speaker_reassignment_api_checks_generation_and_assignment_versions(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(routes, "run_in_threadpool", _run_inline)
+    diarization_model_dir = prepare_diarization_model(tmp_path / "diarization-model")
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        auth_dir=tmp_path / "auth",
+        public_url="http://127.0.0.1:8765",
+        asr_model_path=_prepared_model(tmp_path / "model"),
+        diarization_model_path=diarization_model_dir,
+    )
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url=settings.public_url) as client:
+            headers = await _authorize(client, settings)
+            meeting_id = seed_meeting(settings.data_dir, "Speaker reassignment")
+            lock_fd = acquire_worker_lock(settings.data_dir)
+            assert lock_fd is not None
+            write_runtime_profile(
+                settings.data_dir,
+                RuntimeProfile(
+                    device="cpu", compute_type="int8", model_path=settings.asr_model_path
+                ),
+            )
+            write_heartbeat(settings.data_dir, "idle")
+            try:
+                accepted = await client.post(
+                    "/api/tasks",
+                    headers=headers,
+                    json={"meeting_id": meeting_id, "request_id": "speaker-api-0001"},
+                )
+                assert accepted.status_code == 202
+                task = claim_next_task(settings.data_dir, owner_id="speaker-api-worker")
+                assert task and task["id"] == accepted.json()["id"]
+                assert update_task_progress(
+                    settings.data_dir,
+                    task["id"],
+                    owner_id="speaker-api-worker",
+                    stage="publishing",
+                    elapsed_seconds=1,
+                    transcript_end_seconds=2,
+                    segment_count=1,
+                )
+                generation = publish_complete_generation(
+                    settings.data_dir,
+                    task["id"],
+                    owner_id="speaker-api-worker",
+                    segments=[
+                        {
+                            "id": "b" * 32,
+                            "start_seconds": 1.0,
+                            "end_seconds": 2.0,
+                            "text": "Sprint planning.",
+                            "original_speaker_id": "SPEAKER_00",
+                            "speaker_id": "SPEAKER_00",
+                        }
+                    ],
+                    speakers=[
+                        {
+                            "speaker_id": "SPEAKER_00",
+                            "display_name": "Speaker 1",
+                            "first_seen_seconds": 0,
+                            "last_seen_seconds": 2,
+                        },
+                        {
+                            "speaker_id": "SPEAKER_01",
+                            "display_name": "Speaker 2",
+                            "first_seen_seconds": 2,
+                            "last_seen_seconds": 3,
+                        },
+                    ],
+                    language_probability=0.9,
+                    elapsed_seconds=1,
+                )
+                assert generation is not None
+                endpoint = f"/api/meetings/{meeting_id}/transcript-segments/{'b' * 32}/speaker"
+                payload = {
+                    "expected_generation_id": generation["id"],
+                    "expected_source_version": 1,
+                    "expected_assignment_version": 1,
+                    "speaker_id": "SPEAKER_01",
+                }
+                reassigned = await client.patch(endpoint, headers=headers, json=payload)
+                assert reassigned.status_code == 200
+                assert reassigned.json()["original_speaker_id"] == "SPEAKER_00"
+                assert reassigned.json()["speaker_id"] == "SPEAKER_01"
+                assert reassigned.json()["assignment_version"] == 2
+                assert reassigned.json()["source_version"] == 2
+                detail = await client.get(f"/api/meetings/{meeting_id}")
+                assert detail.json()["transcription"]["generation"]["source_version"] == 2
+                saved_segment = detail.json()["transcription"]["generation"]["segments"][0]
+                assert saved_segment["original_speaker_id"] == "SPEAKER_00"
+                assert saved_segment["speaker_id"] == "SPEAKER_01"
+
+                stale = await client.patch(endpoint, headers=headers, json=payload)
+                assert stale.status_code == 409
+                assert stale.json()["detail"]["code"] == "source_version_changed"
+                stale_assignment = await client.patch(
+                    endpoint,
+                    headers=headers,
+                    json={**payload, "expected_source_version": 2},
+                )
+                assert stale_assignment.status_code == 409
+                assert stale_assignment.json()["detail"]["code"] == "assignment_version_changed"
+                outdated_generation = await client.patch(
+                    endpoint,
+                    headers=headers,
+                    json={**payload, "expected_generation_id": "old-generation"},
+                )
+                assert outdated_generation.status_code == 409
             finally:
                 os.close(lock_fd)
 

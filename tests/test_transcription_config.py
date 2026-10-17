@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from asr_en_vi.config import Settings
@@ -36,6 +38,16 @@ def test_settings_default_to_automatic_hardware_specific_profiles(monkeypatch, t
     assert settings.asr_cpu_model_path == tmp_path / "small"
     assert settings.asr_gpu_compute_type == "float16"
     assert settings.asr_cpu_compute_type == "int8"
+    assert settings.diarization_model_path == Path("/models/speaker-diarization-community-1")
+
+
+def test_settings_read_local_diarization_model_directory(monkeypatch, tmp_path):
+    path = tmp_path / "community-1"
+    monkeypatch.setenv("ASR_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ASR_AUTH_DIR", str(tmp_path / "auth"))
+    monkeypatch.setenv("ASR_DIARIZATION_MODEL_PATH", str(path))
+
+    assert Settings.from_env().diarization_model_path == path
 
 
 @pytest.mark.parametrize(

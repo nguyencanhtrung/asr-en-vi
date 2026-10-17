@@ -6,7 +6,19 @@ import sqlite3
 import uuid
 from pathlib import Path
 
+from asr_en_vi.diarization_runner import COMMUNITY_1_REQUIRED_FILES
 from asr_en_vi.storage import database_path
+
+
+def prepare_diarization_model(path: Path) -> Path:
+    """Create the minimal Community-1 file layout accepted by local preflight tests."""
+    path.mkdir(parents=True, exist_ok=True)
+    for relative_path in COMMUNITY_1_REQUIRED_FILES:
+        target = path / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        content = b"pipeline: {}\n" if relative_path.name == "config.yaml" else b"model-data"
+        target.write_bytes(content)
+    return path
 
 
 def seed_meeting(

@@ -1113,8 +1113,23 @@ def test_transcription_requires_explicit_start_and_renders_poll_cancel_and_rerun
             "language_probability": 0.94,
             "source_version": 1,
             "uncertainty_policy": "faster-whisper-review-cues-v1",
+            "diarization_model_name": "Community-1",
             "segment_count": 1,
             "completed_at": "2026-10-17 00:00:05",
+            "speakers": [
+                {
+                    "speaker_id": "SPEAKER_00",
+                    "display_name": "Speaker 1",
+                    "first_seen_seconds": 1.0,
+                    "last_seen_seconds": 5.0,
+                },
+                {
+                    "speaker_id": "SPEAKER_01",
+                    "display_name": "Speaker 2",
+                    "first_seen_seconds": 5.0,
+                    "last_seen_seconds": 8.0,
+                },
+            ],
             "segments": [
                 {
                     "id": f"{number:032x}",
@@ -1122,12 +1137,16 @@ def test_transcription_requires_explicit_start_and_renders_poll_cancel_and_rerun
                     "start_seconds": 1.25,
                     "end_seconds": 4.25,
                     "text": f"Transcript generation {number}.",
-                    "original_speaker_id": None,
-                    "speaker_id": None,
+                    "original_speaker_id": "SPEAKER_00",
+                    "speaker_id": "SPEAKER_00",
                     "avg_logprob": -0.3,
                     "no_speech_prob": 0.02,
                     "compression_ratio": 0.8,
                     "uncertain": False,
+                    "review_reasons": [],
+                    "overlap": False,
+                    "speaker_dominance": 1.0,
+                    "assignment_version": 1,
                 }
             ],
         }
@@ -1214,6 +1233,28 @@ def test_transcription_requires_explicit_start_and_renders_poll_cancel_and_rerun
     page.route(
         re.compile(r"/api/(?:tasks(?:/[^/]+(?:/cancel)?)?|meetings/[^/]+)$"), route_task_requests
     )
+    speaker_updates = []
+
+    def route_speaker_update(route):
+        speaker_updates.append(route.request.post_data_json)
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "id": route.request.url.rsplit("/", 2)[-2],
+                    "generation_id": speaker_updates[-1]["expected_generation_id"],
+                    "original_speaker_id": "SPEAKER_00",
+                    "speaker_id": speaker_updates[-1]["speaker_id"],
+                    "assignment_version": 2,
+                    "source_version": 2,
+                }
+            ),
+        )
+
+    page.route(
+        re.compile(r"/api/meetings/[^/]+/transcript-segments/[^/]+/speaker$"), route_speaker_update
+    )
     assert post_bodies == []  # Reopening an imported meeting never starts ASR.
     start_button = page.get_by_role("button", name="Bắt đầu chép lời")
     expect(start_button).to_be_visible()
@@ -1232,10 +1273,35 @@ def test_transcription_requires_explicit_start_and_renders_poll_cancel_and_rerun
     expect(page.locator("#generation-title")).to_have_text("Transcript #1")
     expect(page.locator(".segment-text")).to_have_text("Transcript generation 1.")
     expect(page.locator(".segment-timestamp")).to_have_text("0:01.25")
+    assert "/api/meetings/" + meeting_id + "/audio" in page.locator("#meeting-audio").get_attribute(
+        "src"
+    )
+    page.locator("#meeting-audio").evaluate(
+        "audio => Object.defineProperty(audio, 'currentTime', "
+        "{configurable: true, writable: true, value: 0})"
+    )
+    page.locator(".segment-timestamp").click()
+    expect(page.locator(".transcript-segment")).to_have_attribute("aria-current", "true")
+    assert page.locator("#meeting-audio").evaluate("audio => audio.currentTime") == 1.25
+    speaker_select = page.locator(".segment-speaker-select")
+    speaker_select.select_option("SPEAKER_01")
+    expect(speaker_select).to_have_attribute("data-assignment-version", "2")
+    expect(page.locator(".segment-original-speaker")).to_have_text("Gán ban đầu: Speaker 1")
+    assert speaker_updates == [
+        {
+            "expected_generation_id": "generation-1",
+            "expected_source_version": 1,
+            "expected_assignment_version": 1,
+            "speaker_id": "SPEAKER_01",
+        }
+    ]
     assert post_bodies[0]["request_id"] == post_bodies[1]["request_id"]
 
     rerun = page.get_by_role("button", name="Chạy lại bản ghi")
     rerun.click()
+    speaker_select.focus()
+    page.wait_for_timeout(1_200)
+    expect(speaker_select).to_be_focused()
     expect(page.locator("#generation-title")).to_have_text("Transcript #2", timeout=8_000)
     assert post_bodies[2]["request_id"] != post_bodies[1]["request_id"]
 

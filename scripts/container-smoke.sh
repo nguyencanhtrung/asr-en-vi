@@ -11,6 +11,10 @@ import wave
 from pathlib import Path
 
 from asr_en_vi.media import normalize_media
+from torchcodec.decoders import AudioDecoder
+
+assert AudioDecoder
+print("torchcodec ok")
 
 with tempfile.TemporaryDirectory() as directory:
     source = Path(directory) / "in.wav"

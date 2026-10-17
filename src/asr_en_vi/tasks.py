@@ -14,10 +14,25 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from asr_en_vi.alignment import ALIGNMENT_POLICY, ASR_UNCERTAINTY_POLICY
+from asr_en_vi.diarization_runner import (
+    DiarizationConfigurationError,
+    prepared_diarization_directory,
+)
 from asr_en_vi.runner import ModelConfigurationError, prepared_model_directory
 from asr_en_vi.storage import database_path
 
-UNCERTAINTY_POLICY = "faster-whisper-review-cues-v1"
+UNCERTAINTY_POLICY = ASR_UNCERTAINTY_POLICY
+DIARIZATION_MODEL_NAME = "Community-1"
+_REVIEW_REASONS = frozenset(
+    {
+        "asr_uncertain",
+        "overlap",
+        "multiple_speakers",
+        "low_speaker_dominance",
+        "unidentified_speaker",
+    }
+)
 _REQUEST_ID_RE = re.compile(r"[A-Za-z0-9._:-]{8,128}\Z")
 _SEGMENT_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 _ACTIVE_TASK_STATES = frozenset({"accepted", "running", "stopping"})
@@ -119,6 +134,7 @@ def accept_transcription_task(
     meeting_id: object,
     request_id: object,
     model_path: Path,
+    diarization_model_path: Path = Path("/models/speaker-diarization-community-1"),
     device: str,
     compute_type: str,
     worker_ready: bool,
@@ -129,6 +145,7 @@ def accept_transcription_task(
     normalized_request_id = _request_id(request_id)
     normalized_model_path = str(Path(model_path).expanduser().resolve())
     model_name = Path(normalized_model_path).name
+    normalized_diarization_model_path = str(Path(diarization_model_path).expanduser().resolve())
     task_id = uuid.uuid4().hex
 
     with _connect(data_dir) as connection, connection:
@@ -174,6 +191,14 @@ def accept_transcription_task(
                 "model_unavailable",
                 "The configured local faster-whisper model is not prepared.",
             ) from None
+        try:
+            prepared_diarization_directory(Path(normalized_diarization_model_path))
+        except DiarizationConfigurationError:
+            raise TaskError(
+                503,
+                "diarization_model_unavailable",
+                "The configured local Community-1 model is not prepared.",
+            ) from None
 
         recording = connection.execute(
             "SELECT duration_seconds FROM recordings WHERE meeting_id = ?", (meeting_id,)
@@ -183,15 +208,17 @@ def accept_transcription_task(
 
         connection.execute(
             "INSERT INTO tasks(id, request_id, request_hash, meeting_id, kind, model_path, "
+            "diarization_model_path, "
             "model_name, device, compute_type, language_hint, status, stage, "
             "audio_duration_seconds) "
-            "VALUES (?, ?, ?, ?, 'transcription', ?, ?, ?, ?, ?, 'accepted', 'accepted', ?)",
+            "VALUES (?, ?, ?, ?, 'transcription', ?, ?, ?, ?, ?, ?, 'accepted', 'accepted', ?)",
             (
                 task_id,
                 normalized_request_id,
                 request_hash,
                 meeting_id,
                 normalized_model_path,
+                normalized_diarization_model_path,
                 model_name,
                 device,
                 compute_type,
@@ -447,15 +474,51 @@ def _validated_segments(segments: Sequence[dict[str, Any]]) -> list[dict[str, ob
         compression_ratio = _number(
             segment.get("compression_ratio"), field="compression_ratio", minimum=0
         )
+        original_speaker_id = segment.get("original_speaker_id")
+        speaker_id = segment.get("speaker_id", original_speaker_id)
+        if (original_speaker_id is not None and not isinstance(original_speaker_id, str)) or (
+            speaker_id is not None and not isinstance(speaker_id, str)
+        ):
+            raise TaskError(500, "invalid_runner_result", "Invalid speaker assignment.")
+        if speaker_id != original_speaker_id:
+            raise TaskError(
+                500,
+                "invalid_runner_result",
+                "Initial displayed and original speaker assignments must match.",
+            )
+        overlap = segment.get("overlap", False)
+        if not isinstance(overlap, bool):
+            raise TaskError(500, "invalid_runner_result", "Invalid overlap marker.")
+        speaker_dominance = _number(
+            segment.get("speaker_dominance"), field="speaker_dominance", minimum=0
+        )
+        if speaker_dominance is not None and speaker_dominance > 1:
+            raise TaskError(500, "invalid_runner_result", "Invalid speaker dominance.")
+        review_reasons = segment.get("review_reasons", [])
+        if (
+            not isinstance(review_reasons, list)
+            or any(
+                not isinstance(reason, str) or reason not in _REVIEW_REASONS
+                for reason in review_reasons
+            )
+            or len(set(review_reasons)) != len(review_reasons)
+        ):
+            raise TaskError(500, "invalid_runner_result", "Invalid review reasons.")
+        supplied_uncertain = segment.get("uncertain", False)
+        if not isinstance(supplied_uncertain, bool):
+            raise TaskError(500, "invalid_runner_result", "Invalid uncertainty marker.")
         if no_speech_prob is not None and no_speech_prob > 1:
             raise TaskError(
                 500, "invalid_runner_result", "Invalid no_speech_prob in runner result."
             )
-        uncertain = (
+        asr_uncertain = (
             (avg_logprob is not None and avg_logprob < -1.0)
             or (no_speech_prob is not None and no_speech_prob >= 0.6)
             or (compression_ratio is not None and compression_ratio > 2.4)
         )
+        if asr_uncertain and "asr_uncertain" not in review_reasons:
+            review_reasons = [*review_reasons, "asr_uncertain"]
+        uncertain = supplied_uncertain or bool(review_reasons) or asr_uncertain
         rows.append(
             {
                 "id": segment_id,
@@ -463,12 +526,16 @@ def _validated_segments(segments: Sequence[dict[str, Any]]) -> list[dict[str, ob
                 "start_seconds": start_seconds,
                 "end_seconds": end_seconds,
                 "text": text,
-                "original_speaker_id": None,
-                "speaker_id": None,
+                "original_speaker_id": original_speaker_id,
+                "speaker_id": speaker_id,
                 "avg_logprob": avg_logprob,
                 "no_speech_prob": no_speech_prob,
                 "compression_ratio": compression_ratio,
                 "uncertain": int(uncertain),
+                "review_reasons": json.dumps(review_reasons, separators=(",", ":")),
+                "overlap": int(overlap),
+                "speaker_dominance": speaker_dominance,
+                "assignment_version": 1,
             }
         )
     return rows
@@ -480,11 +547,64 @@ def publish_complete_generation(
     *,
     owner_id: str,
     segments: Sequence[dict[str, Any]],
+    speakers: Sequence[dict[str, Any]] = (),
+    regular_turn_count: int = 0,
+    exclusive_turn_count: int = 0,
+    alignment_policy: str = ALIGNMENT_POLICY,
+    diarization_model_name: str = DIARIZATION_MODEL_NAME,
     language_probability: object,
     elapsed_seconds: float,
 ) -> dict[str, object] | None:
     """Atomically publish a full generation and succeed only for its current owner."""
     rows = _validated_segments(segments)
+    if (
+        isinstance(regular_turn_count, bool)
+        or not isinstance(regular_turn_count, int)
+        or regular_turn_count < 0
+        or isinstance(exclusive_turn_count, bool)
+        or not isinstance(exclusive_turn_count, int)
+        or exclusive_turn_count < 0
+        or alignment_policy != ALIGNMENT_POLICY
+        or diarization_model_name != DIARIZATION_MODEL_NAME
+    ):
+        raise TaskError(500, "invalid_runner_result", "Invalid diarization metadata.")
+    normalized_speakers: list[dict[str, object]] = []
+    speaker_ids: set[str] = set()
+    display_names: set[str] = set()
+    for speaker in speakers:
+        speaker_id = speaker.get("speaker_id")
+        display_name = speaker.get("display_name")
+        first_seen = _number(
+            speaker.get("first_seen_seconds"), field="first_seen_seconds", minimum=0
+        )
+        last_seen = _number(speaker.get("last_seen_seconds"), field="last_seen_seconds", minimum=0)
+        if (
+            not isinstance(speaker_id, str)
+            or not speaker_id
+            or speaker_id in speaker_ids
+            or not isinstance(display_name, str)
+            or not display_name
+            or display_name in display_names
+            or first_seen is None
+            or last_seen is None
+            or last_seen < first_seen
+        ):
+            raise TaskError(500, "invalid_runner_result", "Invalid generation speaker catalog.")
+        speaker_ids.add(speaker_id)
+        display_names.add(display_name)
+        normalized_speakers.append(
+            {
+                "speaker_id": speaker_id,
+                "display_name": display_name,
+                "first_seen_seconds": first_seen,
+                "last_seen_seconds": last_seen,
+            }
+        )
+    if any(
+        row["original_speaker_id"] is not None and row["original_speaker_id"] not in speaker_ids
+        for row in rows
+    ):
+        raise TaskError(500, "invalid_runner_result", "A segment uses an unknown speaker.")
     normalized_language_probability = _number(
         language_probability, field="language_probability", minimum=0
     )
@@ -502,6 +622,7 @@ def publish_complete_generation(
             task is None
             or task["status"] != "running"
             or task["owner_id"] != owner_id
+            or task["stage"] != "publishing"
             or slot is None
             or slot["active_task_id"] != task_id
         ):
@@ -516,7 +637,8 @@ def publish_complete_generation(
         connection.execute(
             "INSERT INTO transcript_generations(id, meeting_id, task_id, generation_number, "
             "status, language_hint, model_name, language_probability, uncertainty_policy, "
-            "segment_count) VALUES (?, ?, ?, ?, 'complete', ?, ?, ?, ?, ?)",
+            "segment_count, diarization_model_name, regular_turn_count, exclusive_turn_count, "
+            "alignment_policy) VALUES (?, ?, ?, ?, 'complete', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 generation_id,
                 task["meeting_id"],
@@ -527,12 +649,31 @@ def publish_complete_generation(
                 normalized_language_probability,
                 UNCERTAINTY_POLICY,
                 len(rows),
+                diarization_model_name,
+                regular_turn_count,
+                exclusive_turn_count,
+                alignment_policy,
             ),
+        )
+        connection.executemany(
+            "INSERT INTO generation_speakers(generation_id, speaker_id, display_name, "
+            "first_seen_seconds, last_seen_seconds) VALUES (?, ?, ?, ?, ?)",
+            [
+                (
+                    generation_id,
+                    speaker["speaker_id"],
+                    speaker["display_name"],
+                    speaker["first_seen_seconds"],
+                    speaker["last_seen_seconds"],
+                )
+                for speaker in normalized_speakers
+            ],
         )
         connection.executemany(
             "INSERT INTO transcript_segments(id, generation_id, sequence, start_seconds, "
             "end_seconds, text, original_speaker_id, speaker_id, avg_logprob, no_speech_prob, "
-            "compression_ratio, uncertain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "compression_ratio, uncertain, review_reasons, overlap, speaker_dominance, "
+            "assignment_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     row["id"],
@@ -547,6 +688,10 @@ def publish_complete_generation(
                     row["no_speech_prob"],
                     row["compression_ratio"],
                     row["uncertain"],
+                    row["review_reasons"],
+                    row["overlap"],
+                    row["speaker_dominance"],
+                    row["assignment_version"],
                 )
                 for row in rows
             ],
@@ -583,6 +728,7 @@ def publish_complete_generation(
             "status": "complete",
             "segment_count": len(rows),
             "uncertainty_policy": UNCERTAINTY_POLICY,
+            "alignment_policy": alignment_policy,
         }
 
 
@@ -631,8 +777,15 @@ def transcription_state(data_dir: Path, meeting_id: str) -> dict[str, object]:
         if generation is not None:
             segment_rows = connection.execute(
                 "SELECT id, sequence, start_seconds, end_seconds, text, original_speaker_id, "
-                "speaker_id, avg_logprob, no_speech_prob, compression_ratio, uncertain "
+                "speaker_id, avg_logprob, no_speech_prob, compression_ratio, uncertain, "
+                "review_reasons, overlap, speaker_dominance, assignment_version "
                 "FROM transcript_segments WHERE generation_id = ? ORDER BY sequence",
+                (generation["id"],),
+            ).fetchall()
+            speaker_rows = connection.execute(
+                "SELECT speaker_id, display_name, first_seen_seconds, last_seen_seconds "
+                "FROM generation_speakers WHERE generation_id = ? "
+                "ORDER BY first_seen_seconds, speaker_id",
                 (generation["id"],),
             ).fetchall()
             segments = [
@@ -648,9 +801,24 @@ def transcription_state(data_dir: Path, meeting_id: str) -> dict[str, object]:
                     "no_speech_prob": row["no_speech_prob"],
                     "compression_ratio": row["compression_ratio"],
                     "uncertain": bool(row["uncertain"]),
+                    "review_reasons": json.loads(row["review_reasons"]),
+                    "overlap": bool(row["overlap"]),
+                    "speaker_dominance": row["speaker_dominance"],
+                    "assignment_version": row["assignment_version"],
                 }
                 for row in segment_rows
             ]
+            speakers = [
+                {
+                    "speaker_id": row["speaker_id"],
+                    "display_name": row["display_name"],
+                    "first_seen_seconds": row["first_seen_seconds"],
+                    "last_seen_seconds": row["last_seen_seconds"],
+                }
+                for row in speaker_rows
+            ]
+        else:
+            speakers = []
 
     generation_summary: dict[str, object] | None = None
     if generation is not None:
@@ -665,9 +833,122 @@ def transcription_state(data_dir: Path, meeting_id: str) -> dict[str, object]:
             "uncertainty_policy": generation["uncertainty_policy"],
             "segment_count": generation["segment_count"],
             "completed_at": generation["completed_at"],
+            "diarization_model_name": generation["diarization_model_name"],
+            "regular_turn_count": generation["regular_turn_count"],
+            "exclusive_turn_count": generation["exclusive_turn_count"],
+            "alignment_policy": generation["alignment_policy"],
+            "speakers": speakers,
             "segments": segments,
         }
     return {
         "task": _task_summary(latest) if latest is not None else None,
         "generation": generation_summary,
     }
+
+
+def reassign_current_generation_speaker(
+    data_dir: Path,
+    meeting_id: str,
+    segment_id: object,
+    *,
+    expected_generation_id: object,
+    expected_source_version: object,
+    expected_assignment_version: object,
+    speaker_id: object,
+) -> dict[str, object]:
+    """Reassign one current-generation span using optimistic concurrency checks."""
+    if not isinstance(segment_id, str) or not _SEGMENT_ID_RE.fullmatch(segment_id):
+        raise TaskError(400, "invalid_segment_id", "Provide a valid segment id.")
+    if not isinstance(expected_generation_id, str) or not expected_generation_id:
+        raise TaskError(400, "invalid_generation_id", "Provide the expected generation id.")
+    if (
+        isinstance(expected_source_version, bool)
+        or not isinstance(expected_source_version, int)
+        or expected_source_version < 1
+    ):
+        raise TaskError(400, "invalid_source_version", "Provide a valid source version.")
+    if (
+        isinstance(expected_assignment_version, bool)
+        or not isinstance(expected_assignment_version, int)
+        or expected_assignment_version < 1
+    ):
+        raise TaskError(400, "invalid_assignment_version", "Provide a valid assignment version.")
+    if speaker_id is not None and not isinstance(speaker_id, str):
+        raise TaskError(400, "invalid_speaker_id", "Provide a speaker from the current generation.")
+
+    with _connect(data_dir) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        meeting = connection.execute(
+            "SELECT current_generation_id FROM meetings WHERE id = ?", (meeting_id,)
+        ).fetchone()
+        if meeting is None:
+            raise TaskError(404, "meeting_not_found", "Meeting not found.")
+        if meeting["current_generation_id"] != expected_generation_id:
+            raise TaskError(
+                409,
+                "current_generation_changed",
+                "The transcript changed. Reload before changing this speaker.",
+            )
+        generation = connection.execute(
+            "SELECT source_version FROM transcript_generations WHERE id = ? AND meeting_id = ?",
+            (expected_generation_id, meeting_id),
+        ).fetchone()
+        if generation is None:
+            raise TaskError(404, "generation_not_found", "Transcript generation not found.")
+        if generation["source_version"] != expected_source_version:
+            raise TaskError(
+                409,
+                "source_version_changed",
+                "The transcript source changed. Reload before changing this speaker.",
+            )
+        segment = connection.execute(
+            "SELECT id, generation_id, original_speaker_id, speaker_id, assignment_version "
+            "FROM transcript_segments WHERE id = ? AND generation_id = ?",
+            (segment_id, expected_generation_id),
+        ).fetchone()
+        if segment is None:
+            raise TaskError(404, "segment_not_found", "Transcript segment not found.")
+        if segment["assignment_version"] != expected_assignment_version:
+            raise TaskError(
+                409,
+                "assignment_version_changed",
+                "The speaker assignment changed. Reload before trying again.",
+            )
+        if speaker_id is not None:
+            exists = connection.execute(
+                "SELECT 1 FROM generation_speakers WHERE generation_id = ? AND speaker_id = ?",
+                (expected_generation_id, speaker_id),
+            ).fetchone()
+            if exists is None:
+                raise TaskError(
+                    400, "invalid_speaker_id", "Provide a speaker from the current generation."
+                )
+        version = expected_assignment_version
+        source_version = expected_source_version
+        if segment["speaker_id"] != speaker_id:
+            version += 1
+            source_version += 1
+            connection.execute(
+                "UPDATE transcript_segments SET speaker_id = ?, assignment_version = ? "
+                "WHERE id = ? AND generation_id = ? AND assignment_version = ?",
+                (
+                    speaker_id,
+                    version,
+                    segment_id,
+                    expected_generation_id,
+                    expected_assignment_version,
+                ),
+            )
+            connection.execute(
+                "UPDATE transcript_generations SET source_version = ? "
+                "WHERE id = ? AND source_version = ?",
+                (source_version, expected_generation_id, expected_source_version),
+            )
+        return {
+            "id": segment_id,
+            "generation_id": expected_generation_id,
+            "original_speaker_id": segment["original_speaker_id"],
+            "speaker_id": speaker_id,
+            "assignment_version": version,
+            "source_version": source_version,
+        }

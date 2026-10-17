@@ -101,6 +101,8 @@ def transcribe_file(
             "DO_NOT_TRACK": "1",
         }
     )
+    os.environ.pop("HF_TOKEN", None)
+    os.environ.pop("HUGGING_FACE_HUB_TOKEN", None)
     from faster_whisper import WhisperModel
 
     _emit_with = emit

@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from seeding import seed_meeting
+from seeding import prepare_diarization_model, seed_meeting
 
 from asr_en_vi.storage import database_path, initialize
 from asr_en_vi.tasks import (
@@ -19,6 +19,7 @@ from asr_en_vi.tasks import (
     finish_canceled_task,
     finish_interrupted_task,
     publish_complete_generation,
+    reassign_current_generation_speaker,
     recover_abandoned_tasks,
     transcription_state,
     update_task_progress,
@@ -51,6 +52,7 @@ def _task_store(tmp_path: Path, *, meeting_count: int = 1):
         ),
         encoding="utf-8",
     )
+    prepare_diarization_model(tmp_path / "diarization-model")
     meetings = [seed_meeting(data_dir, f"Meeting {index}") for index in range(meeting_count)]
     return data_dir, model_dir, meetings
 
@@ -61,6 +63,7 @@ def _accept(data_dir: Path, model_dir: Path, meeting_id: str, request_id: str):
         meeting_id=meeting_id,
         request_id=request_id,
         model_path=model_dir,
+        diarization_model_path=data_dir.parent / "diarization-model",
         device="cpu",
         compute_type="int8",
         worker_ready=True,
@@ -152,6 +155,17 @@ def test_progress_requires_current_owner_and_reports_measured_values(tmp_path):
     task = _accept(data_dir, model_dir, meeting_id, "progress-0001")
     claimed = claim_next_task(data_dir, owner_id="worker-owner")
     assert claimed and claimed["id"] == task["id"]
+
+    early_publish = publish_complete_generation(
+        data_dir,
+        task["id"],
+        owner_id="worker-owner",
+        segments=[_segment("a" * 32)],
+        language_probability=0.9,
+        elapsed_seconds=1.0,
+    )
+    assert early_publish is None
+    assert transcription_state(data_dir, meeting_id)["generation"] is None
 
     assert (
         publish_complete_generation(
@@ -259,6 +273,15 @@ def test_complete_generations_are_atomic_stable_and_preserve_previous_current(tm
     data_dir, model_dir, (meeting_id,) = _task_store(tmp_path)
     first = _accept(data_dir, model_dir, meeting_id, "generation-001")
     claim_next_task(data_dir, owner_id="owner-1")
+    assert update_task_progress(
+        data_dir,
+        first["id"],
+        owner_id="owner-1",
+        stage="publishing",
+        elapsed_seconds=1.0,
+        transcript_end_seconds=0,
+        segment_count=0,
+    )
     result = publish_complete_generation(
         data_dir,
         first["id"],
@@ -307,6 +330,15 @@ def test_complete_generations_are_atomic_stable_and_preserve_previous_current(tm
 
     rerun = _accept(data_dir, model_dir, meeting_id, "generation-003")
     claim_next_task(data_dir, owner_id="owner-3")
+    assert update_task_progress(
+        data_dir,
+        rerun["id"],
+        owner_id="owner-3",
+        stage="publishing",
+        elapsed_seconds=1.0,
+        transcript_end_seconds=0,
+        segment_count=0,
+    )
     second = publish_complete_generation(
         data_dir,
         rerun["id"],
@@ -324,6 +356,167 @@ def test_complete_generations_are_atomic_stable_and_preserve_previous_current(tm
             "SELECT COUNT(*) FROM transcript_generations WHERE meeting_id = ?",
             (meeting_id,),
         ).fetchone() == (2,)
+
+
+def test_generation_speaker_catalog_and_versioned_reassignment_keep_original_assignment(
+    tmp_path,
+):
+    data_dir, model_dir, (meeting_id,) = _task_store(tmp_path)
+    task = _accept(data_dir, model_dir, meeting_id, "speaker-generation-001")
+    claim_next_task(data_dir, owner_id="speaker-owner")
+    assert update_task_progress(
+        data_dir,
+        task["id"],
+        owner_id="speaker-owner",
+        stage="publishing",
+        elapsed_seconds=1.0,
+        transcript_end_seconds=2.5,
+        segment_count=1,
+    )
+    generation = publish_complete_generation(
+        data_dir,
+        task["id"],
+        owner_id="speaker-owner",
+        segments=[
+            _segment(
+                "a" * 32,
+                original_speaker_id="SPEAKER_00",
+                speaker_id="SPEAKER_00",
+                review_reasons=["overlap"],
+                overlap=True,
+                speaker_dominance=0.52,
+                uncertain=True,
+            )
+        ],
+        speakers=[
+            {
+                "speaker_id": "SPEAKER_00",
+                "display_name": "Speaker 1",
+                "first_seen_seconds": 0.2,
+                "last_seen_seconds": 2.5,
+            },
+            {
+                "speaker_id": "SPEAKER_01",
+                "display_name": "Speaker 2",
+                "first_seen_seconds": 2.0,
+                "last_seen_seconds": 3.0,
+            },
+        ],
+        regular_turn_count=2,
+        exclusive_turn_count=2,
+        language_probability=0.9,
+        elapsed_seconds=2.0,
+    )
+    assert generation is not None
+    current = transcription_state(data_dir, meeting_id)["generation"]
+    assert current["segments"][0]["review_reasons"] == ["overlap"]
+    assert current["segments"][0]["overlap"] is True
+    assert current["speakers"][1]["display_name"] == "Speaker 2"
+
+    changed = reassign_current_generation_speaker(
+        data_dir,
+        meeting_id,
+        "a" * 32,
+        expected_generation_id=generation["id"],
+        expected_source_version=1,
+        expected_assignment_version=1,
+        speaker_id="SPEAKER_01",
+    )
+    assert changed == {
+        "id": "a" * 32,
+        "generation_id": generation["id"],
+        "original_speaker_id": "SPEAKER_00",
+        "speaker_id": "SPEAKER_01",
+        "assignment_version": 2,
+        "source_version": 2,
+    }
+    state = transcription_state(data_dir, meeting_id)["generation"]["segments"][0]
+    assert state["original_speaker_id"] == "SPEAKER_00"
+    assert state["speaker_id"] == "SPEAKER_01"
+    assert state["assignment_version"] == 2
+    assert transcription_state(data_dir, meeting_id)["generation"]["source_version"] == 2
+
+    with pytest.raises(TaskError) as error:
+        reassign_current_generation_speaker(
+            data_dir,
+            meeting_id,
+            "a" * 32,
+            expected_generation_id=generation["id"],
+            expected_source_version=1,
+            expected_assignment_version=1,
+            speaker_id="SPEAKER_00",
+        )
+    assert error.value.code == "source_version_changed"
+
+    with pytest.raises(TaskError) as error:
+        reassign_current_generation_speaker(
+            data_dir,
+            meeting_id,
+            "a" * 32,
+            expected_generation_id=generation["id"],
+            expected_source_version=2,
+            expected_assignment_version=1,
+            speaker_id="SPEAKER_00",
+        )
+    assert error.value.code == "assignment_version_changed"
+
+    next_task = _accept(data_dir, model_dir, meeting_id, "speaker-generation-002")
+    claim_next_task(data_dir, owner_id="speaker-owner-2")
+    assert update_task_progress(
+        data_dir,
+        next_task["id"],
+        owner_id="speaker-owner-2",
+        stage="publishing",
+        elapsed_seconds=1.0,
+        transcript_end_seconds=1.0,
+        segment_count=1,
+    )
+    next_generation = publish_complete_generation(
+        data_dir,
+        next_task["id"],
+        owner_id="speaker-owner-2",
+        segments=[_segment("c" * 32, original_speaker_id="SPEAKER_99")],
+        speakers=[
+            {
+                "speaker_id": "SPEAKER_99",
+                "display_name": "Speaker 1",
+                "first_seen_seconds": 0,
+                "last_seen_seconds": 1,
+            }
+        ],
+        language_probability=0.9,
+        elapsed_seconds=2.0,
+    )
+    assert next_generation is not None
+    with pytest.raises(TaskError) as stale_generation:
+        reassign_current_generation_speaker(
+            data_dir,
+            meeting_id,
+            "a" * 32,
+            expected_generation_id=generation["id"],
+            expected_source_version=2,
+            expected_assignment_version=2,
+            speaker_id="SPEAKER_00",
+        )
+    assert stale_generation.value.code == "current_generation_changed"
+
+    with (
+        sqlite3.connect(database_path(data_dir)) as connection,
+        pytest.raises(sqlite3.IntegrityError),
+    ):
+        connection.execute(
+            "UPDATE transcript_segments SET original_speaker_id = 'SPEAKER_01' WHERE id = ?",
+            ("a" * 32,),
+        )
+
+    with (
+        sqlite3.connect(database_path(data_dir)) as connection,
+        pytest.raises(sqlite3.IntegrityError),
+    ):
+        connection.execute(
+            "UPDATE transcript_segments SET speaker_id = 'SPEAKER_99' WHERE id = ?",
+            ("a" * 32,),
+        )
 
 
 def test_new_exclusive_worker_recovery_cancels_stopping_and_interrupts_other_active_work(

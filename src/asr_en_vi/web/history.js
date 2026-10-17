@@ -9,6 +9,13 @@
   const MAX_YEAR = 9999;
   const WEEKDAYS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
   const LANGUAGES = { en: "English", vi: "Tiếng Việt" };
+  const REVIEW_REASON_LABELS = {
+    asr_uncertain: "Nhận dạng chưa chắc",
+    overlap: "Có lời nói chồng lấn",
+    multiple_speakers: "Nhiều người nói trong đoạn",
+    low_speaker_dominance: "Người nói chưa rõ",
+    unidentified_speaker: "Chưa xác định người nói",
+  };
   const VIEWS = {
     home: "#home-view",
     loading: "#meeting-loading",
@@ -74,6 +81,7 @@
     taskPollTimer: 0,
     taskPollId: null,
     taskRequestInFlight: false,
+    speakerSaveInFlight: false,
     pendingTaskRequestId: null,
     taskRequestError: null,
   };
@@ -473,6 +481,9 @@
     starting_runner: "Khởi chạy runner",
     loading_model: "Nạp model local",
     transcribing: "Đang chép lời",
+    starting_diarization: "Chuẩn bị nhận dạng người nói",
+    loading_diarization_model: "Nạp Community-1 local",
+    diarizing: "Đang nhận dạng người nói",
     publishing: "Lưu transcript hoàn chỉnh",
     stopping: "Đang dừng runner",
     complete: "Hoàn tất transcript",
@@ -519,9 +530,19 @@
   function renderTranscriptGeneration(generation) {
     const panel = $("#transcript-generation");
     const list = $("#transcript-segments");
-    list.replaceChildren();
     panel.hidden = !generation;
-    if (!generation) return;
+    if (!generation) {
+      list.replaceChildren();
+      delete panel.dataset.renderKey;
+      return;
+    }
+    const renderKey = `${generation.id}:${generation.source_version}`;
+    if (panel.dataset.renderKey === renderKey) {
+      updateActiveTranscriptIntervals();
+      return;
+    }
+    list.replaceChildren();
+    panel.dataset.renderKey = renderKey;
 
     $("#generation-title").textContent = `Transcript #${generation.generation_number}`;
     const meta = [
@@ -532,34 +553,78 @@
     if (typeof generation.language_probability === "number") {
       meta.push(`language_probability ${generation.language_probability.toFixed(3)}`);
     }
+    if (generation.diarization_model_name) meta.push(`Diarization · ${generation.diarization_model_name}`);
     $("#generation-meta").textContent = meta.join(" · ");
     const segments = Array.isArray(generation.segments) ? generation.segments : [];
+    const speakers = Array.isArray(generation.speakers) ? generation.speakers : [];
+    const speakerNames = new Map(speakers.map((speaker) => [speaker.speaker_id, speaker.display_name]));
     $("#transcript-empty").hidden = segments.length > 0;
 
     for (const segment of segments) {
       const item = document.createElement("li");
       item.className = "transcript-segment";
       item.dataset.segmentId = segment.id;
+      item.dataset.startSeconds = String(segment.start_seconds);
+      item.dataset.endSeconds = String(segment.end_seconds);
 
       const timestamp = document.createElement("button");
       timestamp.className = "segment-timestamp";
       timestamp.type = "button";
       timestamp.dataset.seekSeconds = String(segment.start_seconds);
       timestamp.textContent = formatTimestamp(segment.start_seconds);
+      timestamp.setAttribute(
+        "aria-label",
+        `Phát bản ghi từ ${formatTimestamp(segment.start_seconds)}`,
+      );
 
-      const speaker = document.createElement("span");
-      speaker.className = "segment-speaker";
-      speaker.textContent = segment.speaker_id || segment.original_speaker_id || "Speaker chưa được gán";
+      const speakerControl = document.createElement("label");
+      speakerControl.className = "segment-speaker-control";
+      const speakerLabel = document.createElement("span");
+      speakerLabel.textContent = "Người nói";
+      const speakerSelect = document.createElement("select");
+      speakerSelect.className = "segment-speaker-select";
+      speakerSelect.dataset.speakerAssignment = "true";
+      speakerSelect.dataset.segmentId = segment.id;
+      speakerSelect.dataset.currentSpeaker = segment.speaker_id || "";
+      speakerSelect.dataset.generationId = generation.id;
+      speakerSelect.dataset.assignmentVersion = String(segment.assignment_version || 1);
+      speakerSelect.setAttribute(
+        "aria-label",
+        `Người nói cho đoạn bắt đầu tại ${formatTimestamp(segment.start_seconds)}`,
+      );
+      const unidentified = document.createElement("option");
+      unidentified.value = "";
+      unidentified.textContent = "Chưa xác định";
+      speakerSelect.append(unidentified);
+      for (const speaker of speakers) {
+        const option = document.createElement("option");
+        option.value = speaker.speaker_id;
+        option.textContent = speaker.display_name || speaker.speaker_id;
+        speakerSelect.append(option);
+      }
+      speakerSelect.value = segment.speaker_id || "";
+      speakerSelect.disabled = speakers.length === 0;
+      speakerControl.append(speakerLabel, speakerSelect);
 
       const text = document.createElement("p");
       text.className = "segment-text";
       text.textContent = segment.text;
-      item.append(timestamp, speaker, text);
+      item.append(timestamp, speakerControl, text);
 
-      if (segment.uncertain) {
+      const originalSpeaker = document.createElement("span");
+      originalSpeaker.className = "segment-original-speaker";
+      originalSpeaker.textContent = `Gán ban đầu: ${segment.original_speaker_id
+        ? speakerNames.get(segment.original_speaker_id) || segment.original_speaker_id
+        : "Chưa xác định"}`;
+      item.append(originalSpeaker);
+
+      const reasons = Array.isArray(segment.review_reasons) ? segment.review_reasons : [];
+      if (segment.uncertain || reasons.length > 0) {
         const reviewCue = document.createElement("span");
         reviewCue.className = "segment-review-cue";
-        reviewCue.textContent = "Nên nghe lại";
+        reviewCue.textContent = reasons.length
+          ? `Cần kiểm tra · ${reasons.map((reason) => REVIEW_REASON_LABELS[reason] || reason).join(" · ")}`
+          : "Nên nghe lại";
         item.append(reviewCue);
       }
 
@@ -574,6 +639,72 @@
         item.append(modelMeasures);
       }
       list.append(item);
+    }
+    updateActiveTranscriptIntervals();
+  }
+
+  function updateActiveTranscriptIntervals() {
+    const seconds = $("#meeting-audio").currentTime;
+    const items = [...$("#transcript-segments").querySelectorAll(".transcript-segment")];
+    for (const [index, item] of items.entries()) {
+      const start = Number(item.dataset.startSeconds);
+      const end = Number(item.dataset.endSeconds);
+      const withinEnd = seconds < end || (index === items.length - 1 && seconds <= end);
+      const active = Number.isFinite(seconds) && seconds >= start && withinEnd;
+      item.classList.toggle("is-playback-active", active);
+      if (active) item.setAttribute("aria-current", "true");
+      else item.removeAttribute("aria-current");
+    }
+  }
+
+  async function saveSpeakerAssignment(select) {
+    const meeting = state.meeting;
+    const generation = meeting && meeting.transcription && meeting.transcription.generation;
+    if (
+      !meeting
+      || !generation
+      || generation.id !== select.dataset.generationId
+      || state.speakerSaveInFlight
+    ) return;
+    const previousSpeaker = select.dataset.currentSpeaker || "";
+    const requestedSpeaker = select.value;
+    const controls = [...$("#transcript-segments").querySelectorAll(".segment-speaker-select")];
+    state.speakerSaveInFlight = true;
+    for (const control of controls) control.disabled = true;
+    try {
+      const result = await requestJson(
+        `/api/meetings/${encodeURIComponent(meeting.id)}/transcript-segments/${encodeURIComponent(select.dataset.segmentId)}/speaker`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            expected_generation_id: generation.id,
+            expected_source_version: generation.source_version,
+            expected_assignment_version: Number(select.dataset.assignmentVersion),
+            speaker_id: requestedSpeaker || null,
+          }),
+        },
+      );
+      if (state.meeting !== meeting || generation.id !== select.dataset.generationId) return;
+      const segment = generation.segments.find((item) => item.id === result.id);
+      if (segment) {
+        segment.speaker_id = result.speaker_id;
+        segment.assignment_version = result.assignment_version;
+      }
+      generation.source_version = result.source_version;
+      $("#transcript-generation").dataset.renderKey = `${generation.id}:${generation.source_version}`;
+      select.dataset.currentSpeaker = result.speaker_id || "";
+      select.dataset.assignmentVersion = String(result.assignment_version);
+      $("#transcription-error").hidden = true;
+    } catch (error) {
+      select.value = previousSpeaker;
+      const message = error && error.message ? error.message : "Không thể lưu người nói.";
+      $("#transcription-error").textContent = message;
+      $("#transcription-error").hidden = false;
+    } finally {
+      state.speakerSaveInFlight = false;
+      for (const control of controls) {
+        if (control.isConnected) control.disabled = false;
+      }
     }
   }
 
@@ -1032,9 +1163,17 @@
     const seconds = Number(timestamp.dataset.seekSeconds);
     if (!Number.isFinite(seconds) || seconds < 0) return;
     audio.currentTime = seconds;
+    updateActiveTranscriptIntervals();
     const playback = audio.play();
     if (playback && typeof playback.catch === "function") playback.catch(() => {});
   });
+  $("#transcript-segments").addEventListener("change", (event) => {
+    const select = event.target.closest("select[data-speaker-assignment]");
+    if (select) void saveSpeakerAssignment(select);
+  });
+  for (const eventName of ["timeupdate", "seeked", "loadedmetadata", "play"]) {
+    $("#meeting-audio").addEventListener(eventName, updateActiveTranscriptIntervals);
+  }
   document.addEventListener("visibilitychange", () => {
     if (!state.taskPollId) return;
     const task = state.meeting && state.meeting.transcription && state.meeting.transcription.task;

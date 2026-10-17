@@ -1,0 +1,53 @@
+{
+  "description": "Fixed bilingual transcript and Community-1 turns with three speakers.",
+  "segments": [
+    {
+      "id": "00000000000000000000000000000001",
+      "start_seconds": 0.42,
+      "end_seconds": 1.33,
+      "text": "Let's review the roadmap, especially the API gateway.",
+      "avg_logprob": -0.31,
+      "no_speech_prob": 0.03,
+      "compression_ratio": 0.82
+    },
+    {
+      "id": "00000000000000000000000000000002",
+      "start_seconds": 1.54,
+      "end_seconds": 3.2,
+      "text": "Sprint này có blocker ở authentication flow.",
+      "avg_logprob": -0.38,
+      "no_speech_prob": 0.02,
+      "compression_ratio": 0.91
+    },
+    {
+      "id": "00000000000000000000000000000003",
+      "start_seconds": 3.25,
+      "end_seconds": 4.25,
+      "text": "Đúng rồi, idempotency key cần giữ nguyên.",
+      "avg_logprob": -0.42,
+      "no_speech_prob": 0.04,
+      "compression_ratio": 0.87
+    },
+    {
+      "id": "00000000000000000000000000000004",
+      "start_seconds": 5.3,
+      "end_seconds": 5.8,
+      "text": "We should ship after staging.",
+      "avg_logprob": -1.2,
+      "no_speech_prob": 0.08,
+      "compression_ratio": 0.98
+    }
+  ],
+  "regular_turns": [
+    {"start_seconds": 0.12, "end_seconds": 1.46, "speaker_id": "SPEAKER_00"},
+    {"start_seconds": 1.5, "end_seconds": 3.75, "speaker_id": "SPEAKER_01"},
+    {"start_seconds": 3.45, "end_seconds": 4.4, "speaker_id": "SPEAKER_02"},
+    {"start_seconds": 4.6, "end_seconds": 5.15, "speaker_id": "SPEAKER_02"}
+  ],
+  "exclusive_turns": [
+    {"start_seconds": 0.12, "end_seconds": 1.44, "speaker_id": "SPEAKER_00"},
+    {"start_seconds": 1.5, "end_seconds": 3.55, "speaker_id": "SPEAKER_01"},
+    {"start_seconds": 3.65, "end_seconds": 4.4, "speaker_id": "SPEAKER_02"},
+    {"start_seconds": 4.6, "end_seconds": 5.15, "speaker_id": "SPEAKER_02"}
+  ]
+}

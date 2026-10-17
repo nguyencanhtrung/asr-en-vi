@@ -1,8 +1,8 @@
 # ASR EN VI Meeting Notes
 
 Ứng dụng web chạy trên máy tự quản để lưu bản ghi cuộc họp và tạo transcript bằng faster-whisper
-trên máy local. Bản ghi được lưu trong workspace; meeting notes và diarization chưa được triển
-khai.
+cùng speaker diarization Community-1 trên máy local. Bản ghi, transcript và catalog người nói được
+lưu trong workspace; meeting notes chưa được triển khai.
 
 ## Chạy trên máy local
 
@@ -25,8 +25,9 @@ Script tự dò compute backend bằng chính image runtime. Nếu Docker nhìn 
 dùng CUDA, `float16` và `whisper-large-v3`; nếu máy không có GPU, worker dùng CPU, `int8` và
 `whisper-small` để giảm tài nguyên với độ chính xác thấp hơn. Nếu host có GPU nhưng Docker không
 truy cập được GPU, setup dừng và báo lỗi NVIDIA Container Toolkit thay vì âm thầm rơi về CPU.
-Model được chọn sẽ được tải một lần khi còn thiếu, sau đó script kiểm tra model, CUDA/cuDNN và
-compute type trước khi khởi động service.
+Model chép lời được tải một lần khi còn thiếu, sau đó script kiểm tra model, CUDA/cuDNN và compute
+type trước khi khởi động service. Community-1 phải được chuẩn bị riêng trên host trước khi chạy
+script.
 
 Compose tạo hai volume riêng:
 
@@ -79,11 +80,48 @@ hoặc ETA.
 Lựa chọn English hoặc Tiếng Việt khi import chỉ là gợi ý metadata. Runner luôn dùng tác vụ
 `transcribe`, tự phát hiện ngôn ngữ theo từng đoạn và không ép transcript sang ngôn ngữ đã chọn.
 
+## Model speaker diarization local
+
+Runtime dùng `pyannote.audio` 4.x và chỉ mở Community-1 từ thư mục local
+`/models/speaker-diarization-community-1`. Trước khi tải, hãy chấp nhận điều kiện của
+[Community-1 trên Hugging Face](https://huggingface.co/pyannote/speaker-diarization-community-1).
+Trên host, tải toàn bộ pipeline vào thư mục được mount bởi Compose. Khi `git clone` hỏi mật khẩu,
+nhập Hugging Face access token trong prompt tương tác:
+
+```sh
+git lfs install
+mkdir -p ./models
+git clone https://hf.co/pyannote/speaker-diarization-community-1 \
+  ./models/speaker-diarization-community-1
+```
+
+Nếu `ASR_MODEL_HOST_PATH` trỏ tới thư mục model khác `./models`, đổi đích của lệnh `git clone`
+thành `$ASR_MODEL_HOST_PATH/speaker-diarization-community-1`. Nếu đổi
+`ASR_DIARIZATION_MODEL_PATH`, đường dẫn trong container phải nằm dưới `/models`; tải model vào
+đường dẫn tương ứng dưới `ASR_MODEL_HOST_PATH`. `scripts/start.sh` kiểm tra các file Community-1
+bắt buộc trước khi khởi động; worker còn từ chối file Git LFS chưa được tải hoặc symlink thoát khỏi
+thư mục model. Token Hugging Face chỉ dùng cho bước đăng nhập/tải trên host; không đặt token hoặc
+ID model trong `.env` và không truyền chúng vào Compose. Worker dùng đường dẫn local, chế độ
+offline, `token=False` và tắt telemetry. ASR và diarization chạy lần lượt trong hai child process;
+mỗi process thoát trước khi phase tiếp theo bắt đầu, giải phóng bộ nhớ model.
+
+Community-1 trả về regular turns để phát hiện chồng lấn và exclusive turns để gán mỗi đoạn ASR cho
+người nói có thời lượng giao nhau lớn nhất. Văn bản và timestamp ASR không bị chia hoặc dịch chuyển.
+Đoạn có nhiều người nói, overlap, speaker dominance thấp, không có speaker match hoặc tín hiệu ASR
+không chắc được giữ và đánh dấu để rà soát. Khi phát lại, mọi đoạn transcript chứa thời gian phát
+được tô sáng; nút timestamp tua cùng nguồn audio đã lưu. Có thể đổi người nói hiển thị trong catalog
+của thế hệ hiện tại; gán ban đầu của model và timestamp vẫn được lưu riêng.
+
+Nếu diarization hoặc alignment lỗi hay bị hủy, task không công bố thế hệ mới và thế hệ hiện tại vẫn
+được giữ. Không có bước gửi audio hoặc inference cloud. Thư mục model đã tải có thể được dùng offline
+sau đó.
+
 Mỗi segment lưu ID ổn định, timestamp bắt đầu/kết thúc, văn bản và các chỉ số model có sẵn:
 `avg_logprob`, `no_speech_prob` và `compression_ratio`. Một segment được đánh dấu **Nên nghe lại**
 nếu `avg_logprob < -1.0`, `no_speech_prob >= 0.6` hoặc `compression_ratio > 2.4`. Đây là các dấu
 hiệu rà soát theo ngưỡng decode của Whisper, không phải xác suất transcript đúng; văn bản vẫn được
-giữ nguyên và người dùng quyết định sửa sau khi nghe lại.
+giữ nguyên. Các lý do rà soát từ nhận dạng và diarization được lưu riêng để người dùng nghe lại và
+điều chỉnh speaker assignment khi cần.
 
 Để thay token và vô hiệu link/session cũ:
 
