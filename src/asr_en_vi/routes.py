@@ -32,6 +32,8 @@ from asr_en_vi.recordings import (
     open_audio,
     update_meeting,
 )
+from asr_en_vi.tasks import TaskError, accept_transcription_task, cancel_task, get_task
+from asr_en_vi.worker import is_healthy as worker_is_healthy
 
 SESSION_COOKIE = "asr_en_vi_session"
 WEB_DIR = Path(__file__).parent / "web"
@@ -46,6 +48,13 @@ def _asset_response(filename: str, media_type: str) -> FileResponse:
 
 
 def _raise_recording_error(error: RecordingError) -> None:
+    raise HTTPException(
+        status_code=error.status_code,
+        detail={"code": error.code, "message": error.message},
+    ) from None
+
+
+def _raise_task_error(error: TaskError) -> None:
     raise HTTPException(
         status_code=error.status_code,
         detail={"code": error.code, "message": error.message},
@@ -345,6 +354,38 @@ def install_routes(app: FastAPI, settings: Settings) -> None:
             return await run_in_threadpool(get_meeting, settings.data_dir, meeting_id)
         except RecordingError as error:
             _raise_recording_error(error)
+
+    @app.post("/api/tasks", status_code=202)
+    async def start_transcription_task(request: Request) -> dict[str, object]:
+        payload = await _json_object(request, required={"meeting_id", "request_id"})
+        worker_ready = worker_is_healthy(settings.data_dir)
+        try:
+            return await run_in_threadpool(
+                accept_transcription_task,
+                settings.data_dir,
+                meeting_id=payload["meeting_id"],
+                request_id=payload["request_id"],
+                model_path=settings.asr_model_path,
+                device=settings.asr_device,
+                compute_type=settings.asr_compute_type,
+                worker_ready=worker_ready,
+            )
+        except TaskError as error:
+            _raise_task_error(error)
+
+    @app.get("/api/tasks/{task_id}")
+    async def read_transcription_task(task_id: str) -> dict[str, object]:
+        try:
+            return await run_in_threadpool(get_task, settings.data_dir, task_id)
+        except TaskError as error:
+            _raise_task_error(error)
+
+    @app.post("/api/tasks/{task_id}/cancel")
+    async def cancel_transcription_task(task_id: str) -> dict[str, object]:
+        try:
+            return await run_in_threadpool(cancel_task, settings.data_dir, task_id)
+        except TaskError as error:
+            _raise_task_error(error)
 
     @app.api_route("/api/meetings/{meeting_id}/audio", methods=["GET", "HEAD"])
     async def meeting_audio(meeting_id: str, request: Request) -> Response:

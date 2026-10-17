@@ -71,6 +71,11 @@
     calendar: { year: today.year, month: today.month, selected: todayKey() },
     meeting: null,
     draft: null,
+    taskPollTimer: 0,
+    taskPollId: null,
+    taskRequestInFlight: false,
+    pendingTaskRequestId: null,
+    taskRequestError: null,
   };
 
   // ---- views ----
@@ -87,6 +92,7 @@
 
   function showHome() {
     state.loadSeq += 1; // a meeting load still in flight must not repaint over home
+    stopTaskPolling();
     showView("home");
     setHeading("LOCAL WORKSPACE", "Cuộc họp", "Workspace · ASR EN VI");
     $("#workspace-link").setAttribute("aria-current", "page");
@@ -451,12 +457,339 @@
     if (date.dateTime) dateElement.setAttribute("datetime", date.dateTime);
     else dateElement.removeAttribute("datetime");
     $("#meeting-language").textContent = LANGUAGES[meeting.language_hint];
+    renderTranscription(meeting.transcription);
+  }
+
+  const ACTIVE_TASK_STATES = new Set(["accepted", "running", "stopping"]);
+  const TASK_STAGES = {
+    accepted: "Đã nhận",
+    starting: "Đang bắt đầu",
+    starting_runner: "Khởi chạy runner",
+    loading_model: "Nạp model local",
+    transcribing: "Đang chép lời",
+    publishing: "Lưu transcript hoàn chỉnh",
+    stopping: "Đang dừng runner",
+    complete: "Hoàn tất transcript",
+    failed: "Thất bại",
+    canceled: "Đã hủy",
+    interrupted: "Bị gián đoạn",
+  };
+
+  function formatElapsedSeconds(value) {
+    const seconds = Math.max(0, Number(value) || 0);
+    return `${seconds.toFixed(1)} giây`;
+  }
+
+  function formatTimestamp(secondsValue) {
+    const milliseconds = Math.max(0, Math.round((Number(secondsValue) || 0) * 1000));
+    const hours = Math.floor(milliseconds / 3_600_000);
+    const minutes = Math.floor((milliseconds % 3_600_000) / 60_000);
+    const seconds = Math.floor((milliseconds % 60_000) / 1000);
+    const fraction = Math.floor((milliseconds % 1000) / 10);
+    const clock = hours > 0
+      ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+      : `${minutes}:${String(seconds).padStart(2, "0")}`;
+    return `${clock}.${String(fraction).padStart(2, "0")}`;
+  }
+
+  function renderMeetingProcessingStatus(task, generation) {
+    let status = "Đã lưu, chưa xử lý";
+    if (task && ACTIVE_TASK_STATES.has(task.status)) {
+      status = task.status === "stopping" ? "Đang dừng xử lý" : "Đang chép lời";
+    } else if (task && task.status === "succeeded") {
+      status = "Đã có transcript · chưa có notes";
+    } else if (task && task.status === "failed") {
+      status = generation ? "Lần chạy mới thất bại · transcript trước vẫn còn" : "Xử lý thất bại";
+    } else if (task && task.status === "interrupted") {
+      status = generation ? "Bị gián đoạn · transcript trước vẫn còn" : "Bị gián đoạn";
+    } else if (task && task.status === "canceled") {
+      status = generation ? "Đã hủy · transcript trước vẫn còn" : "Đã hủy";
+    } else if (generation) {
+      status = "Đã có transcript · chưa có notes";
+    }
+    $("#meeting-status-text").textContent = status;
+  }
+
+  function renderTranscriptGeneration(generation) {
+    const panel = $("#transcript-generation");
+    const list = $("#transcript-segments");
+    list.replaceChildren();
+    panel.hidden = !generation;
+    if (!generation) return;
+
+    $("#generation-title").textContent = `Transcript #${generation.generation_number}`;
+    const meta = [
+      LANGUAGES[generation.language_hint] || generation.language_hint,
+      generation.model_name,
+      `${generation.segment_count} đoạn`,
+    ].filter(Boolean);
+    if (typeof generation.language_probability === "number") {
+      meta.push(`language_probability ${generation.language_probability.toFixed(3)}`);
+    }
+    $("#generation-meta").textContent = meta.join(" · ");
+    const segments = Array.isArray(generation.segments) ? generation.segments : [];
+    $("#transcript-empty").hidden = segments.length > 0;
+
+    for (const segment of segments) {
+      const item = document.createElement("li");
+      item.className = "transcript-segment";
+      item.dataset.segmentId = segment.id;
+
+      const timestamp = document.createElement("button");
+      timestamp.className = "segment-timestamp";
+      timestamp.type = "button";
+      timestamp.dataset.seekSeconds = String(segment.start_seconds);
+      timestamp.textContent = formatTimestamp(segment.start_seconds);
+
+      const speaker = document.createElement("span");
+      speaker.className = "segment-speaker";
+      speaker.textContent = segment.speaker_id || segment.original_speaker_id || "Speaker chưa được gán";
+
+      const text = document.createElement("p");
+      text.className = "segment-text";
+      text.textContent = segment.text;
+      item.append(timestamp, speaker, text);
+
+      if (segment.uncertain) {
+        const reviewCue = document.createElement("span");
+        reviewCue.className = "segment-review-cue";
+        reviewCue.textContent = "Nên nghe lại";
+        item.append(reviewCue);
+      }
+
+      const measures = [];
+      if (typeof segment.avg_logprob === "number") measures.push(`avg_logprob ${segment.avg_logprob.toFixed(3)}`);
+      if (typeof segment.no_speech_prob === "number") measures.push(`no_speech_prob ${segment.no_speech_prob.toFixed(3)}`);
+      if (typeof segment.compression_ratio === "number") measures.push(`compression_ratio ${segment.compression_ratio.toFixed(3)}`);
+      if (measures.length) {
+        const modelMeasures = document.createElement("span");
+        modelMeasures.className = "segment-model-measures";
+        modelMeasures.textContent = `Chỉ số model, không phải độ chính xác đã hiệu chuẩn: ${measures.join(" · ")}`;
+        item.append(modelMeasures);
+      }
+      list.append(item);
+    }
+  }
+
+  function renderTranscription(transcription) {
+    const task = transcription && transcription.task;
+    const generation = transcription && transcription.generation;
+    const active = Boolean(task && ACTIVE_TASK_STATES.has(task.status));
+    const workerChecking = active && task.worker_state === "checking-worker";
+    const startButton = $("#start-transcription");
+    const cancelButton = $("#cancel-transcription");
+    const measurements = $("#task-measurements");
+    const error = $("#transcription-error");
+
+    startButton.hidden = active;
+    startButton.disabled = state.taskRequestInFlight;
+    startButton.textContent = generation ? "Chạy lại bản ghi" : "Bắt đầu chép lời";
+    cancelButton.hidden = !active;
+    cancelButton.disabled = !task || task.status === "stopping";
+    cancelButton.textContent = task && task.status === "stopping" ? "Đang dừng…" : "Hủy xử lý";
+    measurements.hidden = !task;
+    const taskFailed = task && ["failed", "interrupted"].includes(task.status);
+    error.hidden = !taskFailed && !state.taskRequestError;
+    error.textContent = state.taskRequestError || (taskFailed ? task.error_message || "Tác vụ chưa hoàn tất." : "");
+
+    if (!task) {
+      $("#transcription-status").textContent = generation
+        ? "Transcript hoàn chỉnh đã được lưu. Bạn có thể nghe lại các mốc hoặc chủ động chạy lại bản ghi."
+        : "Bản ghi đã lưu. Bấm “Bắt đầu chép lời” khi bạn muốn chạy nhận dạng local.";
+    } else {
+      const statusText = {
+        accepted: "Tác vụ đã được nhận. Worker sẽ bắt đầu xử lý.",
+        running: "Đang chép lời bằng model local. Tác vụ tiếp tục nếu bạn đóng tab.",
+        stopping: "Đang dừng và thu hồi runner. Slot chỉ được nhường sau khi runner đã kết thúc.",
+        succeeded: "Transcript đã được lưu hoàn chỉnh. Kết quả hiện tại là transcript_only; chưa có notes.",
+        failed: task.error_message || "Tác vụ thất bại. Transcript hoàn chỉnh trước đó vẫn được giữ.",
+        canceled: "Đã hủy sau khi runner dừng. Transcript hoàn chỉnh trước đó vẫn được giữ.",
+        interrupted: "Worker đã dừng giữa tác vụ. Không tự chạy lại; hãy bấm để thử lại.",
+      };
+      $("#transcription-status").textContent = workerChecking
+        ? task.status === "accepted"
+          ? "Đang kiểm tra worker trước khi bắt đầu xử lý."
+          : "Đang kiểm tra worker vì heartbeat tác vụ đã cũ."
+        : statusText[task.status] || "Đang tải trạng thái tác vụ.";
+      $("#task-stage").textContent = TASK_STAGES[task.stage] || task.stage || "Chưa bắt đầu";
+      $("#task-elapsed").textContent = formatElapsedSeconds(task.elapsed_seconds);
+      $("#task-segment-count").textContent = String(task.segment_count || 0);
+      $("#task-transcript-end").textContent = formatTimestamp(task.transcript_end_seconds || 0);
+    }
+    const status = $("#transcription-status");
+    status.dataset.workerState = task && task.worker_state ? task.worker_state : "";
+    status.classList.toggle("is-checking-worker", workerChecking);
+    renderMeetingProcessingStatus(task, generation);
+    renderTranscriptGeneration(generation);
+  }
+
+  function newTaskRequestId() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return window.crypto.randomUUID();
+    }
+    return `task-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function taskRequestStorageKey(meetingId) {
+    return `asr-en-vi:transcription-request:${meetingId}`;
+  }
+
+  function getPendingTaskRequestId(meetingId) {
+    const key = taskRequestStorageKey(meetingId);
+    try {
+      const stored = window.sessionStorage.getItem(key);
+      if (stored) return stored;
+      const requestId = newTaskRequestId();
+      window.sessionStorage.setItem(key, requestId);
+      return requestId;
+    } catch {
+      if (state.pendingTaskRequestId && state.pendingTaskRequestId.meetingId === meetingId) {
+        return state.pendingTaskRequestId.requestId;
+      }
+      const requestId = newTaskRequestId();
+      state.pendingTaskRequestId = { meetingId, requestId };
+      return requestId;
+    }
+  }
+
+  function clearPendingTaskRequestId(meetingId) {
+    try {
+      window.sessionStorage.removeItem(taskRequestStorageKey(meetingId));
+    } catch {
+      // The in-memory fallback is cleared below.
+    }
+    if (state.pendingTaskRequestId && state.pendingTaskRequestId.meetingId === meetingId) {
+      state.pendingTaskRequestId = null;
+    }
+  }
+
+  function rotateTerminalTaskRequestId(meetingId, task) {
+    if (task && !ACTIVE_TASK_STATES.has(task.status)) clearPendingTaskRequestId(meetingId);
+  }
+
+  function stopTaskPolling() {
+    if (state.taskPollTimer) window.clearTimeout(state.taskPollTimer);
+    state.taskPollTimer = 0;
+    state.taskPollId = null;
+  }
+
+  function scheduleTaskPoll(meetingId, taskId, delay = document.hidden ? 3000 : 1000) {
+    if (state.taskPollTimer) window.clearTimeout(state.taskPollTimer);
+    state.taskPollTimer = window.setTimeout(() => void pollTask(meetingId, taskId), delay);
+  }
+
+  function startTaskPolling(meetingId, task) {
+    if (!task || !ACTIVE_TASK_STATES.has(task.status)) {
+      stopTaskPolling();
+      return;
+    }
+    if (state.taskPollId !== task.id) stopTaskPolling();
+    state.taskPollId = task.id;
+    if (!state.taskPollTimer) scheduleTaskPoll(meetingId, task.id);
+  }
+
+  async function refreshMeetingTranscription(meetingId) {
+    const payload = await requestJson(`/api/meetings/${encodeURIComponent(meetingId)}`);
+    const meeting = payload && payload.meeting && typeof payload.meeting === "object" ? payload.meeting : payload;
+    if (!state.meeting || state.meeting.id !== meetingId || !meeting || !meeting.transcription) return;
+    rotateTerminalTaskRequestId(meetingId, meeting.transcription.task);
+    state.meeting = meeting;
+    renderTranscription(meeting.transcription);
+    renderSidebar();
+  }
+
+  async function pollTask(meetingId, taskId) {
+    state.taskPollTimer = 0;
+    if (state.taskPollId !== taskId || !state.meeting || state.meeting.id !== meetingId) return;
+    try {
+      const task = await requestJson(`/api/tasks/${encodeURIComponent(taskId)}`);
+      if (state.taskPollId !== taskId || !state.meeting || state.meeting.id !== meetingId) return;
+      state.meeting.transcription = {
+        ...(state.meeting.transcription || {}),
+        task,
+      };
+      renderTranscription(state.meeting.transcription);
+      if (ACTIVE_TASK_STATES.has(task.status)) {
+        scheduleTaskPoll(meetingId, taskId);
+      } else {
+        rotateTerminalTaskRequestId(meetingId, task);
+        stopTaskPolling();
+        if (task.status === "succeeded") {
+          try {
+            await refreshMeetingTranscription(meetingId);
+          } catch {
+            $("#transcription-status").textContent = "Tác vụ đã hoàn tất; không tải được transcript mới. Mở lại cuộc họp để thử lại.";
+          }
+        }
+      }
+    } catch {
+      if (state.taskPollId !== taskId) return;
+      $("#transcription-status").textContent = "Tạm mất kết nối khi đọc tiến độ. Tác vụ vẫn thuộc worker; đang thử đọc lại.";
+      scheduleTaskPoll(meetingId, taskId, 3000);
+    }
+  }
+
+  async function startTranscription() {
+    const meeting = state.meeting;
+    if (!meeting || state.taskRequestInFlight) return;
+    const requestId = getPendingTaskRequestId(meeting.id);
+    state.taskRequestInFlight = true;
+    state.taskRequestError = null;
+    renderTranscription(meeting.transcription);
+    try {
+      const task = await requestJson("/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({ meeting_id: meeting.id, request_id: requestId }),
+      });
+      clearPendingTaskRequestId(meeting.id);
+      state.taskRequestError = null;
+      meeting.transcription = { ...(meeting.transcription || {}), task };
+      renderTranscription(meeting.transcription);
+      startTaskPolling(meeting.id, task);
+      if (task.status === "succeeded") await refreshMeetingTranscription(meeting.id);
+    } catch (requestError) {
+      const definitiveError = Number.isInteger(requestError && requestError.status)
+        && requestError.status >= 400
+        && requestError.status < 500;
+      if (definitiveError) clearPendingTaskRequestId(meeting.id);
+      const retryGuidance = definitiveError
+        ? "Bấm lại để gửi một yêu cầu mới."
+        : "Bấm lại để xác minh bằng cùng request ID.";
+      state.taskRequestError = `${requestError && requestError.message ? requestError.message : "Không thể xác nhận yêu cầu."} ${retryGuidance}`;
+      $("#transcription-status").textContent = "Chưa xác nhận được việc nhận tác vụ. Yêu cầu chưa được tự gửi lại.";
+    } finally {
+      state.taskRequestInFlight = false;
+      if (state.meeting && state.meeting.id === meeting.id) renderTranscription(state.meeting.transcription);
+    }
+  }
+
+  async function cancelTranscription() {
+    const meeting = state.meeting;
+    const task = meeting && meeting.transcription && meeting.transcription.task;
+    if (!meeting || !task || !ACTIVE_TASK_STATES.has(task.status) || task.status === "stopping") return;
+    $("#cancel-transcription").disabled = true;
+    try {
+      const updated = await requestJson(`/api/tasks/${encodeURIComponent(task.id)}/cancel`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      state.taskRequestError = null;
+      meeting.transcription.task = updated;
+      renderTranscription(meeting.transcription);
+      startTaskPolling(meeting.id, updated);
+    } catch (requestError) {
+      state.taskRequestError = requestError && requestError.message
+        ? requestError.message
+        : "Không thể gửi yêu cầu hủy. Trạng thái tác vụ chưa được thay đổi trên giao diện.";
+      renderTranscription(meeting.transcription);
+    }
   }
 
   // Resolves true when this call painted the final view, false when newer navigation won.
   async function loadMeeting(meetingId) {
     const sequence = ++state.loadSeq;
     const sameMeeting = state.meeting && state.meeting.id === meetingId;
+    if (!sameMeeting) stopTaskPolling();
     if (!sameMeeting) closeEditor(); // drops the draft, which orphans any save still in flight
     $("#workspace-link").removeAttribute("aria-current");
     if (sameMeeting) {
@@ -477,6 +810,7 @@
       // A read issued before a save landed can answer after it; never step back a version.
       const known = state.meeting;
       if (known && known.id === meeting.id && known.metadata_version > meeting.metadata_version) meeting = known;
+      rotateTerminalTaskRequestId(meetingId, meeting.transcription && meeting.transcription.task);
       state.meeting = meeting;
       renderMeeting(meeting);
       const audio = $("#meeting-audio");
@@ -487,6 +821,7 @@
         audio.load();
       }
       showView("meeting");
+      startTaskPolling(meeting.id, meeting.transcription && meeting.transcription.task);
       renderSidebar();
       if (!state.meetings.length) void refreshHistory();
       return true;
@@ -664,6 +999,25 @@
     $("#edit-date").focus();
   });
   $("#meeting-edit").addEventListener("submit", saveMeeting);
+  $("#start-transcription").addEventListener("click", () => void startTranscription());
+  $("#cancel-transcription").addEventListener("click", () => void cancelTranscription());
+  $("#transcript-segments").addEventListener("click", (event) => {
+    const timestamp = event.target.closest("button[data-seek-seconds]");
+    if (!timestamp) return;
+    const audio = $("#meeting-audio");
+    const seconds = Number(timestamp.dataset.seekSeconds);
+    if (!Number.isFinite(seconds) || seconds < 0) return;
+    audio.currentTime = seconds;
+    const playback = audio.play();
+    if (playback && typeof playback.catch === "function") playback.catch(() => {});
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!state.taskPollId) return;
+    const task = state.meeting && state.meeting.transcription && state.meeting.transcription.task;
+    if (task && ACTIVE_TASK_STATES.has(task.status)) {
+      scheduleTaskPoll(state.meeting.id, task.id);
+    }
+  });
 
   let searchTimer = 0;
   const searchInput = $("#history-search");

@@ -31,9 +31,13 @@ services:
       ASR_COOKIE_SECURE: ${ASR_COOKIE_SECURE:-false}
       ASR_MAX_UPLOAD_BYTES: ${ASR_MAX_UPLOAD_BYTES:-4294967296}
       ASR_MAX_RECORDING_SECONDS: ${ASR_MAX_RECORDING_SECONDS:-14400}
+      ASR_MODEL_PATH: ${ASR_MODEL_PATH:-/models/whisper-large-v3}
+      ASR_DEVICE: ${ASR_DEVICE:-cpu}
+      ASR_COMPUTE_TYPE: ${ASR_COMPUTE_TYPE:-int8}
     volumes:
       - data:/var/lib/asr-en-vi/data
       - auth:/var/lib/asr-en-vi/auth
+      - "${ASR_MODEL_HOST_PATH:-./models}:/models:ro"
     healthcheck:
       test: ["CMD", "python", "-m", "asr_en_vi.cli", "health"]
       interval: 10s
@@ -56,8 +60,12 @@ services:
       - ALL
     environment:
       ASR_DATA_DIR: /var/lib/asr-en-vi/data
+      ASR_MODEL_PATH: ${ASR_MODEL_PATH:-/models/whisper-large-v3}
+      ASR_DEVICE: ${ASR_DEVICE:-cpu}
+      ASR_COMPUTE_TYPE: ${ASR_COMPUTE_TYPE:-int8}
     volumes:
       - data:/var/lib/asr-en-vi/data
+      - "${ASR_MODEL_HOST_PATH:-./models}:/models:ro"
     depends_on:
       app:
         condition: service_healthy
@@ -67,7 +75,7 @@ services:
       timeout: 3s
       start_period: 10s
       retries: 3
-    stop_grace_period: 10s
+    stop_grace_period: 20s
 
 volumes:
   data:

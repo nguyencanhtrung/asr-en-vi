@@ -541,7 +541,11 @@ def get_meeting(data_dir: Path, meeting_id: str) -> dict[str, object]:
         ).fetchone()
     if row is None:
         raise RecordingError(404, "meeting_not_found", "Meeting not found.")
-    return _meeting_summary(row)
+    summary = _meeting_summary(row)
+    from asr_en_vi.tasks import transcription_state
+
+    summary["transcription"] = transcription_state(data_dir, meeting_id)
+    return summary
 
 
 def _history_item(row: sqlite3.Row) -> dict[str, object]:
@@ -639,6 +643,21 @@ def get_audio_recording(data_dir: Path, meeting_id: str) -> dict[str, object]:
         "storage_key": row["storage_key"],
         "content_type": row["content_type"],
     }
+
+
+def recording_path(data_dir: Path, meeting_id: str) -> Path:
+    """Resolve an application-managed recording for the local transcription runner."""
+    recording = get_audio_recording(data_dir, meeting_id)
+    path = _path_for_key(data_dir, recording["storage_key"])
+    try:
+        file_stat = path.lstat()
+    except OSError as error:
+        raise RecordingError(
+            500, "recording_unavailable", "Meeting recording is unavailable."
+        ) from error
+    if not stat.S_ISREG(file_stat.st_mode):
+        raise RecordingError(500, "recording_unavailable", "Meeting recording is unavailable.")
+    return path
 
 
 def open_audio(data_dir: Path, storage_key: str) -> tuple[int, BinaryIO]:

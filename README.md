@@ -1,9 +1,8 @@
 # ASR EN VI Meeting Notes
 
-Ứng dụng web chạy trên máy tự quản để chuyển bản ghi họp thành transcript và meeting notes.
-Hiện ứng dụng có lớp truy cập localhost, SQLite bền, app/worker Compose và workspace để nhập,
-kiểm tra, lưu và phát lại bản ghi. Xử lý ASR, diarization, lịch sử nhiều cuộc họp và provider
-notes chưa được triển khai.
+Ứng dụng web chạy trên máy tự quản để lưu bản ghi cuộc họp và tạo transcript bằng faster-whisper
+trên máy local. Bản ghi được lưu trong workspace; meeting notes và diarization chưa được triển
+khai.
 
 ## Chạy trên máy local
 
@@ -25,6 +24,7 @@ Compose tạo hai volume riêng:
 
 - `data` giữ SQLite và trạng thái liveness tối thiểu của worker; app và worker cùng gắn volume này.
 - `auth` giữ token và khóa ký cookie với quyền file hạn chế; chỉ app gắn volume này.
+- Thư mục model trên host được gắn chỉ đọc vào app và worker; không nằm trong image ứng dụng.
 
 Restart hoặc recreate container vẫn giữ hai volume. Một Compose project/volume mới sinh token
 riêng. Đổi cổng bằng `ASR_PORT` trong `.env`; link mặc định tự theo cổng đó. Có thể đặt
@@ -35,6 +35,43 @@ Workspace nhận `wav`, `mp3`, `m4a`, `mp4`, `mov`, `webm`, `ogg`, `opus` và `f
 kiểm tra codec/thời lượng bằng FFmpeg, rồi lưu một bản M4A/AAC do ứng dụng quản lý; file nguồn
 không còn cần thiết sau khi upload hoàn tất. Mặc định mỗi file tối đa 4 GiB và 4 giờ. Có thể đổi
 hai giới hạn bằng `ASR_MAX_UPLOAD_BYTES` và `ASR_MAX_RECORDING_SECONDS` trong `.env`.
+
+## Model chép lời local
+
+`faster-whisper` 1.2.1 nằm trong dependencies của dự án và được khóa cùng runtime bằng `uv.lock`.
+PyAV được giữ dưới phiên bản 19 để tương thích với API giải mã của bản faster-whisper này.
+Để cài dependencies phát triển, chạy `uv sync --all-groups --locked`; runtime-only dùng
+`uv sync --locked --no-dev`.
+
+Chuẩn bị trước một model Whisper đã chuyển sang định dạng CTranslate2 của faster-whisper. Mặc
+định, Compose đọc model từ `./models/whisper-large-v3` trên host và gắn thư mục đó ở chế độ chỉ
+đọc vào app/worker. Thư mục model cần có `model.bin`, `config.json`, `tokenizer.json` và
+`preprocessor_config.json`. Preprocessor config phải là JSON hợp lệ, khai báo `feature_size`,
+`sampling_rate` là `16000`, `hop_length`, `n_fft` và `chunk_length` dưới dạng số nguyên dương.
+Tokenizer phải là file `tokenizer.json`; `vocabulary.json` không thay thế file này. Không đặt tên
+model Hub ở `ASR_MODEL_PATH`; chỉ dùng đường dẫn tới thư mục model đã chuẩn bị.
+
+```sh
+mkdir -p ./models
+cp -a /path/to/prepared-whisper-model ./models/whisper-large-v3
+```
+
+`ASR_MODEL_HOST_PATH` chọn thư mục model trên host; `ASR_MODEL_PATH` chọn thư mục con trong
+container. Worker mặc định dùng CPU với `int8`. Đặt `ASR_DEVICE` và `ASR_COMPUTE_TYPE` trong
+`.env` để chọn cấu hình phù hợp. Runtime chỉ mở model từ đường dẫn local, bật chế độ offline và
+tắt telemetry của Hugging Face; audio không được gửi ra ngoài.
+
+Import cuộc họp chỉ lưu bản ghi. Mở cuộc họp rồi bấm **Bắt đầu chép lời** để chiếm slot xử lý.
+Sau khi có transcript, nút **Chạy lại bản ghi** tạo một thế hệ transcript riêng; thế hệ cũ còn
+được giữ nếu lần chạy mới lỗi hoặc bị hủy. Chỉ thế hệ hoàn chỉnh được công bố. Giao diện hiển thị
+giai đoạn, thời gian đã chạy, số đoạn và mốc timestamp cuối cùng nhận được, không tạo phần trăm
+hoặc ETA.
+
+Mỗi segment lưu ID ổn định, timestamp bắt đầu/kết thúc, văn bản và các chỉ số model có sẵn:
+`avg_logprob`, `no_speech_prob` và `compression_ratio`. Một segment được đánh dấu **Nên nghe lại**
+nếu `avg_logprob < -1.0`, `no_speech_prob >= 0.6` hoặc `compression_ratio > 2.4`. Đây là các dấu
+hiệu rà soát theo ngưỡng decode của Whisper, không phải xác suất transcript đúng; văn bản vẫn được
+giữ nguyên và người dùng quyết định sửa sau khi nghe lại.
 
 Để thay token và vô hiệu link/session cũ:
 
@@ -53,6 +90,10 @@ Cài Python 3.12, uv, Node.js và Docker Compose rồi chạy toàn bộ quality
 ./scripts/check.sh
 ```
 
+Để chạy transcription video thật bên ngoài Docker, cài dependencies bằng lệnh `uv sync` ở trên.
+Bài kiểm tra video vẫn cần `ASR_TEST_VIDEO` và `ASR_MODEL_PATH` trỏ tới file/model local đã chuẩn
+bị.
+
 Một kiểm thử Chromium thực chạy HTTP server và xác nhận fragment được loại khỏi URL, token chỉ
 được gửi trong body, và cookie không đọc được từ JavaScript. Để chạy, cài Chromium cho Playwright
 và đặt `ASR_RUN_BROWSER_TESTS=1`:
@@ -61,6 +102,20 @@ và đặt `ASR_RUN_BROWSER_TESTS=1`:
 uv run playwright install chromium
 ASR_RUN_BROWSER_TESTS=1 uv run pytest -m browser
 ```
+
+Bài kiểm tra video xuyên suốt mặc định được bỏ qua. Để chạy, cung cấp đường dẫn video thật và một
+model local đã chuẩn bị; bài kiểm tra import video qua API, tạo cuộc họp, khởi động worker, chờ
+transcription và đọc transcript đã lưu:
+
+```sh
+ASR_TEST_VIDEO=/absolute/path/to/meeting.mp4 \
+ASR_MODEL_PATH=/absolute/path/to/prepared-whisper-model \
+ASR_EXPECTED_TEXT='expected phrase in the recording' \
+uv run pytest tests/test_transcription_video_e2e.py -q
+```
+
+`ASR_EXPECTED_TEXT` là tùy chọn; khi có, bài kiểm tra còn xác nhận transcript đã lưu chứa câu
+mong đợi sau khi chuẩn hóa chữ hoa/thường và khoảng trắng.
 
 ## CI/CD
 

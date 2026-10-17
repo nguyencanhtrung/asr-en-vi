@@ -19,7 +19,7 @@ ENV PATH="/app/.venv/bin:${PATH}" \
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get install -y --no-install-recommends ffmpeg libgomp1 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 asr \
     && useradd --uid 10001 --gid asr --no-create-home --shell /usr/sbin/nologin asr \
