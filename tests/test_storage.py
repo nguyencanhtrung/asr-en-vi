@@ -30,7 +30,7 @@ def test_sqlite_persists_across_reopen_with_current_domain_schema(tmp_path):
         "uploads",
         "recordings",
     }
-    assert versions == [1, 2]
+    assert versions == [1, 2, 3]
     assert os.stat(data_dir).st_mode & 0o777 == 0o700
     assert os.stat(database).st_mode & 0o777 == 0o600
 
@@ -57,6 +57,7 @@ def test_schema_v1_database_migrates_transactionally_and_preserves_existing_data
         ).fetchall() == [
             (1,),
             (2,),
+            (3,),
         ]
         tables = {
             row[0]

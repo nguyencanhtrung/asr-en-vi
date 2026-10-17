@@ -3,7 +3,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 import yaml
+from media_tools import require_media_tools
 
 ROOT = Path(__file__).parents[1]
 PIPELINE_PATH = ROOT / ".github" / "workflows" / "pipeline.yml"
@@ -28,6 +30,36 @@ def test_pipeline_gates_pull_requests_main_and_version_tags():
     assert check_step["run"] == "./scripts/check.sh"
     assert check_step["env"]["ASR_RUN_BROWSER_TESTS"] == "1"
     assert "container" in pipeline["jobs"]
+    names = [step["name"] for step in quality["steps"]]
+    media_step = quality["steps"][names.index("Install media tools")]
+    assert "apt-get install" in media_step["run"]
+    for tool in ("ffmpeg", "ffprobe"):
+        assert f"command -v {tool}" in media_step["run"].splitlines()
+    assert names.index("Install media tools") < names.index("Run repository checks")
+    # Missing media tools must fail CI instead of silently skipping media tests.
+    assert check_step["env"]["ASR_REQUIRE_MEDIA_TOOLS"] == "1"
+
+
+def test_media_gate_skips_locally_but_fails_when_ci_requires_tools(monkeypatch):
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.delenv("ASR_REQUIRE_MEDIA_TOOLS", raising=False)
+    with pytest.raises(pytest.skip.Exception):
+        require_media_tools()
+    monkeypatch.setenv("ASR_REQUIRE_MEDIA_TOOLS", "1")
+    with pytest.raises(pytest.fail.Exception):
+        require_media_tools()
+
+
+def test_container_job_runs_runtime_smoke_check_on_the_built_image():
+    steps = load_yaml(PIPELINE_PATH)["jobs"]["container"]["steps"]
+    build = next(step for step in steps if step["name"] == "Build container")
+    smoke = next(step for step in steps if step["name"] == "Smoke-test container runtime")
+
+    assert build["with"]["load"] is True
+    assert steps.index(smoke) > steps.index(build)
+    assert smoke["run"] == f"./scripts/container-smoke.sh {build['with']['tags']}"
+    script = (ROOT / "scripts" / "container-smoke.sh").read_text(encoding="utf-8")
+    assert "normalize_media" in script and "/healthz" in script
 
 
 def test_publish_waits_for_every_gate_and_has_only_required_write_permissions():

@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
@@ -28,7 +28,9 @@ from asr_en_vi.recordings import (
     get_audio_recording,
     get_meeting,
     get_upload,
+    list_meetings,
     open_audio,
+    update_meeting,
 )
 
 SESSION_COOKIE = "asr_en_vi_session"
@@ -144,6 +146,14 @@ def install_routes(app: FastAPI, settings: Settings) -> None:
         if not asset_path.is_file():
             return Response(status_code=404)
         return FileResponse(asset_path, media_type="text/javascript")
+
+    @app.get("/assets/history.css", include_in_schema=False)
+    async def history_css() -> FileResponse:
+        return _asset_response("history.css", "text/css")
+
+    @app.get("/assets/history.js", include_in_schema=False)
+    async def history_js() -> FileResponse:
+        return _asset_response("history.js", "text/javascript")
 
     @app.get("/meetings/{meeting_id}", include_in_schema=False)
     async def meeting_page(meeting_id: str) -> FileResponse:
@@ -303,6 +313,28 @@ def install_routes(app: FastAPI, settings: Settings) -> None:
                 title=payload["title"],
                 meeting_date=payload.get("meeting_date"),
                 language_hint=payload["language_hint"],
+            )
+        except RecordingError as error:
+            _raise_recording_error(error)
+
+    @app.get("/api/meetings")
+    async def read_meeting_history(q: str | None = Query(default=None, max_length=200)):
+        return await run_in_threadpool(list_meetings, settings.data_dir, query=q)
+
+    @app.patch("/api/meetings/{meeting_id}")
+    async def edit_meeting(meeting_id: str, request: Request) -> dict[str, object]:
+        payload = await _json_object(
+            request,
+            required={"expected_metadata_version"},
+            optional={"title", "meeting_date"},
+        )
+        try:
+            return await run_in_threadpool(
+                update_meeting,
+                settings.data_dir,
+                meeting_id,
+                expected_version=payload["expected_metadata_version"],
+                fields={key: payload[key] for key in ("title", "meeting_date") if key in payload},
             )
         except RecordingError as error:
             _raise_recording_error(error)

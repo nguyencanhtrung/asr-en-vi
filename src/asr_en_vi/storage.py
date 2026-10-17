@@ -6,7 +6,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def _migrate_v2(connection: sqlite3.Connection) -> None:
@@ -52,6 +52,16 @@ def _migrate_v2(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v3(connection: sqlite3.Connection) -> None:
+    # Bumped only when meeting_date changes; later Notes revisions compare it to
+    # their source snapshot to detect staleness. Title edits never touch it.
+    connection.execute(
+        "ALTER TABLE meetings ADD COLUMN notes_source_version INTEGER NOT NULL DEFAULT 1 "
+        "CHECK(notes_source_version >= 1)"
+    )
+    connection.execute("CREATE INDEX meetings_date_idx ON meetings(meeting_date)")
+
+
 def database_path(data_dir: Path) -> Path:
     return Path(data_dir) / "app.sqlite3"
 
@@ -90,6 +100,9 @@ def initialize(data_dir: Path) -> Path:
         if current_version < 2:
             _migrate_v2(connection)
             connection.execute("INSERT INTO schema_migrations(version) VALUES (2)")
+        if current_version < 3:
+            _migrate_v3(connection)
+            connection.execute("INSERT INTO schema_migrations(version) VALUES (3)")
         connection.commit()
     finally:
         connection.close()

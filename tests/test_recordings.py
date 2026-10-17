@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import io
 import json
-import shutil
 import sqlite3
 import threading
 import time
@@ -12,6 +11,7 @@ import wave
 import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
+from media_tools import require_media_tools
 from starlette.requests import ClientDisconnect
 
 from asr_en_vi import recordings as recordings_module
@@ -71,9 +71,7 @@ async def _upload_ready(client: AsyncClient, settings: Settings, content: bytes)
     return upload
 
 
-def _require_media_tools() -> None:
-    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
-        pytest.skip("ffmpeg and ffprobe are required for backend media tests")
+_require_media_tools = require_media_tools
 
 
 async def test_wav_upload_normalizes_attaches_idempotently_and_keeps_date_empty(client, settings):
