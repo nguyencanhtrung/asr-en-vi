@@ -1,6 +1,6 @@
-FROM ghcr.io/astral-sh/uv:0.11.15 AS uv-bin
+FROM ghcr.io/astral-sh/uv:0.13.1 AS uv-bin
 
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 COPY --from=uv-bin /uv /uvx /bin/
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -10,7 +10,7 @@ COPY pyproject.toml README.md uv.lock ./
 COPY src/ ./src/
 RUN uv sync --locked --no-dev --no-editable
 
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
