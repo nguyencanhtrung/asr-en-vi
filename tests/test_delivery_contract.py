@@ -60,6 +60,7 @@ def test_container_job_runs_runtime_smoke_check_on_the_built_image():
     assert smoke["run"] == f"./scripts/container-smoke.sh {build['with']['tags']}"
     script = (ROOT / "scripts" / "container-smoke.sh").read_text(encoding="utf-8")
     assert "normalize_media" in script and "/healthz" in script
+    assert "from torchcodec.decoders import AudioDecoder" in script
 
 
 def test_startup_detects_gpu_prepares_model_and_preflights_before_services():

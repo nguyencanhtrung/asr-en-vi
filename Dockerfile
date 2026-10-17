@@ -7,6 +7,7 @@ RUN apt-get update \
         ca-certificates \
         ffmpeg \
         libgomp1 \
+        libpython3.12 \
         python3 \
         python3-venv \
     && rm -rf /var/lib/apt/lists/*
@@ -24,8 +25,10 @@ RUN uv sync --locked --no-dev --no-editable
 
 FROM python-base AS runtime
 ENV PATH="/app/.venv/bin:${PATH}" \
+    MPLCONFIGDIR=/tmp/matplotlib \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    XDG_CACHE_HOME=/tmp/cache \
     ASR_DATA_DIR=/var/lib/asr-en-vi/data \
     ASR_AUTH_DIR=/var/lib/asr-en-vi/auth
 WORKDIR /app

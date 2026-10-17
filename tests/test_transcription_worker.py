@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 import pytest
-from seeding import seed_meeting
+from seeding import prepare_diarization_model, seed_meeting
 
 from asr_en_vi import worker
 from asr_en_vi.config import Settings
@@ -56,6 +56,7 @@ def _worker_task_store(tmp_path: Path, *, meeting_count: int = 1):
         ),
         encoding="utf-8",
     )
+    diarization_model_dir = prepare_diarization_model(tmp_path / "diarization-model")
     meeting_ids = [
         seed_meeting(data_dir, f"Worker meeting {index}") for index in range(meeting_count)
     ]
@@ -71,6 +72,7 @@ def _worker_task_store(tmp_path: Path, *, meeting_count: int = 1):
         data_dir=data_dir,
         auth_dir=tmp_path / "auth",
         asr_model_path=model_dir,
+        diarization_model_path=diarization_model_dir,
     )
     lock_fd = acquire_worker_lock(data_dir)
     assert lock_fd is not None
@@ -83,6 +85,7 @@ def _accept_and_claim(data_dir: Path, model_dir: Path, meeting_id: str):
         meeting_id=meeting_id,
         request_id="worker-task-request-001",
         model_path=model_dir,
+        diarization_model_path=data_dir.parent / "diarization-model",
         device="cpu",
         compute_type="int8",
         worker_ready=True,
@@ -92,12 +95,21 @@ def _accept_and_claim(data_dir: Path, model_dir: Path, meeting_id: str):
     return claimed
 
 
-def _install_runner_shim(tmp_path: Path, monkeypatch, source: str) -> None:
+def _install_runner_shim(
+    tmp_path: Path, monkeypatch, source: str, diarization_source: str | None = None
+) -> None:
     shim_root = tmp_path / "runner-shim"
     package = shim_root / "asr_en_vi"
     package.mkdir(parents=True)
     (package / "__init__.py").write_text("", encoding="utf-8")
     (package / "runner.py").write_text(source, encoding="utf-8")
+    if diarization_source is None:
+        diarization_source = (
+            "import json\n"
+            "print(json.dumps({'type': 'complete', 'regular_turn_count': 0, "
+            "'exclusive_turn_count': 0}), flush=True)\n"
+        )
+    (package / "diarization_runner.py").write_text(diarization_source, encoding="utf-8")
     source_root = str(Path(__file__).parents[1] / "src")
     python_path = os.pathsep.join(
         path for path in (str(shim_root), source_root, os.environ.get("PYTHONPATH", "")) if path
@@ -198,6 +210,185 @@ for event in events:
     assert state["generation"]["segments"][0]["text"] == "Local transcript."
 
 
+def test_worker_runs_diarization_after_asr_in_a_separate_child_and_saves_speakers(
+    tmp_path, monkeypatch
+):
+    data_dir, model_dir, meeting_ids, settings, lock_fd = _worker_task_store(tmp_path)
+    task = _accept_and_claim(data_dir, model_dir, meeting_ids[0])
+    phase_log = tmp_path / "phases.log"
+    monkeypatch.setenv("ASR_TEST_PHASE_LOG", str(phase_log))
+    monkeypatch.setenv("HF_TOKEN", "setup-only-token")
+    _install_runner_shim(
+        tmp_path,
+        monkeypatch,
+        """import json
+import os
+from pathlib import Path
+Path(os.environ["ASR_TEST_PHASE_LOG"]).write_text(f"asr-start:{os.getpid()}\\n", encoding="ascii")
+events = [
+    {"type": "segment", "id": "a" * 32, "start_seconds": 0.5, "end_seconds": 1.5,
+     "text": "API gateway đang ready.", "avg_logprob": -0.2, "no_speech_prob": 0.03,
+     "compression_ratio": 0.8},
+    {"type": "complete", "segment_count": 1, "language_probability": 0.9},
+]
+for event in events:
+    print(json.dumps(event), flush=True)
+with Path(os.environ["ASR_TEST_PHASE_LOG"]).open("a", encoding="ascii") as log:
+    log.write(f"asr-end:{os.getpid()}\\n")
+""",
+        """import json
+import os
+from pathlib import Path
+log_path = Path(os.environ["ASR_TEST_PHASE_LOG"])
+with log_path.open("a", encoding="ascii") as log:
+    log.write(f"diarization-start:{os.getpid()}:token-{int('HF_TOKEN' in os.environ)}\\n")
+turns = [
+    {"type": "turn", "kind": kind, "start_seconds": 0.4, "end_seconds": 1.6,
+     "speaker_id": "SPEAKER_00"}
+    for kind in ("regular", "exclusive")
+]
+for event in turns:
+    print(json.dumps(event), flush=True)
+print(json.dumps({"type": "complete", "regular_turn_count": 1,
+                  "exclusive_turn_count": 1}), flush=True)
+with log_path.open("a", encoding="ascii") as log:
+    log.write(f"diarization-end:{os.getpid()}\\n")
+""",
+    )
+    try:
+        worker._run_task(settings, lock_fd, task, threading.Event())
+    finally:
+        os.close(lock_fd)
+
+    lines = phase_log.read_text(encoding="ascii").splitlines()
+    assert [line.split(":", maxsplit=1)[0] for line in lines] == [
+        "asr-start",
+        "asr-end",
+        "diarization-start",
+        "diarization-end",
+    ]
+    assert lines[0].split(":")[1] == lines[1].split(":")[1]
+    assert lines[2].split(":")[1] == lines[3].split(":")[1]
+    assert lines[0].split(":")[1] != lines[2].split(":")[1]
+    assert lines[2].endswith(":token-0")
+    generation = transcription_state(data_dir, meeting_ids[0])["generation"]
+    segment = generation["segments"][0]
+    assert segment["text"] == "API gateway đang ready."
+    assert (segment["start_seconds"], segment["end_seconds"]) == (0.5, 1.5)
+    assert segment["original_speaker_id"] == "SPEAKER_00"
+    assert segment["speaker_id"] == "SPEAKER_00"
+    assert generation["speakers"] == [
+        {
+            "speaker_id": "SPEAKER_00",
+            "display_name": "Speaker 1",
+            "first_seen_seconds": 0.4,
+            "last_seen_seconds": 1.6,
+        }
+    ]
+
+
+def test_diarization_failure_keeps_the_previous_complete_generation(tmp_path, monkeypatch):
+    data_dir, model_dir, meeting_ids, settings, lock_fd = _worker_task_store(tmp_path)
+    task = _accept_and_claim(data_dir, model_dir, meeting_ids[0])
+    monkeypatch.setenv("ASR_TEST_DIA_FAIL", "0")
+    _install_runner_shim(
+        tmp_path,
+        monkeypatch,
+        """import json
+print(json.dumps({"type": "complete", "segment_count": 0,
+                  "language_probability": 0.9}), flush=True)
+""",
+        """import json
+import os
+if os.environ.get("ASR_TEST_DIA_FAIL") == "1":
+    print(json.dumps({"type": "error", "code": "diarization_failed",
+                      "message": "Local diarization failed."}), flush=True)
+else:
+    print(json.dumps({"type": "complete", "regular_turn_count": 0,
+                      "exclusive_turn_count": 0}), flush=True)
+""",
+    )
+    worker._run_task(settings, lock_fd, task, threading.Event())
+    previous = transcription_state(data_dir, meeting_ids[0])["generation"]
+    assert previous is not None
+
+    accepted = accept_transcription_task(
+        data_dir,
+        meeting_id=meeting_ids[0],
+        request_id="worker-task-request-002",
+        model_path=model_dir,
+        diarization_model_path=settings.diarization_model_path,
+        device="cpu",
+        compute_type="int8",
+        worker_ready=True,
+    )
+    rerun = claim_next_task(data_dir, owner_id="worker-test-owner-2")
+    assert rerun and rerun["id"] == accepted["id"]
+    monkeypatch.setenv("ASR_TEST_DIA_FAIL", "1")
+    worker._run_task(settings, lock_fd, rerun, threading.Event())
+    os.close(lock_fd)
+
+    state = transcription_state(data_dir, meeting_ids[0])
+    assert state["task"]["status"] == "failed"
+    assert state["task"]["error_code"] == "diarization_failed"
+    assert state["generation"]["id"] == previous["id"]
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM transcript_generations").fetchone() == (1,)
+
+
+def test_cancellation_during_diarization_reaps_the_child_process_group(tmp_path, monkeypatch):
+    data_dir, model_dir, meeting_ids, settings, lock_fd = _worker_task_store(tmp_path)
+    task = _accept_and_claim(data_dir, model_dir, meeting_ids[0])
+    marker_path = tmp_path / "diarization-child.pid"
+    monkeypatch.setenv("ASR_TEST_DIA_CHILD_PID", str(marker_path))
+    monkeypatch.setattr(worker, "RUNNER_TERM_GRACE_SECONDS", 0.2)
+    monkeypatch.setattr(worker, "RUNNER_KILL_GRACE_SECONDS", 1.0)
+    _install_runner_shim(
+        tmp_path,
+        monkeypatch,
+        """import json
+print(json.dumps({"type": "complete", "segment_count": 0,
+                  "language_probability": 0.9}), flush=True)
+""",
+        """import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+child_source = (
+    "import os, signal, time; from pathlib import Path; "
+    "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+    "Path(os.environ['ASR_TEST_DIA_CHILD_PID']).write_text(str(os.getpid())); time.sleep(60)"
+)
+child = subprocess.Popen([sys.executable, "-c", child_source])
+print(json.dumps({"type": "stage", "stage": "diarizing"}), flush=True)
+time.sleep(60)
+""",
+    )
+    runner_thread = threading.Thread(
+        target=worker._run_task,
+        args=(settings, lock_fd, task, threading.Event()),
+    )
+    runner_thread.start()
+    try:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not marker_path.exists():
+            time.sleep(0.02)
+        assert marker_path.exists(), "The diarization process did not start after ASR completed."
+        child_pid = int(marker_path.read_text(encoding="ascii"))
+        assert cancel_task(data_dir, task["id"])["status"] == "stopping"
+        runner_thread.join(timeout=8)
+        assert not runner_thread.is_alive()
+        assert transcription_state(data_dir, meeting_ids[0])["task"]["status"] == "canceled"
+        assert transcription_state(data_dir, meeting_ids[0])["generation"] is None
+        with pytest.raises(ProcessLookupError):
+            os.kill(child_pid, 0)
+    finally:
+        runner_thread.join(timeout=8)
+        os.close(lock_fd)
+
+
 def test_worker_holds_stopping_slot_until_runner_group_is_reaped(tmp_path, monkeypatch):
     data_dir, model_dir, meeting_ids, settings, lock_fd = _worker_task_store(
         tmp_path, meeting_count=2
@@ -265,6 +456,7 @@ time.sleep(60)
                 meeting_id=meeting_ids[1],
                 request_id="worker-task-request-002",
                 model_path=model_dir,
+                diarization_model_path=settings.diarization_model_path,
                 device="cpu",
                 compute_type="int8",
                 worker_ready=True,
@@ -386,6 +578,36 @@ def test_worker_runner_command_never_forces_the_language_hint(tmp_path):
     ]
 
 
+def test_torch_cuda_preflight_uses_an_isolated_allocation_probe(monkeypatch):
+    observed = {}
+
+    def fake_run(command, **kwargs):
+        observed["command"] = command
+        observed["kwargs"] = kwargs
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(worker.subprocess, "run", fake_run)
+
+    worker._verify_torch_cuda()
+
+    assert observed["command"][:2] == [sys.executable, "-c"]
+    assert "torch.cuda.is_available()" in observed["command"][2]
+    assert "device='cuda'" in observed["command"][2]
+    assert observed["kwargs"]["timeout"] == 30
+    assert observed["kwargs"]["check"] is False
+
+
+def test_torch_cuda_preflight_rejects_an_unusable_torch_runtime(monkeypatch):
+    monkeypatch.setattr(
+        worker.subprocess,
+        "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 1),
+    )
+
+    with pytest.raises(worker.RuntimeConfigurationError, match="speaker diarization"):
+        worker._verify_torch_cuda()
+
+
 def test_worker_health_probe_shares_locks_without_claiming_worker_ownership(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -439,6 +661,12 @@ def test_worker_publishes_starting_before_recovery_and_idle_after(tmp_path, monk
             device="cpu", compute_type="int8", model_path=tmp_path / "model"
         ),
     )
+    diarization_model_dir = prepare_diarization_model(tmp_path / "diarization-model")
+    settings = Settings(
+        data_dir=data_dir,
+        auth_dir=tmp_path / "auth",
+        diarization_model_path=diarization_model_dir,
+    )
     worker.run_worker(settings)
 
     assert recovery_states == ["starting"]
@@ -459,6 +687,7 @@ def test_worker_subprocess_recovers_old_task_and_shuts_down_cleanly(tmp_path):
             "ASR_MODEL_PATH": str(model_dir),
             "ASR_DEVICE": "cpu",
             "ASR_COMPUTE_TYPE": "int8",
+            "ASR_DIARIZATION_MODEL_PATH": str(settings.diarization_model_path),
         }
     )
     source_root = str(Path(__file__).parents[1] / "src")
