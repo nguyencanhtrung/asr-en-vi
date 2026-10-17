@@ -23,6 +23,15 @@ def test_compose_separates_services_volumes_and_loopback_publish():
     assert app["environment"]["ASR_MAX_RECORDING_SECONDS"] == (
         "${ASR_MAX_RECORDING_SECONDS:-14400}"
     )
+    assert "ASR_MODEL_PATH" not in app["environment"]
+    assert worker["environment"]["ASR_DEVICE"] == "${ASR_DEVICE:-auto}"
+    assert worker["environment"]["ASR_GPU_MODEL_PATH"].endswith("whisper-large-v3}")
+    assert worker["environment"]["ASR_CPU_MODEL_PATH"].endswith("whisper-small}")
+    assert "gpus" not in worker
+    gpu_override = yaml.safe_load((ROOT / "compose.gpu.yaml").read_text(encoding="utf-8"))
+    assert gpu_override["services"]["worker"]["gpus"] == "all"
+    assert any(mount.endswith(":/models:ro") for mount in app["volumes"])
+    assert any(mount.endswith(":/models:ro") for mount in worker["volumes"])
     assert app["healthcheck"]
     assert worker["healthcheck"]
 
@@ -30,6 +39,7 @@ def test_compose_separates_services_volumes_and_loopback_publish():
 def test_image_build_context_is_allowlisted_and_excludes_user_owned_files():
     dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
     assert dockerignore[0] == "**"
     assert "!pyproject.toml" in dockerignore
@@ -37,6 +47,63 @@ def test_image_build_context_is_allowlisted_and_excludes_user_owned_files():
     assert "!uv.lock" in dockerignore
     assert "!src/asr_en_vi/**" in dockerignore
     assert "COPY ." not in dockerfile
+    assert "COPY pyproject.toml README.md uv.lock ./" in dockerfile
+    assert "uv sync --locked --no-dev --no-editable" in dockerfile
+    assert "nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04" in dockerfile
+    assert "faster-whisper==1.2.1" in pyproject
+    assert '"av>=11,<19"' in pyproject
+    assert not (ROOT / "requirements-asr.txt").exists()
     assert "COPY src/ ./src/" in dockerfile
     assert "prototype" not in dockerfile
     assert "docs/" not in dockerfile
+    assert "/models/" in (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+
+def test_example_environment_selects_hardware_profiles_automatically():
+    example = (ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert "ASR_DEVICE=auto" in example.splitlines()
+    assert "ASR_GPU_MODEL_PATH=/models/whisper-large-v3" in example.splitlines()
+    assert "ASR_CPU_MODEL_PATH=/models/whisper-small" in example.splitlines()
+    assert "ASR_GPU_COMPUTE_TYPE=float16" in example.splitlines()
+    assert "ASR_CPU_COMPUTE_TYPE=int8" in example.splitlines()
+
+
+def test_status_badge_sizes_only_its_dot_and_runtime_details_have_ui_targets():
+    stylesheet = (ROOT / "src/asr_en_vi/web/shell.css").read_text(encoding="utf-8")
+    markup = (ROOT / "src/asr_en_vi/web/shell.html").read_text(encoding="utf-8")
+    script = (ROOT / "src/asr_en_vi/web/history.js").read_text(encoding="utf-8")
+
+    assert ".saved-badge > span:first-child" in stylesheet
+    assert ".saved-badge > span," not in stylesheet
+    assert 'id="runtime-backend"' in markup
+    assert 'id="runtime-model"' in markup
+    assert "#runtime-backend" in script
+    assert "#runtime-model" in script
+
+
+def test_language_choice_is_presented_as_a_hint_not_an_output_constraint():
+    markup = (ROOT / "src/asr_en_vi/web/shell.html").read_text(encoding="utf-8")
+    script = (ROOT / "src/asr_en_vi/web/history.js").read_text(encoding="utf-8")
+
+    assert markup.count("Gợi ý ngôn ngữ") >= 3
+    assert "Ngôn ngữ chính" not in markup
+    assert "`Gợi ý: ${" in script
+
+
+def test_worker_grace_period_exceeds_runner_worst_case_stop_time():
+    from asr_en_vi import worker as worker_module
+
+    compose = yaml.safe_load((ROOT / "compose.yaml").read_text(encoding="utf-8"))
+    grace = compose["services"]["worker"]["stop_grace_period"]
+    worst_case = worker_module.RUNNER_TERM_GRACE_SECONDS + worker_module.RUNNER_KILL_GRACE_SECONDS
+
+    assert grace.endswith("s")
+    assert float(grace.removesuffix("s")) >= worst_case + 5
+
+
+def test_claimed_task_starting_stage_has_a_vietnamese_label():
+    script = (ROOT / "src/asr_en_vi/web/history.js").read_text(encoding="utf-8")
+    labels = script.split("const TASK_STAGES = {", 1)[1].split("};", 1)[0]
+
+    assert '    starting: "Đang bắt đầu",' in labels

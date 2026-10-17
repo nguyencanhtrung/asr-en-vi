@@ -13,9 +13,12 @@ import uvicorn
 from playwright.sync_api import expect, sync_playwright
 from seeding import seed_meeting
 
+from asr_en_vi import routes as routes_module
 from asr_en_vi.app import create_app
 from asr_en_vi.auth import AuthStore
 from asr_en_vi.config import Settings
+from asr_en_vi.runtime import RuntimeProfile, write_runtime_profile
+from asr_en_vi.worker import acquire_worker_lock, write_heartbeat
 
 pytestmark = pytest.mark.browser
 
@@ -521,16 +524,32 @@ def test_negative_utc_offset_keeps_date_only_values_and_local_today(live, signed
     expect(large.locator('.cal-day[data-date="2025-12-31"] .cal-count')).to_have_text("1")
 
 
-def test_mini_calendar_opens_large_calendar_and_supports_keyboard(live, browser_context):
+def test_mini_calendar_opens_large_calendar_and_supports_keyboard(
+    live, browser_context, monkeypatch
+):
     _, page = browser_context
     seed_meeting(live.settings.data_dir, "Mini target", "2026-10-14")
     seed_meeting(live.settings.data_dir, "Mini undated")
+    history_request_started = threading.Event()
+    history_request_release = threading.Event()
+    original_list_meetings = routes_module.list_meetings
+
+    def delayed_list_meetings(data_dir, *, query=None):
+        if query is None:
+            history_request_started.set()
+            history_request_release.wait(timeout=5)
+        return original_list_meetings(data_dir, query=query)
+
+    monkeypatch.setattr(routes_module, "list_meetings", delayed_list_meetings)
     page.goto(f"{live.url}/", wait_until="domcontentloaded")
+    assert history_request_started.wait(timeout=2)
     mini = page.locator("#mini-calendar")
     calendar = page.locator("#calendar-view")
     expect(calendar).to_be_hidden()
 
     mini.locator(".cal-day.is-selected").focus()
+    history_request_release.set()
+    expect(mini.locator('.cal-day[data-date="2026-10-14"] .cal-count')).to_have_text("1")
     page.keyboard.press("ArrowRight")
     expect(mini.locator(".cal-day.is-selected")).to_have_attribute("data-date", "2026-10-18")
     assert page.evaluate("document.activeElement.closest('#mini-calendar') !== null")
@@ -1013,3 +1032,220 @@ def test_stale_meeting_read_answering_after_a_save_cannot_roll_the_ui_back(live,
         "2026-10-20",
         3,
     )
+
+
+def test_runtime_profile_and_saved_status_render_without_collapsing(live, browser_context):
+    _context, page = browser_context
+    meeting_id = seed_meeting(live.settings.data_dir, "Runtime profile")
+    lock_fd = acquire_worker_lock(live.settings.data_dir)
+    assert lock_fd is not None
+    write_runtime_profile(
+        live.settings.data_dir,
+        RuntimeProfile(
+            device="cuda",
+            compute_type="float16",
+            model_path="/models/whisper-large-v3",
+        ),
+    )
+    write_heartbeat(live.settings.data_dir, "idle")
+    try:
+        page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
+        expect(page.locator("#runtime-backend")).to_have_text("GPU · CUDA · float16")
+        expect(page.locator("#runtime-model")).to_have_text("whisper-large-v3")
+        expect(page.locator("#meeting-status-text")).to_have_text("Đã lưu, chưa xử lý")
+        assert page.locator("#meeting-status-text").bounding_box()["width"] > 80
+    finally:
+        os.close(lock_fd)
+
+
+def test_transcription_requires_explicit_start_and_renders_poll_cancel_and_rerun(
+    live, browser_context
+):
+    context, page = browser_context
+    meeting_id = seed_meeting(live.settings.data_dir, "Transcript controls", duration_seconds=30)
+    page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
+    expect(page.locator("#meeting-title")).to_have_text("Transcript controls")
+    post_bodies: list[dict[str, object]] = []
+    tasks: dict[str, dict[str, object]] = {}
+    current_generation: dict[str, object] | None = None
+    task_number = 0
+
+    def task_response(
+        task_id,
+        status,
+        *,
+        request_id="browser-request-id",
+        worker_state=None,
+        segment_count=1,
+        end_seconds=4.25,
+    ):
+        return {
+            "id": task_id,
+            "request_id": request_id,
+            "meeting_id": meeting_id,
+            "kind": "transcription",
+            "status": status,
+            "worker_state": worker_state
+            or ("healthy" if status in {"running", "stopping"} else "idle"),
+            "stage": "transcribing" if status == "running" else status,
+            "result_scope": "transcript_only" if status == "succeeded" else None,
+            "audio_duration_seconds": 30,
+            "transcript_end_seconds": end_seconds,
+            "segment_count": segment_count,
+            "elapsed_seconds": 2.5,
+            "error_code": None,
+            "error_message": None,
+            "accepted_at": "2026-10-17 00:00:00",
+            "started_at": "2026-10-17 00:00:00",
+            "heartbeat_at": "2026-10-17 00:00:02",
+            "cancel_requested_at": None,
+            "completed_at": None,
+            "updated_at": "2026-10-17 00:00:02",
+        }
+
+    def generation_response(number):
+        return {
+            "id": f"generation-{number}",
+            "generation_number": number,
+            "status": "complete",
+            "language_hint": "en",
+            "model_name": "whisper-large-v3",
+            "language_probability": 0.94,
+            "source_version": 1,
+            "uncertainty_policy": "faster-whisper-review-cues-v1",
+            "segment_count": 1,
+            "completed_at": "2026-10-17 00:00:05",
+            "segments": [
+                {
+                    "id": f"{number:032x}",
+                    "sequence": 0,
+                    "start_seconds": 1.25,
+                    "end_seconds": 4.25,
+                    "text": f"Transcript generation {number}.",
+                    "original_speaker_id": None,
+                    "speaker_id": None,
+                    "avg_logprob": -0.3,
+                    "no_speech_prob": 0.02,
+                    "compression_ratio": 0.8,
+                    "uncertain": False,
+                }
+            ],
+        }
+
+    def route_task_requests(route):
+        nonlocal current_generation, task_number
+        path = route.request.url.removeprefix(live.url)
+        if route.request.method == "POST" and path == "/api/tasks":
+            post_bodies.append(route.request.post_data_json)
+            if len(post_bodies) == 1:
+                route.abort("connectionfailed")
+                return
+            if len(post_bodies) == 4:
+                route.fulfill(
+                    status=409,
+                    content_type="application/json",
+                    body=json.dumps(
+                        {"detail": {"code": "system_busy", "message": "Slot is busy."}}
+                    ),
+                )
+                return
+            task_number += 1
+            task_id = f"browser-task-{task_number}"
+            request_id = post_bodies[-1]["request_id"]
+            tasks[task_id] = {"polls": 0, "status": "running", "request_id": request_id}
+            route.fulfill(
+                status=202,
+                content_type="application/json",
+                body=json.dumps(
+                    task_response(
+                        task_id,
+                        "running",
+                        request_id=request_id,
+                        worker_state="checking-worker",
+                    )
+                ),
+            )
+            return
+        if route.request.method == "POST" and path.endswith("/cancel"):
+            task_id = path.split("/")[-2]
+            tasks[task_id]["status"] = "canceled"
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps(
+                    task_response(
+                        task_id,
+                        "stopping",
+                        request_id=tasks[task_id]["request_id"],
+                    )
+                ),
+            )
+            return
+        if route.request.method == "GET" and path.startswith("/api/tasks/"):
+            task_id = path.rsplit("/", 1)[-1]
+            task = tasks[task_id]
+            if task["status"] == "canceled":
+                payload = task_response(task_id, "canceled", request_id=task["request_id"])
+            else:
+                task["polls"] = int(task["polls"]) + 1
+                if task["polls"] >= 2:
+                    task["status"] = "succeeded"
+                    current_generation = generation_response(task_number)
+                payload = task_response(task_id, str(task["status"]), request_id=task["request_id"])
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(payload))
+            return
+        if (
+            route.request.method == "GET"
+            and path == f"/api/meetings/{meeting_id}"
+            and current_generation
+        ):
+            response = route.fetch()
+            payload = response.json()
+            payload["transcription"]["generation"] = current_generation
+            payload["transcription"]["task"] = task_response(
+                f"browser-task-{task_number}",
+                "succeeded",
+                request_id=post_bodies[-1]["request_id"],
+            )
+            route.fulfill(response=response, json=payload)
+            return
+        route.fallback()
+
+    page.route(
+        re.compile(r"/api/(?:tasks(?:/[^/]+(?:/cancel)?)?|meetings/[^/]+)$"), route_task_requests
+    )
+    assert post_bodies == []  # Reopening an imported meeting never starts ASR.
+    start_button = page.get_by_role("button", name="Bắt đầu chép lời")
+    expect(start_button).to_be_visible()
+    assert "%" not in page.locator("#transcription-panel").inner_text()
+    assert "ETA" not in page.locator("#transcription-panel").inner_text()
+
+    start_button.click()
+    expect(page.locator("#transcription-error")).to_be_visible(timeout=5_000)
+    expect(start_button).to_be_visible()
+    start_button.click()
+    expect(page.locator("#transcription-status")).to_contain_text("Đang kiểm tra worker")
+    expect(page.locator("#transcription-status")).to_have_attribute(
+        "data-worker-state", "checking-worker"
+    )
+    expect(page.locator("#transcript-generation")).to_be_visible(timeout=8_000)
+    expect(page.locator("#generation-title")).to_have_text("Transcript #1")
+    expect(page.locator(".segment-text")).to_have_text("Transcript generation 1.")
+    expect(page.locator(".segment-timestamp")).to_have_text("0:01.25")
+    assert post_bodies[0]["request_id"] == post_bodies[1]["request_id"]
+
+    rerun = page.get_by_role("button", name="Chạy lại bản ghi")
+    rerun.click()
+    expect(page.locator("#generation-title")).to_have_text("Transcript #2", timeout=8_000)
+    assert post_bodies[2]["request_id"] != post_bodies[1]["request_id"]
+
+    rerun.click()
+    expect(page.locator("#transcription-error")).to_be_visible(timeout=5_000)
+    rerun.click()
+    expect(page.get_by_role("button", name="Hủy xử lý")).to_be_visible()
+    assert post_bodies[3]["request_id"] != post_bodies[2]["request_id"]
+    assert post_bodies[4]["request_id"] != post_bodies[3]["request_id"]
+    page.get_by_role("button", name="Hủy xử lý").click()
+    expect(page.locator("#transcription-status")).to_contain_text("Đã hủy", timeout=5_000)
+    expect(page.locator("#generation-title")).to_have_text("Transcript #2")
+    assert len(post_bodies) == 5

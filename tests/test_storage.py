@@ -29,8 +29,12 @@ def test_sqlite_persists_across_reopen_with_current_domain_schema(tmp_path):
         "meetings",
         "uploads",
         "recordings",
+        "tasks",
+        "processing_slot",
+        "transcript_generations",
+        "transcript_segments",
     }
-    assert versions == [1, 2, 3]
+    assert versions == [1, 2, 3, 4]
     assert os.stat(data_dir).st_mode & 0o777 == 0o700
     assert os.stat(database).st_mode & 0o777 == 0o600
 
@@ -58,9 +62,18 @@ def test_schema_v1_database_migrates_transactionally_and_preserves_existing_data
             (1,),
             (2,),
             (3,),
+            (4,),
         ]
         tables = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
-        assert {"meetings", "uploads", "recordings"}.issubset(tables)
+        assert {
+            "meetings",
+            "uploads",
+            "recordings",
+            "tasks",
+            "processing_slot",
+            "transcript_generations",
+            "transcript_segments",
+        }.issubset(tables)

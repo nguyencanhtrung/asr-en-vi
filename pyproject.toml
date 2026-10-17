@@ -5,7 +5,9 @@ description = "Local-first meeting notes workspace"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "av>=11,<19",
     "fastapi>=0.115,<1.0",
+    "faster-whisper==1.2.1",
     "qrcode>=8.0,<9.0",
     "uvicorn>=0.34,<1.0",
 ]
@@ -30,7 +32,10 @@ include = ["src/asr_en_vi/web/*.html", "src/asr_en_vi/web/*.css", "src/asr_en_vi
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
-markers = ["browser: requires Chromium and exercises the access flow in a real browser"]
+markers = [
+    "browser: requires Chromium and exercises the access flow in a real browser",
+    "slow: opt-in processing test that can take several minutes",
+]
 
 [tool.ruff]
 line-length = 100

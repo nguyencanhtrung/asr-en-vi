@@ -6,7 +6,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def _migrate_v2(connection: sqlite3.Connection) -> None:
@@ -62,6 +62,99 @@ def _migrate_v3(connection: sqlite3.Connection) -> None:
     connection.execute("CREATE INDEX meetings_date_idx ON meetings(meeting_date)")
 
 
+def _migrate_v4(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        "CREATE TABLE tasks ("
+        "id TEXT PRIMARY KEY, "
+        "request_id TEXT NOT NULL UNIQUE, "
+        "request_hash TEXT NOT NULL, "
+        "meeting_id TEXT NOT NULL REFERENCES meetings(id) ON DELETE RESTRICT, "
+        "kind TEXT NOT NULL CHECK(kind = 'transcription'), "
+        "model_path TEXT NOT NULL, "
+        "model_name TEXT NOT NULL, "
+        "device TEXT NOT NULL CHECK(device IN ('auto', 'cpu', 'cuda')), "
+        "compute_type TEXT NOT NULL, "
+        "language_hint TEXT NOT NULL CHECK(language_hint IN ('en', 'vi')), "
+        "status TEXT NOT NULL CHECK(status IN ("
+        "'accepted', 'running', 'stopping', 'succeeded', 'failed', 'canceled', 'interrupted')), "
+        "stage TEXT NOT NULL, "
+        "result_scope TEXT CHECK(result_scope IS NULL OR result_scope = 'transcript_only'), "
+        "audio_duration_seconds REAL NOT NULL CHECK(audio_duration_seconds > 0), "
+        "transcript_end_seconds REAL NOT NULL DEFAULT 0 CHECK(transcript_end_seconds >= 0), "
+        "segment_count INTEGER NOT NULL DEFAULT 0 CHECK(segment_count >= 0), "
+        "elapsed_seconds REAL NOT NULL DEFAULT 0 CHECK(elapsed_seconds >= 0), "
+        "owner_id TEXT, "
+        "error_code TEXT, "
+        "error_message TEXT, "
+        "accepted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+        "started_at TEXT, "
+        "heartbeat_at TEXT, "
+        "cancel_requested_at TEXT, "
+        "completed_at TEXT, "
+        "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP"
+        ")"
+    )
+    connection.execute(
+        "CREATE INDEX tasks_meeting_created_idx ON tasks(meeting_id, accepted_at DESC, id DESC)"
+    )
+    connection.execute(
+        "CREATE TABLE transcript_generations ("
+        "id TEXT PRIMARY KEY, "
+        "meeting_id TEXT NOT NULL REFERENCES meetings(id) ON DELETE RESTRICT, "
+        "task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE RESTRICT, "
+        "generation_number INTEGER NOT NULL CHECK(generation_number >= 1), "
+        "status TEXT NOT NULL CHECK(status = 'complete'), "
+        "language_hint TEXT NOT NULL CHECK(language_hint IN ('en', 'vi')), "
+        "model_name TEXT NOT NULL, "
+        "language_probability REAL CHECK(language_probability IS NULL OR "
+        "(language_probability >= 0 AND language_probability <= 1)), "
+        "source_version INTEGER NOT NULL DEFAULT 1 CHECK(source_version >= 1), "
+        "uncertainty_policy TEXT NOT NULL, "
+        "segment_count INTEGER NOT NULL CHECK(segment_count >= 0), "
+        "completed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+        "UNIQUE(meeting_id, generation_number)"
+        ")"
+    )
+    connection.execute(
+        "CREATE INDEX transcript_generations_meeting_idx "
+        "ON transcript_generations(meeting_id, generation_number DESC)"
+    )
+    connection.execute(
+        "CREATE TABLE transcript_segments ("
+        "id TEXT PRIMARY KEY, "
+        "generation_id TEXT NOT NULL REFERENCES transcript_generations(id) ON DELETE RESTRICT, "
+        "sequence INTEGER NOT NULL CHECK(sequence >= 0), "
+        "start_seconds REAL NOT NULL CHECK(start_seconds >= 0), "
+        "end_seconds REAL NOT NULL CHECK(end_seconds >= start_seconds), "
+        "text TEXT NOT NULL, "
+        "original_speaker_id TEXT, "
+        "speaker_id TEXT, "
+        "avg_logprob REAL, "
+        "no_speech_prob REAL CHECK(no_speech_prob IS NULL OR "
+        "(no_speech_prob >= 0 AND no_speech_prob <= 1)), "
+        "compression_ratio REAL CHECK(compression_ratio IS NULL OR compression_ratio >= 0), "
+        "uncertain INTEGER NOT NULL CHECK(uncertain IN (0, 1)), "
+        "UNIQUE(generation_id, sequence)"
+        ")"
+    )
+    connection.execute(
+        "CREATE INDEX transcript_segments_generation_idx "
+        "ON transcript_segments(generation_id, sequence)"
+    )
+    connection.execute(
+        "CREATE TABLE processing_slot ("
+        "slot_id INTEGER PRIMARY KEY CHECK(slot_id = 1), "
+        "active_task_id TEXT UNIQUE REFERENCES tasks(id) ON DELETE RESTRICT, "
+        "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP"
+        ")"
+    )
+    connection.execute("INSERT INTO processing_slot(slot_id, active_task_id) VALUES (1, NULL)")
+    connection.execute(
+        "ALTER TABLE meetings ADD COLUMN current_generation_id TEXT "
+        "REFERENCES transcript_generations(id) ON DELETE SET NULL"
+    )
+
+
 def database_path(data_dir: Path) -> Path:
     return Path(data_dir) / "app.sqlite3"
 
@@ -103,6 +196,9 @@ def initialize(data_dir: Path) -> Path:
         if current_version < 3:
             _migrate_v3(connection)
             connection.execute("INSERT INTO schema_migrations(version) VALUES (3)")
+        if current_version < 4:
+            _migrate_v4(connection)
+            connection.execute("INSERT INTO schema_migrations(version) VALUES (4)")
         connection.commit()
     finally:
         connection.close()

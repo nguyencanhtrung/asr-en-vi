@@ -11,6 +11,12 @@ DEFAULT_PUBLIC_URL = "http://127.0.0.1:8765"
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost"})
 DEFAULT_MAX_UPLOAD_BYTES = 4 * 1024**3
 DEFAULT_MAX_RECORDING_SECONDS = 4 * 60 * 60
+DEFAULT_ASR_GPU_MODEL_PATH = Path("/models/whisper-large-v3")
+DEFAULT_ASR_CPU_MODEL_PATH = Path("/models/whisper-small")
+ASR_DEVICES = frozenset({"auto", "cpu", "cuda"})
+ASR_COMPUTE_TYPES = frozenset(
+    {"default", "float16", "float32", "int8", "int8_float16", "int8_float32"}
+)
 
 
 def _bool_from_env(name: str, default: bool) -> bool:
@@ -68,15 +74,35 @@ class Settings:
     cookie_secure: bool = False
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
     max_recording_seconds: int = DEFAULT_MAX_RECORDING_SECONDS
+    asr_model_path: Path | None = None
+    asr_device: str = "auto"
+    asr_compute_type: str | None = None
+    asr_gpu_model_path: Path = DEFAULT_ASR_GPU_MODEL_PATH
+    asr_cpu_model_path: Path = DEFAULT_ASR_CPU_MODEL_PATH
+    asr_gpu_compute_type: str = "float16"
+    asr_cpu_compute_type: str = "int8"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "data_dir", Path(self.data_dir))
         object.__setattr__(self, "auth_dir", Path(self.auth_dir))
+        if self.asr_model_path is not None:
+            object.__setattr__(self, "asr_model_path", Path(self.asr_model_path))
+        object.__setattr__(self, "asr_gpu_model_path", Path(self.asr_gpu_model_path))
+        object.__setattr__(self, "asr_cpu_model_path", Path(self.asr_cpu_model_path))
         object.__setattr__(self, "public_url", _validate_public_url(self.public_url))
         if isinstance(self.max_upload_bytes, bool) or self.max_upload_bytes < 1:
             raise ValueError("max_upload_bytes must be a positive integer")
         if isinstance(self.max_recording_seconds, bool) or self.max_recording_seconds < 1:
             raise ValueError("max_recording_seconds must be a positive integer")
+        if self.asr_device not in ASR_DEVICES:
+            raise ValueError("asr_device must be auto, cpu, or cuda")
+        for value in (
+            self.asr_compute_type,
+            self.asr_gpu_compute_type,
+            self.asr_cpu_compute_type,
+        ):
+            if value is not None and value not in ASR_COMPUTE_TYPES:
+                raise ValueError("asr_compute_type is not supported")
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -91,6 +117,19 @@ class Settings:
             max_recording_seconds=_positive_int_from_env(
                 "ASR_MAX_RECORDING_SECONDS", DEFAULT_MAX_RECORDING_SECONDS
             ),
+            asr_model_path=(
+                Path(os.environ["ASR_MODEL_PATH"]) if os.environ.get("ASR_MODEL_PATH") else None
+            ),
+            asr_device=os.environ.get("ASR_DEVICE", "auto"),
+            asr_compute_type=os.environ.get("ASR_COMPUTE_TYPE") or None,
+            asr_gpu_model_path=Path(
+                os.environ.get("ASR_GPU_MODEL_PATH", str(DEFAULT_ASR_GPU_MODEL_PATH))
+            ),
+            asr_cpu_model_path=Path(
+                os.environ.get("ASR_CPU_MODEL_PATH", str(DEFAULT_ASR_CPU_MODEL_PATH))
+            ),
+            asr_gpu_compute_type=os.environ.get("ASR_GPU_COMPUTE_TYPE", "float16"),
+            asr_cpu_compute_type=os.environ.get("ASR_CPU_COMPUTE_TYPE", "int8"),
         )
 
     @property
