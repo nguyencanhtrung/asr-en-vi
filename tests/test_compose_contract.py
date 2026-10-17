@@ -82,6 +82,15 @@ def test_status_badge_sizes_only_its_dot_and_runtime_details_have_ui_targets():
     assert "#runtime-model" in script
 
 
+def test_language_choice_is_presented_as_a_hint_not_an_output_constraint():
+    markup = (ROOT / "src/asr_en_vi/web/shell.html").read_text(encoding="utf-8")
+    script = (ROOT / "src/asr_en_vi/web/history.js").read_text(encoding="utf-8")
+
+    assert markup.count("Gợi ý ngôn ngữ") >= 3
+    assert "Ngôn ngữ chính" not in markup
+    assert "`Gợi ý: ${" in script
+
+
 def test_worker_grace_period_exceeds_runner_worst_case_stop_time():
     from asr_en_vi import worker as worker_module
 

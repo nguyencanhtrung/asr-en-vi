@@ -359,6 +359,33 @@ print(json.dumps(event), flush=True)
     assert transcription_state(data_dir, meeting_ids[0])["task"]["status"] == "failed"
 
 
+def test_worker_runner_command_never_forces_the_language_hint(tmp_path):
+    command = worker._runner_command(
+        {
+            "model_path": tmp_path / "model",
+            "language_hint": "en",
+            "device": "cuda",
+            "compute_type": "float16",
+        },
+        tmp_path / "recording.m4a",
+    )
+
+    assert "--language" not in command
+    assert command == [
+        sys.executable,
+        "-m",
+        "asr_en_vi.runner",
+        "--model",
+        str(tmp_path / "model"),
+        "--audio",
+        str(tmp_path / "recording.m4a"),
+        "--device",
+        "cuda",
+        "--compute-type",
+        "float16",
+    ]
+
+
 def test_worker_health_probe_shares_locks_without_claiming_worker_ownership(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()

@@ -120,7 +120,7 @@
             <p class="stage-kicker">RECORDING INTAKE</p>
             <h2 id="home-title">Bắt đầu từ một bản ghi</h2>
             <p class="welcome-copy">
-              Chọn audio hoặc video đã lưu để tạo cuộc họp. Đặt tên, chọn ngôn ngữ chính và ngày nếu bạn biết.
+              Chọn audio hoặc video đã lưu để tạo cuộc họp. Đặt tên, chọn gợi ý ngôn ngữ và ngày nếu bạn biết.
             </p>
             <p class="workspace-empty-copy" id="workspace-empty" hidden>Không có cuộc họp nào được lưu.</p>
             <button class="primary-button welcome-create" type="button" data-open-meeting-dialog>
@@ -181,7 +181,7 @@
                 </div>
               </div>
             </div>
-            <p class="field-help">Chỉ đổi tên và ngày. Đổi ngày sẽ đánh dấu notes cần cập nhật; ngôn ngữ chính giữ nguyên.</p>
+            <p class="field-help">Chỉ đổi tên và ngày. Đổi ngày sẽ đánh dấu notes cần cập nhật; gợi ý ngôn ngữ giữ nguyên.</p>
             <div class="edit-conflict" id="edit-conflict" role="alert" hidden></div>
             <p class="form-error" id="edit-error" role="alert" hidden></p>
             <div class="edit-actions">
@@ -195,7 +195,7 @@
               <dd><time id="meeting-date"></time></dd>
             </div>
             <div class="metadata-item">
-              <dt>Ngôn ngữ chính</dt>
+              <dt>Gợi ý ngôn ngữ</dt>
               <dd id="meeting-language"></dd>
             </div>
             <div class="metadata-item metadata-status">
@@ -345,11 +345,12 @@
                   <input id="meeting-date-input" name="meeting_date" type="date" />
                 </div>
                 <fieldset class="field-group language-field">
-                  <legend>Ngôn ngữ chính <span class="required-mark">*</span></legend>
+                  <legend>Gợi ý ngôn ngữ <span class="required-mark">*</span></legend>
                   <div class="language-options">
-                    <label class="language-option"><input type="radio" name="language_hint" value="en" required /><span>English</span></label>
-                    <label class="language-option"><input type="radio" name="language_hint" value="vi" required /><span>Tiếng Việt</span></label>
+                    <label class="language-option"><input type="radio" name="language_hint" value="en" aria-describedby="language-hint-help" required /><span>English</span></label>
+                    <label class="language-option"><input type="radio" name="language_hint" value="vi" aria-describedby="language-hint-help" required /><span>Tiếng Việt</span></label>
                   </div>
+                  <p class="field-help" id="language-hint-help">Gợi ý ngôn ngữ không dịch hoặc khóa ngôn ngữ của transcript.</p>
                 </fieldset>
               </div>
             </div>

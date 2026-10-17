@@ -83,7 +83,6 @@ def transcribe_file(
     *,
     model_path: Path,
     audio_path: Path,
-    language: str,
     device: str,
     compute_type: str,
     emit: Callable[[dict[str, Any]], None] = _emit,
@@ -93,8 +92,6 @@ def transcribe_file(
     resolved_audio = Path(audio_path).resolve(strict=True)
     if not resolved_audio.is_file():
         raise FileNotFoundError("The recording is unavailable.")
-    if language not in {"en", "vi"}:
-        raise ValueError("The transcription language must be en or vi.")
 
     os.environ.update(
         {
@@ -117,7 +114,9 @@ def transcribe_file(
     _emit_with({"type": "stage", "stage": "transcribing"})
     segments, info = model.transcribe(
         str(resolved_audio),
-        language=language,
+        language=None,
+        task="transcribe",
+        multilingual=True,
         beam_size=5,
         vad_filter=False,
     )
@@ -149,7 +148,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(prog="asr-en-vi-runner")
     parser.add_argument("--model", required=True, type=Path)
     parser.add_argument("--audio", required=True, type=Path)
-    parser.add_argument("--language", required=True, choices=("en", "vi"))
     parser.add_argument("--device", required=True, choices=("cpu", "cuda", "auto"))
     parser.add_argument("--compute-type", required=True)
     args = parser.parse_args()
@@ -157,7 +155,6 @@ def main() -> int:
         transcribe_file(
             model_path=args.model,
             audio_path=args.audio,
-            language=args.language,
             device=args.device,
             compute_type=args.compute_type,
         )

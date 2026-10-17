@@ -519,7 +519,7 @@
 
     $("#generation-title").textContent = `Transcript #${generation.generation_number}`;
     const meta = [
-      LANGUAGES[generation.language_hint] || generation.language_hint,
+      `Gợi ý: ${LANGUAGES[generation.language_hint] || generation.language_hint}`,
       generation.model_name,
       `${generation.segment_count} đoạn`,
     ].filter(Boolean);
@@ -824,7 +824,7 @@
       if (!meeting || typeof meeting.title !== "string" || typeof meeting.id !== "string") {
         throw new Error("Máy chủ không trả về metadata cuộc họp hợp lệ.");
       }
-      if (!LANGUAGES[meeting.language_hint]) throw new Error("Cuộc họp chưa có ngôn ngữ chính hợp lệ.");
+      if (!LANGUAGES[meeting.language_hint]) throw new Error("Cuộc họp chưa có gợi ý ngôn ngữ hợp lệ.");
       // A read issued before a save landed can answer after it; never step back a version.
       const known = state.meeting;
       if (known && known.id === meeting.id && known.metadata_version > meeting.metadata_version) meeting = known;

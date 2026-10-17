@@ -76,8 +76,6 @@ def test_runner_reports_traceback_to_stderr_without_exposing_it_in_protocol(
             str(model_dir),
             "--audio",
             str(audio),
-            "--language",
-            "en",
             "--device",
             "cpu",
             "--compute-type",
@@ -130,7 +128,6 @@ def test_runner_loads_local_only_and_emits_timestamps_and_uncertainty_measures(
     transcribe_file(
         model_path=model_dir,
         audio_path=audio,
-        language="vi",
         device="cpu",
         compute_type="int8",
         emit=events.append,
@@ -144,7 +141,9 @@ def test_runner_loads_local_only_and_emits_timestamps_and_uncertainty_measures(
     }
     assert observed["audio_path"] == str(audio.resolve())
     assert observed["transcribe_kwargs"] == {
-        "language": "vi",
+        "language": None,
+        "task": "transcribe",
+        "multilingual": True,
         "beam_size": 5,
         "vad_filter": False,
     }

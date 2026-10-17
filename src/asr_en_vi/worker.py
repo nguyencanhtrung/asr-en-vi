@@ -205,6 +205,23 @@ def _decode_event(line: bytes) -> dict[str, Any]:
     return value
 
 
+def _runner_command(task: dict[str, Any], audio_path: Path) -> list[str]:
+    """Build a command without turning language metadata into a decoder constraint."""
+    return [
+        sys.executable,
+        "-m",
+        "asr_en_vi.runner",
+        "--model",
+        str(task["model_path"]),
+        "--audio",
+        str(audio_path),
+        "--device",
+        str(task["device"]),
+        "--compute-type",
+        str(task["compute_type"]),
+    ]
+
+
 def _run_task(
     settings: Settings,
     lock_fd: int,
@@ -243,21 +260,7 @@ def _run_task(
             finish_canceled_task(settings.data_dir, task_id, owner_id=owner_id, elapsed_seconds=0)
             return
 
-        command = [
-            sys.executable,
-            "-m",
-            "asr_en_vi.runner",
-            "--model",
-            str(task["model_path"]),
-            "--audio",
-            str(audio_path),
-            "--language",
-            str(task["language_hint"]),
-            "--device",
-            str(task["device"]),
-            "--compute-type",
-            str(task["compute_type"]),
-        ]
+        command = _runner_command(task, audio_path)
         process = subprocess.Popen(
             command,
             stdin=subprocess.DEVNULL,
