@@ -19,6 +19,10 @@ def test_compose_separates_services_volumes_and_loopback_publish():
     assert "auth:/var/lib/asr-en-vi/auth" in app["volumes"]
     assert all("auth:" not in mount for mount in worker["volumes"])
     assert app["image"] == worker["image"]
+    assert app["environment"]["ASR_MAX_UPLOAD_BYTES"] == "${ASR_MAX_UPLOAD_BYTES:-4294967296}"
+    assert app["environment"]["ASR_MAX_RECORDING_SECONDS"] == (
+        "${ASR_MAX_RECORDING_SECONDS:-14400}"
+    )
     assert app["healthcheck"]
     assert worker["healthcheck"]
 

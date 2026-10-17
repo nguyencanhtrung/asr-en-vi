@@ -18,7 +18,10 @@ ENV PATH="/app/.venv/bin:${PATH}" \
     ASR_AUTH_DIR=/var/lib/asr-en-vi/auth
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
-RUN groupadd --gid 10001 asr \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 asr \
     && useradd --uid 10001 --gid asr --no-create-home --shell /usr/sbin/nologin asr \
     && mkdir -p /var/lib/asr-en-vi/data /var/lib/asr-en-vi/auth \
     && chown -R 10001:10001 /var/lib/asr-en-vi \
