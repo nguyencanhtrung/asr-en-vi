@@ -57,7 +57,7 @@ jobs:
   container:
     name: Build container
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -71,7 +71,7 @@ jobs:
           load: true
           tags: asr-en-vi:ci
           cache-from: type=gha,scope=container
-          cache-to: type=gha,mode=max,scope=container
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=container' || '' }}
       - name: Smoke-test container runtime
         run: ./scripts/container-smoke.sh asr-en-vi:ci
 
@@ -82,7 +82,7 @@ jobs:
       - quality
       - container
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
