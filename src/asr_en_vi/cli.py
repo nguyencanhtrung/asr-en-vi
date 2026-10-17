@@ -1,4 +1,4 @@
-"""Local operator commands for printing and rotating access credentials."""
+"""Local operator commands for access credentials and runtime preflight checks."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from qrcode.constants import ERROR_CORRECT_M
 from asr_en_vi import __version__
 from asr_en_vi.auth import AuthState, AuthStore
 from asr_en_vi.config import Settings
+from asr_en_vi.runner import ModelConfigurationError, prepared_model_directory
 
 
 def access_link(state: AuthState, settings: Settings) -> str:
@@ -50,6 +51,19 @@ def check_health(settings: Settings) -> int:
         return 1
 
 
+def check_model(settings: Settings) -> int:
+    try:
+        model_path = prepared_model_directory(settings.asr_model_path)
+    except ModelConfigurationError as error:
+        print(
+            f"Local ASR model is not prepared at {settings.asr_model_path}: {error}",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"Local ASR model is ready: {model_path}")
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="asr-en-vi")
     parser.add_argument("--version", action="version", version=f"asr-en-vi {__version__}")
@@ -59,6 +73,9 @@ def _parser() -> argparse.ArgumentParser:
     access_commands.add_parser("show", help="print the current access link and QR code")
     access_commands.add_parser("rotate", help="replace the token and invalidate old sessions")
     commands.add_parser("health", help="check the local app liveness endpoint")
+    model_parser = commands.add_parser("model", help="validate local ASR model resources")
+    model_commands = model_parser.add_subparsers(dest="model_command", required=True)
+    model_commands.add_parser("check", help="validate the configured local ASR model")
     return parser
 
 
@@ -67,6 +84,8 @@ def main(argv: list[str] | None = None) -> int:
     settings = Settings.from_env()
     if arguments.command == "health":
         return check_health(settings)
+    if arguments.command == "model":
+        return check_model(settings)
 
     store = AuthStore(settings.auth_dir)
     if arguments.access_command == "show":

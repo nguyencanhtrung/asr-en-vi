@@ -62,6 +62,16 @@ def test_container_job_runs_runtime_smoke_check_on_the_built_image():
     assert "normalize_media" in script and "/healthz" in script
 
 
+def test_startup_preflights_the_local_model_before_starting_services():
+    script = (ROOT / "scripts" / "start.sh").read_text(encoding="utf-8")
+
+    build = script.index("docker compose build")
+    model_check = script.index("python -m asr_en_vi.cli model check")
+    start = script.index("docker compose up")
+
+    assert build < model_check < start
+
+
 def test_publish_waits_for_every_gate_and_has_only_required_write_permissions():
     publish = load_yaml(PIPELINE_PATH)["jobs"]["publish"]
 

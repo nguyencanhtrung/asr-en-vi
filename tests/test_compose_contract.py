@@ -51,6 +51,7 @@ def test_image_build_context_is_allowlisted_and_excludes_user_owned_files():
     assert "COPY src/ ./src/" in dockerfile
     assert "prototype" not in dockerfile
     assert "docs/" not in dockerfile
+    assert "/models/" in (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
 
 
 def test_worker_grace_period_exceeds_runner_worst_case_stop_time():

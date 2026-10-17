@@ -20,6 +20,10 @@ Script build image, chờ app và worker healthy, rồi in access link cùng QR 
 Link chứa token trong URL fragment. Trang truy cập xóa fragment trước khi gửi token trong
 JSON body để đổi lấy phiên trình duyệt.
 
+Trước khi khởi động service, script kiểm tra model được mount bằng cùng validator mà runtime sử
+dụng. Model thiếu, sai đường dẫn hoặc thiếu file bắt buộc làm setup dừng ngay thay vì khởi động
+một workspace chưa thể chép lời.
+
 Compose tạo hai volume riêng:
 
 - `data` giữ SQLite và trạng thái liveness tối thiểu của worker; app và worker cùng gắn volume này.
