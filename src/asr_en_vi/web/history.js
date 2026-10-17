@@ -218,6 +218,11 @@
   function renderCalendar(root, large, byDate) {
     const { year, month, selected } = state.calendar;
     const todayValue = todayKey();
+    const activeElement = document.activeElement;
+    const focusedDate =
+      activeElement && root.contains(activeElement) && activeElement.classList.contains("cal-day")
+        ? activeElement.dataset.date
+        : null;
     root.querySelector(".cal-title").textContent = `Tháng ${month + 1} · ${year}`;
     root.querySelector(".cal-month").value = String(month);
     // A background refresh must not overwrite what the user is typing in the year box.
@@ -288,6 +293,7 @@
       const fallback = root.querySelector(`.cal-day[data-date="${monthKey}01"]`) || days[0];
       fallback.tabIndex = 0;
     }
+    if (focusedDate) root.querySelector(`.cal-day[data-date="${focusedDate}"]`)?.focus();
     const undated = state.meetings.filter((meeting) => !meeting.meeting_date).length;
     root.querySelector(".cal-undated-count").textContent = String(undated);
     root.querySelector(".cal-undated").classList.toggle("is-selected", selected === "undated");

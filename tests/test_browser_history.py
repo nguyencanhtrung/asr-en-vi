@@ -13,6 +13,7 @@ import uvicorn
 from playwright.sync_api import expect, sync_playwright
 from seeding import seed_meeting
 
+from asr_en_vi import routes as routes_module
 from asr_en_vi.app import create_app
 from asr_en_vi.auth import AuthStore
 from asr_en_vi.config import Settings
@@ -523,16 +524,32 @@ def test_negative_utc_offset_keeps_date_only_values_and_local_today(live, signed
     expect(large.locator('.cal-day[data-date="2025-12-31"] .cal-count')).to_have_text("1")
 
 
-def test_mini_calendar_opens_large_calendar_and_supports_keyboard(live, browser_context):
+def test_mini_calendar_opens_large_calendar_and_supports_keyboard(
+    live, browser_context, monkeypatch
+):
     _, page = browser_context
     seed_meeting(live.settings.data_dir, "Mini target", "2026-10-14")
     seed_meeting(live.settings.data_dir, "Mini undated")
+    history_request_started = threading.Event()
+    history_request_release = threading.Event()
+    original_list_meetings = routes_module.list_meetings
+
+    def delayed_list_meetings(data_dir, *, query=None):
+        if query is None:
+            history_request_started.set()
+            history_request_release.wait(timeout=5)
+        return original_list_meetings(data_dir, query=query)
+
+    monkeypatch.setattr(routes_module, "list_meetings", delayed_list_meetings)
     page.goto(f"{live.url}/", wait_until="domcontentloaded")
+    assert history_request_started.wait(timeout=2)
     mini = page.locator("#mini-calendar")
     calendar = page.locator("#calendar-view")
     expect(calendar).to_be_hidden()
 
     mini.locator(".cal-day.is-selected").focus()
+    history_request_release.set()
+    expect(mini.locator('.cal-day[data-date="2026-10-14"] .cal-count')).to_have_text("1")
     page.keyboard.press("ArrowRight")
     expect(mini.locator(".cal-day.is-selected")).to_have_attribute("data-date", "2026-10-18")
     assert page.evaluate("document.activeElement.closest('#mini-calendar') !== null")
