@@ -1,6 +1,6 @@
-FROM ghcr.io/astral-sh/uv:0.11.15 AS uv-bin
+FROM ghcr.io/astral-sh/uv:0.13.1 AS uv-bin
 
-FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04 AS python-base
+FROM nvidia/cuda:13.4.2-cudnn-runtime-ubuntu24.04 AS python-base
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
