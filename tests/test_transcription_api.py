@@ -14,6 +14,7 @@ from asr_en_vi.auth import AuthStore
 from asr_en_vi.config import Settings
 from asr_en_vi.runtime import RuntimeProfile, write_runtime_profile
 from asr_en_vi.tasks import (
+    accept_transcription_task,
     claim_next_task,
     publish_complete_generation,
     transcription_state,
@@ -241,6 +242,196 @@ async def test_speaker_reassignment_api_checks_generation_and_assignment_version
                     json={**payload, "expected_generation_id": "old-generation"},
                 )
                 assert outdated_generation.status_code == 409
+
+                text_endpoint = f"/api/meetings/{meeting_id}/transcript-segments/{'b' * 32}/text"
+                no_op_text = await client.patch(
+                    text_endpoint,
+                    headers=headers,
+                    json={
+                        "expected_generation_id": generation["id"],
+                        "expected_source_version": 2,
+                        "text": "Sprint planning.",
+                    },
+                )
+                assert no_op_text.status_code == 200
+                assert no_op_text.json()["source_version"] == 2
+                text_edit = await client.patch(
+                    text_endpoint,
+                    headers=headers,
+                    json={
+                        "expected_generation_id": generation["id"],
+                        "expected_source_version": 2,
+                        "text": "Updated transcript text.",
+                    },
+                )
+                assert text_edit.status_code == 200
+                assert text_edit.json()["source_version"] == 3
+
+                speaker_base = (
+                    f"/api/meetings/{meeting_id}/transcript-generations/{generation['id']}/speakers"
+                )
+                renamed = await client.patch(
+                    f"{speaker_base}/SPEAKER_01",
+                    headers=headers,
+                    json={"expected_source_version": 3, "display_name": "Alice"},
+                )
+                assert renamed.status_code == 200
+                assert renamed.json()["display_name"] == "Alice"
+                assert renamed.json()["source_version"] == 4
+                no_op_name = await client.patch(
+                    f"{speaker_base}/SPEAKER_01",
+                    headers=headers,
+                    json={"expected_source_version": 4, "display_name": "Alice"},
+                )
+                assert no_op_name.status_code == 200
+                assert no_op_name.json()["source_version"] == 4
+                reset = await client.patch(
+                    f"{speaker_base}/SPEAKER_01",
+                    headers=headers,
+                    json={"expected_source_version": 4, "display_name": " "},
+                )
+                assert reset.status_code == 200
+                assert reset.json()["display_name"] == "Speaker 2"
+                assert reset.json()["source_version"] == 5
+
+                duplicate_name = await client.patch(
+                    f"{speaker_base}/SPEAKER_00",
+                    headers=headers,
+                    json={"expected_source_version": 5, "display_name": "Speaker 2"},
+                )
+                assert duplicate_name.status_code == 409
+                assert duplicate_name.json()["detail"]["code"] == "speaker_name_conflict"
+
+                speaker_one_renamed = await client.patch(
+                    f"{speaker_base}/SPEAKER_00",
+                    headers=headers,
+                    json={"expected_source_version": 5, "display_name": "Alice"},
+                )
+                assert speaker_one_renamed.status_code == 200
+                assert speaker_one_renamed.json()["source_version"] == 6
+                speaker_two_renamed = await client.patch(
+                    f"{speaker_base}/SPEAKER_01",
+                    headers=headers,
+                    json={"expected_source_version": 6, "display_name": "Speaker 1"},
+                )
+                assert speaker_two_renamed.status_code == 200
+                assert speaker_two_renamed.json()["source_version"] == 7
+                reset_with_collision = await client.patch(
+                    f"{speaker_base}/SPEAKER_00",
+                    headers=headers,
+                    json={"expected_source_version": 7, "display_name": " "},
+                )
+                assert reset_with_collision.status_code == 200
+                assert reset_with_collision.json()["display_name"] == "Speaker 2"
+                assert reset_with_collision.json()["source_version"] == 8
+
+                added_speaker = await client.post(
+                    speaker_base,
+                    headers=headers,
+                    json={"expected_source_version": 8},
+                )
+                assert added_speaker.status_code == 200
+                assert added_speaker.json()["speaker_id"].startswith("MANUAL_")
+                assert added_speaker.json()["display_name"] == "Speaker 3"
+                assert added_speaker.json()["source_version"] == 9
+                named_speaker = await client.post(
+                    speaker_base,
+                    headers=headers,
+                    json={"expected_source_version": 9, "display_name": "Witness"},
+                )
+                assert named_speaker.status_code == 200
+                assert named_speaker.json()["display_name"] == "Witness"
+                assert named_speaker.json()["source_version"] == 10
+                blank_named_speaker = await client.post(
+                    speaker_base,
+                    headers=headers,
+                    json={"expected_source_version": 10, "display_name": ""},
+                )
+                assert blank_named_speaker.status_code == 200
+                assert blank_named_speaker.json()["display_name"] == "Speaker 5"
+                assert blank_named_speaker.json()["source_version"] == 11
+                stale_text = await client.patch(
+                    text_endpoint,
+                    headers=headers,
+                    json={
+                        "expected_generation_id": generation["id"],
+                        "expected_source_version": 8,
+                        "text": "Stale draft.",
+                    },
+                )
+                assert stale_text.status_code == 409
+                assert stale_text.json()["detail"]["code"] == "source_version_changed"
+
+                detail = await client.get(f"/api/meetings/{meeting_id}")
+                updated_generation = detail.json()["transcription"]["generation"]
+                assert updated_generation["source_version"] == 11
+                saved_segment = updated_generation["segments"][0]
+                assert saved_segment["text"] == "Updated transcript text."
+                assert (saved_segment["start_seconds"], saved_segment["end_seconds"]) == (1.0, 2.0)
+                assert updated_generation["speakers"][1]["display_name"] == "Speaker 1"
+                assert (
+                    updated_generation["speakers"][2]["speaker_id"]
+                    == added_speaker.json()["speaker_id"]
+                )
+                assert updated_generation["speakers"][3]["display_name"] == "Witness"
+                assert updated_generation["speakers"][4]["display_name"] == "Speaker 5"
+
+                next_task = accept_transcription_task(
+                    settings.data_dir,
+                    meeting_id=meeting_id,
+                    request_id="speaker-api-0002",
+                    model_path=settings.asr_model_path,
+                    diarization_model_path=settings.diarization_model_path,
+                    device="cpu",
+                    compute_type="int8",
+                    worker_ready=True,
+                )
+                next_claim = claim_next_task(settings.data_dir, owner_id="speaker-api-worker-2")
+                assert next_claim and next_claim["id"] == next_task["id"]
+                assert update_task_progress(
+                    settings.data_dir,
+                    next_task["id"],
+                    owner_id="speaker-api-worker-2",
+                    stage="publishing",
+                    elapsed_seconds=1,
+                    transcript_end_seconds=2,
+                    segment_count=1,
+                )
+                next_generation = publish_complete_generation(
+                    settings.data_dir,
+                    next_task["id"],
+                    owner_id="speaker-api-worker-2",
+                    segments=[
+                        {
+                            "id": "c" * 32,
+                            "start_seconds": 1,
+                            "end_seconds": 2,
+                            "text": "New generation.",
+                            "original_speaker_id": "SPEAKER_99",
+                            "speaker_id": "SPEAKER_99",
+                        }
+                    ],
+                    speakers=[
+                        {
+                            "speaker_id": "SPEAKER_99",
+                            "display_name": "Speaker 1",
+                            "first_seen_seconds": 1,
+                            "last_seen_seconds": 2,
+                        }
+                    ],
+                    language_probability=0.9,
+                    elapsed_seconds=1,
+                )
+                assert next_generation is not None
+                historical_speaker_write = await client.patch(
+                    f"{speaker_base}/SPEAKER_01",
+                    headers=headers,
+                    json={"expected_source_version": 11, "display_name": "Historical edit"},
+                )
+                assert historical_speaker_write.status_code == 409
+                assert historical_speaker_write.json()["detail"]["code"] == (
+                    "current_generation_changed"
+                )
             finally:
                 os.close(lock_fd)
 

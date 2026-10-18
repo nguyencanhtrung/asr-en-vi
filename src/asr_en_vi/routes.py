@@ -36,9 +36,12 @@ from asr_en_vi.runtime import read_runtime_profile
 from asr_en_vi.tasks import (
     TaskError,
     accept_transcription_task,
+    add_current_generation_speaker,
     cancel_task,
     get_task,
     reassign_current_generation_speaker,
+    update_current_generation_segment_text,
+    update_current_generation_speaker_name,
 )
 from asr_en_vi.worker import is_healthy as worker_is_healthy
 
@@ -430,6 +433,71 @@ def install_routes(app: FastAPI, settings: Settings) -> None:
                 expected_source_version=payload["expected_source_version"],
                 expected_assignment_version=payload["expected_assignment_version"],
                 speaker_id=payload["speaker_id"],
+            )
+        except TaskError as error:
+            _raise_task_error(error)
+
+    @app.patch("/api/meetings/{meeting_id}/transcript-segments/{segment_id}/text")
+    async def update_transcript_segment_text(
+        meeting_id: str, segment_id: str, request: Request
+    ) -> dict[str, object]:
+        payload = await _json_object(
+            request,
+            required={"expected_generation_id", "expected_source_version", "text"},
+        )
+        try:
+            return await run_in_threadpool(
+                update_current_generation_segment_text,
+                settings.data_dir,
+                meeting_id,
+                segment_id,
+                expected_generation_id=payload["expected_generation_id"],
+                expected_source_version=payload["expected_source_version"],
+                text=payload["text"],
+            )
+        except TaskError as error:
+            _raise_task_error(error)
+
+    @app.post("/api/meetings/{meeting_id}/transcript-generations/{generation_id}/speakers")
+    async def add_transcript_speaker(
+        meeting_id: str, generation_id: str, request: Request
+    ) -> dict[str, object]:
+        payload = await _json_object(
+            request,
+            required={"expected_source_version"},
+            optional={"display_name"},
+        )
+        try:
+            return await run_in_threadpool(
+                add_current_generation_speaker,
+                settings.data_dir,
+                meeting_id,
+                expected_generation_id=generation_id,
+                expected_source_version=payload["expected_source_version"],
+                display_name=payload.get("display_name", ""),
+            )
+        except TaskError as error:
+            _raise_task_error(error)
+
+    @app.patch(
+        "/api/meetings/{meeting_id}/transcript-generations/{generation_id}/speakers/{speaker_id}"
+    )
+    async def update_transcript_speaker_name(
+        meeting_id: str, generation_id: str, speaker_id: str, request: Request
+    ) -> dict[str, object]:
+        payload = await _json_object(
+            request,
+            required={"expected_source_version", "display_name"},
+        )
+        try:
+            return await run_in_threadpool(
+                update_current_generation_speaker_name,
+                settings.data_dir,
+                meeting_id,
+                speaker_id,
+                expected_generation_id=generation_id,
+                expected_source_version=payload["expected_source_version"],
+                display_name=payload["display_name"],
             )
         except TaskError as error:
             _raise_task_error(error)

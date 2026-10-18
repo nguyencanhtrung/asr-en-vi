@@ -13,6 +13,7 @@ from asr_en_vi.storage import database_path, initialize
 from asr_en_vi.tasks import (
     TaskError,
     accept_transcription_task,
+    add_current_generation_speaker,
     cancel_task,
     claim_next_task,
     fail_task,
@@ -22,6 +23,8 @@ from asr_en_vi.tasks import (
     reassign_current_generation_speaker,
     recover_abandoned_tasks,
     transcription_state,
+    update_current_generation_segment_text,
+    update_current_generation_speaker_name,
     update_task_progress,
 )
 from asr_en_vi.worker import acquire_worker_lock
@@ -81,6 +84,37 @@ def _segment(segment_id: str, **overrides):
         "compression_ratio": 1.0,
         **overrides,
     }
+
+
+def _publish_generation(
+    data_dir: Path,
+    model_dir: Path,
+    meeting_id: str,
+    request_id: str,
+    owner_id: str,
+    segments: list[dict],
+    speakers: list[dict],
+):
+    task = _accept(data_dir, model_dir, meeting_id, request_id)
+    claim_next_task(data_dir, owner_id=owner_id)
+    assert update_task_progress(
+        data_dir,
+        task["id"],
+        owner_id=owner_id,
+        stage="publishing",
+        elapsed_seconds=1.0,
+        transcript_end_seconds=max(segment["end_seconds"] for segment in segments),
+        segment_count=len(segments),
+    )
+    return publish_complete_generation(
+        data_dir,
+        task["id"],
+        owner_id=owner_id,
+        segments=segments,
+        speakers=speakers,
+        language_probability=0.9,
+        elapsed_seconds=1.0,
+    )
 
 
 def test_request_id_returns_original_task_and_rejects_payload_reuse(tmp_path):
@@ -517,6 +551,269 @@ def test_generation_speaker_catalog_and_versioned_reassignment_keep_original_ass
             "UPDATE transcript_segments SET speaker_id = 'SPEAKER_99' WHERE id = ?",
             ("a" * 32,),
         )
+
+
+def test_current_generation_edits_are_versioned_local_and_preserve_boundaries(tmp_path):
+    data_dir, model_dir, (meeting_id,) = _task_store(tmp_path)
+    first = _publish_generation(
+        data_dir,
+        model_dir,
+        meeting_id,
+        "editable-generation-001",
+        "editable-owner-1",
+        [
+            _segment(
+                "d" * 32,
+                start_seconds=1.25,
+                end_seconds=2.5,
+                original_speaker_id="SPEAKER_00",
+                speaker_id="SPEAKER_00",
+            ),
+            _segment(
+                "e" * 32,
+                start_seconds=3.0,
+                end_seconds=4.0,
+                text="A separate utterance.",
+                original_speaker_id="SPEAKER_01",
+                speaker_id="SPEAKER_01",
+            ),
+        ],
+        [
+            {
+                "speaker_id": "SPEAKER_00",
+                "display_name": "Speaker 1",
+                "first_seen_seconds": 1.25,
+                "last_seen_seconds": 2.5,
+            },
+            {
+                "speaker_id": "SPEAKER_01",
+                "display_name": "Speaker 2",
+                "first_seen_seconds": 3.0,
+                "last_seen_seconds": 4.0,
+            },
+        ],
+    )
+    assert first is not None
+
+    text_change = update_current_generation_segment_text(
+        data_dir,
+        meeting_id,
+        "d" * 32,
+        expected_generation_id=first["id"],
+        expected_source_version=1,
+        text="<b>Corrected words</b>",
+    )
+    assert text_change["source_version"] == 2
+
+    renamed = update_current_generation_speaker_name(
+        data_dir,
+        meeting_id,
+        "SPEAKER_00",
+        expected_generation_id=first["id"],
+        expected_source_version=2,
+        display_name="  Alice  ",
+    )
+    assert renamed["display_name"] == "Alice"
+    assert renamed["source_version"] == 3
+    reset = update_current_generation_speaker_name(
+        data_dir,
+        meeting_id,
+        "SPEAKER_00",
+        expected_generation_id=first["id"],
+        expected_source_version=3,
+        display_name="   ",
+    )
+    assert reset["display_name"] == "Speaker 1"
+    assert reset["source_version"] == 4
+
+    added = add_current_generation_speaker(
+        data_dir,
+        meeting_id,
+        expected_generation_id=first["id"],
+        expected_source_version=4,
+        display_name="Witness",
+    )
+    assert added["speaker_id"].startswith("MANUAL_")
+    assert added["display_name"] == "Witness"
+    assert added["source_version"] == 5
+    reassigned = reassign_current_generation_speaker(
+        data_dir,
+        meeting_id,
+        "d" * 32,
+        expected_generation_id=first["id"],
+        expected_source_version=5,
+        expected_assignment_version=1,
+        speaker_id=added["speaker_id"],
+    )
+    assert reassigned["source_version"] == 6
+    assert reassigned["original_speaker_id"] == "SPEAKER_00"
+
+    current = transcription_state(data_dir, meeting_id)["generation"]
+    first_segment, other_segment = current["segments"]
+    assert (first_segment["start_seconds"], first_segment["end_seconds"]) == (1.25, 2.5)
+    assert first_segment["text"] == "<b>Corrected words</b>"
+    assert first_segment["speaker_id"] == added["speaker_id"]
+    assert first_segment["original_speaker_id"] == "SPEAKER_00"
+    assert other_segment["text"] == "A separate utterance."
+    assert other_segment["speaker_id"] == "SPEAKER_01"
+    assert current["speakers"][0]["display_name"] == "Speaker 1"
+    assert current["speakers"][2]["display_name"] == "Witness"
+
+    with pytest.raises(TaskError) as stale_write:
+        update_current_generation_segment_text(
+            data_dir,
+            meeting_id,
+            "d" * 32,
+            expected_generation_id=first["id"],
+            expected_source_version=5,
+            text="A stale draft.",
+        )
+    assert stale_write.value.code == "source_version_changed"
+
+    second = _publish_generation(
+        data_dir,
+        model_dir,
+        meeting_id,
+        "editable-generation-002",
+        "editable-owner-2",
+        [
+            _segment(
+                "f" * 32,
+                text="A fresh generation.",
+                original_speaker_id="SPEAKER_00",
+                speaker_id="SPEAKER_00",
+            )
+        ],
+        [
+            {
+                "speaker_id": "SPEAKER_00",
+                "display_name": "Speaker 1",
+                "first_seen_seconds": 1.25,
+                "last_seen_seconds": 2.5,
+            }
+        ],
+    )
+    assert second is not None
+    state = transcription_state(data_dir, meeting_id)
+    assert state["generation"]["id"] == second["id"]
+    assert state["generation"]["speakers"][0]["display_name"] == "Speaker 1"
+    assert state["generation_history"][0]["id"] == first["id"]
+    assert state["generation_history"][0]["segments"][0]["text"] == "<b>Corrected words</b>"
+    assert state["generation_history"][0]["speakers"][0]["display_name"] == "Speaker 1"
+
+    with pytest.raises(TaskError) as historical_write:
+        update_current_generation_segment_text(
+            data_dir,
+            meeting_id,
+            "d" * 32,
+            expected_generation_id=first["id"],
+            expected_source_version=6,
+            text="Cannot edit history.",
+        )
+    assert historical_write.value.code == "current_generation_changed"
+    with pytest.raises(TaskError) as historical_speaker_write:
+        update_current_generation_speaker_name(
+            data_dir,
+            meeting_id,
+            "SPEAKER_00",
+            expected_generation_id=first["id"],
+            expected_source_version=6,
+            display_name="Cannot edit history.",
+        )
+    assert historical_speaker_write.value.code == "current_generation_changed"
+    with pytest.raises(TaskError) as cross_generation_speaker:
+        reassign_current_generation_speaker(
+            data_dir,
+            meeting_id,
+            "f" * 32,
+            expected_generation_id=second["id"],
+            expected_source_version=1,
+            expected_assignment_version=1,
+            speaker_id=added["speaker_id"],
+        )
+    assert cross_generation_speaker.value.code == "invalid_speaker_id"
+
+
+def test_speakers_use_first_seen_then_manual_creation_order_for_legacy_catalogs(tmp_path):
+    data_dir, model_dir, (meeting_id,) = _task_store(tmp_path)
+    generation = _publish_generation(
+        data_dir,
+        model_dir,
+        meeting_id,
+        "speaker-order-generation-001",
+        "speaker-order-owner",
+        [
+            _segment(
+                "9" * 32,
+                original_speaker_id="SPEAKER_Z",
+                speaker_id="SPEAKER_Z",
+            )
+        ],
+        [
+            {
+                "speaker_id": "SPEAKER_Z",
+                "display_name": "Custom late speaker",
+                "first_seen_seconds": 5.0,
+                "last_seen_seconds": 6.0,
+            },
+            {
+                "speaker_id": "SPEAKER_B",
+                "display_name": "Custom early B",
+                "first_seen_seconds": 1.0,
+                "last_seen_seconds": 2.0,
+            },
+            {
+                "speaker_id": "SPEAKER_A",
+                "display_name": "Custom early A",
+                "first_seen_seconds": 1.0,
+                "last_seen_seconds": 3.0,
+            },
+        ],
+    )
+    assert generation is not None
+
+    # This insertion order matches catalogs migrated from earlier versions, where row order
+    # did not necessarily match the speakers' first appearance in the transcript.
+    speakers = transcription_state(data_dir, meeting_id)["generation"]["speakers"]
+    assert [speaker["speaker_id"] for speaker in speakers] == [
+        "SPEAKER_A",
+        "SPEAKER_B",
+        "SPEAKER_Z",
+    ]
+
+    reset = update_current_generation_speaker_name(
+        data_dir,
+        meeting_id,
+        "SPEAKER_Z",
+        expected_generation_id=generation["id"],
+        expected_source_version=1,
+        display_name=" ",
+    )
+    assert reset["display_name"] == "Speaker 3"
+    assert reset["source_version"] == 2
+
+    first_manual = add_current_generation_speaker(
+        data_dir,
+        meeting_id,
+        expected_generation_id=generation["id"],
+        expected_source_version=2,
+        display_name="Manual first",
+    )
+    second_manual = add_current_generation_speaker(
+        data_dir,
+        meeting_id,
+        expected_generation_id=generation["id"],
+        expected_source_version=3,
+        display_name="Manual second",
+    )
+    ordered = transcription_state(data_dir, meeting_id)["generation"]["speakers"]
+    assert [speaker["speaker_id"] for speaker in ordered] == [
+        "SPEAKER_A",
+        "SPEAKER_B",
+        "SPEAKER_Z",
+        first_manual["speaker_id"],
+        second_manual["speaker_id"],
+    ]
 
 
 def test_new_exclusive_worker_recovery_cancels_stopping_and_interrupts_other_active_work(

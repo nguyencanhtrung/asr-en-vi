@@ -777,91 +777,352 @@ def recover_abandoned_tasks(data_dir: Path) -> list[str]:
     return task_ids
 
 
+def _ordered_generation_speakers(
+    connection: sqlite3.Connection, generation_id: str
+) -> list[sqlite3.Row]:
+    """Order model speakers by first appearance, then manual speakers by creation order."""
+    return connection.execute(
+        "SELECT speaker_id, display_name, first_seen_seconds, last_seen_seconds "
+        "FROM generation_speakers WHERE generation_id = ? "
+        "ORDER BY CASE WHEN substr(speaker_id, 1, 7) = 'MANUAL_' THEN 1 ELSE 0 END, "
+        "CASE WHEN substr(speaker_id, 1, 7) != 'MANUAL_' THEN first_seen_seconds END, "
+        "CASE WHEN substr(speaker_id, 1, 7) = 'MANUAL_' THEN rowid END, speaker_id",
+        (generation_id,),
+    ).fetchall()
+
+
+def _generation_payload(
+    connection: sqlite3.Connection, generation: sqlite3.Row
+) -> dict[str, object]:
+    segment_rows = connection.execute(
+        "SELECT id, sequence, start_seconds, end_seconds, text, original_speaker_id, "
+        "speaker_id, avg_logprob, no_speech_prob, compression_ratio, uncertain, "
+        "review_reasons, overlap, speaker_dominance, assignment_version "
+        "FROM transcript_segments WHERE generation_id = ? ORDER BY sequence",
+        (generation["id"],),
+    ).fetchall()
+    speaker_rows = _ordered_generation_speakers(connection, generation["id"])
+    segments = [
+        {
+            "id": row["id"],
+            "sequence": row["sequence"],
+            "start_seconds": row["start_seconds"],
+            "end_seconds": row["end_seconds"],
+            "text": row["text"],
+            "original_speaker_id": row["original_speaker_id"],
+            "speaker_id": row["speaker_id"],
+            "avg_logprob": row["avg_logprob"],
+            "no_speech_prob": row["no_speech_prob"],
+            "compression_ratio": row["compression_ratio"],
+            "uncertain": bool(row["uncertain"]),
+            "review_reasons": json.loads(row["review_reasons"]),
+            "overlap": bool(row["overlap"]),
+            "speaker_dominance": row["speaker_dominance"],
+            "assignment_version": row["assignment_version"],
+        }
+        for row in segment_rows
+    ]
+    speakers = [
+        {
+            "speaker_id": row["speaker_id"],
+            "display_name": row["display_name"],
+            "first_seen_seconds": row["first_seen_seconds"],
+            "last_seen_seconds": row["last_seen_seconds"],
+        }
+        for row in speaker_rows
+    ]
+    return {
+        "id": generation["id"],
+        "generation_number": generation["generation_number"],
+        "status": generation["status"],
+        "language_hint": generation["language_hint"],
+        "model_name": generation["model_name"],
+        "language_probability": generation["language_probability"],
+        "source_version": generation["source_version"],
+        "uncertainty_policy": generation["uncertainty_policy"],
+        "segment_count": generation["segment_count"],
+        "completed_at": generation["completed_at"],
+        "diarization_model_name": generation["diarization_model_name"],
+        "regular_turn_count": generation["regular_turn_count"],
+        "exclusive_turn_count": generation["exclusive_turn_count"],
+        "alignment_policy": generation["alignment_policy"],
+        "speakers": speakers,
+        "segments": segments,
+    }
+
+
 def transcription_state(data_dir: Path, meeting_id: str) -> dict[str, object]:
-    """Return the latest durable task and the current complete generation for meeting detail."""
+    """Return the latest task, current transcript, and read-only prior generations."""
     with _connect(data_dir) as connection:
         latest = connection.execute(
             "SELECT * FROM tasks WHERE meeting_id = ? ORDER BY rowid DESC LIMIT 1",
             (meeting_id,),
         ).fetchone()
-        generation = connection.execute(
-            "SELECT transcript_generations.* FROM meetings "
-            "JOIN transcript_generations "
-            "ON transcript_generations.id = meetings.current_generation_id "
-            "WHERE meetings.id = ?",
-            (meeting_id,),
+        meeting = connection.execute(
+            "SELECT current_generation_id FROM meetings WHERE id = ?", (meeting_id,)
         ).fetchone()
-        segments: list[dict[str, object]] = []
-        if generation is not None:
-            segment_rows = connection.execute(
-                "SELECT id, sequence, start_seconds, end_seconds, text, original_speaker_id, "
-                "speaker_id, avg_logprob, no_speech_prob, compression_ratio, uncertain, "
-                "review_reasons, overlap, speaker_dominance, assignment_version "
-                "FROM transcript_segments WHERE generation_id = ? ORDER BY sequence",
-                (generation["id"],),
-            ).fetchall()
-            speaker_rows = connection.execute(
-                "SELECT speaker_id, display_name, first_seen_seconds, last_seen_seconds "
-                "FROM generation_speakers WHERE generation_id = ? "
-                "ORDER BY first_seen_seconds, speaker_id",
-                (generation["id"],),
-            ).fetchall()
-            segments = [
-                {
-                    "id": row["id"],
-                    "sequence": row["sequence"],
-                    "start_seconds": row["start_seconds"],
-                    "end_seconds": row["end_seconds"],
-                    "text": row["text"],
-                    "original_speaker_id": row["original_speaker_id"],
-                    "speaker_id": row["speaker_id"],
-                    "avg_logprob": row["avg_logprob"],
-                    "no_speech_prob": row["no_speech_prob"],
-                    "compression_ratio": row["compression_ratio"],
-                    "uncertain": bool(row["uncertain"]),
-                    "review_reasons": json.loads(row["review_reasons"]),
-                    "overlap": bool(row["overlap"]),
-                    "speaker_dominance": row["speaker_dominance"],
-                    "assignment_version": row["assignment_version"],
-                }
-                for row in segment_rows
-            ]
-            speakers = [
-                {
-                    "speaker_id": row["speaker_id"],
-                    "display_name": row["display_name"],
-                    "first_seen_seconds": row["first_seen_seconds"],
-                    "last_seen_seconds": row["last_seen_seconds"],
-                }
-                for row in speaker_rows
-            ]
-        else:
-            speakers = []
-
-    generation_summary: dict[str, object] | None = None
-    if generation is not None:
-        generation_summary = {
-            "id": generation["id"],
-            "generation_number": generation["generation_number"],
-            "status": generation["status"],
-            "language_hint": generation["language_hint"],
-            "model_name": generation["model_name"],
-            "language_probability": generation["language_probability"],
-            "source_version": generation["source_version"],
-            "uncertainty_policy": generation["uncertainty_policy"],
-            "segment_count": generation["segment_count"],
-            "completed_at": generation["completed_at"],
-            "diarization_model_name": generation["diarization_model_name"],
-            "regular_turn_count": generation["regular_turn_count"],
-            "exclusive_turn_count": generation["exclusive_turn_count"],
-            "alignment_policy": generation["alignment_policy"],
-            "speakers": speakers,
-            "segments": segments,
-        }
+        generation_rows = connection.execute(
+            "SELECT * FROM transcript_generations WHERE meeting_id = ? "
+            "ORDER BY generation_number DESC",
+            (meeting_id,),
+        ).fetchall()
+        current_generation_id = meeting["current_generation_id"] if meeting is not None else None
+        current_row = next(
+            (row for row in generation_rows if row["id"] == current_generation_id), None
+        )
+        generation_summary = (
+            _generation_payload(connection, current_row) if current_row is not None else None
+        )
+        history = [
+            _generation_payload(connection, row)
+            for row in generation_rows
+            if row["id"] != current_generation_id
+        ]
     return {
         "task": _task_summary(latest) if latest is not None else None,
         "generation": generation_summary,
+        "generation_history": history,
     }
+
+
+def _expected_source_version(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise TaskError(400, "invalid_source_version", "Provide a valid source version.")
+    return value
+
+
+def _current_generation_for_write(
+    connection: sqlite3.Connection,
+    meeting_id: str,
+    expected_generation_id: object,
+    expected_source_version: object,
+) -> tuple[str, int]:
+    if not isinstance(expected_generation_id, str) or not expected_generation_id:
+        raise TaskError(400, "invalid_generation_id", "Provide the expected generation id.")
+    version = _expected_source_version(expected_source_version)
+    meeting = connection.execute(
+        "SELECT current_generation_id FROM meetings WHERE id = ?", (meeting_id,)
+    ).fetchone()
+    if meeting is None:
+        raise TaskError(404, "meeting_not_found", "Meeting not found.")
+    if meeting["current_generation_id"] != expected_generation_id:
+        raise TaskError(
+            409,
+            "current_generation_changed",
+            "The current transcript changed. Reload before editing it.",
+        )
+    generation = connection.execute(
+        "SELECT status, source_version FROM transcript_generations WHERE id = ? AND meeting_id = ?",
+        (expected_generation_id, meeting_id),
+    ).fetchone()
+    if generation is None:
+        raise TaskError(404, "generation_not_found", "Transcript generation not found.")
+    if generation["status"] != "complete":
+        raise TaskError(
+            409,
+            "generation_not_complete",
+            "Only a completed transcript can be edited.",
+        )
+    if generation["source_version"] != version:
+        raise TaskError(
+            409,
+            "source_version_changed",
+            "The transcript source changed. Keep your draft, reload, and review it before saving.",
+        )
+    return expected_generation_id, version
+
+
+def _bump_source_version(
+    connection: sqlite3.Connection, generation_id: str, expected_source_version: int
+) -> int:
+    next_version = expected_source_version + 1
+    updated = connection.execute(
+        "UPDATE transcript_generations SET source_version = ? WHERE id = ? AND source_version = ?",
+        (next_version, generation_id, expected_source_version),
+    )
+    if updated.rowcount != 1:
+        raise TaskError(
+            409,
+            "source_version_changed",
+            "The transcript source changed. Keep your draft, reload, and review it before saving.",
+        )
+    return next_version
+
+
+def update_current_generation_segment_text(
+    data_dir: Path,
+    meeting_id: str,
+    segment_id: object,
+    *,
+    expected_generation_id: object,
+    expected_source_version: object,
+    text: object,
+) -> dict[str, object]:
+    """Update only one segment's text in the current complete generation."""
+    if not isinstance(segment_id, str) or not _SEGMENT_ID_RE.fullmatch(segment_id):
+        raise TaskError(400, "invalid_segment_id", "Provide a valid segment id.")
+    if not isinstance(text, str) or len(text) > 10000 or "\x00" in text:
+        raise TaskError(
+            400, "invalid_segment_text", "Segment text must be at most 10,000 characters."
+        )
+
+    with _connect(data_dir) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        generation_id, source_version = _current_generation_for_write(
+            connection, meeting_id, expected_generation_id, expected_source_version
+        )
+        segment = connection.execute(
+            "SELECT text FROM transcript_segments WHERE id = ? AND generation_id = ?",
+            (segment_id, generation_id),
+        ).fetchone()
+        if segment is None:
+            raise TaskError(404, "segment_not_found", "Transcript segment not found.")
+        if segment["text"] != text:
+            updated = connection.execute(
+                "UPDATE transcript_segments SET text = ? WHERE id = ? AND generation_id = ?",
+                (text, segment_id, generation_id),
+            )
+            if updated.rowcount != 1:
+                raise TaskError(404, "segment_not_found", "Transcript segment not found.")
+            source_version = _bump_source_version(connection, generation_id, source_version)
+        return {
+            "id": segment_id,
+            "generation_id": generation_id,
+            "text": text,
+            "source_version": source_version,
+        }
+
+
+def _speaker_display_name(
+    connection: sqlite3.Connection, generation_id: str, speaker_id: str
+) -> str:
+    rows = _ordered_generation_speakers(connection, generation_id)
+    position = next(
+        (index + 1 for index, row in enumerate(rows) if row["speaker_id"] == speaker_id), None
+    )
+    if position is None:
+        raise TaskError(404, "speaker_not_found", "Transcript speaker not found.")
+    names = {row["display_name"] for row in rows if row["speaker_id"] != speaker_id}
+    default_name = f"Speaker {position}"
+    while default_name in names:
+        position += 1
+        default_name = f"Speaker {position}"
+    return default_name
+
+
+def _validate_speaker_name(value: object) -> str:
+    if not isinstance(value, str):
+        raise TaskError(400, "invalid_speaker_name", "Provide a speaker display name.")
+    name = value.strip()
+    if len(name) > 80 or "\x00" in name:
+        raise TaskError(400, "invalid_speaker_name", "Speaker names must be at most 80 characters.")
+    return name
+
+
+def _assert_speaker_name_available(
+    connection: sqlite3.Connection,
+    generation_id: str,
+    display_name: str,
+    *,
+    speaker_id: str | None = None,
+) -> None:
+    existing = connection.execute(
+        "SELECT speaker_id FROM generation_speakers WHERE generation_id = ? AND display_name = ?",
+        (generation_id, display_name),
+    ).fetchone()
+    if existing is not None and existing["speaker_id"] != speaker_id:
+        raise TaskError(
+            409,
+            "speaker_name_conflict",
+            "Another speaker in this transcript already uses that display name.",
+        )
+
+
+def add_current_generation_speaker(
+    data_dir: Path,
+    meeting_id: str,
+    *,
+    expected_generation_id: object,
+    expected_source_version: object,
+    display_name: object = "",
+) -> dict[str, object]:
+    """Add a speaker to the current complete generation using a backend-owned ID."""
+    name = _validate_speaker_name(display_name)
+    with _connect(data_dir) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        generation_id, source_version = _current_generation_for_write(
+            connection, meeting_id, expected_generation_id, expected_source_version
+        )
+        speaker_id = f"MANUAL_{uuid.uuid4().hex}"
+        if not name:
+            count = connection.execute(
+                "SELECT COUNT(*) FROM generation_speakers WHERE generation_id = ?",
+                (generation_id,),
+            ).fetchone()[0]
+            name = f"Speaker {count + 1}"
+            while connection.execute(
+                "SELECT 1 FROM generation_speakers WHERE generation_id = ? AND display_name = ?",
+                (generation_id, name),
+            ).fetchone():
+                count += 1
+                name = f"Speaker {count + 1}"
+        _assert_speaker_name_available(connection, generation_id, name)
+        connection.execute(
+            "INSERT INTO generation_speakers(generation_id, speaker_id, display_name, "
+            "first_seen_seconds, last_seen_seconds) VALUES (?, ?, ?, 0, 0)",
+            (generation_id, speaker_id, name),
+        )
+        source_version = _bump_source_version(connection, generation_id, source_version)
+        return {
+            "generation_id": generation_id,
+            "speaker_id": speaker_id,
+            "display_name": name,
+            "first_seen_seconds": 0,
+            "last_seen_seconds": 0,
+            "source_version": source_version,
+        }
+
+
+def update_current_generation_speaker_name(
+    data_dir: Path,
+    meeting_id: str,
+    speaker_id: object,
+    *,
+    expected_generation_id: object,
+    expected_source_version: object,
+    display_name: object,
+) -> dict[str, object]:
+    """Rename or reset one speaker in the current complete generation."""
+    if not isinstance(speaker_id, str) or not speaker_id or len(speaker_id) > 80:
+        raise TaskError(400, "invalid_speaker_id", "Provide a speaker from the current generation.")
+    requested_name = _validate_speaker_name(display_name)
+    with _connect(data_dir) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        generation_id, source_version = _current_generation_for_write(
+            connection, meeting_id, expected_generation_id, expected_source_version
+        )
+        speaker = connection.execute(
+            "SELECT display_name FROM generation_speakers "
+            "WHERE generation_id = ? AND speaker_id = ?",
+            (generation_id, speaker_id),
+        ).fetchone()
+        if speaker is None:
+            raise TaskError(404, "speaker_not_found", "Transcript speaker not found.")
+        name = requested_name or _speaker_display_name(connection, generation_id, speaker_id)
+        _assert_speaker_name_available(connection, generation_id, name, speaker_id=speaker_id)
+        if speaker["display_name"] != name:
+            connection.execute(
+                "UPDATE generation_speakers SET display_name = ? "
+                "WHERE generation_id = ? AND speaker_id = ?",
+                (name, generation_id, speaker_id),
+            )
+            source_version = _bump_source_version(connection, generation_id, source_version)
+        return {
+            "generation_id": generation_id,
+            "speaker_id": speaker_id,
+            "display_name": name,
+            "source_version": source_version,
+        }
 
 
 def reassign_current_generation_speaker(
@@ -880,12 +1141,6 @@ def reassign_current_generation_speaker(
     if not isinstance(expected_generation_id, str) or not expected_generation_id:
         raise TaskError(400, "invalid_generation_id", "Provide the expected generation id.")
     if (
-        isinstance(expected_source_version, bool)
-        or not isinstance(expected_source_version, int)
-        or expected_source_version < 1
-    ):
-        raise TaskError(400, "invalid_source_version", "Provide a valid source version.")
-    if (
         isinstance(expected_assignment_version, bool)
         or not isinstance(expected_assignment_version, int)
         or expected_assignment_version < 1
@@ -896,33 +1151,13 @@ def reassign_current_generation_speaker(
 
     with _connect(data_dir) as connection, connection:
         connection.execute("BEGIN IMMEDIATE")
-        meeting = connection.execute(
-            "SELECT current_generation_id FROM meetings WHERE id = ?", (meeting_id,)
-        ).fetchone()
-        if meeting is None:
-            raise TaskError(404, "meeting_not_found", "Meeting not found.")
-        if meeting["current_generation_id"] != expected_generation_id:
-            raise TaskError(
-                409,
-                "current_generation_changed",
-                "The transcript changed. Reload before changing this speaker.",
-            )
-        generation = connection.execute(
-            "SELECT source_version FROM transcript_generations WHERE id = ? AND meeting_id = ?",
-            (expected_generation_id, meeting_id),
-        ).fetchone()
-        if generation is None:
-            raise TaskError(404, "generation_not_found", "Transcript generation not found.")
-        if generation["source_version"] != expected_source_version:
-            raise TaskError(
-                409,
-                "source_version_changed",
-                "The transcript source changed. Reload before changing this speaker.",
-            )
+        generation_id, source_version = _current_generation_for_write(
+            connection, meeting_id, expected_generation_id, expected_source_version
+        )
         segment = connection.execute(
             "SELECT id, generation_id, original_speaker_id, speaker_id, assignment_version "
             "FROM transcript_segments WHERE id = ? AND generation_id = ?",
-            (segment_id, expected_generation_id),
+            (segment_id, generation_id),
         ).fetchone()
         if segment is None:
             raise TaskError(404, "segment_not_found", "Transcript segment not found.")
@@ -935,36 +1170,36 @@ def reassign_current_generation_speaker(
         if speaker_id is not None:
             exists = connection.execute(
                 "SELECT 1 FROM generation_speakers WHERE generation_id = ? AND speaker_id = ?",
-                (expected_generation_id, speaker_id),
+                (generation_id, speaker_id),
             ).fetchone()
             if exists is None:
                 raise TaskError(
                     400, "invalid_speaker_id", "Provide a speaker from the current generation."
                 )
         version = expected_assignment_version
-        source_version = expected_source_version
         if segment["speaker_id"] != speaker_id:
             version += 1
-            source_version += 1
-            connection.execute(
+            updated = connection.execute(
                 "UPDATE transcript_segments SET speaker_id = ?, assignment_version = ? "
                 "WHERE id = ? AND generation_id = ? AND assignment_version = ?",
                 (
                     speaker_id,
                     version,
                     segment_id,
-                    expected_generation_id,
+                    generation_id,
                     expected_assignment_version,
                 ),
             )
-            connection.execute(
-                "UPDATE transcript_generations SET source_version = ? "
-                "WHERE id = ? AND source_version = ?",
-                (source_version, expected_generation_id, expected_source_version),
-            )
+            if updated.rowcount != 1:
+                raise TaskError(
+                    409,
+                    "assignment_version_changed",
+                    "The speaker assignment changed. Reload before trying again.",
+                )
+            source_version = _bump_source_version(connection, generation_id, source_version)
         return {
             "id": segment_id,
-            "generation_id": expected_generation_id,
+            "generation_id": generation_id,
             "original_speaker_id": segment["original_speaker_id"],
             "speaker_id": speaker_id,
             "assignment_version": version,

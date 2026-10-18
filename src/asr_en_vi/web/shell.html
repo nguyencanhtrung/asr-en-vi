@@ -251,6 +251,10 @@
                 <div><dt>ID chẩn đoán</dt><dd><code id="task-diagnostic-id"></code></dd></div>
               </dl>
             </div>
+            <p class="transcript-mutation-status" id="transcript-mutation-status" role="status" aria-live="polite" hidden></p>
+            <div class="transcription-error" id="transcript-mutation-error" role="alert" hidden>
+              <p id="transcript-mutation-error-message"></p>
+            </div>
             <div class="task-diagnostic-command-wrap" id="task-diagnostic-command-wrap" hidden>
               <label for="task-diagnostic-command">Lệnh chẩn đoán</label>
               <div class="task-diagnostic-command">
@@ -264,6 +268,24 @@
                 <h4 id="generation-title"></h4>
                 <p id="generation-meta"></p>
               </div>
+              <div class="generation-navigation" id="generation-navigation" hidden>
+                <label for="generation-selector">Phiên bản transcript</label>
+                <select id="generation-selector" aria-label="Chọn phiên bản transcript" data-transcript-mutation></select>
+              </div>
+              <p class="generation-mode" id="generation-mode" role="status"></p>
+              <div class="transcript-draft-recovery" id="transcript-draft-recovery" hidden></div>
+              <section class="speaker-catalog" id="speaker-catalog" aria-labelledby="speaker-catalog-title">
+                <h5 id="speaker-catalog-title">Người nói trong phiên bản này</h5>
+                <ul class="speaker-catalog-list" id="speaker-catalog-list"></ul>
+                <form class="speaker-add-form" id="speaker-add-form" novalidate>
+                  <label for="speaker-add-name">Thêm người nói <span class="optional-mark">Tùy chọn tên</span></label>
+                  <div class="speaker-add-controls">
+                    <input id="speaker-add-name" type="text" maxlength="80" autocomplete="off" placeholder="Mặc định: Speaker mới" data-transcript-mutation />
+                    <button class="secondary-button" type="submit" data-transcript-mutation>Thêm người nói</button>
+                  </div>
+                  <p class="speaker-form-status" id="speaker-add-status" role="status"></p>
+                </form>
+              </section>
               <p class="transcript-empty" id="transcript-empty" hidden>Model không trả về đoạn lời nói nào.</p>
               <ol class="transcript-segments" id="transcript-segments"></ol>
             </div>

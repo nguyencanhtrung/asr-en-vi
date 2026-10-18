@@ -78,10 +78,19 @@
     calendar: { year: today.year, month: today.month, selected: todayKey() },
     meeting: null,
     draft: null,
+    selectedGenerationId: null,
+    currentGenerationId: null,
     taskPollTimer: 0,
     taskPollId: null,
     taskRequestInFlight: false,
-    speakerSaveInFlight: false,
+    transcriptMutationInFlight: false,
+    transcriptMutationFocus: null,
+    transcriptMutationFocusAfter: null,
+    transcriptMutationFocusDescriptor: null,
+    transcriptMutationStatusDescriptor: null,
+    transcriptMutationError: null,
+    transcriptReloadInFlight: false,
+    transcriptDrafts: new Map(),
     pendingTaskRequestId: null,
     taskRequestError: null,
   };
@@ -521,6 +530,7 @@
 
   function renderTaskError(task) {
     const container = $("#transcription-error");
+    clearReloadLatestAction(container);
     const taskFailed = task && ["failed", "interrupted"].includes(task.status);
     container.hidden = !taskFailed && !state.taskRequestError;
 
@@ -550,6 +560,33 @@
     details.hidden = false;
     commandInput.value = `docker compose exec -T app python -m asr_en_vi.cli task diagnose ${task.id}`;
     commandWrap.hidden = false;
+  }
+
+  function renderTranscriptMutationError() {
+    const panel = $("#transcript-mutation-error");
+    const message = $("#transcript-mutation-error-message");
+    const mutationError = state.transcriptMutationError;
+    const meeting = state.meeting;
+    const generationExists = Boolean(
+      mutationError
+      && meeting
+      && meeting.id === mutationError.meetingId
+      && state.selectedGenerationId === mutationError.generationId
+      && generationsFor(meeting.transcription).some(
+        (generation) => generation.id === mutationError.generationId,
+      ),
+    );
+    panel.hidden = !generationExists;
+    if (!generationExists) {
+      clearReloadLatestAction(panel);
+      return;
+    }
+    message.textContent = mutationError.message;
+    if (mutationError.reloadLatest) {
+      appendReloadLatestButton(panel, mutationError.generationId);
+    } else {
+      clearReloadLatestAction(panel);
+    }
   }
 
   async function copyDiagnosticCommand() {
@@ -588,16 +625,776 @@
     $("#meeting-status-text").textContent = status;
   }
 
-  function renderTranscriptGeneration(generation) {
+  function generationsFor(transcription) {
+    const current = transcription && transcription.generation;
+    const history = transcription && Array.isArray(transcription.generation_history)
+      ? transcription.generation_history
+      : [];
+    const byId = new Map();
+    for (const generation of [...history, current].filter(Boolean)) byId.set(generation.id, generation);
+    return [...byId.values()].sort(
+      (left, right) => left.generation_number - right.generation_number,
+    );
+  }
+
+  function transcriptDraftBucket(generationId, create = false) {
+    let bucket = state.transcriptDrafts.get(generationId);
+    if (!bucket && create) {
+      bucket = {
+        segmentText: new Map(),
+        speakerName: new Map(),
+        speakerAssignment: new Map(),
+        speakerAddName: new Map(),
+      };
+      state.transcriptDrafts.set(generationId, bucket);
+    }
+    return bucket || null;
+  }
+
+  function transcriptDraft(generationId, field, itemId) {
+    const bucket = transcriptDraftBucket(generationId);
+    return bucket ? bucket[field].get(itemId) || null : null;
+  }
+
+  function speakerAddRecoveryReady(generation, draft) {
+    return Boolean(
+      generation
+      && generation.status === "complete"
+      && !(draft && draft.conflictCode)
+      && !state.transcriptMutationInFlight
+      && !state.transcriptReloadInFlight
+    );
+  }
+
+  function transcriptDraftBucketIsEmpty(bucket) {
+    return bucket.segmentText.size === 0
+      && bucket.speakerName.size === 0
+      && bucket.speakerAssignment.size === 0
+      && bucket.speakerAddName.size === 0;
+  }
+
+  function rememberSpeakerAddDraft(generationId, value, conflictCode = null) {
+    const generation = generationsFor(state.meeting && state.meeting.transcription)
+      .find((item) => item.id === generationId);
+    const bucket = transcriptDraftBucket(generationId, true);
+    const previous = bucket.speakerAddName.get("speaker-add-name");
+    const draft = {
+      value,
+      baseSourceVersion: previous ? previous.baseSourceVersion : Number(generation?.source_version) || 0,
+      conflictCode: conflictCode || previous?.conflictCode || null,
+    };
+    bucket.speakerAddName.set("speaker-add-name", draft);
+    return draft;
+  }
+
+  function clearSpeakerAddDraft(generationId) {
+    const bucket = transcriptDraftBucket(generationId);
+    if (!bucket) return;
+    bucket.speakerAddName.delete("speaker-add-name");
+    if (transcriptDraftBucketIsEmpty(bucket)) state.transcriptDrafts.delete(generationId);
+  }
+
+  function transcriptFieldValue(generationId, field, itemId) {
+    const transcription = state.meeting && state.meeting.transcription;
+    const generation = generationsFor(transcription).find((item) => item.id === generationId);
+    if (!generation) return undefined;
+    if (field === "segmentText" || field === "speakerAssignment") {
+      const segment = generation.segments.find((item) => item.id === itemId);
+      return segment && (field === "segmentText" ? segment.text : segment.speaker_id || "");
+    }
+    const speaker = generation.speakers.find((item) => item.speaker_id === itemId);
+    return speaker && speaker.display_name;
+  }
+
+  function rememberTranscriptDraft(generationId, field, itemId, value, { reviewed = false } = {}) {
+    const baseline = transcriptFieldValue(generationId, field, itemId);
+    const generation = generationsFor(state.meeting && state.meeting.transcription)
+      .find((item) => item.id === generationId);
+    const sourceVersion = Number(generation && generation.source_version) || 0;
+    const bucket = transcriptDraftBucket(generationId, true);
+    const drafts = bucket[field];
+    if (baseline === value) {
+      drafts.delete(itemId);
+      if (transcriptDraftBucketIsEmpty(bucket)) {
+        state.transcriptDrafts.delete(generationId);
+      }
+      removeTranscriptDraftReview(generationId, field, itemId);
+      return null;
+    }
+    const previous = drafts.get(itemId);
+    const rebased = Boolean(
+      reviewed
+      && previous
+      && previous.conflictCode === "source_version_changed"
+      && (baseline !== previous.baseValue || sourceVersion > previous.baseSourceVersion)
+    );
+    const draft = {
+      value,
+      baseValue: rebased || !previous ? baseline : previous.baseValue,
+      baseSourceVersion: rebased || !previous
+        ? sourceVersion
+        : previous.baseSourceVersion,
+      conflictCode: rebased ? null : previous && previous.conflictCode,
+    };
+    drafts.set(itemId, draft);
+    updateTranscriptDraftReview(generationId, field, itemId, draft, baseline);
+    return draft;
+  }
+
+  function removeTranscriptDraftReview(generationId, field, itemId) {
+    for (const review of document.querySelectorAll(".transcript-draft-review")) {
+      if (
+        review.dataset.generationId === generationId
+        && review.dataset.draftField === field
+        && review.dataset.draftItemId === itemId
+      ) review.remove();
+    }
+  }
+
+  function updateTranscriptDraftReview(generationId, field, itemId, draft, latestValue) {
+    for (const review of document.querySelectorAll(".transcript-draft-review")) {
+      if (
+        review.dataset.generationId !== generationId
+        || review.dataset.draftField !== field
+        || review.dataset.draftItemId !== itemId
+      ) continue;
+      const latest = review.querySelector(".transcript-latest-value");
+      if (latest && latestValue !== undefined) {
+        const generation = generationsFor(state.meeting && state.meeting.transcription)
+          .find((item) => item.id === generationId);
+        latest.textContent = `Bản mới nhất đã lưu: ${draftReviewValue(field, latestValue, generation)}`;
+      }
+      const value = draftReviewValue(field, draft.value);
+      review.querySelector(".transcript-draft-value").textContent = `Bản nháp chưa lưu: ${value}`;
+    }
+  }
+
+  function transcriptSpeakerLabel(generation, speakerId) {
+    if (!speakerId) return "Chưa xác định";
+    const speaker = generation && generation.speakers.find((item) => item.speaker_id === speakerId);
+    return speaker && speaker.display_name ? speaker.display_name : speakerId;
+  }
+
+  function draftReviewValue(field, value, generation = null) {
+    if (field === "speakerName" && value === "") return "Khôi phục tên mặc định";
+    if (field === "speakerAssignment") return transcriptSpeakerLabel(generation, value);
+    return value;
+  }
+
+  function reconcileTranscriptDrafts(transcription, savedResult = null) {
+    for (const [generationId, bucket] of state.transcriptDrafts) {
+      const generation = generationsFor(transcription).find((item) => item.id === generationId);
+      for (const [segmentId, draft] of bucket.segmentText) {
+        const segment = generation && generation.segments.find((item) => item.id === segmentId);
+        const saved = savedResult
+          && savedResult.generationId === generationId
+          && savedResult.field === "segmentText"
+          && savedResult.itemId === segmentId
+          && savedResult.draftValue === draft.value;
+        if (saved || (segment && segment.text === draft.value)) {
+          bucket.segmentText.delete(segmentId);
+          removeTranscriptDraftReview(generationId, "segmentText", segmentId);
+        } else if (segment && segment.text !== draft.baseValue) {
+          draft.conflictCode = "source_version_changed";
+        } else if (segment && draft.conflictCode === "source_version_changed") {
+          draft.conflictCode = null;
+        }
+      }
+      for (const [speakerId, draft] of bucket.speakerName) {
+        const speaker = generation && generation.speakers.find((item) => item.speaker_id === speakerId);
+        const saved = savedResult
+          && savedResult.generationId === generationId
+          && savedResult.field === "speakerName"
+          && savedResult.itemId === speakerId
+          && savedResult.draftValue === draft.value;
+        if (saved || (speaker && speaker.display_name === draft.value)) {
+          bucket.speakerName.delete(speakerId);
+          removeTranscriptDraftReview(generationId, "speakerName", speakerId);
+        } else if (speaker && speaker.display_name !== draft.baseValue) {
+          draft.conflictCode = "source_version_changed";
+        } else if (speaker && draft.conflictCode === "source_version_changed") {
+          draft.conflictCode = null;
+        }
+      }
+      for (const [segmentId, draft] of bucket.speakerAssignment) {
+        const segment = generation && generation.segments.find((item) => item.id === segmentId);
+        const saved = savedResult
+          && savedResult.generationId === generationId
+          && savedResult.field === "speakerAssignment"
+          && savedResult.itemId === segmentId
+          && savedResult.draftValue === draft.value;
+        if (saved || (segment && (segment.speaker_id || "") === draft.value)) {
+          bucket.speakerAssignment.delete(segmentId);
+          removeTranscriptDraftReview(generationId, "speakerAssignment", segmentId);
+        } else if (draft.conflictCode === "current_generation_changed") {
+          // Keep the choice attached to its historical generation for review.
+        } else if (segment && draft.conflictCode && draft.conflictCode !== "source_version_changed") {
+          if (Number(generation.source_version) > (Number(draft.baseSourceVersion) || 0)) {
+            draft.conflictCode = null;
+          }
+        } else if (segment && Number(generation.source_version) > (Number(draft.baseSourceVersion) || 0)) {
+          draft.conflictCode = null;
+        }
+      }
+      const currentGeneration = transcription && transcription.generation;
+      for (const draft of bucket.speakerAddName.values()) {
+        const currentGenerationChanged = currentGeneration && currentGeneration.id !== generationId;
+        const sourceVersionAdvanced = currentGeneration
+          && currentGeneration.id === generationId
+          && Number(currentGeneration.source_version) > (Number(draft.baseSourceVersion) || 0);
+        if (
+          ["source_version_changed", "current_generation_changed"].includes(draft.conflictCode)
+          && (currentGenerationChanged || sourceVersionAdvanced)
+        ) {
+          draft.conflictCode = null;
+        }
+      }
+      if (transcriptDraftBucketIsEmpty(bucket)) {
+        state.transcriptDrafts.delete(generationId);
+      }
+    }
+  }
+
+  function installServerMeeting(meeting) {
+    const previous = state.meeting;
+    const previousTranscription = previous && meeting && previous.id === meeting.id
+      ? previous.transcription
+      : null;
+    const nextTranscription = meeting && meeting.transcription;
+    if (previousTranscription && nextTranscription) {
+      const merged = new Map(generationsFor(nextTranscription).map((item) => [item.id, item]));
+      let current = nextTranscription.generation || null;
+      const knownCurrent = previousTranscription.generation || null;
+      for (const known of generationsFor(previousTranscription)) {
+        const incoming = merged.get(known.id);
+        const retained = !incoming
+          || (Number(incoming.source_version) || 0) < (Number(known.source_version) || 0)
+          ? known
+          : incoming;
+        merged.set(known.id, retained);
+        if (
+          knownCurrent
+          && known.id === knownCurrent.id
+          && (!current || known.generation_number > current.generation_number)
+        ) {
+          current = retained;
+        } else if (current && current.id === known.id && retained !== current) {
+          current = retained;
+        }
+      }
+      nextTranscription.generation = current;
+      nextTranscription.generation_history = [...merged.values()]
+        .filter((item) => !current || item.id !== current.id)
+        .sort((left, right) => left.generation_number - right.generation_number);
+    }
+    state.meeting = meeting;
+    reconcileTranscriptDrafts(meeting && meeting.transcription);
+    return meeting;
+  }
+
+  function applyTranscriptMutationResult(
+    meetingId,
+    originalMeeting,
+    generationId,
+    field,
+    itemId,
+    draftValue,
+    serverValue,
+    sourceVersion,
+  ) {
+    const savedResult = { generationId, field, itemId, draftValue };
+    const meeting = state.meeting;
+    const transcription = meeting && meeting.id === meetingId ? meeting.transcription : null;
+    const generation = generationsFor(transcription).find((item) => item.id === generationId);
+    let appliedToRefreshedState = false;
+    if (generation) {
+      const item = field === "segmentText" || field === "speakerAssignment"
+        ? generation.segments.find((segment) => segment.id === itemId)
+        : generation.speakers.find((speaker) => speaker.speaker_id === itemId);
+      const currentVersion = Number(generation.source_version) || 0;
+      const resultVersion = Number(sourceVersion) || 0;
+      if (item && resultVersion >= currentVersion) {
+        const changed = field === "segmentText"
+          ? item.text !== serverValue
+          : field === "speakerAssignment"
+            ? item.speaker_id !== serverValue.speaker_id
+              || item.assignment_version !== serverValue.assignment_version
+            : item.display_name !== serverValue;
+        if (field === "segmentText") item.text = serverValue;
+        else if (field === "speakerAssignment") {
+          item.speaker_id = serverValue.speaker_id;
+          item.assignment_version = serverValue.assignment_version;
+        } else item.display_name = serverValue;
+        if (resultVersion > currentVersion) generation.source_version = resultVersion;
+        appliedToRefreshedState = meeting !== originalMeeting && (resultVersion > currentVersion || changed);
+      }
+    }
+    reconcileTranscriptDrafts(transcription, savedResult);
+    if (transcription) {
+      const current = transcription.generation;
+      renderTranscriptDraftRecovery(
+        transcription,
+        state.selectedGenerationId || (current && current.id),
+      );
+    }
+    if (
+      appliedToRefreshedState
+      && state.view === "meeting"
+      && state.selectedGenerationId === generation.id
+    ) {
+      const current = transcription.generation;
+      const editable = Boolean(
+        current && current.id === generation.id && generation.status === "complete",
+      );
+      if (editable && field === "speakerName") updateSpeakerLabelsInTranscript(generation, item);
+      else if (editable) updateTranscriptRenderKey(generation);
+      else renderTranscriptGeneration(generation, false);
+    }
+    return { meeting, generation };
+  }
+
+  function transcriptConflictCode(error) {
+    const detail = error && error.payload && error.payload.detail;
+    const code = detail && detail.code;
+    return code === "source_version_changed" || code === "current_generation_changed"
+      ? code
+      : null;
+  }
+
+  function appendReloadLatestButton(container, generationId) {
+    let button = container.querySelector("[data-reload-latest]");
+    if (!button) {
+      button = document.createElement("button");
+      button.className = "secondary-button transcript-reload-latest";
+      button.type = "button";
+      button.dataset.reloadLatest = "true";
+      button.dataset.transcriptMutation = "true";
+      button.textContent = "Tải lại bản mới nhất";
+      button.disabled = state.transcriptMutationInFlight || state.transcriptReloadInFlight;
+      container.append(button);
+    }
+    button.dataset.generationId = generationId;
+    let status = container.querySelector(".transcript-reload-status");
+    if (!status) {
+      status = document.createElement("span");
+      status.className = "transcript-reload-status";
+      status.setAttribute("role", "status");
+      container.append(status);
+    }
+    return button;
+  }
+
+  function createTranscriptDraftReview(generationId, field, itemId, value, latestValue) {
+    const review = document.createElement("div");
+    review.className = "transcript-draft-review";
+    review.dataset.generationId = generationId;
+    review.dataset.draftField = field;
+    review.dataset.draftItemId = itemId;
+    if (latestValue !== undefined) {
+      const latest = document.createElement("p");
+      latest.className = "transcript-latest-value";
+      const generation = generationsFor(state.meeting && state.meeting.transcription)
+        .find((item) => item.id === generationId);
+      latest.textContent = `Bản mới nhất đã lưu: ${draftReviewValue(field, latestValue, generation)}`;
+      review.append(latest);
+    }
+    const draft = document.createElement("p");
+    draft.className = "transcript-draft-value";
+    const generation = generationsFor(state.meeting && state.meeting.transcription)
+      .find((item) => item.id === generationId);
+    const reviewValue = draftReviewValue(field, value, generation);
+    draft.textContent = `Bản nháp chưa lưu: ${reviewValue}`;
+    const copy = document.createElement("button");
+    copy.className = "text-button transcript-copy-draft";
+    copy.type = "button";
+    copy.dataset.copyTranscriptDraft = "true";
+    copy.dataset.generationId = generationId;
+    copy.dataset.draftField = field;
+    copy.dataset.draftItemId = itemId;
+    copy.textContent = field === "speakerAssignment" ? "Xem transcript này" : "Sao chép bản nháp";
+    if (field === "speakerAssignment") copy.dataset.openTranscriptDraft = "true";
+    const status = document.createElement("span");
+    status.className = "transcript-draft-copy-status";
+    status.setAttribute("role", "status");
+    review.append(draft, copy, status);
+    return review;
+  }
+
+  function renderTranscriptDraftRecovery(transcription, selectedGenerationId) {
+    const panel = $("#transcript-draft-recovery");
+    const generations = generationsFor(transcription);
+    const entries = [];
+    for (const [generationId, bucket] of state.transcriptDrafts) {
+      const generation = generations.find((item) => item.id === generationId);
+      if (!generation) continue;
+      if (generationId === selectedGenerationId) {
+        for (const draft of bucket.speakerAddName.values()) {
+          entries.push({
+            generationId,
+            generationNumber: generation.generation_number,
+            field: "speakerAddName",
+            value: draft.value,
+            conflictCode: draft.conflictCode || "",
+          });
+        }
+        continue;
+      }
+      for (const [segmentId, draft] of bucket.segmentText) {
+        const segment = generation.segments.find((item) => item.id === segmentId);
+        if (segment) entries.push({
+          generationId,
+          generationNumber: generation.generation_number,
+          field: "segmentText",
+          itemId: segmentId,
+          value: draft.value,
+          conflictCode: draft.conflictCode || "",
+          latestValue: segment.text,
+          startSeconds: segment.start_seconds,
+        });
+      }
+      for (const draft of bucket.speakerAddName.values()) {
+        entries.push({
+          generationId,
+          generationNumber: generation.generation_number,
+          field: "speakerAddName",
+          value: draft.value,
+          conflictCode: draft.conflictCode || "",
+        });
+      }
+      for (const [speakerId, draft] of bucket.speakerName) {
+        const speaker = generation.speakers.find((item) => item.speaker_id === speakerId);
+        if (speaker) entries.push({
+          generationId,
+          generationNumber: generation.generation_number,
+          field: "speakerName",
+          itemId: speakerId,
+          value: draft.value,
+          conflictCode: draft.conflictCode || "",
+          latestValue: speaker.display_name,
+        });
+      }
+      for (const [segmentId, draft] of bucket.speakerAssignment) {
+        const segment = generation.segments.find((item) => item.id === segmentId);
+        if (segment) entries.push({
+          generationId,
+          generationNumber: generation.generation_number,
+          field: "speakerAssignment",
+          itemId: segmentId,
+          value: draft.value,
+          conflictCode: draft.conflictCode || "",
+          latestValue: segment.speaker_id || "",
+          startSeconds: segment.start_seconds,
+        });
+      }
+    }
+    const renderKey = JSON.stringify(entries);
+    panel.hidden = entries.length === 0;
+    if (panel.dataset.renderKey === renderKey) return;
+    panel.dataset.renderKey = renderKey;
+    panel.replaceChildren();
+    const sections = new Map();
+    for (const entry of entries) {
+      let section = sections.get(entry.generationId);
+      if (!section) {
+        section = document.createElement("section");
+        section.className = "transcript-draft-generation";
+        const heading = document.createElement("h5");
+        heading.textContent = `Bản nháp chưa lưu · Transcript #${entry.generationNumber}`;
+        section.append(heading);
+        sections.set(entry.generationId, section);
+        panel.append(section);
+      }
+      if (entry.field === "segmentText") {
+        const context = document.createElement("p");
+        context.className = "transcript-draft-context";
+        context.textContent = `Đoạn bắt đầu tại ${formatTimestamp(entry.startSeconds)}`;
+        section.append(
+          context,
+          createTranscriptDraftReview(
+            entry.generationId,
+            "segmentText",
+            entry.itemId,
+            entry.value,
+            entry.latestValue,
+          ),
+        );
+      } else if (entry.field === "speakerName") {
+        const context = document.createElement("p");
+        context.className = "transcript-draft-context";
+        context.textContent = `Tên người nói · ${entry.itemId}`;
+        section.append(
+          context,
+          createTranscriptDraftReview(
+            entry.generationId,
+            "speakerName",
+            entry.itemId,
+            entry.value,
+            entry.latestValue,
+          ),
+        );
+      } else if (entry.field === "speakerAssignment") {
+        const context = document.createElement("p");
+        context.className = "transcript-draft-context";
+        context.textContent = `Người nói · đoạn bắt đầu tại ${formatTimestamp(entry.startSeconds)}`;
+        section.append(
+          context,
+          createTranscriptDraftReview(
+            entry.generationId,
+            "speakerAssignment",
+            entry.itemId,
+            entry.value,
+            entry.latestValue,
+          ),
+        );
+      } else {
+        const context = document.createElement("p");
+        context.className = "transcript-draft-context";
+        context.textContent = "Tên người nói chưa được thêm";
+        const review = document.createElement("div");
+        review.className = "transcript-draft-review transcript-speaker-add-draft-review";
+        review.dataset.generationId = entry.generationId;
+        review.dataset.draftField = "speakerAddName";
+        const value = document.createElement("p");
+        value.className = "transcript-draft-value";
+        value.textContent = `Tên cần thêm: ${entry.value || "(để trống; máy chủ sẽ đặt tên mặc định)"}`;
+        const apply = document.createElement("button");
+        apply.type = "button";
+        apply.className = "secondary-button transcript-reapply-speaker-add";
+        apply.dataset.reapplySpeakerAddDraft = "true";
+        apply.dataset.generationId = entry.generationId;
+        apply.dataset.transcriptMutation = "true";
+        const current = transcription && transcription.generation;
+        const draft = transcriptDraft(entry.generationId, "speakerAddName", "speaker-add-name");
+        apply.disabled = !speakerAddRecoveryReady(current, draft);
+        apply.textContent = "Thêm vào transcript hiện tại";
+        const status = document.createElement("span");
+        status.className = "transcript-speaker-add-draft-status";
+        status.setAttribute("role", "status");
+        review.append(value, apply, status);
+        section.append(context, review);
+      }
+    }
+  }
+
+  async function copyTranscriptDraft(button) {
+    const draft = transcriptDraft(
+      button.dataset.generationId,
+      button.dataset.draftField,
+      button.dataset.draftItemId,
+    );
+    if (!draft) return;
+    const status = button.parentElement.querySelector(".transcript-draft-copy-status");
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(draft.value);
+      status.textContent = "Đã sao chép bản nháp.";
+    } catch {
+      const input = document.createElement("textarea");
+      input.value = draft.value;
+      input.setAttribute("readonly", "");
+      input.style.position = "fixed";
+      input.style.opacity = "0";
+      document.body.append(input);
+      input.focus();
+      input.select();
+      let copied = false;
+      try {
+        copied = document.execCommand("copy");
+      } catch {
+        // Keep the visible draft selectable when the clipboard command is unavailable.
+      }
+      input.remove();
+      if (copied) {
+        status.textContent = "Đã sao chép bản nháp.";
+      } else {
+        const selection = window.getSelection();
+        const draftText = button.parentElement.querySelector(".transcript-draft-value");
+        const range = document.createRange();
+        range.selectNodeContents(draftText);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        status.textContent = "Bản nháp đã được chọn. Nhấn Ctrl+C hoặc ⌘C để sao chép.";
+      }
+    }
+  }
+
+  async function reloadLatestTranscript(button) {
+    const previousMeeting = state.meeting;
+    const meetingId = previousMeeting && previousMeeting.id;
+    if (!meetingId || state.transcriptReloadInFlight || state.transcriptMutationInFlight) return;
+    state.transcriptReloadInFlight = true;
+    syncTranscriptMutationControls();
+    try {
+      const payload = await requestJson(`/api/meetings/${encodeURIComponent(meetingId)}`);
+      if (state.meeting !== previousMeeting) return;
+      const latest = payload && payload.meeting && typeof payload.meeting === "object"
+        ? payload.meeting
+        : payload;
+      if (!latest || latest.id !== meetingId || !latest.transcription) {
+        throw new Error("Không tải được trạng thái transcript mới nhất.");
+      }
+      installServerMeeting(latest);
+      clearReloadLatestActions();
+      state.transcriptMutationError = null;
+      delete $("#transcript-generation").dataset.renderKey;
+      renderTranscription(latest.transcription);
+      renderSidebar();
+    } catch (error) {
+      if (button.isConnected) {
+        const status = button.parentElement.querySelector(".transcript-reload-status");
+        if (status) status.textContent = error && error.message
+          ? error.message
+          : "Không thể tải transcript mới nhất.";
+      }
+    } finally {
+      state.transcriptReloadInFlight = false;
+      syncTranscriptMutationControls();
+    }
+  }
+
+  function clearSpeakerAddName() {
+    const input = $("#speaker-add-name");
+    if (input) input.value = "";
+  }
+
+  function renderGenerationNavigation(transcription) {
+    const current = transcription && transcription.generation;
+    const generations = generationsFor(transcription);
+    const wrapper = $("#generation-navigation");
+    const selector = $("#generation-selector");
+    const previousSelectedGenerationId = state.selectedGenerationId;
+    if (!generations.length) {
+      wrapper.hidden = true;
+      state.selectedGenerationId = null;
+      state.currentGenerationId = null;
+      if (previousSelectedGenerationId) clearSpeakerAddName();
+      return null;
+    }
+    if (current && current.id !== state.currentGenerationId) {
+      const previousCurrentId = state.currentGenerationId;
+      state.currentGenerationId = current.id;
+      if (!state.selectedGenerationId || state.selectedGenerationId === previousCurrentId) {
+        state.selectedGenerationId = current.id;
+      }
+    }
+    if (!generations.some((generation) => generation.id === state.selectedGenerationId)) {
+      state.selectedGenerationId = current ? current.id : generations.at(-1).id;
+    }
+    if (
+      previousSelectedGenerationId
+      && previousSelectedGenerationId !== state.selectedGenerationId
+    ) clearSpeakerAddName();
+    const optionsKey = generations.map((generation) => generation.id).join(":");
+    if (selector.dataset.optionsKey !== optionsKey) {
+      selector.replaceChildren();
+      for (const generation of generations) {
+        const option = document.createElement("option");
+        option.value = generation.id;
+        option.textContent = `Transcript #${generation.generation_number}`
+          + (current && current.id === generation.id ? " · hiện tại" : " · lịch sử");
+        selector.append(option);
+      }
+      selector.dataset.optionsKey = optionsKey;
+    }
+    wrapper.hidden = generations.length < 2;
+    selector.value = state.selectedGenerationId;
+    return {
+      generation: generations.find((generation) => generation.id === state.selectedGenerationId),
+      editable: Boolean(
+        current
+        && current.id === state.selectedGenerationId
+        && current.status === "complete",
+      ),
+    };
+  }
+
+  function renderSpeakerCatalog(generation, editable) {
+    const list = $("#speaker-catalog-list");
+    const speakers = Array.isArray(generation.speakers) ? generation.speakers : [];
+    list.replaceChildren();
+    $("#speaker-add-form").hidden = !editable;
+    $("#speaker-add-status").textContent = "";
+    $("#speaker-add-status").classList.remove("is-error");
+    for (const speaker of speakers) {
+      const item = document.createElement("li");
+      const draft = transcriptDraft(generation.id, "speakerName", speaker.speaker_id);
+      if (!editable) {
+        const name = document.createElement("span");
+        name.className = "speaker-name-readonly";
+        name.textContent = speaker.display_name || speaker.speaker_id;
+        item.append(name);
+        if (draft) {
+          item.append(
+            createTranscriptDraftReview(
+              generation.id,
+              "speakerName",
+              speaker.speaker_id,
+              draft.value,
+            ),
+          );
+        }
+      } else {
+        const form = document.createElement("form");
+        form.className = "speaker-name-form";
+        form.dataset.speakerName = "true";
+        form.dataset.speakerId = speaker.speaker_id;
+        form.dataset.generationId = generation.id;
+        const label = document.createElement("label");
+        label.textContent = `Tên người nói · ${speaker.speaker_id}`;
+        const input = document.createElement("input");
+        input.type = "text";
+        input.maxLength = 80;
+        input.autocomplete = "off";
+        input.value = draft ? draft.value : speaker.display_name || "";
+        input.setAttribute("aria-label", `Tên hiển thị cho ${speaker.speaker_id}`);
+        input.dataset.transcriptMutation = "true";
+        label.append(input);
+        const save = document.createElement("button");
+        save.className = "secondary-button";
+        save.type = "submit";
+        save.dataset.transcriptMutation = "true";
+        save.textContent = "Lưu tên";
+        const clear = document.createElement("button");
+        clear.className = "text-button speaker-clear-name";
+        clear.type = "button";
+        clear.dataset.clearSpeakerName = "true";
+        clear.dataset.speakerId = speaker.speaker_id;
+        clear.dataset.generationId = generation.id;
+        clear.dataset.transcriptMutation = "true";
+        clear.textContent = "Khôi phục tên mặc định";
+        const status = document.createElement("p");
+        status.className = "speaker-form-status";
+        status.dataset.speakerStatus = speaker.speaker_id;
+        status.setAttribute("role", "status");
+        form.append(label, save, clear, status);
+        if (draft && draft.conflictCode) {
+          form.append(
+            createTranscriptDraftReview(
+              generation.id,
+              "speakerName",
+              speaker.speaker_id,
+              draft.value,
+              speaker.display_name || speaker.speaker_id,
+            ),
+          );
+        }
+        item.append(form);
+      }
+      list.append(item);
+    }
+  }
+
+  function renderTranscriptGeneration(generation, editable) {
     const panel = $("#transcript-generation");
     const list = $("#transcript-segments");
     panel.hidden = !generation;
     if (!generation) {
       list.replaceChildren();
+      $("#speaker-catalog-list").replaceChildren();
       delete panel.dataset.renderKey;
       return;
     }
-    const renderKey = `${generation.id}:${generation.source_version}`;
+    const renderKey = `${generation.id}:${generation.source_version}:${editable}`;
     if (panel.dataset.renderKey === renderKey) {
       updateActiveTranscriptIntervals();
       return;
@@ -616,6 +1413,13 @@
     }
     if (generation.diarization_model_name) meta.push(`Diarization · ${generation.diarization_model_name}`);
     $("#generation-meta").textContent = meta.join(" · ");
+    const mode = $("#generation-mode");
+    mode.textContent = editable
+      ? "Bản hiện tại · Bạn có thể chỉnh sửa transcript và người nói."
+      : "Bản lịch sử · Chỉ đọc.";
+    mode.classList.toggle("is-readonly", !editable);
+    renderSpeakerCatalog(generation, editable);
+
     const segments = Array.isArray(generation.segments) ? generation.segments : [];
     const speakers = Array.isArray(generation.speakers) ? generation.speakers : [];
     const speakerNames = new Map(speakers.map((speaker) => [speaker.speaker_id, speaker.display_name]));
@@ -638,42 +1442,115 @@
         `Phát bản ghi từ ${formatTimestamp(segment.start_seconds)}`,
       );
 
-      const speakerControl = document.createElement("label");
+      const speakerControl = document.createElement("div");
       speakerControl.className = "segment-speaker-control";
       const speakerLabel = document.createElement("span");
       speakerLabel.textContent = "Người nói";
-      const speakerSelect = document.createElement("select");
-      speakerSelect.className = "segment-speaker-select";
-      speakerSelect.dataset.speakerAssignment = "true";
-      speakerSelect.dataset.segmentId = segment.id;
-      speakerSelect.dataset.currentSpeaker = segment.speaker_id || "";
-      speakerSelect.dataset.generationId = generation.id;
-      speakerSelect.dataset.assignmentVersion = String(segment.assignment_version || 1);
-      speakerSelect.setAttribute(
-        "aria-label",
-        `Người nói cho đoạn bắt đầu tại ${formatTimestamp(segment.start_seconds)}`,
+      const assignmentDraft = transcriptDraft(
+        generation.id,
+        "speakerAssignment",
+        segment.id,
       );
-      const unidentified = document.createElement("option");
-      unidentified.value = "";
-      unidentified.textContent = "Chưa xác định";
-      speakerSelect.append(unidentified);
-      for (const speaker of speakers) {
-        const option = document.createElement("option");
-        option.value = speaker.speaker_id;
-        option.textContent = speaker.display_name || speaker.speaker_id;
-        speakerSelect.append(option);
+      if (editable) {
+        const speakerSelect = document.createElement("select");
+        speakerSelect.className = "segment-speaker-select";
+        speakerSelect.dataset.speakerAssignment = "true";
+        speakerSelect.dataset.segmentId = segment.id;
+        speakerSelect.dataset.currentSpeaker = segment.speaker_id || "";
+        speakerSelect.dataset.generationId = generation.id;
+        speakerSelect.dataset.assignmentVersion = String(segment.assignment_version || 1);
+        speakerSelect.dataset.transcriptMutation = "true";
+        speakerSelect.setAttribute(
+          "aria-label",
+          `Người nói cho đoạn bắt đầu tại ${formatTimestamp(segment.start_seconds)}`,
+        );
+        const unidentified = document.createElement("option");
+        unidentified.value = "";
+        unidentified.textContent = "Chưa xác định";
+        speakerSelect.append(unidentified);
+        for (const speaker of speakers) {
+          const option = document.createElement("option");
+          option.value = speaker.speaker_id;
+          option.textContent = speaker.display_name || speaker.speaker_id;
+          speakerSelect.append(option);
+        }
+        speakerSelect.value = assignmentDraft ? assignmentDraft.value : segment.speaker_id || "";
+        speakerControl.append(speakerLabel, speakerSelect);
+      } else {
+        const speakerName = document.createElement("span");
+        speakerName.className = "segment-speaker";
+        speakerName.textContent = segment.speaker_id
+          ? speakerNames.get(segment.speaker_id) || segment.speaker_id
+          : "Chưa xác định";
+        speakerControl.append(speakerLabel, speakerName);
       }
-      speakerSelect.value = segment.speaker_id || "";
-      speakerSelect.disabled = speakers.length === 0;
-      speakerControl.append(speakerLabel, speakerSelect);
 
-      const text = document.createElement("p");
-      text.className = "segment-text";
-      text.textContent = segment.text;
-      item.append(timestamp, speakerControl, text);
+      item.append(timestamp, speakerControl);
+      if (assignmentDraft) {
+        item.append(createAssignmentDraftReview(generation, segment, assignmentDraft, editable));
+      }
+      if (editable) {
+        const form = document.createElement("form");
+        form.className = "segment-edit-form";
+        form.dataset.segmentText = "true";
+        form.dataset.segmentId = segment.id;
+        form.dataset.generationId = generation.id;
+        const editor = document.createElement("textarea");
+        editor.className = "segment-text-editor";
+        editor.maxLength = 10000;
+        editor.rows = 3;
+        const draft = transcriptDraft(generation.id, "segmentText", segment.id);
+        editor.value = draft ? draft.value : segment.text;
+        editor.setAttribute(
+          "aria-label",
+          `Nội dung transcript cho đoạn bắt đầu tại ${formatTimestamp(segment.start_seconds)}`,
+        );
+        editor.dataset.transcriptMutation = "true";
+        const actions = document.createElement("div");
+        actions.className = "segment-edit-actions";
+        const save = document.createElement("button");
+        save.className = "secondary-button";
+        save.type = "submit";
+        save.dataset.transcriptMutation = "true";
+        save.textContent = "Lưu đoạn";
+        const status = document.createElement("p");
+        status.className = "segment-edit-status";
+        status.setAttribute("role", "status");
+        actions.append(save, status);
+        form.append(editor, actions);
+        item.append(form);
+        if (draft && draft.conflictCode) {
+          item.append(
+            createTranscriptDraftReview(
+              generation.id,
+              "segmentText",
+              segment.id,
+              draft.value,
+              segment.text,
+            ),
+          );
+        }
+      } else {
+        const text = document.createElement("p");
+        text.className = "segment-text";
+        text.textContent = segment.text;
+        item.append(text);
+        const draft = transcriptDraft(generation.id, "segmentText", segment.id);
+        if (draft) {
+          item.append(
+            createTranscriptDraftReview(
+              generation.id,
+              "segmentText",
+              segment.id,
+              draft.value,
+            ),
+          );
+        }
+      }
 
       const originalSpeaker = document.createElement("span");
       originalSpeaker.className = "segment-original-speaker";
+      originalSpeaker.dataset.originalSpeakerId = segment.original_speaker_id || "";
       originalSpeaker.textContent = `Gán ban đầu: ${segment.original_speaker_id
         ? speakerNames.get(segment.original_speaker_id) || segment.original_speaker_id
         : "Chưa xác định"}`;
@@ -701,7 +1578,58 @@
       }
       list.append(item);
     }
+    if (state.transcriptMutationInFlight) setTranscriptMutationInFlight(true);
     updateActiveTranscriptIntervals();
+  }
+
+  function createAssignmentDraftReview(generation, segment, draft, editable) {
+    const review = document.createElement("div");
+    review.className = "transcript-draft-review transcript-assignment-draft-review";
+    review.dataset.generationId = generation.id;
+    review.dataset.draftField = "speakerAssignment";
+    review.dataset.draftItemId = segment.id;
+    const latest = document.createElement("p");
+    latest.className = "transcript-latest-value";
+    latest.textContent = `Người nói đã lưu: ${transcriptSpeakerLabel(generation, segment.speaker_id || "")}`;
+    const value = document.createElement("p");
+    value.className = "transcript-draft-value";
+    value.textContent = `Lựa chọn cần xem lại: ${transcriptSpeakerLabel(generation, draft.value)}`;
+    review.append(latest, value);
+    if (editable) {
+      const apply = document.createElement("button");
+      apply.type = "button";
+      apply.className = "secondary-button transcript-reapply-assignment";
+      apply.dataset.reapplyAssignmentDraft = "true";
+      apply.dataset.generationId = generation.id;
+      apply.dataset.segmentId = segment.id;
+      apply.dataset.transcriptMutation = "true";
+      apply.disabled = Boolean(draft.conflictCode) || state.transcriptMutationInFlight;
+      apply.textContent = "Áp dụng lại lựa chọn";
+      const status = document.createElement("span");
+      status.className = "transcript-assignment-draft-status";
+      status.setAttribute("role", "status");
+      review.append(apply, status);
+    }
+    return review;
+  }
+
+  function updateAssignmentDraftReviewLabels(generation) {
+    for (const review of document.querySelectorAll(".transcript-assignment-draft-review")) {
+      if (review.dataset.generationId !== generation.id) continue;
+      const segmentId = review.dataset.draftItemId;
+      const segment = generation.segments.find((item) => item.id === segmentId);
+      const draft = transcriptDraft(generation.id, "speakerAssignment", segmentId);
+      if (!segment || !draft) continue;
+      review.querySelector(".transcript-latest-value").textContent =
+        `Người nói đã lưu: ${transcriptSpeakerLabel(generation, segment.speaker_id || "")}`;
+      review.querySelector(".transcript-draft-value").textContent =
+        `Lựa chọn cần xem lại: ${transcriptSpeakerLabel(generation, draft.value)}`;
+    }
+  }
+
+  function updateTranscriptRenderKey(generation) {
+    if (!generation || $("#generation-title").textContent !== `Transcript #${generation.generation_number}`) return;
+    $("#transcript-generation").dataset.renderKey = `${generation.id}:${generation.source_version}:true`;
   }
 
   function updateActiveTranscriptIntervals() {
@@ -718,23 +1646,684 @@
     }
   }
 
-  async function saveSpeakerAssignment(select) {
+  function transcriptMutationMessage(error, fallback) {
+    const code = error && error.payload && error.payload.detail && error.payload.detail.code;
+    if (code === "source_version_changed") {
+      return "Transcript đã thay đổi. Bản nháp vẫn được giữ; hãy xem lại trước khi lưu lần nữa.";
+    }
+    if (code === "current_generation_changed") {
+      return "Phiên bản này không còn là bản hiện tại. Bản nháp vẫn được giữ để xem lại và thêm vào transcript hiện tại.";
+    }
+    return error && error.message ? error.message : fallback;
+  }
+
+  function markTranscriptDraftConflict(generationId, field, itemId, code, status) {
+    const draft = transcriptDraft(generationId, field, itemId);
+    if (draft) draft.conflictCode = code;
+    if (status && status.isConnected) {
+      appendReloadLatestButton(status.parentElement, generationId);
+      return;
+    }
+    const message = code === "source_version_changed"
+      ? "Transcript đã thay đổi. Bản nháp vẫn được giữ để xem lại."
+      : "Phiên bản transcript đã đổi. Bản nháp vẫn được giữ để sao chép.";
+    const meetingId = state.meeting && state.meeting.id;
+    if (meetingId) setTranscriptMutationError(meetingId, generationId, message, true);
+  }
+
+  function clearReloadLatestActions() {
+    for (const container of [
+      $("#transcript-generation"),
+      $("#transcription-error"),
+      $("#transcript-mutation-error"),
+    ]) {
+      for (const action of container.querySelectorAll("[data-reload-latest], .transcript-reload-status")) {
+        action.remove();
+      }
+    }
+  }
+
+  function clearReloadLatestAction(container) {
+    for (const action of container.querySelectorAll("[data-reload-latest], .transcript-reload-status")) {
+      action.remove();
+    }
+  }
+
+  function setTranscriptMutationInFlight(inFlight, statusSource = null) {
+    if (inFlight && !state.transcriptMutationInFlight) {
+      const active = document.activeElement;
+      state.transcriptMutationFocus = active
+        && active.matches("[data-transcript-mutation]")
+        ? active
+        : null;
+      state.transcriptMutationFocusDescriptor = state.transcriptMutationFocus
+        ? describeTranscriptMutationFocus(state.transcriptMutationFocus)
+        : null;
+      state.transcriptMutationStatusDescriptor = describeTranscriptMutationFocus(
+        statusSource || active,
+      );
+    }
+    state.transcriptMutationInFlight = inFlight;
+    syncTranscriptMutationControls();
+    if (!inFlight) {
+      const previousFocus = state.transcriptMutationFocus;
+      const descriptor = state.transcriptMutationFocusDescriptor;
+      const sameMeeting = !descriptor
+        || (state.meeting && descriptor.meetingId === state.meeting.id);
+      let focusTarget = sameMeeting ? state.transcriptMutationFocusAfter || previousFocus : null;
+      if ((!focusTarget || !focusTarget.isConnected) && state.transcriptMutationFocusDescriptor) {
+        focusTarget = resolveTranscriptMutationFocus(descriptor);
+      }
+      state.transcriptMutationFocus = null;
+      state.transcriptMutationFocusAfter = null;
+      state.transcriptMutationFocusDescriptor = null;
+      state.transcriptMutationStatusDescriptor = null;
+      if (
+        focusTarget
+        && focusTarget.isConnected
+        && (
+          document.activeElement === document.body
+          || document.activeElement === previousFocus
+          || document.activeElement === focusTarget
+        )
+      ) focusTarget.focus({ preventScroll: true });
+    }
+  }
+
+  function describeTranscriptMutationFocus(element) {
+    const meetingId = state.meeting && state.meeting.id;
+    if (element.id === "speaker-add-name") {
+      return { kind: "speaker-add", control: "input", meetingId };
+    }
+    if (element.closest("[data-reapply-speaker-add-draft]")) {
+      return { kind: "speaker-add", control: "submit", meetingId };
+    }
+    const assignmentReview = element.closest("[data-reapply-assignment-draft]");
+    if (assignmentReview) {
+      return {
+        kind: "speaker-assignment",
+        meetingId,
+        generationId: assignmentReview.dataset.generationId,
+        segmentId: assignmentReview.dataset.segmentId,
+      };
+    }
+    const assignment = element.closest(".segment-speaker-select");
+    if (assignment) {
+      return {
+        kind: "speaker-assignment",
+        meetingId,
+        generationId: assignment.dataset.generationId,
+        segmentId: assignment.dataset.segmentId,
+      };
+    }
+    const textForm = element.closest("form[data-segment-text]");
+    if (textForm) {
+      return {
+        kind: "segment-text",
+        meetingId,
+        generationId: textForm.dataset.generationId,
+        segmentId: textForm.dataset.segmentId,
+        control: element.matches(".segment-text-editor") ? "editor" : "submit",
+      };
+    }
+    const speakerForm = element.closest("form[data-speaker-name]");
+    if (speakerForm) {
+      return {
+        kind: "speaker-name",
+        meetingId,
+        generationId: speakerForm.dataset.generationId,
+        speakerId: speakerForm.dataset.speakerId,
+        control: element.matches(".speaker-clear-name")
+          ? "clear"
+          : element.matches("input") ? "input" : "submit",
+      };
+    }
+    const addForm = element.closest("#speaker-add-form");
+    if (addForm) return { kind: "speaker-add", control: "submit", meetingId };
+    return null;
+  }
+
+  function resolveTranscriptMutationFocus(descriptor) {
+    if (!state.meeting || descriptor.meetingId !== state.meeting.id) return null;
+    if (descriptor.kind === "speaker-add") {
+      return descriptor.control === "input"
+        ? $("#speaker-add-name")
+        : $("#speaker-add-form button[type='submit']");
+    }
+    if (descriptor.kind === "speaker-assignment") {
+      return [...document.querySelectorAll(".segment-speaker-select")].find(
+        (element) => element.dataset.generationId === descriptor.generationId
+          && element.dataset.segmentId === descriptor.segmentId,
+      ) || null;
+    }
+    if (descriptor.kind === "segment-text") {
+      const form = [...document.querySelectorAll("form[data-segment-text]")].find(
+        (element) => element.dataset.generationId === descriptor.generationId
+          && element.dataset.segmentId === descriptor.segmentId,
+      );
+      return form && form.querySelector(
+        descriptor.control === "editor" ? ".segment-text-editor" : "button[type='submit']",
+      );
+    }
+    if (descriptor.kind === "speaker-name") {
+      const form = [...document.querySelectorAll("form[data-speaker-name]")].find(
+        (element) => element.dataset.generationId === descriptor.generationId
+          && element.dataset.speakerId === descriptor.speakerId,
+      );
+      if (!form) return null;
+      if (descriptor.control === "input") return form.querySelector("input");
+      return form.querySelector(
+        descriptor.control === "clear" ? ".speaker-clear-name" : "button[type='submit']",
+      );
+    }
+    return null;
+  }
+
+  function resolveTranscriptMutationStatus(descriptor, fallback) {
+    if (descriptor && state.meeting && descriptor.meetingId !== state.meeting.id) return null;
+    if (fallback && fallback.isConnected) return fallback;
+    if (!descriptor || !state.meeting) return null;
+    if (descriptor.kind === "segment-text") {
+      const form = [...document.querySelectorAll("form[data-segment-text]")].find(
+        (element) => element.dataset.generationId === descriptor.generationId
+          && element.dataset.segmentId === descriptor.segmentId,
+      );
+      return form && form.querySelector(".segment-edit-status");
+    }
+    if (descriptor.kind === "speaker-name") {
+      const form = [...document.querySelectorAll("form[data-speaker-name]")].find(
+        (element) => element.dataset.generationId === descriptor.generationId
+          && element.dataset.speakerId === descriptor.speakerId,
+      );
+      return form && form.querySelector(".speaker-form-status");
+    }
+    if (descriptor.kind === "speaker-add") return $("#speaker-add-status");
+    return null;
+  }
+
+  function reportTranscriptMutation(descriptor, fallback, message, isError = false) {
+    const target = resolveTranscriptMutationStatus(descriptor, fallback);
+    if (target) {
+      target.classList.toggle("is-error", isError);
+      target.textContent = message;
+    }
+    const globalStatus = $("#transcript-mutation-status");
+    const sameMeeting = !descriptor || !state.meeting || descriptor.meetingId === state.meeting.id;
+    globalStatus.textContent = sameMeeting ? message : "Thay đổi transcript đã hoàn tất.";
+    globalStatus.hidden = false;
+    return target;
+  }
+
+  function syncTranscriptMutationControls() {
+    for (const control of document.querySelectorAll(
+      "#transcript-generation [data-transcript-mutation], "
+      + "#transcription-error [data-transcript-mutation], "
+      + "#transcript-mutation-error [data-transcript-mutation], "
+      + "#transcript-draft-recovery [data-transcript-mutation]",
+    )) {
+      const currentGeneration = state.meeting && state.meeting.transcription
+        && state.meeting.transcription.generation;
+      const addFormControl = control.closest("#speaker-add-form")
+        && !control.matches("[data-reload-latest]");
+      const addRecoveryControl = control.matches("[data-reapply-speaker-add-draft]");
+      if (addFormControl || addRecoveryControl) {
+        const generationId = addRecoveryControl
+          ? control.dataset.generationId
+          : currentGeneration && currentGeneration.id;
+        const draft = generationId
+          ? transcriptDraft(generationId, "speakerAddName", "speaker-add-name")
+          : null;
+        control.disabled = !speakerAddRecoveryReady(currentGeneration, draft);
+        continue;
+      }
+      const assignmentDraft = control.matches("[data-reapply-assignment-draft]")
+        ? transcriptDraft(control.dataset.generationId, "speakerAssignment", control.dataset.segmentId)
+        : null;
+      control.disabled = state.transcriptMutationInFlight
+        || (control.matches("[data-reload-latest]") && state.transcriptReloadInFlight)
+        || Boolean(assignmentDraft && assignmentDraft.conflictCode);
+    }
+    $("#transcript-generation").setAttribute(
+      "aria-busy",
+      state.transcriptMutationInFlight ? "true" : "false",
+    );
+    const status = $("#transcript-mutation-status");
+    if (state.transcriptMutationInFlight) {
+      status.hidden = false;
+      status.textContent = "Đang lưu thay đổi transcript.";
+    } else {
+      if (status.textContent === "Đang lưu thay đổi transcript.") {
+        status.textContent = "Thay đổi transcript đã hoàn tất.";
+      }
+      status.hidden = !status.textContent;
+    }
+  }
+
+  function setTranscriptMutationError(meetingId, generationId, message, reloadLatest) {
+    state.transcriptMutationError = { meetingId, generationId, message, reloadLatest };
+    renderTranscriptMutationError();
+  }
+
+  function clearTranscriptMutationError(generationId) {
+    if (
+      !state.transcriptMutationError
+      || (generationId && state.transcriptMutationError.generationId !== generationId)
+    ) return;
+    state.transcriptMutationError = null;
+    renderTranscriptMutationError();
+  }
+
+  async function saveSegmentText(form) {
     const meeting = state.meeting;
     const generation = meeting && meeting.transcription && meeting.transcription.generation;
+    const editor = form.querySelector(".segment-text-editor");
+    const status = form.querySelector(".segment-edit-status");
+    const text = editor.value;
+    const segment = generation && generation.segments.find((item) => item.id === form.dataset.segmentId);
+    if (
+      !meeting
+      || !generation
+      || generation.id !== form.dataset.generationId
+      || !segment
+      || state.transcriptMutationInFlight
+    ) return;
+    status.classList.remove("is-error");
+    const draft = rememberTranscriptDraft(generation.id, "segmentText", segment.id, text);
+    if (segment.text === text) {
+      status.textContent = "Không có thay đổi.";
+      return;
+    }
+    if (draft && draft.conflictCode === "source_version_changed") {
+      status.classList.add("is-error");
+      status.textContent = "Transcript đã thay đổi. Xem bản mới nhất rồi chỉnh bản nháp trước khi lưu.";
+      return;
+    }
+    setTranscriptMutationInFlight(true, form);
+    try {
+      const result = await requestJson(
+        `/api/meetings/${encodeURIComponent(meeting.id)}/transcript-segments/${encodeURIComponent(segment.id)}/text`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            expected_generation_id: generation.id,
+            expected_source_version: generation.source_version,
+            text,
+          }),
+        },
+      );
+      const applied = applyTranscriptMutationResult(
+        meeting.id,
+        meeting,
+        generation.id,
+        "segmentText",
+        segment.id,
+        text,
+        result.text,
+        result.source_version,
+      );
+      const feedbackStatus = resolveTranscriptMutationStatus(
+        state.transcriptMutationStatusDescriptor,
+        status,
+      );
+      if (applied.meeting && applied.meeting.id === meeting.id && applied.generation) {
+        if (feedbackStatus) clearReloadLatestAction(feedbackStatus.parentElement);
+        updateTranscriptRenderKey(applied.generation);
+      }
+      reportTranscriptMutation(
+        state.transcriptMutationStatusDescriptor,
+        status,
+        "Đã lưu.",
+      );
+    } catch (error) {
+      const feedbackStatus = reportTranscriptMutation(
+        state.transcriptMutationStatusDescriptor,
+        status,
+        transcriptMutationMessage(error, "Không thể lưu đoạn transcript."),
+        true,
+      );
+      const code = transcriptConflictCode(error);
+      if (code) {
+        markTranscriptDraftConflict(
+          generation.id,
+          "segmentText",
+          segment.id,
+          code,
+          feedbackStatus,
+        );
+      }
+    } finally {
+      setTranscriptMutationInFlight(false);
+    }
+  }
+
+  function updateSpeakerLabelsInTranscript(generation, speaker) {
+    for (const option of $("#transcript-segments").querySelectorAll(".segment-speaker-select option")) {
+      if (option.value === speaker.speaker_id) option.textContent = speaker.display_name;
+    }
+    for (const label of $("#transcript-segments").querySelectorAll(".segment-original-speaker")) {
+      if (label.dataset.originalSpeakerId === speaker.speaker_id) {
+        label.textContent = `Gán ban đầu: ${speaker.display_name}`;
+      }
+    }
+    const item = [...$("#speaker-catalog-list").children].find(
+      (child) => child.querySelector(".speaker-name-form")?.dataset.speakerId === speaker.speaker_id,
+    );
+    if (item) {
+      const input = item.querySelector("input");
+      if (input) input.value = speaker.display_name;
+    }
+    updateAssignmentDraftReviewLabels(generation);
+    updateTranscriptRenderKey(generation);
+  }
+
+  async function saveSpeakerName(form, displayName = null, { reviewed = false } = {}) {
+    const meeting = state.meeting;
+    const generation = meeting && meeting.transcription && meeting.transcription.generation;
+    const speakerId = form.dataset.speakerId;
+    const input = form.querySelector("input");
+    const status = form.querySelector(".speaker-form-status");
+    const requestedName = displayName === null ? input.value : displayName;
+    const speaker = generation && generation.speakers.find((item) => item.speaker_id === speakerId);
+    if (
+      !meeting
+      || !generation
+      || generation.id !== form.dataset.generationId
+      || !speaker
+      || state.transcriptMutationInFlight
+    ) return;
+    status.classList.remove("is-error");
+    const draft = rememberTranscriptDraft(
+      generation.id,
+      "speakerName",
+      speakerId,
+      requestedName,
+      { reviewed },
+    );
+    if (draft && draft.conflictCode === "source_version_changed") {
+      status.classList.add("is-error");
+      status.textContent = "Tên người nói đã thay đổi. Xem tên mới nhất rồi chỉnh bản nháp trước khi lưu.";
+      return;
+    }
+    setTranscriptMutationInFlight(true, form);
+    try {
+      const result = await requestJson(
+        `/api/meetings/${encodeURIComponent(meeting.id)}/transcript-generations/${encodeURIComponent(generation.id)}/speakers/${encodeURIComponent(speakerId)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            expected_source_version: generation.source_version,
+            display_name: requestedName,
+          }),
+        },
+      );
+      const applied = applyTranscriptMutationResult(
+        meeting.id,
+        meeting,
+        generation.id,
+        "speakerName",
+        speakerId,
+        requestedName,
+        result.display_name,
+        result.source_version,
+      );
+      const feedbackStatus = resolveTranscriptMutationStatus(
+        state.transcriptMutationStatusDescriptor,
+        status,
+      );
+      if (applied.meeting && applied.meeting.id === meeting.id && applied.generation) {
+        if (feedbackStatus) clearReloadLatestAction(feedbackStatus.parentElement);
+        const currentSpeaker = applied.generation.speakers.find(
+          (item) => item.speaker_id === speakerId,
+        );
+        if (currentSpeaker && state.selectedGenerationId === applied.generation.id) {
+          updateSpeakerLabelsInTranscript(applied.generation, currentSpeaker);
+        }
+      }
+      reportTranscriptMutation(
+        state.transcriptMutationStatusDescriptor,
+        status,
+        "Đã lưu tên người nói.",
+      );
+    } catch (error) {
+      const feedbackStatus = reportTranscriptMutation(
+        state.transcriptMutationStatusDescriptor,
+        status,
+        transcriptMutationMessage(error, "Không thể lưu tên người nói."),
+        true,
+      );
+      const code = transcriptConflictCode(error);
+      if (code) {
+        markTranscriptDraftConflict(
+          generation.id,
+          "speakerName",
+          speakerId,
+          code,
+          feedbackStatus,
+        );
+      }
+    } finally {
+      setTranscriptMutationInFlight(false);
+    }
+  }
+
+  async function addSpeaker(form) {
+    const meeting = state.meeting;
+    const generation = meeting && meeting.transcription && meeting.transcription.generation;
+    const input = form.querySelector("#speaker-add-name");
+    const status = $("#speaker-add-status");
+    const existingDraft = generation
+      && transcriptDraft(generation.id, "speakerAddName", "speaker-add-name");
+    if (!meeting || !speakerAddRecoveryReady(generation, existingDraft)) return;
+    const requestedName = input.value;
+    rememberSpeakerAddDraft(generation.id, requestedName);
+    status.classList.remove("is-error");
+    setTranscriptMutationInFlight(true, form);
+    try {
+      const result = await requestJson(
+        `/api/meetings/${encodeURIComponent(meeting.id)}/transcript-generations/${encodeURIComponent(generation.id)}/speakers`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            expected_source_version: generation.source_version,
+            display_name: requestedName,
+          }),
+        },
+      );
+      const speaker = {
+        speaker_id: result.speaker_id,
+        display_name: result.display_name,
+        first_seen_seconds: result.first_seen_seconds,
+        last_seen_seconds: result.last_seen_seconds,
+      };
+      const responseGenerationId = result.generation_id || generation.id;
+      const currentMeeting = state.meeting;
+      const currentTranscription = currentMeeting && currentMeeting.id === meeting.id
+        ? currentMeeting.transcription
+        : null;
+      const targetGeneration = generationsFor(currentTranscription).find(
+        (item) => item.id === responseGenerationId,
+      );
+      const currentVersion = Number(targetGeneration && targetGeneration.source_version) || 0;
+      const resultVersion = Number(result.source_version) || 0;
+      let reconciled = false;
+      if (targetGeneration && resultVersion > currentVersion) {
+        const existing = targetGeneration.speakers.find(
+          (item) => item.speaker_id === speaker.speaker_id,
+        );
+        if (existing) Object.assign(existing, speaker);
+        else targetGeneration.speakers.push(speaker);
+        targetGeneration.source_version = resultVersion;
+        reconciled = true;
+      }
+      if (
+        reconciled
+        && state.view === "meeting"
+        && state.selectedGenerationId === targetGeneration.id
+      ) {
+        const currentGeneration = currentTranscription.generation;
+        const editable = Boolean(
+          currentGeneration
+          && currentGeneration.id === targetGeneration.id
+          && targetGeneration.status === "complete",
+        );
+        renderTranscriptGeneration(targetGeneration, editable);
+        if (editable) {
+          const nameForm = [...$("#speaker-catalog-list").querySelectorAll(".speaker-name-form")]
+            .find((item) => item.dataset.speakerId === speaker.speaker_id);
+          const nameInput = nameForm && nameForm.querySelector("input");
+          if (nameInput) state.transcriptMutationFocusAfter = nameInput;
+        }
+      }
+      clearSpeakerAddDraft(generation.id);
+      if (input.value === requestedName) input.value = "";
+      renderTranscriptDraftRecovery(
+        state.meeting && state.meeting.transcription,
+        state.selectedGenerationId,
+      );
+      reportTranscriptMutation(
+        state.transcriptMutationStatusDescriptor,
+        status,
+        "Đã thêm người nói.",
+      );
+    } catch (error) {
+      const feedbackStatus = reportTranscriptMutation(
+        state.transcriptMutationStatusDescriptor,
+        status,
+        transcriptMutationMessage(error, "Không thể thêm người nói."),
+        true,
+      );
+      const code = transcriptConflictCode(error);
+      const draft = transcriptDraft(generation.id, "speakerAddName", "speaker-add-name");
+      if (draft && code) draft.conflictCode = code;
+      if (code && feedbackStatus) appendReloadLatestButton(feedbackStatus.parentElement, generation.id);
+      renderTranscriptDraftRecovery(
+        state.meeting && state.meeting.transcription,
+        state.selectedGenerationId,
+      );
+    } finally {
+      setTranscriptMutationInFlight(false);
+    }
+  }
+
+  async function reapplySpeakerAddDraft(button) {
+    const meeting = state.meeting;
+    const originGenerationId = button.dataset.generationId;
+    const draft = transcriptDraft(originGenerationId, "speakerAddName", "speaker-add-name");
+    const generation = meeting && meeting.transcription && meeting.transcription.generation;
+    const status = $("#speaker-add-status");
+    if (!meeting || !speakerAddRecoveryReady(generation, draft)) return;
+    const requestedName = draft.value;
+    draft.baseSourceVersion = Number(generation.source_version) || 0;
+    draft.conflictCode = null;
+    status.classList.remove("is-error");
+    setTranscriptMutationInFlight(true, button);
+    try {
+      const result = await requestJson(
+        `/api/meetings/${encodeURIComponent(meeting.id)}/transcript-generations/${encodeURIComponent(generation.id)}/speakers`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            expected_source_version: generation.source_version,
+            display_name: requestedName,
+          }),
+        },
+      );
+      const speaker = {
+        speaker_id: result.speaker_id,
+        display_name: result.display_name,
+        first_seen_seconds: result.first_seen_seconds,
+        last_seen_seconds: result.last_seen_seconds,
+      };
+      const currentMeeting = state.meeting;
+      const currentGeneration = currentMeeting && currentMeeting.id === meeting.id
+        && currentMeeting.transcription && currentMeeting.transcription.generation;
+      if (currentGeneration && currentGeneration.id === generation.id) {
+        const currentVersion = Number(currentGeneration.source_version) || 0;
+        const resultVersion = Number(result.source_version) || 0;
+        if (resultVersion > currentVersion) {
+          const existing = currentGeneration.speakers.find(
+            (item) => item.speaker_id === speaker.speaker_id,
+          );
+          if (existing) Object.assign(existing, speaker);
+          else currentGeneration.speakers.push(speaker);
+          currentGeneration.source_version = resultVersion;
+          if (state.view === "meeting" && state.selectedGenerationId === currentGeneration.id) {
+            renderTranscriptGeneration(currentGeneration, true);
+            const nameForm = [...$("#speaker-catalog-list").querySelectorAll(".speaker-name-form")]
+              .find((item) => item.dataset.speakerId === speaker.speaker_id);
+            const nameInput = nameForm && nameForm.querySelector("input");
+            if (nameInput) state.transcriptMutationFocusAfter = nameInput;
+          }
+        }
+      }
+      clearSpeakerAddDraft(originGenerationId);
+      const addNameInput = $("#speaker-add-name");
+      if (addNameInput.value === requestedName) addNameInput.value = "";
+      renderTranscriptDraftRecovery(
+        state.meeting && state.meeting.transcription,
+        state.selectedGenerationId,
+      );
+      reportTranscriptMutation(
+        state.transcriptMutationStatusDescriptor,
+        status,
+        "Đã thêm người nói.",
+      );
+    } catch (error) {
+      const feedbackStatus = reportTranscriptMutation(
+        state.transcriptMutationStatusDescriptor,
+        status,
+        transcriptMutationMessage(error, "Không thể thêm người nói."),
+        true,
+      );
+      const code = transcriptConflictCode(error);
+      if (draft && code) draft.conflictCode = code;
+      if (code && feedbackStatus) appendReloadLatestButton(feedbackStatus.parentElement, generation.id);
+      renderTranscriptDraftRecovery(
+        state.meeting && state.meeting.transcription,
+        state.selectedGenerationId,
+      );
+    } finally {
+      setTranscriptMutationInFlight(false);
+    }
+  }
+
+  async function saveSpeakerAssignment(select, { reviewed = false } = {}) {
+    const meeting = state.meeting;
+    const generation = meeting && meeting.transcription && meeting.transcription.generation;
+    const segmentId = select.dataset.segmentId;
+    const segment = generation && generation.segments.find((item) => item.id === segmentId);
     if (
       !meeting
       || !generation
       || generation.id !== select.dataset.generationId
-      || state.speakerSaveInFlight
+      || !segment
+      || state.transcriptMutationInFlight
     ) return;
-    const previousSpeaker = select.dataset.currentSpeaker || "";
     const requestedSpeaker = select.value;
-    const controls = [...$("#transcript-segments").querySelectorAll(".segment-speaker-select")];
-    state.speakerSaveInFlight = true;
-    for (const control of controls) control.disabled = true;
+    const draft = rememberTranscriptDraft(
+      generation.id,
+      "speakerAssignment",
+      segmentId,
+      requestedSpeaker,
+      { reviewed },
+    );
+    if (draft && draft.conflictCode && !reviewed) {
+      const review = select.closest(".transcript-segment")
+        .querySelector(".transcript-assignment-draft-review");
+      if (review) {
+        const status = review.querySelector(".transcript-assignment-draft-status");
+        if (status) status.textContent = "Tải bản mới nhất để xem lựa chọn rồi áp dụng lại.";
+      }
+      return;
+    }
+    if ((segment.speaker_id || "") === requestedSpeaker) {
+      renderTranscriptDraftRecovery(meeting.transcription, state.selectedGenerationId);
+      return;
+    }
+    setTranscriptMutationInFlight(true, select);
     try {
       const result = await requestJson(
-        `/api/meetings/${encodeURIComponent(meeting.id)}/transcript-segments/${encodeURIComponent(select.dataset.segmentId)}/speaker`,
+        `/api/meetings/${encodeURIComponent(meeting.id)}/transcript-segments/${encodeURIComponent(segmentId)}/speaker`,
         {
           method: "PATCH",
           body: JSON.stringify({
@@ -745,30 +2334,103 @@
           }),
         },
       );
-      if (state.meeting !== meeting || generation.id !== select.dataset.generationId) return;
-      const segment = generation.segments.find((item) => item.id === result.id);
-      if (segment) {
-        segment.speaker_id = result.speaker_id;
-        segment.assignment_version = result.assignment_version;
+      const generationId = select.dataset.generationId;
+      const applied = applyTranscriptMutationResult(
+        meeting.id,
+        meeting,
+        generationId,
+        "speakerAssignment",
+        segmentId,
+        requestedSpeaker,
+        {
+          speaker_id: result.speaker_id,
+          assignment_version: result.assignment_version,
+        },
+        result.source_version,
+      );
+      const segment = applied.generation
+        && applied.generation.segments.find((item) => item.id === segmentId);
+      if (!segment || !applied.meeting || applied.meeting.id !== meeting.id) return;
+      const currentSelect = [...document.querySelectorAll(".segment-speaker-select")].find(
+        (item) => item.dataset.generationId === generationId && item.dataset.segmentId === segmentId,
+      );
+      if (currentSelect) {
+        currentSelect.value = segment.speaker_id || "";
+        currentSelect.dataset.currentSpeaker = segment.speaker_id || "";
+        currentSelect.dataset.assignmentVersion = String(segment.assignment_version || 1);
+        const review = currentSelect.closest(".transcript-segment")
+          .querySelector(".transcript-assignment-draft-review");
+        if (review) review.remove();
       }
-      generation.source_version = result.source_version;
-      $("#transcript-generation").dataset.renderKey = `${generation.id}:${generation.source_version}`;
-      select.dataset.currentSpeaker = result.speaker_id || "";
-      select.dataset.assignmentVersion = String(result.assignment_version);
-      $("#transcription-error").hidden = true;
+      if (state.view === "meeting" && state.selectedGenerationId === generationId) {
+        updateTranscriptRenderKey(applied.generation);
+        clearTranscriptMutationError(generationId);
+      }
+      reportTranscriptMutation(
+        state.transcriptMutationStatusDescriptor,
+        null,
+        "Đã lưu lựa chọn người nói.",
+      );
     } catch (error) {
-      select.value = previousSpeaker;
-      const message = error && error.message ? error.message : "Không thể lưu người nói.";
-      $("#transcription-error-message").textContent = message;
-      $("#task-diagnostic-details").hidden = true;
-      $("#task-diagnostic-command-wrap").hidden = true;
-      $("#task-diagnostic-copy-status").textContent = "";
-      $("#transcription-error").hidden = false;
-    } finally {
-      state.speakerSaveInFlight = false;
-      for (const control of controls) {
-        if (control.isConnected) control.disabled = false;
+      const message = transcriptMutationMessage(error, "Không thể lưu người nói.");
+      const code = error && error.payload && error.payload.detail && error.payload.detail.code;
+      const isConflict = Boolean(
+        transcriptConflictCode(error)
+        || code === "assignment_version_changed",
+      );
+      const currentGeneration = state.meeting && state.meeting.id === meeting.id
+        && state.meeting.transcription && state.meeting.transcription.generation;
+      const currentSegment = currentGeneration
+        && currentGeneration.id === generation.id
+        && currentGeneration.segments.find((item) => item.id === segmentId);
+      const latestSelect = [...document.querySelectorAll(".segment-speaker-select")].find(
+        (item) => item.dataset.generationId === generation.id
+          && item.dataset.segmentId === segmentId,
+      );
+      if (isConflict) {
+        const assignmentDraft = transcriptDraft(generation.id, "speakerAssignment", segmentId);
+        if (assignmentDraft) assignmentDraft.conflictCode = code;
+        if (latestSelect) latestSelect.value = requestedSpeaker;
+      } else {
+        const bucket = transcriptDraftBucket(generation.id);
+        if (bucket) {
+          bucket.speakerAssignment.delete(segmentId);
+          if (transcriptDraftBucketIsEmpty(bucket)) state.transcriptDrafts.delete(generation.id);
+        }
+        if (latestSelect) {
+          latestSelect.value = currentSegment && currentSegment.speaker_id || "";
+          const review = latestSelect.closest(".transcript-segment")
+            .querySelector(".transcript-assignment-draft-review");
+          if (review) review.remove();
+        }
       }
+      setTranscriptMutationError(
+        meeting.id,
+        generation.id,
+        message,
+        isConflict,
+      );
+      reportTranscriptMutation(
+        state.transcriptMutationStatusDescriptor,
+        null,
+        message,
+        true,
+      );
+      if (
+        isConflict
+        && currentGeneration
+        && currentGeneration.id === generation.id
+        && state.selectedGenerationId === generation.id
+      ) {
+        delete $("#transcript-generation").dataset.renderKey;
+        renderTranscriptGeneration(currentGeneration, true);
+      }
+      renderTranscriptDraftRecovery(
+        state.meeting && state.meeting.transcription,
+        state.selectedGenerationId,
+      );
+    } finally {
+      setTranscriptMutationInFlight(false);
     }
   }
 
@@ -836,7 +2498,10 @@
     status.dataset.workerState = task && task.worker_state ? task.worker_state : "";
     status.classList.toggle("is-checking-worker", workerChecking);
     renderMeetingProcessingStatus(task, generation);
-    renderTranscriptGeneration(generation);
+    const selected = renderGenerationNavigation(transcription);
+    renderTranscriptGeneration(selected && selected.generation, Boolean(selected && selected.editable));
+    renderTranscriptDraftRecovery(transcription, selected && selected.generation.id);
+    renderTranscriptMutationError();
   }
 
   function newTaskRequestId() {
@@ -909,7 +2574,7 @@
     const meeting = payload && payload.meeting && typeof payload.meeting === "object" ? payload.meeting : payload;
     if (!state.meeting || state.meeting.id !== meetingId || !meeting || !meeting.transcription) return;
     rotateTerminalTaskRequestId(meetingId, meeting.transcription.task);
-    state.meeting = meeting;
+    installServerMeeting(meeting);
     renderTranscription(meeting.transcription);
     renderSidebar();
   }
@@ -1005,7 +2670,13 @@
   async function loadMeeting(meetingId) {
     const sequence = ++state.loadSeq;
     const sameMeeting = state.meeting && state.meeting.id === meetingId;
-    if (!sameMeeting) stopTaskPolling();
+    if (!sameMeeting) {
+      stopTaskPolling();
+      state.selectedGenerationId = null;
+      state.currentGenerationId = null;
+      state.transcriptMutationError = null;
+      clearSpeakerAddName();
+    }
     if (!sameMeeting) closeEditor(); // drops the draft, which orphans any save still in flight
     $("#workspace-link").removeAttribute("aria-current");
     if (sameMeeting) {
@@ -1027,7 +2698,7 @@
       const known = state.meeting;
       if (known && known.id === meeting.id && known.metadata_version > meeting.metadata_version) meeting = known;
       rotateTerminalTaskRequestId(meetingId, meeting.transcription && meeting.transcription.task);
-      state.meeting = meeting;
+      installServerMeeting(meeting);
       renderMeeting(meeting);
       const audio = $("#meeting-audio");
       if (audio.dataset.meetingId !== meeting.id) {
@@ -1131,7 +2802,7 @@
         body: JSON.stringify({ expected_metadata_version: draft.version, ...fields }),
       });
       if (sameSession()) {
-        state.meeting = updated;
+        installServerMeeting(updated);
         closeEditor();
         $("#edit-status").textContent = "Đã lưu tên và ngày họp.";
         if (state.view === "meeting") {
@@ -1172,7 +2843,7 @@
         draft.original.meeting_date = current.meeting_date;
       }
       draft.version = current.metadata_version;
-      state.meeting = current;
+      installServerMeeting(current);
       if (state.view === "meeting") renderMeeting(current);
       const date = current.meeting_date ? displayDate(current.meeting_date) : "Chưa đặt ngày";
       const kept = [titleEdited && "tên", dateEdited && "ngày họp"].filter(Boolean).join(" và ");
@@ -1218,6 +2889,104 @@
   $("#start-transcription").addEventListener("click", () => void startTranscription());
   $("#cancel-transcription").addEventListener("click", () => void cancelTranscription());
   $("#task-diagnostic-copy").addEventListener("click", () => void copyDiagnosticCommand());
+  $("#generation-selector").addEventListener("change", (event) => {
+    const transcription = state.meeting && state.meeting.transcription;
+    const current = transcription && transcription.generation;
+    const previousSelectedGenerationId = state.selectedGenerationId;
+    state.selectedGenerationId = event.currentTarget.value;
+    if (previousSelectedGenerationId !== state.selectedGenerationId) clearSpeakerAddName();
+    const generation = generationsFor(transcription).find(
+      (item) => item.id === state.selectedGenerationId,
+    );
+    const editable = Boolean(
+      generation && current && generation.id === current.id && generation.status === "complete",
+    );
+    renderTranscriptGeneration(generation, editable);
+    renderTranscriptDraftRecovery(transcription, generation && generation.id);
+    renderTranscriptMutationError();
+  });
+  $("#transcript-generation").addEventListener("submit", (event) => {
+    const form = event.target;
+    if (form.matches("form[data-segment-text]")) {
+      event.preventDefault();
+      void saveSegmentText(form);
+    } else if (form.matches("#speaker-add-form")) {
+      event.preventDefault();
+      void addSpeaker(form);
+    } else if (form.matches("form[data-speaker-name]")) {
+      event.preventDefault();
+      void saveSpeakerName(form);
+    }
+  });
+  $("#transcript-generation").addEventListener("click", (event) => {
+    const reapplyAssignment = event.target.closest("button[data-reapply-assignment-draft]");
+    if (reapplyAssignment) {
+      const select = [...document.querySelectorAll(".segment-speaker-select")].find(
+        (item) => item.dataset.generationId === reapplyAssignment.dataset.generationId
+          && item.dataset.segmentId === reapplyAssignment.dataset.segmentId,
+      );
+      if (select) void saveSpeakerAssignment(select, { reviewed: true });
+      return;
+    }
+    const reload = event.target.closest("button[data-reload-latest]");
+    if (reload) {
+      void reloadLatestTranscript(reload);
+      return;
+    }
+    const copyDraft = event.target.closest("button[data-copy-transcript-draft]");
+    if (copyDraft) {
+      void copyTranscriptDraft(copyDraft);
+      return;
+    }
+    const clear = event.target.closest("button[data-clear-speaker-name]");
+    if (!clear) return;
+    const form = clear.closest("li").querySelector("form[data-speaker-name]");
+    if (form) void saveSpeakerName(form, "", { reviewed: true });
+  });
+  $("#transcript-draft-recovery").addEventListener("click", (event) => {
+    const reapplySpeakerAdd = event.target.closest("[data-reapply-speaker-add-draft]");
+    if (reapplySpeakerAdd) {
+      void reapplySpeakerAddDraft(reapplySpeakerAdd);
+      return;
+    }
+    const openDraft = event.target.closest("[data-open-transcript-draft]");
+    if (!openDraft) return;
+    const selector = $("#generation-selector");
+    const generationId = openDraft.dataset.generationId;
+    if (!selector || selector.value === generationId) return;
+    selector.value = generationId;
+    selector.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  function onReloadLatestClick(event) {
+    const reload = event.target.closest("button[data-reload-latest]");
+    if (reload) void reloadLatestTranscript(reload);
+  }
+  $("#transcription-error").addEventListener("click", onReloadLatestClick);
+  $("#transcript-mutation-error").addEventListener("click", onReloadLatestClick);
+  $("#transcript-generation").addEventListener("input", (event) => {
+    const editor = event.target.closest(".segment-text-editor");
+    if (editor) {
+      rememberTranscriptDraft(
+        editor.closest("form").dataset.generationId,
+        "segmentText",
+        editor.closest("form").dataset.segmentId,
+        editor.value,
+        { reviewed: true },
+      );
+      return;
+    }
+    const speakerInput = event.target.closest(".speaker-name-form input");
+    if (speakerInput) {
+      const form = speakerInput.closest("form");
+      rememberTranscriptDraft(
+        form.dataset.generationId,
+        "speakerName",
+        form.dataset.speakerId,
+        speakerInput.value,
+        { reviewed: true },
+      );
+    }
+  });
   $("#transcript-segments").addEventListener("click", (event) => {
     const timestamp = event.target.closest("button[data-seek-seconds]");
     if (!timestamp) return;

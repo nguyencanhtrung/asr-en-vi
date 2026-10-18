@@ -1858,6 +1858,195 @@ input:focus-visible {
   text-align: right;
 }
 
+.generation-navigation {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 12px;
+  color: #a8b8b8;
+  font-size: 10px;
+}
+
+.generation-navigation select,
+.speaker-name-form input,
+.speaker-add-controls input {
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid #34494f;
+  border-radius: 5px;
+  background: #111d22;
+  color: #dce8e9;
+  font: inherit;
+  font-size: 11px;
+}
+
+.generation-navigation select:focus-visible,
+.speaker-name-form input:focus-visible,
+.speaker-add-controls input:focus-visible,
+.segment-text-editor:focus-visible {
+  outline: 2px solid #8ed7c5;
+  outline-offset: 2px;
+}
+
+.generation-mode {
+  margin: 9px 0 0;
+  color: #8ed7c5;
+  font-size: 10px;
+}
+
+.generation-mode.is-readonly {
+  color: #e1c184;
+}
+
+.speaker-catalog {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #2c3e45;
+  border-radius: 8px;
+  background: rgb(16 25 30 / 32%);
+}
+
+.speaker-catalog h5 {
+  margin: 0 0 9px;
+  color: #dce8e9;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.speaker-catalog-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.speaker-name-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: end;
+  gap: 7px;
+}
+
+.speaker-name-form label,
+.speaker-add-form > label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: #81969a;
+  font-size: 9px;
+}
+
+.speaker-name-form input,
+.speaker-add-controls input {
+  width: 100%;
+}
+
+.speaker-add-form {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid #2c3e45;
+}
+
+.speaker-add-controls {
+  display: flex;
+  gap: 7px;
+  margin-top: 5px;
+}
+
+.speaker-add-controls input {
+  flex: 1;
+}
+
+.speaker-form-status,
+.segment-edit-status {
+  min-height: 1em;
+  margin: 5px 0 0;
+  color: #a4b2a5;
+  font-size: 9px;
+}
+
+.speaker-form-status.is-error,
+.segment-edit-status.is-error {
+  color: #f0a7a0;
+}
+
+.transcript-reload-latest {
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 9px;
+}
+
+.transcript-reload-status,
+.transcript-draft-copy-status {
+  color: #a4b2a5;
+  font-size: 9px;
+}
+
+.transcript-draft-review {
+  grid-column: 2;
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  min-width: 0;
+  padding: 7px 9px;
+  border-left: 2px solid #e1c184;
+  background: rgb(80 62 30 / 22%);
+}
+
+.transcript-draft-recovery {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #6b5a38;
+  border-radius: 7px;
+  background: rgb(80 62 30 / 16%);
+}
+
+.transcript-draft-generation {
+  display: grid;
+  gap: 5px;
+}
+
+.transcript-draft-generation h5 {
+  margin: 0;
+  color: #e1c184;
+  font-size: 10px;
+}
+
+.transcript-draft-context {
+  margin: 3px 0 0;
+  color: #a4b2a5;
+  font-size: 9px;
+}
+
+.transcript-draft-recovery .transcript-draft-review {
+  grid-column: auto;
+}
+
+.speaker-name-form .transcript-draft-review {
+  grid-column: 1 / -1;
+}
+
+.transcript-draft-review p {
+  margin: 0;
+  color: #e1c184;
+  font-size: 9px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.transcript-draft-review .transcript-draft-value {
+  color: #dce8e9;
+}
+
+.transcript-copy-draft {
+  justify-self: start;
+}
+
 .transcript-segments {
   display: grid;
   gap: 8px;
@@ -1950,6 +2139,40 @@ input:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.segment-edit-form {
+  grid-column: 2;
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+
+.segment-text-editor {
+  width: 100%;
+  min-height: 76px;
+  padding: 8px 9px;
+  border: 1px solid #34494f;
+  border-radius: 6px;
+  background: #111d22;
+  color: #dce8e9;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.65;
+  resize: vertical;
+  overflow-wrap: anywhere;
+}
+
+.segment-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.segment-readonly-label {
+  grid-column: 2;
+  color: #81969a;
+  font-size: 9px;
+}
+
 .segment-review-cue {
   grid-column: 2;
   justify-self: start;
@@ -1998,6 +2221,19 @@ input:focus-visible {
 
   .generation-heading p {
     text-align: left;
+  }
+
+  .generation-navigation {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .speaker-name-form {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .speaker-name-form .speaker-clear-name {
+    grid-column: 2;
   }
 
   .transcript-segment {
