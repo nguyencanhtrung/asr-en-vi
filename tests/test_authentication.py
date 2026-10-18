@@ -5,6 +5,7 @@ import json
 import pytest
 
 from asr_en_vi.auth import AuthStore
+from asr_en_vi.routes import FONT_FILES, WEB_DIR
 
 pytestmark = pytest.mark.anyio
 
@@ -20,6 +21,34 @@ async def test_access_page_is_minimal_and_security_headers_are_set(client):
     assert response.headers["Referrer-Policy"] == "no-referrer"
     assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
     assert "media-src 'self'" in response.headers["Content-Security-Policy"]
+
+
+async def test_shared_design_assets_and_fonts_are_public_and_local(client):
+    design_css = await client.get("/assets/design-system.css")
+    theme_js = await client.get("/assets/theme.js")
+
+    assert design_css.status_code == 200
+    assert design_css.headers["content-type"].startswith("text/css")
+    assert "Newsreader Variable" in design_css.text
+    assert "Inter Variable" in design_css.text
+    assert "JetBrains Mono" in design_css.text
+    assert "https://" not in design_css.text
+    assert "http://" not in design_css.text
+    assert theme_js.status_code == 200
+    assert "asr-en-vi:theme" in theme_js.text
+
+    for filename in FONT_FILES:
+        response = await client.get(f"/assets/fonts/{filename}")
+        expected_type = "font/woff2" if filename.endswith(".woff2") else "font/woff"
+        assert response.status_code == 200, filename
+        assert response.headers["content-type"].startswith(expected_type), filename
+        assert response.content, filename
+
+    unknown = await client.get("/assets/fonts/not-bundled.woff2")
+    assert unknown.status_code == 404
+    license_files = sorted((WEB_DIR / "fonts").glob("LICENSE-*.txt"))
+    assert len(license_files) == 3
+    assert all("SIL OPEN FONT LICENSE" in path.read_text() for path in license_files)
 
 
 async def test_fragment_token_exchange_sets_generation_bound_cookie(client, settings):

@@ -185,6 +185,8 @@ Trong production image, Docker build context chỉ chứa `pyproject.toml`, `REA
 
 ## Tài liệu dự án
 
+- [Bối cảnh sản phẩm](PRODUCT.md)
+- [Hệ thống thiết kế editorial-engineering](DESIGN.md)
 - [Đặc tả v1](docs/specification-v1.md)
 - [Thiết kế frontend v1 đã chốt](docs/frontend-design-v1.md)
 - [Thiết kế backend v1 đã thống nhất Q1–Q27](docs/backend-design-v1.md)

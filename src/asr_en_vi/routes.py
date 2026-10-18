@@ -47,6 +47,19 @@ from asr_en_vi.worker import is_healthy as worker_is_healthy
 
 SESSION_COOKIE = "asr_en_vi_session"
 WEB_DIR = Path(__file__).parent / "web"
+FONT_FILES = frozenset(
+    {
+        "inter-vietnamese.woff2",
+        "inter-latin-ext.woff2",
+        "inter-latin.woff2",
+        "newsreader-vietnamese.woff2",
+        "newsreader-latin-ext.woff2",
+        "newsreader-latin.woff2",
+        "jetbrains-mono-vietnamese.woff",
+        "jetbrains-mono-latin-ext.woff2",
+        "jetbrains-mono-latin.woff2",
+    }
+)
 _AUDIO_CHUNK_SIZE = 1024 * 1024
 _UPLOAD_IDLE_TIMEOUT_SECONDS = 60
 _MEDIA_VALIDATION_CONCURRENCY = 2
@@ -150,6 +163,21 @@ def install_routes(app: FastAPI, settings: Settings) -> None:
     @app.get("/assets/access.js", include_in_schema=False)
     async def access_js() -> FileResponse:
         return _asset_response("access.js", "text/javascript")
+
+    @app.get("/assets/design-system.css", include_in_schema=False)
+    async def design_system_css() -> FileResponse:
+        return _asset_response("design-system.css", "text/css")
+
+    @app.get("/assets/theme.js", include_in_schema=False)
+    async def theme_js() -> FileResponse:
+        return _asset_response("theme.js", "text/javascript")
+
+    @app.get("/assets/fonts/{filename}", include_in_schema=False)
+    async def font_asset(filename: str) -> FileResponse:
+        if filename not in FONT_FILES:
+            raise HTTPException(status_code=404, detail="Font asset not found")
+        media_type = "font/woff2" if filename.endswith(".woff2") else "font/woff"
+        return _asset_response(f"fonts/{filename}", media_type)
 
     @app.get("/", include_in_schema=False)
     async def workspace() -> FileResponse:

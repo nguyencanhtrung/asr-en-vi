@@ -651,7 +651,6 @@ for (const button of document.querySelectorAll("[data-open-meeting-dialog]")) {
   button.addEventListener("click", () => void openDialog());
 }
 
-document.querySelector("#workspace-link").setAttribute("aria-current", "page");
 closeDialogButton.addEventListener("click", () => void closeDialog());
 document.querySelector("#change-file").addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", () => {

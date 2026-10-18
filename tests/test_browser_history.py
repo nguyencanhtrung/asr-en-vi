@@ -103,8 +103,20 @@ def signed_in(live):
         launch = {"executable_path": chrome_path} if chrome_path else {}
         browser = playwright.chromium.launch(headless=True, **launch)
 
-        def make(timezone=TIMEZONE, now=FIXED_NOW):
-            context = browser.new_context(timezone_id=timezone)
+        def make(
+            timezone=TIMEZONE,
+            now=FIXED_NOW,
+            *,
+            color_scheme="light",
+            viewport=None,
+            reduced_motion="no-preference",
+        ):
+            context = browser.new_context(
+                timezone_id=timezone,
+                color_scheme=color_scheme,
+                viewport=viewport,
+                reduced_motion=reduced_motion,
+            )
             first = context.new_page()
             first.clock.set_fixed_time(now)
             first.goto(live.access_link, wait_until="domcontentloaded")
@@ -206,6 +218,201 @@ def _publish_browser_generation(live, meeting_id):
     return generation
 
 
+def _design_metrics(page):
+    return page.evaluate(
+        """() => ({
+          theme: document.documentElement.dataset.theme,
+          preference: document.documentElement.dataset.themePreference,
+          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          bodyFont: getComputedStyle(document.body).fontFamily,
+          headingFont: getComputedStyle(document.querySelector("h1, h2")).fontFamily,
+          monoFont: getComputedStyle(document.querySelector(".brand-wordmark")).fontFamily,
+          storedTheme: localStorage.getItem("asr-en-vi:theme"),
+        })"""
+    )
+
+
+def _semantic_contrast_ratios(page):
+    return page.evaluate(
+        """() => {
+          const styles = getComputedStyle(document.documentElement);
+          const channels = value => {
+            const hex = styles.getPropertyValue(value).trim().slice(1);
+            return [0, 2, 4].map(offset => parseInt(hex.slice(offset, offset + 2), 16) / 255);
+          };
+          const luminance = value => {
+            const linear = channels(value).map(channel => channel <= 0.04045
+              ? channel / 12.92
+              : ((channel + 0.055) / 1.055) ** 2.4);
+            return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+          };
+          const ratio = (foreground, background) => {
+            const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+            return (values[0] + 0.05) / (values[1] + 0.05);
+          };
+          return {
+            success: ratio("--success", "--success-soft"),
+            warning: ratio("--warning", "--warning-soft"),
+            danger: ratio("--danger", "--danger-soft"),
+            muted: ratio("--ink-3", "--bg"),
+          };
+        }"""
+    )
+
+
+def test_design_system_theme_fonts_focus_and_offline_assets(live, signed_in, tmp_path):
+    context, page = signed_in(
+        color_scheme="dark",
+        viewport={"width": 1440, "height": 1000},
+        reduced_motion="reduce",
+    )
+    requests = []
+    page.on("request", lambda request: requests.append(request.url))
+    page.goto(f"{live.url}/access", wait_until="networkidle")
+    page.evaluate("document.fonts.ready")
+
+    metrics = _design_metrics(page)
+    assert metrics == {
+        "theme": "dark",
+        "preference": "system",
+        "overflow": 0,
+        "bodyFont": '"Inter Variable", system-ui, -apple-system, sans-serif',
+        "headingFont": '"Newsreader Variable", Georgia, "Times New Roman", serif',
+        "monoFont": '"JetBrains Mono", ui-monospace, SFMono-Regular, monospace',
+        "storedTheme": None,
+    }
+    assert page.evaluate(
+        """() => [
+          document.fonts.check('16px "Inter Variable"', "Điều phối cuộc họp"),
+          document.fonts.check('32px "Newsreader Variable"', "Mở không gian làm việc"),
+          document.fonts.check('12px "JetBrains Mono"', "Tiếng Việt EN VI"),
+        ].every(Boolean)"""
+    )
+    assert min(_semantic_contrast_ratios(page).values()) >= 4.5
+
+    page.keyboard.press("Tab")
+    page.keyboard.press("Tab")
+    theme_toggle = page.get_by_role("button", name="Chuyển sang giao diện sáng")
+    expect(theme_toggle).to_be_focused()
+    expect(page.locator(".access-header .theme-icon-sun")).to_be_visible()
+    expect(page.locator(".access-header .theme-icon-moon")).to_be_hidden()
+    focus_style = theme_toggle.evaluate(
+        "element => ({ width: getComputedStyle(element).outlineWidth, "
+        "style: getComputedStyle(element).outlineStyle })"
+    )
+    assert focus_style["style"] == "solid"
+    assert float(focus_style["width"].removesuffix("px")) >= 2
+    motion_duration = page.locator(".access-orbit path").first.evaluate(
+        "element => parseFloat(getComputedStyle(element).animationDuration)"
+    )
+    assert motion_duration <= 0.001
+
+    transition_sample = page.evaluate(
+        """() => {
+          document.querySelector(".access-header [data-theme-toggle]").click();
+          const buttonStyle = getComputedStyle(document.querySelector("#access-submit"));
+          return {
+            theme: document.documentElement.dataset.theme,
+            changing: document.documentElement.hasAttribute("data-theme-changing"),
+            background: buttonStyle.backgroundColor,
+            color: buttonStyle.color,
+            transitionDuration: buttonStyle.transitionDuration,
+            toggleLabel: document.querySelector("[data-theme-toggle]").getAttribute("aria-label"),
+            moonVisible: getComputedStyle(document.querySelector(".theme-icon-moon")).display,
+            sunVisible: getComputedStyle(document.querySelector(".theme-icon-sun")).display,
+          };
+        }"""
+    )
+    assert transition_sample == {
+        "theme": "light",
+        "changing": True,
+        "background": "rgb(142, 36, 51)",
+        "color": "rgb(255, 250, 250)",
+        "transitionDuration": "0s",
+        "toggleLabel": "Chuyển sang giao diện tối",
+        "moonVisible": "block",
+        "sunVisible": "none",
+    }
+    assert _design_metrics(page)["storedTheme"] == "light"
+    page.reload(wait_until="domcontentloaded")
+    assert _design_metrics(page)["theme"] == "light"
+    assert min(_semantic_contrast_ratios(page).values()) >= 4.5
+
+    page.evaluate("localStorage.removeItem('asr-en-vi:theme')")
+    assert _design_metrics(page)["storedTheme"] is None
+    page.emulate_media(color_scheme="light", reduced_motion="reduce")
+    page.reload(wait_until="domcontentloaded")
+    assert _design_metrics(page)["theme"] == "light"
+    page.emulate_media(color_scheme="dark", reduced_motion="reduce")
+    page.reload(wait_until="domcontentloaded")
+    assert _design_metrics(page)["theme"] == "dark"
+
+    snapshot = tmp_path / "access-dark.png"
+    page.screenshot(path=snapshot, full_page=True, animations="disabled")
+    assert snapshot.stat().st_size > 10_000
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert _design_metrics(page)["overflow"] == 0
+
+    assert requests
+    assert all(url.startswith(f"{live.url}/") for url in requests)
+    context.close()
+
+
+def test_design_system_history_and_transcript_are_responsive(live, signed_in, tmp_path):
+    meeting_id = seed_meeting(
+        live.settings.data_dir,
+        "Điều phối sản phẩm — tuần 42",
+        "2026-10-14",
+        duration_seconds=720,
+    )
+    seed_meeting(live.settings.data_dir, "English roadmap", "2026-10-14")
+    seed_meeting(live.settings.data_dir, "Cuộc họp chưa đặt ngày")
+    _publish_browser_generation(live, meeting_id)
+
+    context, page = signed_in(
+        color_scheme="light",
+        viewport={"width": 1440, "height": 1000},
+    )
+    requests = []
+    page.on("request", lambda request: requests.append(request.url))
+    page.goto(f"{live.url}/", wait_until="networkidle")
+    expect(page.locator("#recent-list a")).to_have_count(2)
+    assert _design_metrics(page)["overflow"] == 0
+
+    page.get_by_role("button", name="Mở lịch").click()
+    expect(page.locator("#large-calendar")).to_be_visible()
+    expect(
+        page.locator("#large-calendar").get_by_text("Điều phối sản phẩm — tuần 42", exact=True)
+    ).to_be_visible()
+    assert _design_metrics(page)["overflow"] == 0
+    history_snapshot = tmp_path / "history-light.png"
+    page.screenshot(path=history_snapshot, full_page=True, animations="disabled")
+
+    page.locator(".sidebar-masthead [data-theme-toggle]").click()
+    page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="networkidle")
+    expect(page.locator("#transcript-generation")).to_be_visible()
+    expect(page.locator(".segment-text-editor")).to_have_value("A saved sentence.")
+    runtime_font = page.locator("#runtime-profile dd").first.evaluate(
+        "element => getComputedStyle(element).fontFamily"
+    )
+    assert runtime_font.startswith('"JetBrains Mono"')
+    assert _design_metrics(page)["overflow"] == 0
+    meeting_snapshot = tmp_path / "meeting-dark.png"
+    page.screenshot(path=meeting_snapshot, full_page=True, animations="disabled")
+
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert _design_metrics(page)["overflow"] == 0
+    expect(page.locator(".sidebar-masthead [data-theme-toggle]")).to_be_visible()
+    mobile_snapshot = tmp_path / "meeting-dark-mobile.png"
+    page.screenshot(path=mobile_snapshot, full_page=True, animations="disabled")
+
+    for snapshot in (history_snapshot, meeting_snapshot, mobile_snapshot):
+        assert snapshot.stat().st_size > 10_000
+    assert requests
+    assert all(url.startswith(f"{live.url}/") for url in requests)
+    context.close()
+
+
 def test_history_search_calendar_navigation_and_return(live, browser_context):
     context, page = browser_context
     data_dir = live.settings.data_dir
@@ -217,6 +424,59 @@ def test_history_search_calendar_navigation_and_return(live, browser_context):
     seed_meeting(data_dir, "Zeta undated")
     seed_meeting(data_dir, "Leap day", "2024-02-29")
     page.goto(f"{live.url}/", wait_until="domcontentloaded")
+
+    expect(page.locator(".sidebar-label, .sidebar-create, #workspace-link")).to_have_count(0)
+    header_create = page.locator(".header-create")
+    expect(header_create).to_be_visible()
+    expect(header_create).to_have_accessible_name("Cuộc họp mới")
+    for width in (681, 680, 521, 520, 390, 320):
+        page.set_viewport_size({"width": width, "height": 844})
+        expect(header_create).to_be_visible()
+        expect(header_create).to_have_accessible_name("Cuộc họp mới")
+        header_metrics = page.evaluate(
+            """() => {
+              const rect = element => {
+                const box = element.getBoundingClientRect();
+                return { width: box.width, height: box.height };
+              };
+              const create = document.querySelector('.header-create');
+              return {
+                gap: getComputedStyle(document.querySelector('.header-actions')).gap,
+                calendar: rect(document.querySelector('#open-calendar')),
+                create: rect(create),
+                createLabelClip: getComputedStyle(create.querySelector('span')).clipPath,
+                overflow: (
+                    document.documentElement.scrollWidth
+                    > document.documentElement.clientWidth
+                ),
+              };
+            }"""
+        )
+        assert header_metrics["calendar"]["height"] == 40
+        assert header_metrics["create"]["height"] == 40
+        assert not header_metrics["overflow"]
+        if width <= 680:
+            assert header_metrics["gap"] == "8px"
+        if width <= 520:
+            assert header_metrics["create"]["width"] == 40
+            assert header_metrics["createLabelClip"] == "inset(50%)"
+        else:
+            assert header_metrics["createLabelClip"] == "none"
+        if width == 681:
+            assert header_metrics["gap"] == "11px"
+    for _ in range(10):
+        if header_create.evaluate("element => element === document.activeElement"):
+            break
+        page.keyboard.press("Tab")
+    expect(header_create).to_be_focused()
+    focus_style = header_create.evaluate(
+        "element => ({visible: element.matches(':focus-visible'), "
+        "outlineStyle: getComputedStyle(element).outlineStyle, "
+        "outlineWidth: getComputedStyle(element).outlineWidth})"
+    )
+    assert focus_style["visible"] and focus_style["outlineStyle"] == "solid"
+    assert float(focus_style["outlineWidth"].removesuffix("px")) >= 2
+    page.set_viewport_size({"width": 1280, "height": 720})
 
     recent = page.locator("#recent-list a")
     expect(recent).to_have_count(3)
@@ -338,12 +598,44 @@ def test_history_search_calendar_navigation_and_return(live, browser_context):
     large.locator(".cal-chip").filter(has_text="Alpha review").click()
     page.wait_for_url(f"{live.url}/meetings/{alpha}")
 
+    page.goto(f"{live.url}/meetings/{alpha}", wait_until="domcontentloaded")
+    expect(page.locator("#meeting-title")).to_have_text("Alpha review")
+    page.get_by_role("link", name="ASR EN VI — về workspace").click()
+    page.wait_for_url(f"{live.url}/")
+    expect(page.locator("#home-view")).to_be_visible()
+
     # An unauthenticated context cannot read the history.
     anonymous = page.context.browser.new_context()
     try:
         assert anonymous.request.get(f"{live.url}/api/meetings").status == 401
     finally:
         anonymous.close()
+
+
+def test_wordmark_home_preserves_unsaved_transcript_draft(live, browser_context):
+    _context, page = browser_context
+    meeting_id = seed_meeting(
+        live.settings.data_dir, "Wordmark draft retention", "2026-10-14", duration_seconds=30
+    )
+    _publish_browser_generation(live, meeting_id)
+    page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
+    expect(page.locator("#meeting-title")).to_have_text("Wordmark draft retention")
+
+    editor = page.locator(".segment-text-editor")
+    editor.fill("Unsaved transcript draft.")
+    page.evaluate("window.__wordmarkSpaMarker = 'same document'")
+    page.get_by_role("link", name="ASR EN VI — về workspace").click()
+    page.wait_for_url(f"{live.url}/")
+    expect(page.locator("#home-view")).to_be_visible()
+    expect(page.locator("#page-title")).to_be_focused()
+    assert page.evaluate("window.__wordmarkSpaMarker") == "same document"
+
+    recent_meeting = page.locator("#recent-list a").filter(has_text="Wordmark draft retention")
+    expect(recent_meeting).to_be_visible()
+    recent_meeting.click()
+    page.wait_for_url(f"{live.url}/meetings/{meeting_id}")
+    expect(page.locator("#meeting-title")).to_have_text("Wordmark draft retention")
+    expect(page.locator(".segment-text-editor")).to_have_value("Unsaved transcript draft.")
 
 
 def test_empty_history_states(live, browser_context):

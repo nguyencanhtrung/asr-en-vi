@@ -21,6 +21,8 @@ PUBLIC_ROUTES = frozenset(
         ("GET", "/access"),
         ("GET", "/assets/access.css"),
         ("GET", "/assets/access.js"),
+        ("GET", "/assets/design-system.css"),
+        ("GET", "/assets/theme.js"),
         ("GET", "/healthz"),
         ("HEAD", "/healthz"),
         ("POST", "/api/access/session"),
@@ -121,7 +123,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not _host_is_expected(request, runtime_settings):
             return _with_security_headers(PlainTextResponse("Invalid host", status_code=400))
 
-        is_public = (method, path) in PUBLIC_ROUTES
+        is_public = (method, path) in PUBLIC_ROUTES or (
+            method in {"GET", "HEAD"} and path.startswith("/assets/fonts/")
+        )
         if method in UNSAFE_METHODS:
             if not _origin_is_expected(request.headers.get("origin"), runtime_settings):
                 return _with_security_headers(

@@ -101,8 +101,7 @@
     state.view = name;
   }
 
-  function setHeading(eyebrow, title, documentTitle) {
-    $("#page-eyebrow").textContent = eyebrow;
+  function setHeading(title, documentTitle) {
     $("#page-title").textContent = title;
     document.title = documentTitle;
   }
@@ -111,8 +110,7 @@
     state.loadSeq += 1; // a meeting load still in flight must not repaint over home
     stopTaskPolling();
     showView("home");
-    setHeading("LOCAL WORKSPACE", "Cuộc họp", "Workspace · ASR EN VI");
-    $("#workspace-link").setAttribute("aria-current", "page");
+    setHeading("Cuộc họp", "Workspace · ASR EN VI");
     renderSidebar();
   }
 
@@ -323,7 +321,6 @@
     const meetings = undated
       ? state.meetings.filter((meeting) => !meeting.meeting_date)
       : byDate.get(selected) || [];
-    $("#day-panel-kicker").textContent = undated ? "NHÓM" : "NGÀY ĐANG CHỌN";
     $("#day-panel-title").textContent = undated ? "Chưa đặt ngày" : displayDate(selected);
     $("#day-panel-count").textContent = String(meetings.length);
     const empty = $("#day-panel-empty");
@@ -442,8 +439,7 @@
     if (state.view === "calendar") return;
     state.loadSeq += 1; // same reason as showHome
     showView("calendar");
-    setHeading("MEETING HISTORY", "Lịch cuộc họp", "Lịch cuộc họp · ASR EN VI");
-    $("#workspace-link").removeAttribute("aria-current");
+    setHeading("Lịch cuộc họp", "Lịch cuộc họp · ASR EN VI");
     renderSidebar();
     renderCalendars();
     void refreshHistory();
@@ -472,7 +468,7 @@
   }
 
   function renderMeeting(meeting) {
-    setHeading("SAVED MEETING", meeting.title, `${meeting.title} · ASR EN VI`);
+    setHeading(meeting.title, `${meeting.title} · ASR EN VI`);
     $("#meeting-title").textContent = meeting.title;
     const date = formatMeetingDate(meeting.meeting_date);
     const dateElement = $("#meeting-date");
@@ -2678,12 +2674,11 @@
       clearSpeakerAddName();
     }
     if (!sameMeeting) closeEditor(); // drops the draft, which orphans any save still in flight
-    $("#workspace-link").removeAttribute("aria-current");
     if (sameMeeting) {
       renderMeeting(state.meeting); // show what we already know while the refresh runs
       showView("meeting");
     } else {
-      setHeading("SAVED MEETING", "Cuộc họp", "Cuộc họp · ASR EN VI");
+      setHeading("Cuộc họp", "Cuộc họp · ASR EN VI");
       showView("loading");
     }
     try {
@@ -2866,6 +2861,33 @@
     root.addEventListener("focusout", onCalendarFocusout);
     root.addEventListener("keydown", onCalendarKeydown);
   }
+
+  $(".brand").addEventListener("click", (event) => {
+    const link = event.currentTarget;
+    if (
+      event.defaultPrevented
+      || event.button !== 0
+      || event.metaKey
+      || event.ctrlKey
+      || event.shiftKey
+      || event.altKey
+      || link.hasAttribute("target")
+      || link.hasAttribute("download")
+    ) return;
+    const destination = new URL(link.href, window.location.href);
+    if (
+      destination.origin !== window.location.origin
+      || destination.pathname !== "/"
+      || destination.search
+      || destination.hash
+    ) return;
+    event.preventDefault();
+    if (window.location.pathname !== "/" || window.location.search || window.location.hash) {
+      window.history.pushState({}, "", "/");
+    }
+    showHome();
+    $("#page-title").focus();
+  });
 
   document.addEventListener("click", (event) => {
     const link = event.target.closest("a[data-meeting-link]");
