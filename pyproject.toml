@@ -32,7 +32,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/asr_en_vi"]
-include = ["src/asr_en_vi/web/*.html", "src/asr_en_vi/web/*.css", "src/asr_en_vi/web/*.js"]
+include = [
+    "src/asr_en_vi/web/*.html",
+    "src/asr_en_vi/web/*.css",
+    "src/asr_en_vi/web/*.js",
+    "src/asr_en_vi/web/fonts/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

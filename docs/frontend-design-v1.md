@@ -1,6 +1,6 @@
 # Frontend design v1 — ASR EN VI
 
-> **Đã chốt ngày 15/10/2026.** Người dùng duyệt phương án **A — Bàn biên tập**, dark theme, theo prototype hiện tại; bao gồm đặt tên người nói thủ công, lịch sử bằng lịch tháng và footer GitHub/version đã chỉnh.
+> **Cập nhật ngày 18/10/2026.** Tài liệu này tiếp tục là chuẩn cho kiến trúc thông tin và hành vi vận hành của phương án **A — Bàn biên tập**. Ngôn ngữ thị giác dark/teal cũ đã được thay thế bởi hệ editorial-engineering light/dark trong [`DESIGN.md`](../DESIGN.md); khi có xung đột về màu, font, bề mặt, radius, theme hoặc responsive, `DESIGN.md` là nguồn chuẩn.
 
 Tài liệu này là chuẩn thiết kế frontend v1 để triển khai. [Đặc tả sản phẩm](specification-v1.md) quy định hành vi, dữ liệu, xác thực và phạm vi nghiệm thu; tài liệu này cụ thể hóa cách trình bày và tương tác. Việc duyệt thiết kế không có nghĩa backend, model, lưu trữ hoặc xác thực đã được triển khai.
 
@@ -9,8 +9,8 @@ Tài liệu này là chuẩn thiết kế frontend v1 để triển khai. [Đặ
 - Ứng dụng web dùng trên trình duyệt laptop/desktop; v1 truy cập qua localhost bằng token.
 - Giao diện điều khiển bằng tiếng Việt, giữ các nhãn quen thuộc như **Transcript**, **Meeting notes**, **Speaker 1** và **English**. Nội dung notes luôn bằng tiếng Anh; transcript giữ ngôn ngữ đã nói.
 - Bố cục chính gồm sidebar bên trái, transcript và notes cạnh nhau, trình phát bên dưới vùng duyệt.
-- Dark theme áp dụng thống nhất cho màn hình duyệt, lịch, trang truy cập, các hộp thoại và thông báo.
-- Phương án B/C chỉ là các phương án so sánh trong prototype. Frontend v1 triển khai phương án A; không có bộ chuyển bố cục A/B/C hoặc bộ chọn light theme trong phạm vi đã chốt.
+- Light/dark theme áp dụng thống nhất cho màn hình duyệt, lịch, trang truy cập, các hộp thoại và thông báo. Mặc định theo hệ điều hành; lựa chọn thủ công được ghi nhớ trên trình duyệt.
+- Phương án B/C chỉ là các phương án so sánh trong prototype. Frontend v1 triển khai phương án A; không có bộ chuyển bố cục A/B/C.
 - Chưa chọn framework frontend, thư viện component hoặc cách tổ chức API trong tài liệu này.
 
 ### 1.1. Nguồn tham chiếu
@@ -32,8 +32,8 @@ Tài liệu này là chuẩn thiết kế frontend v1 để triển khai. [Đặ
 
 | Vùng | Nội dung và hành vi |
 | --- | --- |
-| Sidebar | Logo và tên phần mềm, tạo cuộc họp, tìm kiếm, danh sách gần đây, lịch nhỏ, footer |
-| Đầu vùng duyệt | Tên cuộc họp, ngày nếu có, ngôn ngữ chính, thời lượng, trạng thái và thao tác xóa |
+| Sidebar | Logo và tên phần mềm, chuyển theme, tìm kiếm, danh sách gần đây, lịch nhỏ, footer |
+| Đầu vùng duyệt | Tên cuộc họp và điểm vào tạo cuộc họp toàn cục; khi mở cuộc họp có thêm ngày, ngôn ngữ chính, thời lượng, trạng thái và thao tác xóa |
 | Transcript | Danh sách đoạn phát biểu có người nói, timestamp, nội dung và thao tác sửa |
 | Meeting notes | Notes tiếng Anh, chọn bản notes, chỉnh sửa, tạo lại, copy và xuất Markdown |
 | Trình phát | Phát/tạm dừng, vị trí hiện tại, tổng thời lượng và thanh tua; dùng chung cho cuộc họp đang mở |
@@ -49,42 +49,28 @@ Kích thước trên là mốc tham chiếu khi triển khai; ưu tiên giữ th
 
 ### 3.1. Màu sắc
 
-Giữ bảng màu A hiện tại làm nền tảng:
-
-| Vai trò | Giá trị tham chiếu |
-| --- | --- |
-| Nền ứng dụng | `#10191e` |
-| Bề mặt panel/hộp thoại | `#172329` |
-| Bề mặt phụ | `#1c2b31` |
-| Chữ chính | `#dce8e9` |
-| Chữ phụ | `#a2b5ba` |
-| Viền và đường phân cách | `#2c3e45` |
-| Màu nhấn teal | `#7ac9b7` |
-| Nền lựa chọn/màu nhấn dịu | `#223c38` |
-| Cảnh báo amber | `#e4bc7d` |
-| Nền cảnh báo | `#302b24` |
-
-Màu teal dùng cho hành động chính, lựa chọn hiện tại và liên kết tới nguồn. Amber dùng cho nội dung chưa rõ hoặc notes cần cập nhật. Thao tác xóa có kiểu nguy hiểm riêng và hộp thoại xác nhận. Mỗi trạng thái cần có nhãn hoặc biểu tượng đi kèm; màu không phải dấu hiệu duy nhất.
+Màu sắc dùng semantic tokens trong [`design-system.css`](../src/asr_en_vi/web/design-system.css) và được mô tả để tái sử dụng trong [`DESIGN.md`](../DESIGN.md). Light theme dùng nền giấy ấm và oxblood; dark theme dùng nền charcoal và dusty rose tương ứng. Success, warning và danger độc lập với màu nhận diện. Mỗi trạng thái cần có nhãn hoặc biểu tượng đi kèm; màu không phải dấu hiệu duy nhất.
 
 ### 3.2. Chữ, biểu tượng và bề mặt
 
-- Chữ sans-serif cho điều khiển và nội dung chính; stack tham chiếu là `Inter, Noto Sans, Arial, sans-serif`. Font mono dùng cho timestamp, version và một số metadata ngắn. Hỗ trợ đầy đủ dấu tiếng Việt.
+- Newsreader Variable dùng cho tiêu đề; Inter Variable dùng cho điều khiển và nội dung chính; JetBrains Mono dùng cho timestamp, version và metadata kỹ thuật. Cả ba được self-host với Vietnamese subset.
 - Dùng font có sẵn hoặc đóng gói cùng frontend; không tải font hay icon từ Internet trong runtime.
 - Giữ mật độ gọn của prototype: tiêu đề rõ, metadata nhẹ hơn, phân cấp nội dung bằng cỡ chữ, độ đậm và khoảng cách.
 - Icon nét đơn, đồng nhất; logo ứng dụng là biểu tượng sóng âm trong ô vuông bo góc. GitHub dùng biểu tượng GitHub riêng.
-- Panel có viền mảnh, bo góc khoảng 12 px; nút khoảng 7 px; hộp thoại khoảng 15 px. Dùng khoảng trắng và đường phân cách nhẹ để chia nhóm.
+- Panel có viền hairline, radius 8 px; control dùng 4 px; hộp thoại dùng 12 px. Dùng khoảng trắng và đường phân cách nhẹ để chia nhóm.
 - Hover, focus, disabled và selected phải phân biệt được trên nền tối. Hiệu ứng chuyển trạng thái ngắn, tôn trọng tùy chọn giảm chuyển động của trình duyệt.
 
 ## 4. Sidebar
 
 Thứ tự từ trên xuống được chốt như sau:
 
-1. Logo sóng âm và tên **ASR EN VI**; thay chữ thương hiệu cũ “ghi.”.
-2. Nhãn **KHÔNG GIAN CÁ NHÂN** và nút chính **Cuộc họp mới**.
-3. Ô **Tìm cuộc họp…**.
-4. **Cuộc họp gần đây**: danh sách ngắn, mặc định tối đa ba cuộc họp có ngày, mới nhất trước. Mỗi mục có tên, ngày và thời lượng; mục đang mở có nền/viền lựa chọn.
-5. Lịch tháng nhỏ nằm ngay dưới danh sách gần đây.
-6. Footer ở đáy sidebar, tách bằng đường kẻ nhẹ.
+1. Logo sóng âm và tên **ASR EN VI**, đồng thời là đường về workspace; nút chuyển light/dark nằm cùng hàng.
+2. Ô **Tìm cuộc họp…**.
+3. **Cuộc họp gần đây**: danh sách ngắn, mặc định tối đa ba cuộc họp có ngày, mới nhất trước. Mỗi mục có tên, ngày và thời lượng; mục đang mở có nền/viền lựa chọn.
+4. Lịch tháng nhỏ nằm ngay dưới danh sách gần đây.
+5. Footer ở đáy sidebar, tách bằng đường kẻ nhẹ.
+
+Nút **Cuộc họp mới** ở đầu vùng duyệt là điểm vào tạo cuộc họp toàn cục. Trạng thái chào mừng trên workspace giữ CTA tạo cuộc họp theo ngữ cảnh, nên home có cả nút header và CTA chào mừng. Trên viewport từ 520 px trở xuống, nút header thu gọn thành biểu tượng nhưng vẫn giữ tên truy cập. Sidebar không lặp lại điểm vào toàn cục và không có mục **Cuộc họp** riêng vì wordmark đã là đường về workspace.
 
 Tìm kiếm theo tên trên toàn bộ lịch sử, không chỉ ba mục gần đây; hiện kết quả hoặc trạng thái không tìm thấy. Lịch là cách chính để duyệt các cuộc họp cũ theo thời gian, tránh buộc người dùng cuộn một danh sách gần đây dài.
 
@@ -210,7 +196,7 @@ Vị trí/nội dung hộp thoại kết nối chưa có trong prototype đã du
 
 - Nghiệm thu trên Chrome và Firefox bản ổn định ở laptop/desktop. Các mốc tham chiếu đã xem trong prototype là **1440 × 1000**, **1280 × 800** và **1024 × 768**.
 - Ở các kích thước đó, không tràn ngang toàn trang; sidebar và công cụ chính vẫn truy cập được. Nội dung dài được cuộn trong vùng phù hợp, không bị trình phát hoặc thanh cố định che mất.
-- Giữ hai cột transcript/notes khi đủ chỗ. Với chiều rộng nhỏ hơn, có thể xếp dọc theo hành vi responsive trong prototype; tối ưu riêng cho điện thoại/tablet nằm ngoài v1.
+- Giữ hai cột transcript/notes khi đủ chỗ. Với chiều rộng nhỏ hơn, xếp dọc và giữ đầy đủ control/trạng thái; mobile là viewport được nghiệm thu, không được tạo tràn ngang.
 - Nút chỉ có icon phải có tên truy cập. Ô nhập/select có label. Focus bàn phím rõ; thứ tự Tab hợp lý, hộp thoại giữ focus và có cách đóng bằng bàn phím.
 - Dùng chữ hoặc biểu tượng đi cùng màu để phân biệt ngày có cuộc họp, ngày được chọn, trạng thái tác vụ và cảnh báo.
 - Nội dung người dùng nhập phải được hiển thị an toàn. Tên dài, notes dài và nhiều cuộc họp cùng ngày không được làm vỡ bố cục hoặc mất đường truy cập nội dung đầy đủ.
@@ -232,7 +218,7 @@ Prototype hiện có không chứng minh các trạng thái backend trong mục 
 
 | Mã | Điều kiện đạt |
 | --- | --- |
-| FE-01 | Bố cục A và dark theme thống nhất, có sidebar, transcript/notes cạnh nhau và trình phát; đối chiếu AC-29 |
+| FE-01 | Bố cục A và hệ editorial-engineering light/dark thống nhất, có sidebar, transcript/notes cạnh nhau và trình phát; đối chiếu AC-29 |
 | FE-02 | Brand là ASR EN VI; footer chỉ có icon GitHub và dòng Version ngắn, đúng metadata bản chạy |
 | FE-03 | Danh sách gần đây gọn, tìm kiếm toàn lịch sử, lịch nhỏ ngay dưới danh sách và mở được lịch lớn |
 | FE-04 | Lịch nhỏ/lớn đồng bộ; xử lý tháng/năm cũ, tháng 12 sang tháng 1, năm nhuận, tháng trống, nhiều cuộc họp cùng ngày và thiếu ngày; đối chiếu AC-30 |
