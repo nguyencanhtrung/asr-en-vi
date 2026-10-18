@@ -9,11 +9,13 @@ import math
 import os
 import select
 import signal
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import traceback
 import uuid
 from contextlib import suppress
 from pathlib import Path
@@ -22,8 +24,10 @@ from typing import Any
 from asr_en_vi.alignment import AlignmentError, align_segments_to_speakers, validate_turns
 from asr_en_vi.config import Settings
 from asr_en_vi.diarization_runner import (
+    DIARIZATION_ERROR_MESSAGES,
     DiarizationConfigurationError,
     prepared_diarization_directory,
+    safe_diarization_error,
 )
 from asr_en_vi.recordings import RecordingError, recording_path
 from asr_en_vi.runtime import (
@@ -33,6 +37,7 @@ from asr_en_vi.runtime import (
 )
 from asr_en_vi.storage import initialize
 from asr_en_vi.tasks import (
+    TASK_ERROR_MESSAGES,
     TaskError,
     claim_next_task,
     fail_task,
@@ -268,6 +273,10 @@ def _diarization_command(task: dict[str, Any], audio_path: Path) -> list[str]:
         str(audio_path),
         "--device",
         str(task["device"]),
+        "--diagnostic-id",
+        str(task["id"]),
+        "--meeting-id",
+        str(task["meeting_id"]),
     ]
 
 
@@ -478,6 +487,17 @@ def _run_task(
         return state["stage"], state["latest_segment_end"], len(state["segments"])
 
     def finish_error(code: str, message: str) -> None:
+        if phase == "diarization":
+            code, message = safe_diarization_error(code, message)
+        context = {
+            "event": f"{phase}_error",
+            "diagnostic_id": task_id,
+            "task_id": task_id,
+            "meeting_id": str(task["meeting_id"]),
+            "stage": state["stage"],
+            "code": code,
+        }
+        print(json.dumps(context, separators=(",", ":")), file=sys.stderr, flush=True)
         elapsed = time.monotonic() - started
         _finish_after_child_stop(settings, task_id, owner_id, stop_event, elapsed)
         runtime_state = task_runtime_state(settings.data_dir, task_id)
@@ -545,6 +565,7 @@ def _run_task(
             return False
         if event_type == "stage" and event.get("stage") in {
             "loading_diarization_model",
+            "decoding_input",
             "diarizing",
         }:
             state["stage"] = event["stage"]
@@ -568,9 +589,10 @@ def _run_task(
             state["diarization_complete"] = event
             return True
         if event_type == "error":
+            code, message = safe_diarization_error(event.get("code"), event.get("message"))
             state["diarization_error"] = {
-                "code": str(event.get("code") or "diarization_failed"),
-                "message": str(event.get("message") or "Local diarization failed."),
+                "code": code,
+                "message": message,
             }
             return True
         return False
@@ -647,8 +669,8 @@ def _run_task(
             or completed["exclusive_turn_count"] != len(state["exclusive_turns"])
         ):
             finish_error(
-                "diarization_protocol_error",
-                "The local diarization runner did not return a complete result.",
+                "diarization_failed",
+                DIARIZATION_ERROR_MESSAGES["diarization_failed"],
             )
             return
 
@@ -660,11 +682,13 @@ def _run_task(
             )
         except AlignmentError:
             finish_error(
-                "diarization_protocol_error",
-                "The diarization result could not be aligned to source timestamps.",
+                "diarization_failed",
+                DIARIZATION_ERROR_MESSAGES["diarization_failed"],
             )
             return
 
+        phase = "publishing"
+        state["stage"] = "publishing"
         elapsed = time.monotonic() - started
         if not update_task_progress(
             settings.data_dir,
@@ -692,21 +716,40 @@ def _run_task(
         if generation is None:
             _finish_after_child_stop(settings, task_id, owner_id, stop_event, elapsed)
     except RecordingError:
+        traceback.print_exc(file=sys.stderr)
         finish_error("recording_unavailable", "Meeting recording is unavailable to the worker.")
     except TaskError as error:
-        finish_error(error.code, error.message)
+        traceback.print_exc(file=sys.stderr)
+        if phase == "publishing":
+            finish_error("publication_failed", TASK_ERROR_MESSAGES["publication_failed"])
+        else:
+            finish_error(error.code, error.message)
     except (OSError, subprocess.SubprocessError):
+        traceback.print_exc(file=sys.stderr)
         if phase == "diarization":
-            finish_error(
-                "diarization_start_failed", "The local diarization runner could not be started."
-            )
+            finish_error("diarization_failed", DIARIZATION_ERROR_MESSAGES["diarization_failed"])
+        elif phase == "publishing":
+            finish_error("publication_failed", TASK_ERROR_MESSAGES["publication_failed"])
         else:
             finish_error(
                 "runner_start_failed", "The local transcription runner could not be started."
             )
+    except sqlite3.Error:
+        traceback.print_exc(file=sys.stderr)
+        if phase == "publishing":
+            finish_error("publication_failed", TASK_ERROR_MESSAGES["publication_failed"])
+        elif phase == "diarization":
+            finish_error("diarization_failed", DIARIZATION_ERROR_MESSAGES["diarization_failed"])
+        else:
+            finish_error(
+                "transcription_failed", "Local transcription failed. Check the worker logs."
+            )
     except Exception:
+        traceback.print_exc(file=sys.stderr)
         if phase == "diarization":
-            finish_error("diarization_failed", "Local diarization failed. Check the worker logs.")
+            finish_error("diarization_failed", DIARIZATION_ERROR_MESSAGES["diarization_failed"])
+        elif phase == "publishing":
+            finish_error("publication_failed", TASK_ERROR_MESSAGES["publication_failed"])
         else:
             finish_error(
                 "transcription_failed", "Local transcription failed. Check the worker logs."

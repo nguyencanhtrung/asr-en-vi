@@ -244,7 +244,21 @@
               <div><dt>Số đoạn</dt><dd id="task-segment-count"></dd></div>
               <div><dt>Mốc transcript</dt><dd id="task-transcript-end"></dd></div>
             </dl>
-            <p class="transcription-error" id="transcription-error" role="alert" hidden></p>
+            <div class="transcription-error" id="transcription-error" role="alert" hidden>
+              <p id="transcription-error-message"></p>
+              <dl class="task-diagnostic-details" id="task-diagnostic-details" hidden>
+                <div><dt>Mã lỗi</dt><dd><code id="task-diagnostic-code"></code></dd></div>
+                <div><dt>ID chẩn đoán</dt><dd><code id="task-diagnostic-id"></code></dd></div>
+              </dl>
+            </div>
+            <div class="task-diagnostic-command-wrap" id="task-diagnostic-command-wrap" hidden>
+              <label for="task-diagnostic-command">Lệnh chẩn đoán</label>
+              <div class="task-diagnostic-command">
+                <input id="task-diagnostic-command" type="text" readonly spellcheck="false" />
+                <button id="task-diagnostic-copy" type="button">Sao chép lệnh</button>
+              </div>
+            </div>
+            <p class="task-diagnostic-copy-status" id="task-diagnostic-copy-status" role="status" aria-live="polite"></p>
             <div class="transcript-generation" id="transcript-generation" hidden>
               <div class="generation-heading">
                 <h4 id="generation-title"></h4>

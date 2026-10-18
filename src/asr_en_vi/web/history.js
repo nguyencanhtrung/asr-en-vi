@@ -483,6 +483,7 @@
     transcribing: "Đang chép lời",
     starting_diarization: "Chuẩn bị nhận dạng người nói",
     loading_diarization_model: "Nạp Community-1 local",
+    decoding_input: "Đọc bản ghi local",
     diarizing: "Đang nhận dạng người nói",
     publishing: "Lưu transcript hoàn chỉnh",
     stopping: "Đang dừng runner",
@@ -491,6 +492,15 @@
     canceled: "Đã hủy",
     interrupted: "Bị gián đoạn",
   };
+  const TASK_ERROR_MESSAGES = {
+    diarization_decoder_unavailable: "Bộ giải mã âm thanh local không khả dụng. Kiểm tra dependencies âm thanh của ứng dụng.",
+    diarization_model_load_failed: "Không thể nạp model Community-1 local. Kiểm tra các model assets đã được cấp quyền và tải đầy đủ.",
+    diarization_cuda_failed: "Community-1 không chạy được trên CUDA đã chọn. Kiểm tra CUDA hoặc chọn CPU.",
+    diarization_input_decode_failed: "Không thể giải mã bản ghi. Tải lại file âm thanh hợp lệ rồi thử lại.",
+    diarization_failed: "Nhận dạng người nói thất bại. Kiểm tra worker logs rồi thử lại.",
+    publication_failed: "Không thể lưu transcript hoàn chỉnh. Kiểm tra bộ nhớ lưu trữ rồi thử lại.",
+  };
+  const SAFE_TASK_ID = /^[0-9a-f]{32}$/;
 
   function formatElapsedSeconds(value) {
     const seconds = Math.max(0, Number(value) || 0);
@@ -507,6 +517,57 @@
       ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
       : `${minutes}:${String(seconds).padStart(2, "0")}`;
     return `${clock}.${String(fraction).padStart(2, "0")}`;
+  }
+
+  function renderTaskError(task) {
+    const container = $("#transcription-error");
+    const taskFailed = task && ["failed", "interrupted"].includes(task.status);
+    container.hidden = !taskFailed && !state.taskRequestError;
+
+    const details = $("#task-diagnostic-details");
+    const commandWrap = $("#task-diagnostic-command-wrap");
+    const commandInput = $("#task-diagnostic-command");
+    const copyStatus = $("#task-diagnostic-copy-status");
+    details.hidden = true;
+    commandWrap.hidden = true;
+    commandInput.value = "";
+    copyStatus.textContent = "";
+
+    const code = task && typeof task.error_code === "string" ? task.error_code : "";
+    const diagnosticMessage = Object.hasOwn(TASK_ERROR_MESSAGES, code)
+      ? TASK_ERROR_MESSAGES[code]
+      : "";
+    $("#transcription-error-message").textContent = state.taskRequestError || (
+      taskFailed
+        ? diagnosticMessage || task.error_message || "Tác vụ chưa hoàn tất."
+        : ""
+    );
+
+    if (state.taskRequestError) return;
+    if (!diagnosticMessage || !task || !SAFE_TASK_ID.test(task.id || "")) return;
+    $("#task-diagnostic-code").textContent = code;
+    $("#task-diagnostic-id").textContent = task.id;
+    details.hidden = false;
+    commandInput.value = `docker compose exec -T app python -m asr_en_vi.cli task diagnose ${task.id}`;
+    commandWrap.hidden = false;
+  }
+
+  async function copyDiagnosticCommand() {
+    const input = $("#task-diagnostic-command");
+    const status = $("#task-diagnostic-copy-status");
+    if (!input.value) return;
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(input.value);
+      status.textContent = "Đã sao chép lệnh.";
+    } catch {
+      input.focus();
+      input.select();
+      const copied = document.execCommand("copy");
+      status.textContent = copied
+        ? "Đã sao chép lệnh."
+        : "Lệnh đã được chọn. Nhấn Ctrl+C hoặc ⌘C để sao chép.";
+    }
   }
 
   function renderMeetingProcessingStatus(task, generation) {
@@ -698,7 +759,10 @@
     } catch (error) {
       select.value = previousSpeaker;
       const message = error && error.message ? error.message : "Không thể lưu người nói.";
-      $("#transcription-error").textContent = message;
+      $("#transcription-error-message").textContent = message;
+      $("#task-diagnostic-details").hidden = true;
+      $("#task-diagnostic-command-wrap").hidden = true;
+      $("#task-diagnostic-copy-status").textContent = "";
       $("#transcription-error").hidden = false;
     } finally {
       state.speakerSaveInFlight = false;
@@ -732,7 +796,6 @@
     const startButton = $("#start-transcription");
     const cancelButton = $("#cancel-transcription");
     const measurements = $("#task-measurements");
-    const error = $("#transcription-error");
 
     renderRuntimeProfile(transcription && transcription.runtime);
 
@@ -743,9 +806,7 @@
     cancelButton.disabled = !task || task.status === "stopping";
     cancelButton.textContent = task && task.status === "stopping" ? "Đang dừng…" : "Hủy xử lý";
     measurements.hidden = !task;
-    const taskFailed = task && ["failed", "interrupted"].includes(task.status);
-    error.hidden = !taskFailed && !state.taskRequestError;
-    error.textContent = state.taskRequestError || (taskFailed ? task.error_message || "Tác vụ chưa hoàn tất." : "");
+    renderTaskError(task);
 
     if (!task) {
       $("#transcription-status").textContent = generation
@@ -1156,6 +1217,7 @@
   $("#meeting-edit").addEventListener("submit", saveMeeting);
   $("#start-transcription").addEventListener("click", () => void startTranscription());
   $("#cancel-transcription").addEventListener("click", () => void cancelTranscription());
+  $("#task-diagnostic-copy").addEventListener("click", () => void copyDiagnosticCommand());
   $("#transcript-segments").addEventListener("click", (event) => {
     const timestamp = event.target.closest("button[data-seek-seconds]");
     if (!timestamp) return;

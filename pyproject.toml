@@ -21,6 +21,7 @@ dev = [
     "httpx>=0.28,<1.0",
     "playwright>=1.50,<2.0",
     "pytest>=8.3,<10.0",
+    "pytest-timeout>=2.3,<3.0",
     "pyyaml>=6.0,<7.0",
     "ruff>=0.11,<1.0",
 ]
@@ -36,6 +37,9 @@ include = ["src/asr_en_vi/web/*.html", "src/asr_en_vi/web/*.css", "src/asr_en_vi
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+# Use @pytest.mark.timeout(0) only when an opt-in test has its own deadline.
+timeout = 300
+timeout_method = "thread"
 markers = [
     "browser: requires Chromium and exercises the access flow in a real browser",
     "slow: opt-in processing test that can take several minutes",

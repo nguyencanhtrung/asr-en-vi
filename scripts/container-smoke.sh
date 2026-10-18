@@ -13,9 +13,6 @@ from pathlib import Path
 from asr_en_vi.media import normalize_media
 from torchcodec.decoders import AudioDecoder
 
-assert AudioDecoder
-print("torchcodec ok")
-
 with tempfile.TemporaryDirectory() as directory:
     source = Path(directory) / "in.wav"
     target = Path(directory) / "out.m4a"
@@ -26,6 +23,9 @@ with tempfile.TemporaryDirectory() as directory:
         output.writeframes(b"\0\0" * 16000)
     result = normalize_media(source, target, max_duration_seconds=60)
     assert result.duration_seconds > 0 and target.stat().st_size > 0
+    decoded = AudioDecoder(target).get_all_samples()
+    assert decoded.data.numel() > 0
+print("torchcodec decode ok")
 print("media ok")
 '
 

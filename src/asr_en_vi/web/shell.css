@@ -1726,6 +1726,86 @@ input:focus-visible {
   color: var(--amber);
 }
 
+.transcription-error > p {
+  margin: 0;
+}
+
+.task-diagnostic-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 10px 0 0;
+}
+
+.task-diagnostic-details > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.task-diagnostic-details dt,
+.task-diagnostic-command-wrap > label {
+  color: #a4b2a5;
+  font-size: 12px;
+}
+
+.task-diagnostic-details dd {
+  margin: 0;
+}
+
+.task-diagnostic-details code {
+  color: #f1dba9;
+  font-family: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
+  font-size: 12px;
+  user-select: all;
+}
+
+.task-diagnostic-command-wrap {
+  margin-top: 11px;
+}
+
+.task-diagnostic-command {
+  display: flex;
+  gap: 8px;
+  margin-top: 5px;
+}
+
+.task-diagnostic-command input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid #52615a;
+  border-radius: 5px;
+  background: #111a1d;
+  color: #e5e8d9;
+  font-family: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
+  font-size: 12px;
+  user-select: all;
+}
+
+.task-diagnostic-command button {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid #68766a;
+  border-radius: 5px;
+  background: #263330;
+  color: #e5e8d9;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.task-diagnostic-command button:hover {
+  background: #32433d;
+}
+
+.task-diagnostic-copy-status {
+  min-height: 1em;
+  margin: 4px 0 0;
+  color: #a4b2a5;
+  font-size: 12px;
+}
+
 .transcription-status.is-checking-worker {
   color: #e1c184;
 }

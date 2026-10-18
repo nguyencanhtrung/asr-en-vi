@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 import re
+import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -10,10 +13,66 @@ from media_tools import require_media_tools
 ROOT = Path(__file__).parents[1]
 PIPELINE_PATH = ROOT / ".github" / "workflows" / "pipeline.yml"
 DEPENDABOT_PATH = ROOT / ".github" / "dependabot.yml"
+COMMUNITY_1_FILES = (
+    "config.yaml",
+    "embedding/pytorch_model.bin",
+    "plda/plda.npz",
+    "plda/xvec_transform.npz",
+    "segmentation/pytorch_model.bin",
+)
 
 
 def load_yaml(path: Path):
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _write_executable(path: Path, content: str) -> None:
+    path.write_text(content, encoding="utf-8")
+    path.chmod(0o755)
+
+
+def _run_start(
+    tmp_path: Path,
+    model_files: tuple[str, ...] = (),
+    model_overrides: dict[str, bytes] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    model_root = tmp_path / "models"
+    model_directory = model_root / "speaker-diarization-community-1"
+    for relative_path in model_files:
+        target = model_directory / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"model data")
+    for relative_path, content in (model_overrides or {}).items():
+        target = model_directory / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+
+    stub_directory = tmp_path / "bin"
+    stub_directory.mkdir()
+    command_log = tmp_path / "docker.log"
+    _write_executable(
+        stub_directory / "docker",
+        "#!/bin/sh\n"
+        'printf \'%s\\n\' "$*" >> "$DOCKER_LOG"\n'
+        'if [ "$1" = compose ] && [ "$4" = config ]; then\n'
+        "  printf '%s\\n' \\\n"
+        f"    'ASR_DEVICE=cpu' 'ASR_MODEL_HOST_PATH={model_root}' \\\n"
+        "    'ASR_DIARIZATION_MODEL_PATH=/models/speaker-diarization-community-1'\n"
+        "fi\n",
+    )
+    environment = os.environ.copy()
+    environment["PATH"] = f"{stub_directory}:{environment['PATH']}"
+    environment["DOCKER_LOG"] = str(command_log)
+    result = subprocess.run(
+        ["sh", str(ROOT / "scripts" / "start.sh")],
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    result.docker_log = command_log.read_text(encoding="utf-8")
+    return result
 
 
 def test_pipeline_gates_pull_requests_main_and_version_tags():
@@ -67,20 +126,100 @@ def test_container_job_runs_runtime_smoke_check_on_the_built_image():
     script = (ROOT / "scripts" / "container-smoke.sh").read_text(encoding="utf-8")
     assert "normalize_media" in script and "/healthz" in script
     assert "from torchcodec.decoders import AudioDecoder" in script
+    assert "AudioDecoder(target).get_all_samples()" in script
+    assert "decoded.data.numel() > 0" in script
+    assert 'print("torchcodec decode ok")' in script
 
 
 def test_startup_detects_gpu_prepares_model_and_preflights_before_services():
     script = (ROOT / "scripts" / "start.sh").read_text(encoding="utf-8")
 
-    build = script.index("compose_build")
-    detect = script.index("--gpus all")
+    model_gate = script.index("for required_model_file")
+    build = script.index("compose_build build")
+    detect = script.index("docker run --rm --gpus all")
     model_prepare = script.index("python -m asr_en_vi.cli model prepare")
     runtime_check = script.index("python -m asr_en_vi.cli runtime check")
     start = script.index("compose_runtime up")
 
     assert "compose.gpu.yaml" in script
     assert "nvidia-smi" in script
-    assert build < detect < model_prepare < runtime_check < start
+    assert model_gate < build < detect < model_prepare < runtime_check < start
+
+
+def test_startup_rejects_incomplete_community_model_before_image_build(tmp_path):
+    result = _run_start(tmp_path)
+
+    assert result.returncode != 0
+    assert "compose -f compose.yaml build" not in result.docker_log
+    guidance = result.stdout + result.stderr
+    assert "accept the Community-1 conditions" in guidance
+    assert "hf auth login" in guidance
+    assert "git clone https://hf.co/pyannote/speaker-diarization-community-1" in guidance
+    assert "anonymous" not in guidance.casefold()
+
+
+def test_startup_checks_complete_community_model_then_preflights_before_services(tmp_path):
+    result = _run_start(tmp_path, COMMUNITY_1_FILES)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    commands = result.docker_log
+    build = commands.index("compose -f compose.yaml build")
+    model_prepare = commands.index("python -m asr_en_vi.cli model prepare")
+    runtime_check = commands.index("python -m asr_en_vi.cli runtime check")
+    services = commands.index("compose -f compose.yaml up")
+    assert build < model_prepare < runtime_check < services
+
+
+def test_startup_rejects_git_lfs_pointer_before_image_build(tmp_path):
+    result = _run_start(
+        tmp_path,
+        COMMUNITY_1_FILES,
+        {
+            "embedding/pytorch_model.bin": (
+                b"version https://git-lfs.github.com/spec/v1\n"
+                b"oid sha256:0000000000000000000000000000000000000000000000000000000000000000\n"
+                b"size 10\n"
+            )
+        },
+    )
+
+    assert result.returncode != 0
+    assert "unresolved Git LFS pointer" in result.stderr
+    assert "hf auth login --add-to-git-credential" in result.stderr
+    assert "compose -f compose.yaml build" not in result.docker_log
+
+
+def test_repository_checks_have_shell_syntax_and_pytest_timeout_guardrails():
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    check_script = (ROOT / "scripts" / "check.sh").read_text(encoding="utf-8")
+    e2e_test = (ROOT / "tests" / "test_transcription_video_e2e.py").read_text(encoding="utf-8")
+    pytest_config = project["tool"]["pytest"]["ini_options"]
+
+    assert any(
+        dependency.startswith("pytest-timeout")
+        for dependency in project["dependency-groups"]["dev"]
+    )
+    assert pytest_config["timeout"] == 300
+    assert pytest_config["timeout_method"] == "thread"
+    assert "./scripts/check-shell-syntax.sh" in check_script
+    assert "pytest.mark.timeout(0)" in e2e_test
+
+
+def test_shell_syntax_gate_propagates_a_script_failure(tmp_path):
+    scripts_root = tmp_path / "scripts"
+    scripts_root.mkdir()
+    _write_executable(scripts_root / "valid.sh", "#!/bin/sh\necho valid\n")
+    _write_executable(scripts_root / "broken.sh", "#!/bin/sh\necho 'unterminated\n")
+
+    result = subprocess.run(
+        ["sh", str(ROOT / "scripts" / "check-shell-syntax.sh"), str(scripts_root)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "syntax error" in result.stderr.casefold() or "unterminated" in result.stderr.casefold()
 
 
 def test_publish_waits_for_every_gate_and_has_only_required_write_permissions():
