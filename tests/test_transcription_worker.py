@@ -14,9 +14,11 @@ from seeding import prepare_diarization_model, seed_meeting
 
 from asr_en_vi import worker
 from asr_en_vi.config import Settings
+from asr_en_vi.diarization_runner import DIARIZATION_ERROR_MESSAGES
 from asr_en_vi.runtime import RuntimeProfile
 from asr_en_vi.storage import database_path, initialize
 from asr_en_vi.tasks import (
+    TASK_ERROR_MESSAGES,
     TaskError,
     accept_transcription_task,
     cancel_task,
@@ -336,6 +338,101 @@ else:
         assert connection.execute("SELECT COUNT(*) FROM transcript_generations").fetchone() == (1,)
 
 
+@pytest.mark.parametrize(
+    ("child_code", "child_message", "expected_code"),
+    [
+        (
+            "diarization_input_decode_failed",
+            DIARIZATION_ERROR_MESSAGES["diarization_input_decode_failed"],
+            "diarization_input_decode_failed",
+        ),
+        (
+            "diarization_decoder_unavailable",
+            "native error at /private/path/token=secret",
+            "diarization_failed",
+        ),
+        ("vendor_exception", "native error at /private/path/token=secret", "diarization_failed"),
+    ],
+)
+def test_worker_validates_diarization_child_errors_before_persistence(
+    tmp_path, monkeypatch, capsys, child_code, child_message, expected_code
+):
+    data_dir, model_dir, meeting_ids, settings, lock_fd = _worker_task_store(tmp_path)
+    task = _accept_and_claim(data_dir, model_dir, meeting_ids[0])
+    event = json.dumps({"type": "error", "code": child_code, "message": child_message})
+    diarization_source = f"import json\nprint({json.dumps(event)}, flush=True)\n"
+    _install_runner_shim(
+        tmp_path,
+        monkeypatch,
+        "import json\nprint(json.dumps({'type': 'complete', 'segment_count': 0, "
+        "'language_probability': 0.9}), flush=True)\n",
+        diarization_source,
+    )
+    try:
+        worker._run_task(settings, lock_fd, task, threading.Event())
+    finally:
+        os.close(lock_fd)
+
+    stored = transcription_state(data_dir, meeting_ids[0])["task"]
+    assert stored["status"] == "failed"
+    assert stored["error_code"] == expected_code
+    assert stored["error_message"] == DIARIZATION_ERROR_MESSAGES[expected_code]
+    assert "private/path" not in stored["error_message"]
+    contexts = [
+        json.loads(line) for line in capsys.readouterr().err.splitlines() if line.startswith("{")
+    ]
+    assert contexts[-1]["event"] == "diarization_error"
+    assert contexts[-1]["code"] == expected_code
+
+
+@pytest.mark.parametrize("failure_kind", ["task", "sqlite", "os", "unexpected"])
+def test_worker_classifies_publication_failures(tmp_path, monkeypatch, capsys, failure_kind):
+    data_dir, model_dir, meeting_ids, settings, lock_fd = _worker_task_store(tmp_path)
+    task = _accept_and_claim(data_dir, model_dir, meeting_ids[0])
+    _install_runner_shim(
+        tmp_path,
+        monkeypatch,
+        "import json\nprint(json.dumps({'type': 'complete', 'segment_count': 0, "
+        "'language_probability': 0.9}), flush=True)\n",
+        "import json\nprint(json.dumps({'type': 'complete', 'regular_turn_count': 0, "
+        "'exclusive_turn_count': 0}), flush=True)\n",
+    )
+
+    def fail_publication(*_args, **_kwargs):
+        if failure_kind == "task":
+            raise TaskError(
+                500, "invalid_runner_result", "The completed result could not be saved."
+            )
+        if failure_kind == "sqlite":
+            raise sqlite3.OperationalError("database is locked")
+        if failure_kind == "os":
+            raise OSError("disk full")
+        raise RuntimeError("unexpected persistence detail")
+
+    monkeypatch.setattr(worker, "publish_complete_generation", fail_publication)
+    try:
+        worker._run_task(settings, lock_fd, task, threading.Event())
+    finally:
+        os.close(lock_fd)
+
+    stored = transcription_state(data_dir, meeting_ids[0])["task"]
+    assert stored["status"] == "failed"
+    assert stored["stage"] == "failed"
+    assert stored["error_code"] == "publication_failed"
+    assert stored["error_message"] == TASK_ERROR_MESSAGES["publication_failed"]
+    captured = capsys.readouterr()
+    assert "Traceback" in captured.err
+    contexts = [json.loads(line) for line in captured.err.splitlines() if line.startswith("{")]
+    assert contexts[-1] == {
+        "event": "publishing_error",
+        "diagnostic_id": task["id"],
+        "task_id": task["id"],
+        "meeting_id": meeting_ids[0],
+        "stage": "publishing",
+        "code": stored["error_code"],
+    }
+
+
 def test_cancellation_during_diarization_reaps_the_child_process_group(tmp_path, monkeypatch):
     data_dir, model_dir, meeting_ids, settings, lock_fd = _worker_task_store(tmp_path)
     task = _accept_and_claim(data_dir, model_dir, meeting_ids[0])
@@ -547,7 +644,11 @@ print(json.dumps(event), flush=True)
     finally:
         os.close(lock_fd)
 
-    assert "runner diagnostic sentinel" in capfd.readouterr().err
+    captured = capfd.readouterr().err
+    assert "runner diagnostic sentinel" in captured
+    contexts = [json.loads(line) for line in captured.splitlines() if line.startswith("{")]
+    assert contexts[-1]["event"] == "transcription_error"
+    assert contexts[-1]["code"] == "transcription_failed"
     assert transcription_state(data_dir, meeting_ids[0])["task"]["status"] == "failed"
 
 
@@ -575,6 +676,27 @@ def test_worker_runner_command_never_forces_the_language_hint(tmp_path):
         "cuda",
         "--compute-type",
         "float16",
+    ]
+
+
+def test_diarization_command_passes_task_and_meeting_diagnostic_ids(tmp_path):
+    task_id = "a" * 32
+    meeting_id = "b" * 32
+    command = worker._diarization_command(
+        {
+            "id": task_id,
+            "meeting_id": meeting_id,
+            "diarization_model_path": tmp_path / "community-1",
+            "device": "cuda",
+        },
+        tmp_path / "recording.m4a",
+    )
+
+    assert command[-4:] == [
+        "--diagnostic-id",
+        task_id,
+        "--meeting-id",
+        meeting_id,
     ]
 
 

@@ -37,6 +37,11 @@ _REQUEST_ID_RE = re.compile(r"[A-Za-z0-9._:-]{8,128}\Z")
 _SEGMENT_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 _ACTIVE_TASK_STATES = frozenset({"accepted", "running", "stopping"})
 _TASK_HEARTBEAT_MAX_AGE_SECONDS = 20
+TASK_ERROR_MESSAGES = {
+    "publication_failed": (
+        "The completed transcript could not be saved. Check local storage and retry."
+    )
+}
 
 
 class TaskError(RuntimeError):
@@ -52,6 +57,19 @@ class TaskError(RuntimeError):
 @contextmanager
 def _connect(data_dir: Path) -> Iterator[sqlite3.Connection]:
     connection = sqlite3.connect(database_path(data_dir), timeout=5)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("PRAGMA busy_timeout = 5000")
+    try:
+        yield connection
+    finally:
+        connection.close()
+
+
+@contextmanager
+def _connect_read_only(data_dir: Path) -> Iterator[sqlite3.Connection]:
+    path = database_path(data_dir).resolve()
+    connection = sqlite3.connect(f"{path.as_uri()}?mode=ro", timeout=5, uri=True)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute("PRAGMA busy_timeout = 5000")
@@ -240,7 +258,7 @@ def accept_transcription_task(
 
 
 def get_task(data_dir: Path, task_id: str) -> dict[str, object]:
-    with _connect(data_dir) as connection:
+    with _connect_read_only(data_dir) as connection:
         row = connection.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     if row is None:
         raise TaskError(404, "task_not_found", "Task not found.")

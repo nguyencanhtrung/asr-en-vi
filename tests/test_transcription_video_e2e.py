@@ -17,7 +17,8 @@ from asr_en_vi.config import Settings
 from asr_en_vi.runner import ModelConfigurationError, prepared_model_directory
 from asr_en_vi.worker import is_healthy
 
-pytestmark = [pytest.mark.anyio, pytest.mark.slow]
+# This opt-in proof has its own ASR_TEST_TIMEOUT_SECONDS deadline (default: 1 hour).
+pytestmark = [pytest.mark.anyio, pytest.mark.slow, pytest.mark.timeout(0)]
 
 
 async def _file_chunks(path: Path):

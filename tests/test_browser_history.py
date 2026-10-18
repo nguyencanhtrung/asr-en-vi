@@ -5,8 +5,10 @@ import os
 import re
 import shutil
 import socket
+import sqlite3
 import threading
 import time
+import uuid
 
 import pytest
 import uvicorn
@@ -18,6 +20,7 @@ from asr_en_vi.app import create_app
 from asr_en_vi.auth import AuthStore
 from asr_en_vi.config import Settings
 from asr_en_vi.runtime import RuntimeProfile, write_runtime_profile
+from asr_en_vi.storage import database_path
 from asr_en_vi.worker import acquire_worker_lock, write_heartbeat
 
 pytestmark = pytest.mark.browser
@@ -271,6 +274,164 @@ def test_empty_history_states(live, browser_context):
     expect(page.locator("#large-calendar .cal-count")).to_have_count(0)
     page.get_by_role("button", name="Quay lại notes").click()
     expect(page.locator("#home-view")).to_be_visible()
+
+
+def test_diarization_error_shows_sanitized_copyable_diagnostic_command(live, browser_context):
+    context, page = browser_context
+    meeting_id = seed_meeting(live.settings.data_dir, "Diarization failure", "2026-10-14")
+    task_id = uuid.uuid4().hex
+    with sqlite3.connect(database_path(live.settings.data_dir)) as connection:
+        connection.execute(
+            "INSERT INTO tasks(id, request_id, request_hash, meeting_id, kind, model_path, "
+            "model_name, device, compute_type, language_hint, status, stage, "
+            "audio_duration_seconds, error_code, error_message) "
+            "VALUES (?, ?, ?, ?, 'transcription', '/private/model/path', 'model', 'cpu', "
+            "'int8', 'en', 'failed', 'failed', 5, 'diarization_input_decode_failed', ?)",
+            (
+                task_id,
+                uuid.uuid4().hex,
+                "request-hash",
+                meeting_id,
+                "vendor detail /private/path token=secret",
+            ),
+        )
+
+    generation_id = uuid.uuid4().hex
+    segment_id = uuid.uuid4().hex
+
+    def route_meeting_with_generation(route):
+        response = route.fetch()
+        payload = response.json()
+        payload["transcription"]["generation"] = {
+            "id": generation_id,
+            "generation_number": 1,
+            "status": "complete",
+            "language_hint": "en",
+            "model_name": "whisper-large-v3",
+            "language_probability": 0.94,
+            "source_version": 1,
+            "uncertainty_policy": "faster-whisper-review-cues-v1",
+            "diarization_model_name": "Community-1",
+            "segment_count": 1,
+            "completed_at": "2026-10-17 00:00:05",
+            "speakers": [
+                {
+                    "speaker_id": "SPEAKER_00",
+                    "display_name": "Speaker 1",
+                    "first_seen_seconds": 0.0,
+                    "last_seen_seconds": 1.0,
+                },
+                {
+                    "speaker_id": "SPEAKER_01",
+                    "display_name": "Speaker 2",
+                    "first_seen_seconds": 1.0,
+                    "last_seen_seconds": 2.0,
+                },
+            ],
+            "segments": [
+                {
+                    "id": segment_id,
+                    "sequence": 0,
+                    "start_seconds": 0.0,
+                    "end_seconds": 1.0,
+                    "text": "Earlier complete transcript.",
+                    "original_speaker_id": "SPEAKER_00",
+                    "speaker_id": "SPEAKER_00",
+                    "avg_logprob": -0.3,
+                    "no_speech_prob": 0.02,
+                    "compression_ratio": 0.8,
+                    "uncertain": False,
+                    "review_reasons": [],
+                    "overlap": False,
+                    "speaker_dominance": 1.0,
+                    "assignment_version": 1,
+                }
+            ],
+        }
+        route.fulfill(response=response, json=payload)
+
+    page.route(f"{live.url}/api/meetings/{meeting_id}", route_meeting_with_generation)
+    page.route(
+        re.compile(r"/api/meetings/[^/]+/transcript-segments/[^/]+/speaker$"),
+        lambda route: route.fulfill(
+            status=500,
+            content_type="application/json",
+            body=json.dumps(
+                {"detail": {"code": "speaker_save_failed", "message": "Không thể lưu người nói."}}
+            ),
+        ),
+    )
+
+    context.add_init_script(
+        "window.__copiedCommand = ''; "
+        "Object.defineProperty(navigator, 'clipboard', {value: {writeText: async value => {"
+        "window.__copiedCommand = value;}}});"
+    )
+    page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
+
+    expect(page.locator("#transcription-error")).to_be_visible()
+    expect(page.locator("#task-diagnostic-code")).to_have_text("diarization_input_decode_failed")
+    expect(page.locator("#task-diagnostic-id")).to_have_text(task_id)
+    command = f"docker compose exec -T app python -m asr_en_vi.cli task diagnose {task_id}"
+    command_input = page.locator("#task-diagnostic-command")
+    expect(command_input).to_have_value(command)
+    expect(command_input).to_have_attribute("readonly", "")
+    expect(page.locator("#transcription-error")).not_to_contain_text("private/path")
+    expect(page.locator("#transcription-error")).not_to_contain_text("secret")
+
+    page.get_by_role("button", name="Sao chép lệnh").click()
+    expect(page.locator("#task-diagnostic-copy-status")).to_have_text("Đã sao chép lệnh.")
+    assert page.evaluate("window.__copiedCommand") == command
+    assert page.locator("#transcription-error #task-diagnostic-copy").count() == 0
+    assert page.locator("#transcription-error #task-diagnostic-copy-status").count() == 0
+
+    page.locator(".segment-speaker-select").select_option("SPEAKER_01")
+    expect(page.locator("#transcription-error-message")).to_have_text("Không thể lưu người nói.")
+    expect(page.locator("#task-diagnostic-details")).to_be_hidden()
+    expect(page.locator("#task-diagnostic-command-wrap")).to_be_hidden()
+    expect(page.locator("#task-diagnostic-copy-status")).to_be_empty()
+
+    with sqlite3.connect(database_path(live.settings.data_dir)) as connection:
+        connection.execute(
+            "UPDATE tasks SET error_code = 'publication_failed', error_message = ? WHERE id = ?",
+            ("database is locked at /private/path", task_id),
+        )
+    page.reload(wait_until="domcontentloaded")
+    expect(page.locator("#transcription-error-message")).to_have_text(
+        "Không thể lưu transcript hoàn chỉnh. Kiểm tra bộ nhớ lưu trữ rồi thử lại."
+    )
+    expect(page.locator("#task-diagnostic-code")).to_have_text("publication_failed")
+    expect(page.locator("#task-diagnostic-id")).to_have_text(task_id)
+    expect(page.locator("#task-diagnostic-command")).to_have_value(command)
+    expect(page.locator("#transcription-error")).not_to_contain_text("database is locked")
+    expect(page.locator("#transcription-error")).not_to_contain_text("/private/path")
+
+    page.route(
+        f"{live.url}/api/tasks",
+        lambda route: route.fulfill(
+            status=503,
+            content_type="application/json",
+            body=json.dumps(
+                {"detail": {"code": "worker_busy", "message": "Không thể gửi lại tác vụ."}}
+            ),
+        ),
+    )
+    page.get_by_role("button", name="Chạy lại bản ghi").click()
+    expect(page.locator("#transcription-error-message")).to_contain_text(
+        "Không thể gửi lại tác vụ."
+    )
+    expect(page.locator("#task-diagnostic-details")).to_be_hidden()
+    expect(page.locator("#task-diagnostic-command-wrap")).to_be_hidden()
+
+    with sqlite3.connect(database_path(live.settings.data_dir)) as connection:
+        connection.execute(
+            "UPDATE tasks SET error_code = 'constructor', error_message = ? WHERE id = ?",
+            ("Safe fallback.", task_id),
+        )
+    page.reload(wait_until="domcontentloaded")
+    expect(page.locator("#transcription-error-message")).to_have_text("Safe fallback.")
+    expect(page.locator("#task-diagnostic-details")).to_be_hidden()
+    expect(page.locator("#task-diagnostic-command-wrap")).to_be_hidden()
 
 
 def test_edit_metadata_conflict_keeps_draft_and_persists_across_restart(live, browser_context):

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import json
+import re
+import sqlite3
+import subprocess
 import sys
+from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -15,8 +20,36 @@ from qrcode.constants import ERROR_CORRECT_M
 from asr_en_vi import __version__
 from asr_en_vi.auth import AuthState, AuthStore
 from asr_en_vi.config import Settings
+from asr_en_vi.diarization_runner import (
+    DIARIZATION_ERROR_MESSAGES,
+    safe_diarization_error,
+)
 from asr_en_vi.runner import ModelConfigurationError, prepared_model_directory
 from asr_en_vi.runtime import MODEL_REPOSITORIES, RuntimeConfigurationError, select_runtime
+from asr_en_vi.tasks import TASK_ERROR_MESSAGES, TaskError, get_task
+
+_TASK_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
+_SAFE_TASK_STATES = frozenset(
+    {"accepted", "running", "stopping", "succeeded", "failed", "canceled", "interrupted"}
+)
+_SAFE_TASK_STAGES = frozenset(
+    {
+        "accepted",
+        "starting",
+        "starting_runner",
+        "loading_model",
+        "transcribing",
+        "starting_diarization",
+        "loading_diarization_model",
+        "decoding_input",
+        "diarizing",
+        "publishing",
+        "failed",
+        "canceled",
+        "interrupted",
+    }
+)
+_SAFE_TASK_ERROR_MESSAGES = {**DIARIZATION_ERROR_MESSAGES, **TASK_ERROR_MESSAGES}
 
 
 def access_link(state: AuthState, settings: Settings) -> str:
@@ -104,20 +137,23 @@ def prepare_model(settings: Settings) -> int:
     return 0
 
 
-def _load_torchcodec_audio_decoder():
-    from torchcodec.decoders import AudioDecoder
-
-    return AudioDecoder
-
-
-def check_runtime(settings: Settings) -> int:
+def check_runtime(settings: Settings, *, verbose: bool = False) -> int:
     profile = _select_runtime(settings)
     if profile is None:
         return 1
-    try:
-        _load_torchcodec_audio_decoder()
-    except (ImportError, OSError, RuntimeError) as error:
-        print(f"Local diarization audio decoder is unavailable: {error}", file=sys.stderr)
+    diarization_error = _run_diarization_preflight(
+        model_path=settings.diarization_model_path,
+        device=profile.device,
+        verbose=verbose,
+    )
+    if diarization_error is not None:
+        code, message = diarization_error
+        print(f"{code}: {message}", file=sys.stderr)
+        if not verbose:
+            print(
+                "Re-run runtime check with --verbose to show local traceback details.",
+                file=sys.stderr,
+            )
         return 1
     if profile.device == "cuda":
         print(
@@ -126,6 +162,94 @@ def check_runtime(settings: Settings) -> int:
     else:
         print(
             f"CPU fallback is ready; local ASR model: {profile.model_path} ({profile.compute_type})"
+        )
+    print(f"Local Community-1 diarization model is ready on {profile.device}.")
+    return 0
+
+
+def _run_diarization_preflight(
+    *, model_path: Path, device: str, verbose: bool = False
+) -> tuple[str, str] | None:
+    """Keep CTranslate2 and torch CUDA initialization in separate processes."""
+    command = [
+        sys.executable,
+        "-m",
+        "asr_en_vi.diarization_runner",
+        "--check-runtime",
+        "--model",
+        str(model_path),
+        "--device",
+        device,
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=None if verbose else subprocess.DEVNULL,
+            text=True,
+            timeout=300,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return safe_diarization_error(None, None)
+    if result.returncode == 0:
+        return None
+    for line in reversed(result.stdout.splitlines()):
+        try:
+            event = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(event, dict) and event.get("type") == "error":
+            return safe_diarization_error(event.get("code"), event.get("message"))
+    return safe_diarization_error(None, None)
+
+
+def diagnose_task(settings: Settings, task_id: str) -> int:
+    """Print only stable task fields and allowlisted diarization details."""
+    if not _TASK_ID_RE.fullmatch(task_id):
+        print("Task ID must be 32 lowercase hexadecimal characters.", file=sys.stderr)
+        return 2
+    try:
+        task = get_task(settings.data_dir, task_id)
+    except TaskError as error:
+        if error.code == "task_not_found":
+            print("Task not found.", file=sys.stderr)
+        else:
+            print("Task diagnostics are unavailable.", file=sys.stderr)
+        return 1
+    except sqlite3.Error:
+        print("Task diagnostics are unavailable.", file=sys.stderr)
+        return 1
+
+    meeting_id = task.get("meeting_id")
+    safe_meeting_id = (
+        meeting_id
+        if isinstance(meeting_id, str) and _TASK_ID_RE.fullmatch(meeting_id)
+        else "unknown"
+    )
+    status = task.get("status")
+    stage = task.get("stage")
+    error_code = task.get("error_code")
+    code = error_code if isinstance(error_code, str) else ""
+
+    print(f"Diagnostic ID: {task_id}")
+    print(f"Meeting ID: {safe_meeting_id}")
+    safe_status = status if status in _SAFE_TASK_STATES else "unknown"
+    safe_stage = stage if stage in _SAFE_TASK_STAGES else "unknown"
+    print(f"Status: {safe_status}")
+    print(f"Stage: {safe_stage}")
+    if safe_status == "failed" and safe_stage == "failed":
+        print("Failure phase: See worker logs for this Diagnostic ID.")
+    if not code:
+        print("Error: none")
+    elif code in _SAFE_TASK_ERROR_MESSAGES:
+        print(f"Code: {code}")
+        print(f"Message: {_SAFE_TASK_ERROR_MESSAGES[code]}")
+    else:
+        print("Code: other")
+        print(
+            "Message: This task failed during another local processing phase. "
+            "Check the worker logs or retry."
         )
     return 0
 
@@ -145,7 +269,16 @@ def _parser() -> argparse.ArgumentParser:
     model_commands.add_parser("prepare", help="download the selected local ASR model if needed")
     runtime_parser = commands.add_parser("runtime", help="validate local ASR execution")
     runtime_commands = runtime_parser.add_subparsers(dest="runtime_command", required=True)
-    runtime_commands.add_parser("check", help="validate the model and compute runtime")
+    runtime_check_parser = runtime_commands.add_parser(
+        "check", help="validate the model and compute runtime"
+    )
+    runtime_check_parser.add_argument(
+        "--verbose", action="store_true", help="show local preflight traceback details"
+    )
+    task_parser = commands.add_parser("task", help="inspect a local processing task")
+    task_commands = task_parser.add_subparsers(dest="task_command", required=True)
+    diagnose_parser = task_commands.add_parser("diagnose", help="show safe task diagnostics")
+    diagnose_parser.add_argument("task_id")
     return parser
 
 
@@ -159,7 +292,9 @@ def main(argv: list[str] | None = None) -> int:
             return prepare_model(settings)
         return check_model(settings)
     if arguments.command == "runtime":
-        return check_runtime(settings)
+        return check_runtime(settings, verbose=arguments.verbose)
+    if arguments.command == "task":
+        return diagnose_task(settings, arguments.task_id)
 
     store = AuthStore(settings.auth_dir)
     if arguments.access_command == "show":

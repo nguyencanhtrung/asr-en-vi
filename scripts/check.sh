@@ -2,6 +2,8 @@
 
 set -eu
 
+./scripts/check-shell-syntax.sh
+
 uv sync --all-groups --locked
 uv run --no-sync ruff check src tests
 uv run --no-sync ruff format --check src tests

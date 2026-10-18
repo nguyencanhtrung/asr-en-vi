@@ -17,26 +17,9 @@ compose_runtime() {
     fi
 }
 
-compose_build build
-requested_device=$(compose_build config --environment | sed -n 's/^ASR_DEVICE=//p')
-requested_device=${requested_device:-auto}
-if [ "$requested_device" = "cpu" ]; then
-    echo "CPU backend requested; selecting whisper-small."
-elif docker run --rm --gpus all --entrypoint python asr-en-vi:local -c \
-    'import ctranslate2; raise SystemExit(0 if ctranslate2.get_cuda_device_count() else 1)' \
-    >/dev/null 2>&1; then
-    gpu_compose_file="compose.gpu.yaml"
-    echo "Detected NVIDIA GPU; selecting CUDA and whisper-large-v3."
-elif [ "$requested_device" = "cuda" ] || \
-    { command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; }; then
-    echo "NVIDIA GPU requested or detected, but Docker cannot expose it." >&2
-    echo "Check the NVIDIA driver and NVIDIA Container Toolkit." >&2
-    exit 1
-else
-    echo "No NVIDIA GPU detected; selecting CPU and whisper-small."
-fi
-
 compose_environment=$(compose_build config --environment)
+requested_device=$(printf '%s\n' "$compose_environment" | sed -n 's/^ASR_DEVICE=//p')
+requested_device=${requested_device:-auto}
 model_host_path=$(printf '%s\n' "$compose_environment" | sed -n 's/^ASR_MODEL_HOST_PATH=//p')
 model_host_path=${model_host_path:-./models}
 mkdir -p "$model_host_path"
@@ -59,6 +42,16 @@ case "$diarization_relative_path" in
         ;;
 esac
 diarization_model_path="$model_host_path/$diarization_relative_path"
+print_community_1_download_guidance() {
+    echo "Before downloading, accept the Community-1 conditions at:" >&2
+    echo "  https://huggingface.co/pyannote/speaker-diarization-community-1" >&2
+    echo "Authenticate on this host with: hf auth login --add-to-git-credential" >&2
+    echo "Then run:" >&2
+    echo "  git lfs install" >&2
+    echo "  git clone https://hf.co/pyannote/speaker-diarization-community-1 \"$diarization_model_path\"" >&2
+    echo "Move any incomplete copy out of the way before cloning." >&2
+}
+
 for required_model_file in \
     config.yaml \
     embedding/pytorch_model.bin \
@@ -66,14 +59,45 @@ for required_model_file in \
     plda/xvec_transform.npz \
     segmentation/pytorch_model.bin
 do
-    if [ ! -f "$diarization_model_path/$required_model_file" ]; then
+    required_model_path="$diarization_model_path/$required_model_file"
+    if [ ! -f "$required_model_path" ]; then
         echo "Community-1 is incomplete at: $diarization_model_path" >&2
         echo "Missing required file: $required_model_file" >&2
-        echo "Accept the model terms, authenticate on the host, and download it before starting." >&2
-        echo "See the 'Model speaker diarization local' section in README.md." >&2
+        print_community_1_download_guidance
+        exit 1
+    fi
+    if [ ! -s "$required_model_path" ]; then
+        echo "Community-1 is incomplete at: $diarization_model_path" >&2
+        echo "Required file is empty: $required_model_file" >&2
+        print_community_1_download_guidance
+        exit 1
+    fi
+    lfs_pointer_prefix='version https://git-lfs.github.com/spec/v1'
+    if dd if="$required_model_path" bs="${#lfs_pointer_prefix}" count=1 2>/dev/null | \
+        LC_ALL=C grep -F -x "$lfs_pointer_prefix" >/dev/null 2>&1; then
+        echo "Community-1 is incomplete at: $diarization_model_path" >&2
+        echo "Required file is an unresolved Git LFS pointer: $required_model_file" >&2
+        print_community_1_download_guidance
         exit 1
     fi
 done
+
+compose_build build
+if [ "$requested_device" = "cpu" ]; then
+    echo "CPU backend requested; selecting whisper-small."
+elif docker run --rm --gpus all --entrypoint python asr-en-vi:local -c \
+    'import ctranslate2; raise SystemExit(0 if ctranslate2.get_cuda_device_count() else 1)' \
+    >/dev/null 2>&1; then
+    gpu_compose_file="compose.gpu.yaml"
+    echo "Detected NVIDIA GPU; selecting CUDA and whisper-large-v3."
+elif [ "$requested_device" = "cuda" ] || \
+    { command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; }; then
+    echo "NVIDIA GPU requested or detected, but Docker cannot expose it." >&2
+    echo "Check the NVIDIA driver and NVIDIA Container Toolkit." >&2
+    exit 1
+else
+    echo "No NVIDIA GPU detected; selecting CPU and whisper-small."
+fi
 
 compose_runtime run --rm --no-deps --user "$(id -u):$(id -g)" \
     -e HF_HOME=/tmp/huggingface -v "$model_host_path:/models:rw" \

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 
 import huggingface_hub
 
 from asr_en_vi import cli
 from asr_en_vi.cli import main
+from asr_en_vi.diarization_runner import DIARIZATION_ERROR_MESSAGES
+from asr_en_vi.tasks import TASK_ERROR_MESSAGES
 
 
 def _prepared_model(path):
@@ -94,7 +98,9 @@ def test_runtime_check_rejects_missing_cuda_libraries(tmp_path, monkeypatch, cap
     assert "CUDA runtime library is unavailable" in captured.err
 
 
-def test_runtime_check_rejects_unloadable_diarization_audio_decoder(tmp_path, monkeypatch, capsys):
+def test_runtime_check_reports_sanitized_diarization_preflight_failure(
+    tmp_path, monkeypatch, capsys
+):
     model = _prepared_model(tmp_path / "prepared-model")
     monkeypatch.setenv("ASR_MODEL_PATH", str(model))
     monkeypatch.setenv("ASR_DEVICE", "cpu")
@@ -106,17 +112,23 @@ def test_runtime_check_rejects_unloadable_diarization_audio_decoder(tmp_path, mo
         lambda _device: {"int8", "float32"},
     )
 
-    def broken_decoder():
-        raise RuntimeError("missing libpython3.12.so.1.0")
-
-    monkeypatch.setattr(cli, "_load_torchcodec_audio_decoder", broken_decoder)
+    monkeypatch.setattr(
+        cli,
+        "_run_diarization_preflight",
+        lambda **_kwargs: (
+            "diarization_decoder_unavailable",
+            DIARIZATION_ERROR_MESSAGES["diarization_decoder_unavailable"],
+        ),
+    )
 
     assert main(["runtime", "check"]) == 1
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "Local diarization audio decoder is unavailable" in captured.err
-    assert "libpython3.12.so.1.0" in captured.err
+    assert "diarization_decoder_unavailable" in captured.err
+    assert DIARIZATION_ERROR_MESSAGES["diarization_decoder_unavailable"] in captured.err
+    assert "runtime check with --verbose" in captured.err
+    assert "libpython" not in captured.err
     assert "Traceback" not in captured.err
 
 
@@ -132,15 +144,169 @@ def test_runtime_check_accepts_cuda_model_device_and_compute_type(tmp_path, monk
         "get_supported_compute_types",
         lambda _device: {"float16", "float32", "int8_float16"},
     )
-    monkeypatch.setattr(cli, "_load_torchcodec_audio_decoder", lambda: object())
+    preflight_calls = []
+
+    def preflight(*, model_path, device, verbose):
+        preflight_calls.append((model_path, device, verbose))
+        return None
+
+    monkeypatch.setattr(cli, "_run_diarization_preflight", preflight)
 
     assert main(["runtime", "check"]) == 0
 
     captured = capsys.readouterr()
     assert str(model) in captured.out
     assert "NVIDIA GPU is ready" in captured.out
+    assert "Community-1 diarization model is ready on cuda" in captured.out
     assert "float16" in captured.out
     assert captured.err == ""
+    assert preflight_calls == [(cli.Settings.from_env().diarization_model_path, "cuda", False)]
+
+
+def test_diarization_preflight_isolated_process_accepts_only_safe_child_errors(
+    tmp_path, monkeypatch
+):
+    observed = {}
+
+    def run(command, **kwargs):
+        observed["command"] = command
+        observed["kwargs"] = kwargs
+        event = {
+            "type": "error",
+            "code": "diarization_cuda_failed",
+            "message": "vendor detail /private/path token=secret",
+        }
+        return subprocess.CompletedProcess(command, 1, stdout=json.dumps(event), stderr="")
+
+    monkeypatch.setattr(cli.subprocess, "run", run)
+
+    result = cli._run_diarization_preflight(model_path=tmp_path / "model", device="cuda")
+
+    assert result == (
+        "diarization_failed",
+        DIARIZATION_ERROR_MESSAGES["diarization_failed"],
+    )
+    assert observed["command"][:3] == [sys.executable, "-m", "asr_en_vi.diarization_runner"]
+    assert "--check-runtime" in observed["command"]
+    assert observed["kwargs"]["stderr"] is subprocess.DEVNULL
+
+
+def test_diarization_preflight_verbose_mode_inherits_stderr(tmp_path, monkeypatch):
+    observed = {}
+
+    def run(command, **kwargs):
+        observed.update(kwargs)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr=None)
+
+    monkeypatch.setattr(cli.subprocess, "run", run)
+
+    assert (
+        cli._run_diarization_preflight(model_path=tmp_path / "model", device="cuda", verbose=True)
+        is None
+    )
+    assert observed["stderr"] is None
+
+
+def test_task_diagnose_prints_only_allowlisted_diarization_details(tmp_path, monkeypatch, capsys):
+    task_id = "a" * 32
+    monkeypatch.setenv("ASR_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ASR_AUTH_DIR", str(tmp_path / "auth"))
+    monkeypatch.setattr(
+        cli,
+        "get_task",
+        lambda _data_dir, _task_id: {
+            "id": task_id,
+            "meeting_id": "b" * 32,
+            "status": "failed",
+            "stage": "failed",
+            "error_code": "diarization_input_decode_failed",
+            "error_message": "vendor path /private/model/token=secret",
+        },
+    )
+
+    assert main(["task", "diagnose", task_id]) == 0
+
+    captured = capsys.readouterr()
+    assert f"Diagnostic ID: {task_id}" in captured.out
+    assert f"Meeting ID: {'b' * 32}" in captured.out
+    assert "Failure phase: See worker logs for this Diagnostic ID." in captured.out
+    assert "Code: diarization_input_decode_failed" in captured.out
+    assert DIARIZATION_ERROR_MESSAGES["diarization_input_decode_failed"] in captured.out
+    assert "vendor path" not in captured.out
+    assert "secret" not in captured.out
+    assert captured.err == ""
+
+
+def test_task_diagnose_allowlists_publication_failure(tmp_path, monkeypatch, capsys):
+    task_id = "e" * 32
+    monkeypatch.setenv("ASR_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ASR_AUTH_DIR", str(tmp_path / "auth"))
+    monkeypatch.setattr(
+        cli,
+        "get_task",
+        lambda _data_dir, _task_id: {
+            "meeting_id": "f" * 32,
+            "status": "failed",
+            "stage": "failed",
+            "error_code": "publication_failed",
+            "error_message": "database is locked at /private/path",
+        },
+    )
+
+    assert main(["task", "diagnose", task_id]) == 0
+
+    captured = capsys.readouterr()
+    assert "Code: publication_failed" in captured.out
+    assert TASK_ERROR_MESSAGES["publication_failed"] in captured.out
+    assert "database is locked" not in captured.out
+    assert "/private/path" not in captured.out
+    assert captured.err == ""
+
+
+def test_task_diagnose_sanitizes_unknown_codes_and_rejects_malformed_ids(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("ASR_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ASR_AUTH_DIR", str(tmp_path / "auth"))
+    monkeypatch.setattr(
+        cli,
+        "get_task",
+        lambda _data_dir, _task_id: {
+            "meeting_id": "b" * 32,
+            "status": "failed",
+            "stage": "failed",
+            "error_code": "vendor_exception\u001b[31m",
+            "error_message": "token=secret",
+        },
+    )
+
+    assert main(["task", "diagnose", "\u001b[31munknown"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "32 lowercase hexadecimal" in captured.err
+
+    assert main(["task", "diagnose", "c" * 32]) == 0
+    captured = capsys.readouterr()
+    assert "Code: other" in captured.out
+    assert "another local processing phase" in captured.out
+    assert "vendor_exception" not in captured.out
+    assert "secret" not in captured.out
+
+
+def test_task_diagnose_missing_database_is_read_only_and_fails_without_traceback(
+    tmp_path, monkeypatch, capsys
+):
+    data_dir = tmp_path / "missing-data"
+    monkeypatch.setenv("ASR_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("ASR_AUTH_DIR", str(tmp_path / "auth"))
+
+    assert main(["task", "diagnose", "d" * 32]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "Task diagnostics are unavailable.\n"
+    assert "Traceback" not in captured.err
+    assert not (data_dir / "app.sqlite3").exists()
 
 
 def test_model_prepare_downloads_the_automatically_selected_cpu_model(
