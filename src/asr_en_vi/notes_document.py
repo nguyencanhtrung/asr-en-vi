@@ -12,7 +12,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 SCHEMA_VERSION = 1
-PROMPT_VERSION = "notes-hierarchical-v3"
+PROMPT_VERSION = "notes-hierarchical-v4"
 _MAX_PROMPT_HARD_LIMIT_BYTES = 48_000
 # max_output_tokens includes hidden reasoning as well as the visible JSON.
 # Keep planning and transport on the same bounded reasoning/output allocation.
@@ -23,6 +23,8 @@ MAX_SOURCE_IDS_PER_SCOPE = 999
 MAX_SOURCE_REFS_PER_ITEM = 200
 MAX_OUTPUT_BYTES = 128_000
 MAX_CHUNK_OUTPUT_BYTES = 8_000
+MAX_REDUCTION_OUTPUT_BYTES = 16_000
+MAX_REDUCTION_TARGET_BYTES = 12_000
 MAX_REPAIR_OUTPUT_BYTES = 8_000
 MAX_TOTAL_SOURCE_BYTES = 1_000_000
 MAX_NOTES_CHUNKS = 24
@@ -552,7 +554,7 @@ def provider_source(snapshot: dict[str, Any]) -> dict[str, Any]:
 
 def _source_instructions(*, chunk_index: int | None = None, chunk_count: int | None = None) -> str:
     instructions = (
-        "Produce English meeting notes as JSON matching the supplied schema version 1. "
+        "Produce English meeting notes as compact JSON matching the supplied schema version 1. "
         "Use all six sections: overview, key_topics, decisions, open_questions, action_items, "
         "confirmation_items. Each item needs text and source_ids. Decisions and confirmed action "
         "items require at least one source ID from the supplied transcript. Reference only those "
@@ -815,11 +817,14 @@ def _reduction_instructions(*, final: bool) -> str:
     )
     if not final:
         instructions += (
-            f"Keep this intermediate JSON document within {MAX_CHUNK_OUTPUT_BYTES} UTF-8 bytes. "
-            "Use concise item text and consolidate repetitions while retaining distinct points, "
-            "unresolved ambiguity, chronological supersession and all supporting source IDs for "
-            "the next reduction step.\n"
+            "Keep this intermediate JSON document within "
+            f"{MAX_REDUCTION_OUTPUT_BYTES} UTF-8 bytes, "
+            f"aiming for {MAX_REDUCTION_TARGET_BYTES} bytes or less. Return compact JSON. "
+            "Consolidate repetitions while retaining distinct points, uncertainty, chronological "
+            "supersession and all supporting source IDs for the next reduction step.\n"
         )
+    else:
+        instructions += "Return compact JSON.\n"
     return instructions
 
 

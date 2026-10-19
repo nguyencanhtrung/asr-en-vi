@@ -27,6 +27,9 @@ import httpx
 import jwt
 
 from asr_en_vi.notes_document import (
+    MAX_OUTPUT_BYTES,
+    MAX_PROMPT_BYTES,
+    MAX_PROVIDER_CALLS,
     NOTES_ACTION_FIELD_NAMES,
     NOTES_MAX_OUTPUT_TOKENS,
     NOTES_VALIDATION_DETAIL_CODES,
@@ -82,18 +85,57 @@ _NOTES_VALIDATION_ATTEMPTS = frozenset({"primary", "repair"})
 _NOTES_REPAIR_STATES = frozenset({"unavailable", "already_consumed"})
 
 
-def _safe_notes_validation_diagnostics(diagnostics: object) -> dict[str, Any]:
+def _bounded_diagnostic_int(value: object, *, minimum: int, maximum: int) -> int | None:
+    if type(value) is int and minimum <= value <= maximum:
+        return value
+    return None
+
+
+def _safe_notes_call_diagnostics(diagnostics: object) -> dict[str, Any]:
     if not isinstance(diagnostics, dict):
         return {}
     result: dict[str, Any] = {}
+    stage = diagnostics.get("stage")
+    attempt = diagnostics.get("attempt")
+    repair_state = diagnostics.get("repair_state")
+    if isinstance(stage, str) and stage in _NOTES_VALIDATION_STAGES:
+        result["stage"] = stage
+    if isinstance(attempt, str) and attempt in _NOTES_VALIDATION_ATTEMPTS:
+        result["attempt"] = attempt
+    bounded_fields = (
+        ("provider_call_index", 1, MAX_PROVIDER_CALLS),
+        ("prompt_bytes", 0, MAX_PROMPT_BYTES),
+        ("response_limit", 1, MAX_OUTPUT_BYTES),
+        ("output_bytes", 0, NOTES_MAX_SSE_BODY_BYTES),
+    )
+    for field, minimum, maximum in bounded_fields:
+        value = _bounded_diagnostic_int(diagnostics.get(field), minimum=minimum, maximum=maximum)
+        if value is not None:
+            result[field] = value
+    if isinstance(repair_state, str) and repair_state in _NOTES_REPAIR_STATES:
+        result["repair_state"] = repair_state
+    body_shape = diagnostics.get("body_shape")
+    if isinstance(body_shape, str) and body_shape in {"non_json", "detail", "error"}:
+        result["body_shape"] = body_shape
+    http_status = _bounded_diagnostic_int(diagnostics.get("http_status"), minimum=100, maximum=599)
+    if http_status is not None:
+        result["http_status"] = http_status
+    request_id = diagnostics.get("request_id")
+    if isinstance(request_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,200}", request_id):
+        result["request_id"] = request_id
+    param = diagnostics.get("param")
+    if isinstance(param, str) and re.fullmatch(r"[A-Za-z0-9_.\[\]-]{1,200}", param):
+        result["param"] = param
+    return result
+
+
+def _safe_notes_validation_diagnostics(diagnostics: object) -> dict[str, Any]:
+    if not isinstance(diagnostics, dict):
+        return {}
+    result = _safe_notes_call_diagnostics(diagnostics)
     reason = diagnostics.get("validation_reason")
     detail = diagnostics.get("validation_detail")
     field_name = diagnostics.get("validation_field")
-    stage = diagnostics.get("stage")
-    call_index = diagnostics.get("provider_call_index")
-    attempt = diagnostics.get("attempt")
-    output_bytes = diagnostics.get("output_bytes")
-    repair_state = diagnostics.get("repair_state")
     if isinstance(reason, str) and reason in NOTES_VALIDATION_REASON_CODES:
         result["validation_reason"] = reason
     if (
@@ -108,16 +150,6 @@ def _safe_notes_validation_diagnostics(diagnostics: object) -> dict[str, Any]:
         and field_name in NOTES_ACTION_FIELD_NAMES
     ):
         result["validation_field"] = field_name
-    if isinstance(stage, str) and stage in _NOTES_VALIDATION_STAGES:
-        result["stage"] = stage
-    if isinstance(call_index, int) and not isinstance(call_index, bool) and call_index > 0:
-        result["provider_call_index"] = call_index
-    if isinstance(attempt, str) and attempt in _NOTES_VALIDATION_ATTEMPTS:
-        result["attempt"] = attempt
-    if isinstance(output_bytes, int) and not isinstance(output_bytes, bool) and output_bytes >= 0:
-        result["output_bytes"] = output_bytes
-    if isinstance(repair_state, str) and repair_state in _NOTES_REPAIR_STATES:
-        result["repair_state"] = repair_state
     return result
 
 
@@ -993,6 +1025,12 @@ class ChatGPTHTTPAdapter:
         delta_text: list[str] = []
         total_text = 0
         response: httpx.Response | None = None
+
+        def with_observed_output_bytes(error: ChatGPTError) -> ChatGPTError:
+            diagnostics = error.diagnostics if isinstance(error.diagnostics, dict) else {}
+            error.diagnostics = {**diagnostics, "output_bytes": total_text}
+            return error
+
         with self._client(read_timeout=NOTES_HTTP_READ_TIMEOUT_SECONDS) as client:
             deadline = time.monotonic() + NOTES_HTTP_TOTAL_TIMEOUT_SECONDS
             try:
@@ -1038,10 +1076,12 @@ class ChatGPTHTTPAdapter:
                                 )
                             total_text += len(delta.encode("utf-8"))
                             if total_text > response_limit:
-                                raise ChatGPTError(
-                                    502,
-                                    "provider_output_too_large",
-                                    "ChatGPT returned an oversized notes document.",
+                                raise with_observed_output_bytes(
+                                    ChatGPTError(
+                                        502,
+                                        "provider_output_too_large",
+                                        "ChatGPT returned an oversized notes document.",
+                                    )
                                 )
                             delta_text.append(delta)
                         elif event_type == "response.failed":
@@ -1083,30 +1123,43 @@ class ChatGPTHTTPAdapter:
                                 )
                             completed = True
                             if not delta_text:
-                                delta_text.extend(self._completed_output_text(event))
+                                completed_text = self._completed_output_text(event)
+                                delta_text.extend(completed_text)
+                                total_text = sum(
+                                    len(part.encode("utf-8")) for part in completed_text
+                                )
                             break
             except ChatGPTError as error:
+                with_observed_output_bytes(error)
                 if response is not None:
                     correlation = self._diagnostics(response, None)
                     correlation.update(error.diagnostics)
                     error.diagnostics = correlation
                 raise
             except httpx.TimeoutException:
-                raise ChatGPTError(
-                    503, "provider_timeout", "ChatGPT did not complete the notes request."
+                raise with_observed_output_bytes(
+                    ChatGPTError(
+                        503, "provider_timeout", "ChatGPT did not complete the notes request."
+                    )
                 ) from None
             except httpx.HTTPError:
-                raise ChatGPTError(
-                    503, "provider_unavailable", "ChatGPT could not complete the notes request."
+                raise with_observed_output_bytes(
+                    ChatGPTError(
+                        503, "provider_unavailable", "ChatGPT could not complete the notes request."
+                    )
                 ) from None
         if not completed:
-            raise ChatGPTError(
-                502, "notes_incomplete", "ChatGPT did not complete the notes request."
+            raise with_observed_output_bytes(
+                ChatGPTError(502, "notes_incomplete", "ChatGPT did not complete the notes request.")
             )
         result = "".join(delta_text)
         if len(result.encode("utf-8")) > response_limit:
-            raise ChatGPTError(
-                502, "provider_output_too_large", "ChatGPT returned an oversized notes document."
+            raise with_observed_output_bytes(
+                ChatGPTError(
+                    502,
+                    "provider_output_too_large",
+                    "ChatGPT returned an oversized notes document.",
+                )
             )
         return result
 
@@ -1878,6 +1931,10 @@ class ChatGPTProvider:
         diagnostics = error.diagnostics
         if error.code == "notes_invalid_output":
             diagnostics = _safe_notes_validation_diagnostics(diagnostics)
+        elif isinstance(diagnostics, dict) and diagnostics.get("stage") in _NOTES_VALIDATION_STAGES:
+            diagnostics = _safe_notes_call_diagnostics(diagnostics)
+        elif not isinstance(diagnostics, dict):
+            diagnostics = {}
         with self.store.locked(write=True) as state:
             state["last_diagnostic"] = {
                 "code": error.code,
@@ -2065,6 +2122,7 @@ class ChatGPTProvider:
             MAX_PROVIDER_CALLS,
             MAX_REDUCTION_CALLS,
             MAX_REDUCTION_LEVELS,
+            MAX_REDUCTION_OUTPUT_BYTES,
             NotesDocumentError,
             _prompt_citation_scope,
             build_chunk_prompt,
@@ -2073,7 +2131,6 @@ class ChatGPTProvider:
             normalize_duplicate_source_refs,
             plan_source,
             project_source_snapshot,
-            prompt_fits_repair,
             restore_source_refs,
             validate_document,
         )
@@ -2103,6 +2160,8 @@ class ChatGPTProvider:
                 *,
                 allowed_source_ids: Sequence[str],
                 max_output_bytes: int,
+                stage: str,
+                attempt: str,
             ) -> str:
                 nonlocal call_count
                 if call_count >= MAX_PROVIDER_CALLS:
@@ -2112,6 +2171,8 @@ class ChatGPTProvider:
                         "This transcript exceeds the bounded notes synthesis request limit.",
                     )
                 call_count += 1
+                provider_call_index = call_count
+                prompt_bytes = len(prompt.encode("utf-8"))
                 access_token = self._access_token(
                     minimum_lifetime_seconds=(
                         NOTES_HTTP_TOTAL_TIMEOUT_SECONDS + ACCESS_REFRESH_MARGIN_SECONDS
@@ -2127,6 +2188,19 @@ class ChatGPTProvider:
                         max_output_bytes=max_output_bytes,
                     )
                 except ChatGPTError as error:
+                    diagnostics = (
+                        dict(error.diagnostics) if isinstance(error.diagnostics, dict) else {}
+                    )
+                    diagnostics.update(
+                        {
+                            "stage": stage,
+                            "attempt": attempt,
+                            "provider_call_index": provider_call_index,
+                            "prompt_bytes": prompt_bytes,
+                            "response_limit": max_output_bytes,
+                        }
+                    )
+                    error.diagnostics = _safe_notes_call_diagnostics(diagnostics)
                     self._record_failure(error)
                     if error.code in _RECONNECT_ERROR_CODES:
                         self._mark_reconnect_required(error.code)
@@ -2141,6 +2215,8 @@ class ChatGPTProvider:
                 raw_output: object,
                 repair_state: str | None,
                 reported_output_bytes: int | None = None,
+                prompt_bytes: int | None = None,
+                response_limit: int | None = None,
             ) -> ChatGPTError:
                 error = ChatGPTError(
                     502,
@@ -2155,6 +2231,10 @@ class ChatGPTProvider:
                     diagnostics["attempt"] = attempt
                 if repair_state is not None:
                     diagnostics["repair_state"] = repair_state
+                if prompt_bytes is not None:
+                    diagnostics["prompt_bytes"] = prompt_bytes
+                if response_limit is not None:
+                    diagnostics["response_limit"] = response_limit
                 reason = getattr(validation_error, "reason_code", None)
                 if isinstance(reason, str) and reason in NOTES_VALIDATION_REASON_CODES:
                     diagnostics["validation_reason"] = reason
@@ -2228,6 +2308,8 @@ class ChatGPTProvider:
                     prompt,
                     allowed_source_ids=allowed_source_ids,
                     max_output_bytes=max_output_bytes,
+                    stage=stage,
+                    attempt="primary",
                 )
                 provider_call_index = call_count
                 try:
@@ -2247,6 +2329,8 @@ class ChatGPTProvider:
                             attempt="primary",
                             raw_output=raw_output,
                             repair_state="already_consumed",
+                            prompt_bytes=len(prompt.encode("utf-8")),
+                            response_limit=max_output_bytes,
                         ) from None
                     repair_used = True
                     try:
@@ -2259,11 +2343,15 @@ class ChatGPTProvider:
                             attempt="primary",
                             raw_output=raw_output,
                             repair_state="unavailable",
+                            prompt_bytes=len(prompt.encode("utf-8")),
+                            response_limit=max_output_bytes,
                         ) from None
                     repaired_output = request(
                         bounded_repair_prompt,
                         allowed_source_ids=allowed_source_ids,
                         max_output_bytes=max_output_bytes,
+                        stage=stage,
+                        attempt="repair",
                     )
                     repair_call_index = call_count
                     try:
@@ -2282,6 +2370,8 @@ class ChatGPTProvider:
                             attempt="repair",
                             raw_output=repaired_output,
                             repair_state="already_consumed",
+                            prompt_bytes=len(bounded_repair_prompt.encode("utf-8")),
+                            response_limit=max_output_bytes,
                         ) from None
 
             def restore_final_document(document: dict[str, Any], *, stage: str) -> dict[str, Any]:
@@ -2366,15 +2456,8 @@ class ChatGPTProvider:
             for _level in range(MAX_REDUCTION_LEVELS):
                 final_prompt = None
                 final_scope = _prompt_citation_scope(projected_snapshot, documents)
-                final_source_ids = tuple(segment["id"] for segment in final_scope["segments"])
-                try:
-                    candidate_final = build_reduction_prompt(
-                        projected_snapshot, documents, final=True
-                    )
-                    if prompt_fits_repair(candidate_final, allowed_source_ids=final_source_ids):
-                        final_prompt = candidate_final
-                except NotesDocumentError:
-                    pass
+                with suppress(NotesDocumentError):
+                    final_prompt = build_reduction_prompt(projected_snapshot, documents, final=True)
                 if final_prompt is not None:
                     if reduction_calls >= MAX_REDUCTION_CALLS:
                         raise ChatGPTError(
@@ -2397,32 +2480,29 @@ class ChatGPTProvider:
                 groups: list[list[dict[str, Any]]] = []
                 current: list[dict[str, Any]] = []
                 for document in documents:
-                    candidate = [*current, document]
-                    fits = False
                     try:
-                        intermediate_prompt = build_reduction_prompt(
-                            projected_snapshot, candidate, final=False
-                        )
-                        candidate_scope = _prompt_citation_scope(projected_snapshot, candidate)
-                        candidate_source_ids = tuple(
-                            segment["id"] for segment in candidate_scope["segments"]
-                        )
-                        fits = prompt_fits_repair(
-                            intermediate_prompt, allowed_source_ids=candidate_source_ids
-                        )
+                        build_reduction_prompt(projected_snapshot, [document], final=False)
                     except NotesDocumentError:
-                        pass
-                    if fits:
-                        current = candidate
-                        continue
-                    if not current:
                         raise ChatGPTError(
                             413,
                             "notes_synthesis_limit_exceeded",
                             "A notes summary exceeds the bounded synthesis request limit.",
-                        )
-                    groups.append(current)
-                    current = [document]
+                        ) from None
+                    if not current:
+                        current = [document]
+                        continue
+                    if len(current) >= 2:
+                        groups.append(current)
+                        current = [document]
+                        continue
+                    candidate = [*current, document]
+                    try:
+                        build_reduction_prompt(projected_snapshot, candidate, final=False)
+                    except NotesDocumentError:
+                        groups.append(current)
+                        current = [document]
+                    else:
+                        current = candidate
                 if current:
                     groups.append(current)
 
@@ -2446,7 +2526,7 @@ class ChatGPTProvider:
                         request_document(
                             intermediate_prompt,
                             group_scope,
-                            max_output_bytes=MAX_CHUNK_OUTPUT_BYTES,
+                            max_output_bytes=MAX_REDUCTION_OUTPUT_BYTES,
                             stage="reduce",
                             repair_prompt=lambda raw, inputs=group: build_reduction_prompt(
                                 projected_snapshot, inputs, final=False, invalid_output=raw

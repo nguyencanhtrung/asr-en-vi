@@ -258,11 +258,16 @@ def test_notes_request_caps_output_tokens_and_returns_only_a_completed_result():
     assert len(requests[0].content) <= NOTES_MAX_REQUEST_BODY_BYTES
 
 
-def test_notes_request_enforces_the_per_stage_stream_output_cap():
+@pytest.mark.parametrize(("response_limit", "observed_output_bytes"), [(4, 5), (16_000, 16_001)])
+def test_notes_request_enforces_the_per_stage_stream_output_cap(
+    response_limit, observed_output_bytes
+):
     stream = (
-        b'data: {"type":"response.output_text.delta","delta":"12345"}\n\n'
-        b'data: {"type":"response.completed","response":{"output":[]}}\n\n'
-    )
+        "data: "
+        + json.dumps({"type": "response.output_text.delta", "delta": "x" * observed_output_bytes})
+        + "\n\n"
+        + 'data: {"type":"response.completed","response":{"output":[]}}\n\n'
+    ).encode("utf-8")
     adapter = ChatGPTHTTPAdapter(
         transport=httpx.MockTransport(
             lambda _request: httpx.Response(
@@ -278,10 +283,48 @@ def test_notes_request_enforces_the_per_stage_stream_output_cap():
             reasoning_effort="high",
             prompt="Bounded test prompt.",
             allowed_source_ids=(),
-            max_output_bytes=4,
+            max_output_bytes=response_limit,
         )
 
     assert oversized.value.code == "provider_output_too_large"
+    assert oversized.value.diagnostics["output_bytes"] == observed_output_bytes
+
+
+def test_notes_completed_output_over_cap_reports_observed_text_bytes():
+    output_text = "x" * 16_001
+    completed = {
+        "type": "response.completed",
+        "response": {
+            "output": [
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": output_text}],
+                }
+            ]
+        },
+    }
+    adapter = ChatGPTHTTPAdapter(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content="data: " + json.dumps(completed) + "\n\n",
+            )
+        )
+    )
+
+    with pytest.raises(ChatGPTError) as oversized:
+        adapter.generate_notes(
+            access_token="test-token",
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+            prompt="Bounded test prompt.",
+            allowed_source_ids=(),
+            max_output_bytes=16_000,
+        )
+
+    assert oversized.value.code == "provider_output_too_large"
+    assert oversized.value.diagnostics["output_bytes"] == len(output_text.encode("utf-8"))
 
 
 def test_notes_reasoning_stream_can_finish_after_the_control_call_deadline(monkeypatch):

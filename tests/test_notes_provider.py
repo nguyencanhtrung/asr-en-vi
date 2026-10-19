@@ -175,6 +175,8 @@ class MutableClock:
 
 
 def test_invalid_first_result_gets_one_bounded_repair_on_the_pinned_account(tmp_path):
+    from asr_en_vi.notes_document import build_notes_schema
+
     adapter = NotesOnlyAdapter(["not-json", json.dumps(_valid_document())])
     provider = _provider(tmp_path, adapter)
 
@@ -195,6 +197,12 @@ def test_invalid_first_result_gets_one_bounded_repair_on_the_pinned_account(tmp_
     assert all(call.model == "gpt-6.1-sol" for call in adapter.calls)
     assert all(call.reasoning_effort == "high" for call in adapter.calls)
     assert all(call.max_output_bytes == 128_000 for call in adapter.calls)
+    for call in adapter.calls:
+        schema = build_notes_schema(call.allowed_source_ids)
+        schema_bytes = len(
+            json.dumps(schema, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        )
+        assert len(call.prompt.encode("utf-8")) + schema_bytes + 1_024 <= 35_000
     assert provider.store._read().get("last_diagnostic") is None
 
 
@@ -478,6 +486,8 @@ def test_invalid_output_keeps_safe_diagnostic_when_repair_cannot_fit(tmp_path):
     assert diagnostic["attempt"] == "primary"
     assert diagnostic["output_bytes"] == len(invalid_output.encode("utf-8"))
     assert diagnostic["repair_state"] == "unavailable"
+    assert diagnostic["prompt_bytes"] == len(adapter.calls[0].prompt.encode("utf-8"))
+    assert diagnostic["response_limit"] == 128_000
     assert "not-json" not in json.dumps(diagnostic)
 
 
@@ -790,6 +800,7 @@ def test_long_source_uses_bounded_multi_level_reduction_and_later_decision_wins(
     from asr_en_vi.notes_document import (
         MAX_CHUNK_OUTPUT_BYTES,
         MAX_NOTES_CHUNKS,
+        MAX_REDUCTION_OUTPUT_BYTES,
         project_source_snapshot,
     )
 
@@ -893,9 +904,20 @@ def test_long_source_uses_bounded_multi_level_reduction_and_later_decision_wins(
     assert len(reduction_calls) > 2
     assert max(reduction_levels) >= 2
     assert all(call.max_output_bytes == MAX_CHUNK_OUTPUT_BYTES for call in map_calls)
-    assert all(call.max_output_bytes == MAX_CHUNK_OUTPUT_BYTES for call in reduction_calls[:-1])
+    assert all(call.max_output_bytes == MAX_REDUCTION_OUTPUT_BYTES for call in reduction_calls[:-1])
     assert reduction_calls[-1].max_output_bytes == 128_000
     assert len(adapter.calls) <= 2 * MAX_NOTES_CHUNKS + 1
+    for call in reduction_calls:
+        records = json.loads(call.prompt.split("SYNTHESIS_INPUT_JSON:\n", 1)[1])["summaries"]
+        if "final meeting-level notes" not in call.prompt:
+            assert len(records) <= 2
+        previous_source_end = -1
+        for record in records:
+            source_order = list(record["source_order"].values())
+            assert source_order == sorted(source_order)
+            if source_order:
+                assert source_order[0] > previous_source_end
+                previous_source_end = source_order[-1]
     first_source_id = snapshot["segments"][0]["id"]
     last_source_id = snapshot["segments"][-1]["id"]
     projection = project_source_snapshot(snapshot)
@@ -910,3 +932,292 @@ def test_long_source_uses_bounded_multi_level_reduction_and_later_decision_wins(
     assert len(result["decisions"]) == 1
     assert "later Tuesday decision supersedes" in result["decisions"][0]["text"]
     assert result["confirmation_items"] == []
+
+
+def test_final_synthesis_uses_primary_budget_without_repair_reserve(tmp_path, monkeypatch):
+    from asr_en_vi import notes_document
+
+    monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
+    snapshot = _snapshot()
+    snapshot["segments"] = [
+        {
+            "id": f"{index:032x}",
+            "start_seconds": float(index),
+            "end_seconds": float(index + 1),
+            "text": "source detail " + "x" * 18_000,
+        }
+        for index in range(1, 5)
+    ]
+
+    def respond(prompt, max_output_bytes):
+        if "SOURCE_JSON:\n" in prompt:
+            source = json.loads(prompt.split("SOURCE_JSON:\n", 1)[1])
+            source_id = source["segments"][0]["id"]
+            result = _valid_document()
+            result["overview"] = [
+                {"text": "chunk summary " + "x" * 7_300, "source_ids": [source_id]}
+            ]
+            output = json.dumps(result, separators=(",", ":"))
+            assert len(output.encode("utf-8")) <= max_output_bytes
+            return output
+
+        payload = json.loads(prompt.split("SYNTHESIS_INPUT_JSON:\n", 1)[1])
+        source_ids = list(
+            dict.fromkeys(
+                source_id
+                for summary in payload["summaries"]
+                for source_id in summary["source_order"]
+            )
+        )
+        if "final meeting-level notes" not in prompt:
+            result = _valid_document()
+            result["overview"] = [{"text": "x" * 8_001, "source_ids": source_ids}]
+            return json.dumps(result, separators=(",", ":"))
+
+        result = _valid_document()
+        result["overview"] = [
+            {"text": "All four chunks were synthesized.", "source_ids": source_ids}
+        ]
+        return json.dumps(result, separators=(",", ":"))
+
+    adapter = NotesOnlyAdapter(responder=respond)
+    provider = _provider(tmp_path, adapter)
+
+    result = provider.generate_notes_document(
+        snapshot=snapshot,
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+    )
+
+    synthesis_calls = [call for call in adapter.calls if "SYNTHESIS_INPUT_JSON:\n" in call.prompt]
+    assert len(adapter.calls) == 5
+    assert len(synthesis_calls) == 1
+    assert "final meeting-level notes" in synthesis_calls[0].prompt
+    assert synthesis_calls[0].max_output_bytes == 128_000
+    assert result["overview"][0]["text"] == "All four chunks were synthesized."
+
+
+def test_final_repair_is_skipped_when_actual_prompt_budget_cannot_fit_it(tmp_path, monkeypatch):
+    from asr_en_vi import notes_document
+
+    monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
+    snapshot = _snapshot()
+    snapshot["segments"] = [
+        {
+            "id": f"{index:032x}",
+            "start_seconds": float(index),
+            "end_seconds": float(index + 1),
+            "text": "source detail " + "x" * 18_000,
+        }
+        for index in range(1, 5)
+    ]
+
+    def respond(prompt, _max_output_bytes):
+        if "SOURCE_JSON:\n" in prompt:
+            source = json.loads(prompt.split("SOURCE_JSON:\n", 1)[1])
+            source_id = source["segments"][0]["id"]
+            result = _valid_document()
+            result["overview"] = [
+                {"text": "chunk summary " + "x" * 7_300, "source_ids": [source_id]}
+            ]
+            return json.dumps(result, separators=(",", ":"))
+        assert "final meeting-level notes" in prompt
+        return "not-json" + "x" * (8_000 - len("not-json"))
+
+    adapter = NotesOnlyAdapter(responder=respond)
+    provider = _provider(tmp_path, adapter)
+
+    with pytest.raises(ChatGPTError) as failed:
+        provider.generate_notes_document(
+            snapshot=snapshot,
+            connection_version=7,
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+        )
+
+    assert failed.value.code == "notes_invalid_output"
+    assert len(adapter.calls) == 5
+    diagnostic = provider.store._read()["last_diagnostic"]
+    assert diagnostic["stage"] == "final"
+    assert diagnostic["attempt"] == "primary"
+    assert diagnostic["provider_call_index"] == 5
+    assert diagnostic["prompt_bytes"] == len(adapter.calls[-1].prompt.encode("utf-8"))
+    assert diagnostic["response_limit"] == 128_000
+    assert diagnostic["output_bytes"] == 8_000
+    assert diagnostic["repair_state"] == "unavailable"
+
+
+@pytest.mark.parametrize("intermediate_bytes", [11_500, 16_001])
+def test_intermediate_reduction_has_its_own_hard_output_budget(
+    tmp_path, monkeypatch, intermediate_bytes
+):
+    from asr_en_vi import notes_document
+    from asr_en_vi.notes_document import MAX_REDUCTION_OUTPUT_BYTES
+
+    monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
+    snapshot = _snapshot()
+    snapshot["segments"] = [
+        {
+            "id": f"{index:032x}",
+            "start_seconds": float(index),
+            "end_seconds": float(index + 1),
+            "text": "source detail " + "x" * 18_000,
+        }
+        for index in range(1, 7)
+    ]
+    reduction_outputs: list[str] = []
+
+    def respond(prompt, max_output_bytes):
+        if "SOURCE_JSON:\n" in prompt:
+            source = json.loads(prompt.split("SOURCE_JSON:\n", 1)[1])
+            source_id = source["segments"][0]["id"]
+            result = _valid_document()
+            result["overview"] = [
+                {"text": "chunk summary " + "x" * 7_300, "source_ids": [source_id]}
+            ]
+            output = json.dumps(result, separators=(",", ":"))
+            assert len(output.encode("utf-8")) <= max_output_bytes
+            return output
+
+        payload = json.loads(prompt.split("SYNTHESIS_INPUT_JSON:\n", 1)[1])
+        source_ids = list(
+            dict.fromkeys(
+                source_id
+                for summary in payload["summaries"]
+                for source_id in summary["source_order"]
+            )
+        )
+        if "final meeting-level notes" in prompt:
+            result = _valid_document()
+            result["overview"] = [
+                {"text": "All six chunks were synthesized.", "source_ids": source_ids}
+            ]
+            return json.dumps(result, separators=(",", ":"))
+
+        assert max_output_bytes == MAX_REDUCTION_OUTPUT_BYTES
+        result = _valid_document()
+        marker = f"reduce-{len(reduction_outputs) + 1}|"
+        result["overview"] = [{"text": marker, "source_ids": source_ids}]
+        compact = json.dumps(result, separators=(",", ":"))
+        target_text_bytes = intermediate_bytes - len(compact.encode("utf-8")) + len(marker)
+        result["overview"][0]["text"] += "r" * (target_text_bytes - len(marker))
+        output = json.dumps(result, separators=(",", ":"))
+        assert len(output.encode("utf-8")) == intermediate_bytes
+        reduction_outputs.append(output)
+        return output
+
+    adapter = NotesOnlyAdapter(responder=respond)
+    provider = _provider(tmp_path, adapter)
+
+    if intermediate_bytes > MAX_REDUCTION_OUTPUT_BYTES:
+        with pytest.raises(ChatGPTError) as failed:
+            provider.generate_notes_document(
+                snapshot=snapshot,
+                connection_version=7,
+                model="gpt-6.1-sol",
+                reasoning_effort="high",
+            )
+
+        assert failed.value.code == "notes_invalid_output"
+        diagnostic = provider.store._read()["last_diagnostic"]
+        assert diagnostic["stage"] == "reduce"
+        assert diagnostic["attempt"] == "primary"
+        assert diagnostic["provider_call_index"] == 7
+        assert diagnostic["response_limit"] == MAX_REDUCTION_OUTPUT_BYTES
+        assert diagnostic["output_bytes"] == intermediate_bytes
+        assert diagnostic["validation_reason"] == "size"
+        assert len(adapter.calls) == 7
+        return
+
+    result = provider.generate_notes_document(
+        snapshot=snapshot,
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+    )
+
+    reduction_calls = [call for call in adapter.calls if "SYNTHESIS_INPUT_JSON:\n" in call.prompt]
+    intermediate_calls = [
+        call for call in reduction_calls if "final meeting-level notes" not in call.prompt
+    ]
+    assert len(intermediate_calls) == 4
+    assert all(call.max_output_bytes == MAX_REDUCTION_OUTPUT_BYTES for call in intermediate_calls)
+    assert all(len(output.encode("utf-8")) == intermediate_bytes for output in reduction_outputs)
+    for call in reduction_calls:
+        summaries = json.loads(call.prompt.split("SYNTHESIS_INPUT_JSON:\n", 1)[1])["summaries"]
+        assert len(summaries) <= 2
+        previous_source_end = -1
+        for summary in summaries:
+            source_order = list(summary["source_order"].values())
+            assert source_order == sorted(source_order)
+            if source_order:
+                assert source_order[0] > previous_source_end
+                previous_source_end = source_order[-1]
+    final_payload = json.loads(reduction_calls[-1].prompt.split("SYNTHESIS_INPUT_JSON:\n", 1)[1])
+    assert final_payload["summaries"][1]["notes"]["overview"][0]["text"].startswith("reduce-3|")
+    assert result["overview"][0]["text"] == "All six chunks were synthesized."
+
+
+def test_transport_failure_diagnostics_use_actual_stage_and_bounded_metadata(tmp_path, monkeypatch):
+    from asr_en_vi import notes_document
+
+    monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
+    snapshot = _snapshot()
+    snapshot["segments"] = [
+        {
+            "id": f"{index:032x}",
+            "start_seconds": float(index),
+            "end_seconds": float(index + 1),
+            "text": "source detail " + "x" * 18_000,
+        }
+        for index in range(1, 7)
+    ]
+
+    def respond(prompt, _max_output_bytes):
+        if "SOURCE_JSON:\n" in prompt:
+            source = json.loads(prompt.split("SOURCE_JSON:\n", 1)[1])
+            source_id = source["segments"][0]["id"]
+            result = _valid_document()
+            result["overview"] = [
+                {"text": "chunk summary " + "x" * 7_300, "source_ids": [source_id]}
+            ]
+            return json.dumps(result, separators=(",", ":"))
+
+        failure = ChatGPTError(
+            502, "provider_output_too_large", "ChatGPT returned an oversized notes document."
+        )
+        failure.diagnostics = {
+            "stage": "untrusted-stage",
+            "attempt": "repair",
+            "provider_call_index": 999,
+            "prompt_bytes": -1,
+            "response_limit": 1,
+            "output_bytes": 16_001,
+            "request_id": "req_reduce123",
+            "private": "secret provider body",
+        }
+        raise failure
+
+    adapter = NotesOnlyAdapter(responder=respond)
+    provider = _provider(tmp_path, adapter)
+
+    with pytest.raises(ChatGPTError) as failed:
+        provider.generate_notes_document(
+            snapshot=snapshot,
+            connection_version=7,
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+        )
+
+    assert failed.value.code == "provider_output_too_large"
+    diagnostic = provider.store._read()["last_diagnostic"]
+    assert diagnostic["stage"] == "reduce"
+    assert diagnostic["attempt"] == "primary"
+    assert diagnostic["provider_call_index"] == 7
+    assert diagnostic["prompt_bytes"] == len(adapter.calls[-1].prompt.encode("utf-8"))
+    assert diagnostic["response_limit"] == 16_000
+    assert diagnostic["output_bytes"] == 16_001
+    assert diagnostic["request_id"] == "req_reduce123"
+    assert "private" not in json.dumps(diagnostic)
+    assert "untrusted-stage" not in json.dumps(diagnostic)
