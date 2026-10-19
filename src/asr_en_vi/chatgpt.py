@@ -26,7 +26,12 @@ from urllib.parse import urlencode, urlsplit
 import httpx
 import jwt
 
-from asr_en_vi.notes_document import NOTES_MAX_OUTPUT_TOKENS
+from asr_en_vi.notes_document import (
+    NOTES_ACTION_FIELD_NAMES,
+    NOTES_MAX_OUTPUT_TOKENS,
+    NOTES_VALIDATION_DETAIL_CODES,
+    NOTES_VALIDATION_REASON_CODES,
+)
 
 ISSUER = "https://auth.openai.com"
 DISCOVERY_URL = f"{ISSUER}/.well-known/openid-configuration"
@@ -72,6 +77,48 @@ _CLIENT_ID_RE = re.compile(r"[A-Za-z0-9._-]{5,256}\Z")
 _SAFE_ERROR_CODE_RE = re.compile(r"[A-Za-z0-9_.-]{1,100}\Z")
 _ALL_REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
 _POSITIVE_REASONING_EFFORTS = _ALL_REASONING_EFFORTS[1:]
+_NOTES_VALIDATION_STAGES = frozenset({"single", "chunk", "reduce", "final"})
+_NOTES_VALIDATION_ATTEMPTS = frozenset({"primary", "repair"})
+_NOTES_REPAIR_STATES = frozenset({"unavailable", "already_consumed"})
+
+
+def _safe_notes_validation_diagnostics(diagnostics: object) -> dict[str, Any]:
+    if not isinstance(diagnostics, dict):
+        return {}
+    result: dict[str, Any] = {}
+    reason = diagnostics.get("validation_reason")
+    detail = diagnostics.get("validation_detail")
+    field_name = diagnostics.get("validation_field")
+    stage = diagnostics.get("stage")
+    call_index = diagnostics.get("provider_call_index")
+    attempt = diagnostics.get("attempt")
+    output_bytes = diagnostics.get("output_bytes")
+    repair_state = diagnostics.get("repair_state")
+    if isinstance(reason, str) and reason in NOTES_VALIDATION_REASON_CODES:
+        result["validation_reason"] = reason
+    if (
+        reason == "source_ids"
+        and isinstance(detail, str)
+        and detail in NOTES_VALIDATION_DETAIL_CODES
+    ):
+        result["validation_detail"] = detail
+    if (
+        reason == "action_fields"
+        and isinstance(field_name, str)
+        and field_name in NOTES_ACTION_FIELD_NAMES
+    ):
+        result["validation_field"] = field_name
+    if isinstance(stage, str) and stage in _NOTES_VALIDATION_STAGES:
+        result["stage"] = stage
+    if isinstance(call_index, int) and not isinstance(call_index, bool) and call_index > 0:
+        result["provider_call_index"] = call_index
+    if isinstance(attempt, str) and attempt in _NOTES_VALIDATION_ATTEMPTS:
+        result["attempt"] = attempt
+    if isinstance(output_bytes, int) and not isinstance(output_bytes, bool) and output_bytes >= 0:
+        result["output_bytes"] = output_bytes
+    if isinstance(repair_state, str) and repair_state in _NOTES_REPAIR_STATES:
+        result["repair_state"] = repair_state
+    return result
 
 
 def reasoning_efforts_for_model(model: str) -> tuple[str, ...]:
@@ -118,7 +165,7 @@ class ChatGPTError(RuntimeError):
 
     @property
     def public_message(self) -> str:
-        return ChatGPTHTTPAdapter._message_for(self.status_code, self.code)
+        return ChatGPTHTTPAdapter._message_for(self.status_code, self.code, self.diagnostics)
 
 
 class ProviderStateError(ChatGPTError):
@@ -164,6 +211,7 @@ class ChatGPTAdapter(Protocol):
         model: str,
         reasoning_effort: str,
         prompt: str,
+        allowed_source_ids: Sequence[str],
         max_output_bytes: int | None = None,
     ) -> str: ...
 
@@ -407,7 +455,7 @@ class ChatGPTHTTPAdapter:
         return value
 
     @staticmethod
-    def _message_for(status_code: int, code: str) -> str:
+    def _message_for(status_code: int, code: str, diagnostics: dict[str, Any] | None = None) -> str:
         if code in {"subscription_sharing_usage_limit_exceeded"} or status_code == 429:
             return "ChatGPT plan usage is limited. Review ChatGPT Settings → Usage."
         if code in {
@@ -447,6 +495,22 @@ class ChatGPTHTTPAdapter:
         if code == "notes_incomplete":
             return "ChatGPT did not complete the notes response. No new notes were saved."
         if code == "notes_invalid_output":
+            reason = diagnostics.get("validation_reason") if isinstance(diagnostics, dict) else None
+            if not isinstance(reason, str) or reason not in NOTES_VALIDATION_REASON_CODES:
+                return "ChatGPT returned invalid notes. No new notes were saved."
+            if reason == "json":
+                return "ChatGPT returned notes with invalid JSON. No new notes were saved."
+            if reason in {"fields", "version", "items", "text", "action_fields"}:
+                return "ChatGPT returned notes with an invalid structure. No new notes were saved."
+            if reason == "source_ids":
+                return (
+                    "ChatGPT returned notes with invalid source references. "
+                    "No new notes were saved."
+                )
+            if reason == "size":
+                return (
+                    "ChatGPT returned notes that exceed the output budget. No new notes were saved."
+                )
             return "ChatGPT returned invalid notes. No new notes were saved."
         if code == "subscription_sharing_unsupported_capability":
             return "ChatGPT does not support this request for the selected model."
@@ -835,10 +899,16 @@ class ChatGPTHTTPAdapter:
         model: str,
         reasoning_effort: str,
         prompt: str,
+        allowed_source_ids: Sequence[str],
         max_output_bytes: int | None = None,
     ) -> str:
         """Request one strict JSON notes document within its per-stage output budget."""
-        from asr_en_vi.notes_document import MAX_OUTPUT_BYTES, MAX_PROMPT_BYTES, NOTES_SCHEMA
+        from asr_en_vi.notes_document import (
+            MAX_OUTPUT_BYTES,
+            MAX_PROMPT_BYTES,
+            NotesDocumentError,
+            build_notes_schema,
+        )
 
         response_limit = MAX_OUTPUT_BYTES if max_output_bytes is None else max_output_bytes
         if (
@@ -852,11 +922,12 @@ class ChatGPTHTTPAdapter:
                 "The notes request exceeds the configured size limit.",
             )
         try:
+            schema = build_notes_schema(allowed_source_ids)
             prompt_bytes = prompt.encode("utf-8")
             schema_bytes = json.dumps(
-                NOTES_SCHEMA, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+                schema, ensure_ascii=False, separators=(",", ":"), allow_nan=False
             ).encode("utf-8")
-        except (UnicodeEncodeError, TypeError, ValueError):
+        except (NotesDocumentError, UnicodeEncodeError, TypeError, ValueError):
             raise ChatGPTError(
                 413,
                 "notes_request_too_large",
@@ -883,7 +954,7 @@ class ChatGPTHTTPAdapter:
                     "type": "json_schema",
                     "name": "meeting_notes_v1",
                     "strict": True,
-                    "schema": NOTES_SCHEMA,
+                    "schema": schema,
                 }
             },
             "store": False,
@@ -1804,11 +1875,14 @@ class ChatGPTProvider:
             registration.pop(key, None)
 
     def _record_failure(self, error: ChatGPTError) -> None:
+        diagnostics = error.diagnostics
+        if error.code == "notes_invalid_output":
+            diagnostics = _safe_notes_validation_diagnostics(diagnostics)
         with self.store.locked(write=True) as state:
             state["last_diagnostic"] = {
                 "code": error.code,
                 "at": self._iso_timestamp(self._now()),
-                **error.diagnostics,
+                **diagnostics,
             }
 
     def _mark_reconnect_required(self, code: str, *, refresh_token: str | None = None) -> None:
@@ -1996,12 +2070,17 @@ class ChatGPTProvider:
             build_chunk_prompt,
             build_prompt,
             build_reduction_prompt,
+            normalize_duplicate_source_refs,
             plan_source,
+            project_source_snapshot,
             prompt_fits_repair,
+            restore_source_refs,
             validate_document,
         )
 
-        plan = plan_source(snapshot)
+        projection = project_source_snapshot(snapshot)
+        projected_snapshot = projection.snapshot
+        plan = plan_source(snapshot, projected_snapshot=projected_snapshot)
         pin = {
             "connection_version": connection_version,
             "model": model,
@@ -2017,8 +2096,14 @@ class ChatGPTProvider:
                 )
             call_count = 0
             repair_used = False
+            last_successful_response: tuple[int, str, str] | None = None
 
-            def request(prompt: str, *, max_output_bytes: int) -> str:
+            def request(
+                prompt: str,
+                *,
+                allowed_source_ids: Sequence[str],
+                max_output_bytes: int,
+            ) -> str:
                 nonlocal call_count
                 if call_count >= MAX_PROVIDER_CALLS:
                     raise ChatGPTError(
@@ -2038,6 +2123,7 @@ class ChatGPTProvider:
                         model=model,
                         reasoning_effort=reasoning_effort,
                         prompt=prompt,
+                        allowed_source_ids=allowed_source_ids,
                         max_output_bytes=max_output_bytes,
                     )
                 except ChatGPTError as error:
@@ -2046,77 +2132,232 @@ class ChatGPTProvider:
                         self._mark_reconnect_required(error.code)
                     raise
 
-            def invalid_output_error() -> ChatGPTError:
-                return ChatGPTError(
+            def invalid_output_error(
+                validation_error: Exception,
+                *,
+                stage: str,
+                provider_call_index: int,
+                attempt: str | None,
+                raw_output: object,
+                repair_state: str | None,
+                reported_output_bytes: int | None = None,
+            ) -> ChatGPTError:
+                error = ChatGPTError(
                     502,
                     "notes_invalid_output",
                     "ChatGPT returned notes that did not match the saved transcript.",
                 )
+                diagnostics: dict[str, Any] = {
+                    "stage": stage,
+                    "provider_call_index": provider_call_index,
+                }
+                if attempt is not None:
+                    diagnostics["attempt"] = attempt
+                if repair_state is not None:
+                    diagnostics["repair_state"] = repair_state
+                reason = getattr(validation_error, "reason_code", None)
+                if isinstance(reason, str) and reason in NOTES_VALIDATION_REASON_CODES:
+                    diagnostics["validation_reason"] = reason
+                detail = getattr(validation_error, "detail_code", None)
+                if (
+                    reason == "source_ids"
+                    and isinstance(detail, str)
+                    and detail in NOTES_VALIDATION_DETAIL_CODES
+                ):
+                    diagnostics["validation_detail"] = detail
+                field_name = getattr(validation_error, "field_name", None)
+                if (
+                    reason == "action_fields"
+                    and isinstance(field_name, str)
+                    and field_name in NOTES_ACTION_FIELD_NAMES
+                ):
+                    diagnostics["validation_field"] = field_name
+                if reported_output_bytes is not None:
+                    diagnostics["output_bytes"] = reported_output_bytes
+                elif isinstance(raw_output, str):
+                    try:
+                        diagnostics["output_bytes"] = len(raw_output.encode("utf-8"))
+                    except UnicodeError:
+                        diagnostics["output_bytes"] = len(
+                            raw_output.encode("utf-8", errors="surrogatepass")
+                        )
+                error.diagnostics = diagnostics
+                self._record_failure(error)
+                return error
+
+            def parse_and_validate(
+                raw_output: object,
+                citation_scope: dict[str, Any],
+                *,
+                max_output_bytes: int,
+            ) -> dict[str, Any]:
+                if not isinstance(raw_output, str):
+                    raise NotesDocumentError("The notes response must be text.", reason_code="json")
+                try:
+                    document = json.loads(raw_output)
+                except (json.JSONDecodeError, RecursionError):
+                    raise NotesDocumentError(
+                        "The notes response must be valid JSON.", reason_code="json"
+                    ) from None
+                try:
+                    document = normalize_duplicate_source_refs(
+                        document,
+                        tuple(segment["id"] for segment in citation_scope["segments"]),
+                    )
+                    return validate_document(
+                        document,
+                        citation_scope,
+                        max_output_bytes=max_output_bytes,
+                    )
+                except RecursionError:
+                    raise NotesDocumentError(
+                        "The notes response must be valid JSON.", reason_code="json"
+                    ) from None
 
             def request_document(
                 prompt: str,
                 citation_scope: dict[str, Any],
                 *,
                 max_output_bytes: int,
+                stage: str,
                 repair_prompt: Callable[[str], str],
             ) -> dict[str, Any]:
-                nonlocal repair_used
-                raw_output = request(prompt, max_output_bytes=max_output_bytes)
+                nonlocal last_successful_response, repair_used
+                allowed_source_ids = tuple(segment["id"] for segment in citation_scope["segments"])
+                raw_output = request(
+                    prompt,
+                    allowed_source_ids=allowed_source_ids,
+                    max_output_bytes=max_output_bytes,
+                )
+                provider_call_index = call_count
                 try:
-                    if not isinstance(raw_output, str):
-                        raise NotesDocumentError("The notes response must be text.")
-                    return validate_document(
-                        json.loads(raw_output),
+                    validated = parse_and_validate(
+                        raw_output,
                         citation_scope,
                         max_output_bytes=max_output_bytes,
                     )
-                except (json.JSONDecodeError, NotesDocumentError, TypeError):
+                    last_successful_response = (provider_call_index, "primary", raw_output)
+                    return validated
+                except (NotesDocumentError, TypeError) as validation_error:
                     if repair_used:
-                        raise invalid_output_error() from None
+                        raise invalid_output_error(
+                            validation_error,
+                            stage=stage,
+                            provider_call_index=provider_call_index,
+                            attempt="primary",
+                            raw_output=raw_output,
+                            repair_state="already_consumed",
+                        ) from None
                     repair_used = True
                     try:
                         bounded_repair_prompt = repair_prompt(raw_output)
                     except (NotesDocumentError, TypeError, AttributeError):
-                        raise invalid_output_error() from None
+                        raise invalid_output_error(
+                            validation_error,
+                            stage=stage,
+                            provider_call_index=provider_call_index,
+                            attempt="primary",
+                            raw_output=raw_output,
+                            repair_state="unavailable",
+                        ) from None
                     repaired_output = request(
-                        bounded_repair_prompt, max_output_bytes=max_output_bytes
+                        bounded_repair_prompt,
+                        allowed_source_ids=allowed_source_ids,
+                        max_output_bytes=max_output_bytes,
                     )
+                    repair_call_index = call_count
                     try:
-                        if not isinstance(repaired_output, str):
-                            raise NotesDocumentError("The repaired notes response must be text.")
-                        return validate_document(
-                            json.loads(repaired_output),
+                        validated = parse_and_validate(
+                            repaired_output,
                             citation_scope,
                             max_output_bytes=max_output_bytes,
                         )
-                    except (json.JSONDecodeError, NotesDocumentError, TypeError):
-                        raise invalid_output_error() from None
+                        last_successful_response = (repair_call_index, "repair", repaired_output)
+                        return validated
+                    except (NotesDocumentError, TypeError) as repair_error:
+                        raise invalid_output_error(
+                            repair_error,
+                            stage=stage,
+                            provider_call_index=repair_call_index,
+                            attempt="repair",
+                            raw_output=repaired_output,
+                            repair_state="already_consumed",
+                        ) from None
+
+            def restore_final_document(document: dict[str, Any], *, stage: str) -> dict[str, Any]:
+                restored = restore_source_refs(document, projection.alias_to_original)
+                try:
+                    return validate_document(restored, snapshot, max_output_bytes=MAX_OUTPUT_BYTES)
+                except (NotesDocumentError, TypeError) as validation_error:
+                    response = last_successful_response
+                    call_index = response[0] if response is not None else max(call_count, 1)
+                    try:
+                        expanded_bytes = len(
+                            json.dumps(
+                                restored,
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                                allow_nan=False,
+                            ).encode("utf-8")
+                        )
+                    except (TypeError, ValueError, UnicodeError):
+                        expanded_bytes = None
+                    raise invalid_output_error(
+                        validation_error,
+                        stage=stage,
+                        provider_call_index=call_index,
+                        attempt=None,
+                        raw_output=None,
+                        repair_state=None,
+                        reported_output_bytes=expanded_bytes,
+                    ) from None
 
             if not plan.chunked:
+                source_ids = tuple(segment["id"] for segment in projected_snapshot["segments"])
                 document = request_document(
-                    build_prompt(snapshot),
-                    snapshot,
+                    build_prompt(projected_snapshot, allowed_source_ids=source_ids),
+                    projected_snapshot,
                     max_output_bytes=MAX_OUTPUT_BYTES,
-                    repair_prompt=lambda raw: build_prompt(snapshot, invalid_output=raw),
+                    stage="single",
+                    repair_prompt=lambda raw: build_prompt(
+                        projected_snapshot, allowed_source_ids=source_ids, invalid_output=raw
+                    ),
                 )
-                return validate_document(document, snapshot)
+                return restore_final_document(document, stage="single")
 
             summaries: list[dict[str, Any]] = []
             for index, chunk in enumerate(plan.chunks, start=1):
-                prompt = build_chunk_prompt(chunk, chunk_index=index, chunk_count=len(plan.chunks))
+                projected_chunk = projection.project_chunk(chunk)
+                source_ids = tuple(segment["id"] for segment in projected_chunk["segments"])
+                prompt = build_chunk_prompt(
+                    projected_chunk,
+                    chunk_index=index,
+                    chunk_count=len(plan.chunks),
+                    allowed_source_ids=source_ids,
+                )
+
+                def repair_chunk(
+                    raw: str,
+                    *,
+                    source_chunk: dict[str, Any] = projected_chunk,
+                    chunk_index: int = index,
+                    allowed_ids: tuple[str, ...] = source_ids,
+                ) -> str:
+                    return build_chunk_prompt(
+                        source_chunk,
+                        chunk_index=chunk_index,
+                        chunk_count=len(plan.chunks),
+                        allowed_source_ids=allowed_ids,
+                        invalid_output=raw,
+                    )
+
                 summaries.append(
                     request_document(
                         prompt,
-                        chunk,
+                        projected_chunk,
                         max_output_bytes=MAX_CHUNK_OUTPUT_BYTES,
-                        repair_prompt=lambda raw, source_chunk=chunk, chunk_index=index: (
-                            build_chunk_prompt(
-                                source_chunk,
-                                chunk_index=chunk_index,
-                                chunk_count=len(plan.chunks),
-                                invalid_output=raw,
-                            )
-                        ),
+                        stage="chunk",
+                        repair_prompt=repair_chunk,
                     )
                 )
 
@@ -2124,9 +2365,13 @@ class ChatGPTProvider:
             documents = summaries
             for _level in range(MAX_REDUCTION_LEVELS):
                 final_prompt = None
+                final_scope = _prompt_citation_scope(projected_snapshot, documents)
+                final_source_ids = tuple(segment["id"] for segment in final_scope["segments"])
                 try:
-                    candidate_final = build_reduction_prompt(snapshot, documents, final=True)
-                    if prompt_fits_repair(candidate_final):
+                    candidate_final = build_reduction_prompt(
+                        projected_snapshot, documents, final=True
+                    )
+                    if prompt_fits_repair(candidate_final, allowed_source_ids=final_source_ids):
                         final_prompt = candidate_final
                 except NotesDocumentError:
                     pass
@@ -2140,13 +2385,14 @@ class ChatGPTProvider:
                     reduction_calls += 1
                     final_document = request_document(
                         final_prompt,
-                        _prompt_citation_scope(snapshot, documents),
+                        final_scope,
                         max_output_bytes=MAX_OUTPUT_BYTES,
+                        stage="final",
                         repair_prompt=lambda raw, inputs=documents: build_reduction_prompt(
-                            snapshot, inputs, final=True, invalid_output=raw
+                            projected_snapshot, inputs, final=True, invalid_output=raw
                         ),
                     )
-                    return validate_document(final_document, snapshot)
+                    return restore_final_document(final_document, stage="final")
 
                 groups: list[list[dict[str, Any]]] = []
                 current: list[dict[str, Any]] = []
@@ -2155,9 +2401,15 @@ class ChatGPTProvider:
                     fits = False
                     try:
                         intermediate_prompt = build_reduction_prompt(
-                            snapshot, candidate, final=False
+                            projected_snapshot, candidate, final=False
                         )
-                        fits = prompt_fits_repair(intermediate_prompt)
+                        candidate_scope = _prompt_citation_scope(projected_snapshot, candidate)
+                        candidate_source_ids = tuple(
+                            segment["id"] for segment in candidate_scope["segments"]
+                        )
+                        fits = prompt_fits_repair(
+                            intermediate_prompt, allowed_source_ids=candidate_source_ids
+                        )
                     except NotesDocumentError:
                         pass
                     if fits:
@@ -2186,14 +2438,18 @@ class ChatGPTProvider:
                             "This transcript exceeds the bounded notes reduction limit.",
                         )
                     reduction_calls += 1
-                    intermediate_prompt = build_reduction_prompt(snapshot, group, final=False)
+                    group_scope = _prompt_citation_scope(projected_snapshot, group)
+                    intermediate_prompt = build_reduction_prompt(
+                        projected_snapshot, group, final=False
+                    )
                     next_documents.append(
                         request_document(
                             intermediate_prompt,
-                            _prompt_citation_scope(snapshot, group),
+                            group_scope,
                             max_output_bytes=MAX_CHUNK_OUTPUT_BYTES,
+                            stage="reduce",
                             repair_prompt=lambda raw, inputs=group: build_reduction_prompt(
-                                snapshot, inputs, final=False, invalid_output=raw
+                                projected_snapshot, inputs, final=False, invalid_output=raw
                             ),
                         )
                     )

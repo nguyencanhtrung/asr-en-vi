@@ -24,7 +24,9 @@ from asr_en_vi.notes_document import (
     MAX_PROMPT_BYTES,
     MAX_REPAIR_OUTPUT_BYTES,
     build_chunk_prompt,
+    build_notes_schema,
     plan_source,
+    project_source_snapshot,
 )
 
 CLIENT_ID = "oaiapp_test-123456"
@@ -237,6 +239,7 @@ def test_notes_request_caps_output_tokens_and_returns_only_a_completed_result():
         model="gpt-6.1-sol",
         reasoning_effort="high",
         prompt="Bounded test prompt.",
+        allowed_source_ids=("abcde", "vwxyz"),
     )
 
     assert output == '{"overview":[]}'
@@ -247,6 +250,11 @@ def test_notes_request_caps_output_tokens_and_returns_only_a_completed_result():
     assert body["reasoning"] == {"effort": "high"}
     assert body["store"] is False and body["stream"] is True
     assert body["text"]["format"]["strict"] is True
+    schema = body["text"]["format"]["schema"]
+    assert schema["$defs"]["source_id"]["enum"] == ["abcde", "vwxyz"]
+    assert schema["properties"]["overview"]["items"]["properties"]["source_ids"]["items"] == {
+        "$ref": "#/$defs/source_id"
+    }
     assert len(requests[0].content) <= NOTES_MAX_REQUEST_BODY_BYTES
 
 
@@ -269,6 +277,7 @@ def test_notes_request_enforces_the_per_stage_stream_output_cap():
             model="gpt-6.1-sol",
             reasoning_effort="high",
             prompt="Bounded test prompt.",
+            allowed_source_ids=(),
             max_output_bytes=4,
         )
 
@@ -296,7 +305,11 @@ def test_notes_reasoning_stream_can_finish_after_the_control_call_deadline(monke
     adapter = ChatGPTHTTPAdapter(transport=httpx.MockTransport(handler))
     assert (
         adapter.generate_notes(
-            access_token="test-token", model="gpt-6.1-sol", reasoning_effort="high", prompt="Test"
+            access_token="test-token",
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+            prompt="Test",
+            allowed_source_ids=(),
         )
         == "{}"
     )
@@ -329,7 +342,11 @@ def test_notes_total_deadline_closes_the_stream_without_resending(monkeypatch):
     adapter = ChatGPTHTTPAdapter(transport=httpx.MockTransport(handler))
     with pytest.raises(ChatGPTError) as failure:
         adapter.generate_notes(
-            access_token="test-token", model="gpt-6.1-sol", reasoning_effort="high", prompt="Test"
+            access_token="test-token",
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+            prompt="Test",
+            allowed_source_ids=(),
         )
     assert failure.value.code == "provider_timeout"
     assert len(calls) == 1 and closed == [True]
@@ -362,7 +379,11 @@ def test_notes_stream_allows_framing_overhead_near_the_output_token_cap():
     adapter = ChatGPTHTTPAdapter(transport=httpx.MockTransport(handler))
     assert (
         adapter.generate_notes(
-            access_token="test-token", model="gpt-6.1-sol", reasoning_effort="high", prompt="Test"
+            access_token="test-token",
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+            prompt="Test",
+            allowed_source_ids=(),
         )
         == text
     )
@@ -388,7 +409,11 @@ def test_notes_completed_event_can_exceed_the_short_verification_line_budget():
     )
     assert (
         adapter.generate_notes(
-            access_token="test-token", model="gpt-6.1-sol", reasoning_effort="high", prompt="Test"
+            access_token="test-token",
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+            prompt="Test",
+            allowed_source_ids=(),
         )
         == text
     )
@@ -414,7 +439,11 @@ def test_notes_wire_budgets_remain_bounded_for_complete_single_chunk_lines(
     adapter = ChatGPTHTTPAdapter(transport=httpx.MockTransport(handler))
     with pytest.raises(ChatGPTError) as failure:
         adapter.generate_notes(
-            access_token="test-token", model="gpt-6.1-sol", reasoning_effort="high", prompt="Test"
+            access_token="test-token",
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+            prompt="Test",
+            allowed_source_ids=(),
         )
     assert failure.value.code == error_code
     assert len(calls) == 1
@@ -435,6 +464,7 @@ def test_notes_request_body_cap_rejects_expanded_json_without_sending_it():
             model="gpt-6.1-sol",
             reasoning_effort="default",
             prompt="\x01" * MAX_PROMPT_BYTES,
+            allowed_source_ids=(),
         )
 
     assert oversized.value.code == "notes_request_too_large"
@@ -460,6 +490,7 @@ def test_notes_incomplete_stream_never_returns_partial_output():
             model="gpt-6.1-sol",
             reasoning_effort="default",
             prompt="Bounded test prompt.",
+            allowed_source_ids=(),
         )
 
     assert incomplete.value.code == "notes_incomplete"
@@ -495,6 +526,7 @@ def test_notes_incomplete_reports_only_allowlisted_reason_without_retry(reason, 
             model="gpt-6-luna",
             reasoning_effort="max",
             prompt="Test",
+            allowed_source_ids=(),
         )
     assert failed.value.code == code
     assert message in failed.value.public_message
@@ -505,6 +537,36 @@ def test_notes_incomplete_reports_only_allowlisted_reason_without_retry(reason, 
 def test_invalid_notes_json_has_specific_public_error_instead_of_provider_outage():
     error = ChatGPTError(502, "notes_invalid_output", "private provider content")
     assert "invalid notes" in error.public_message
+    assert "private provider content" not in error.public_message
+
+
+@pytest.mark.parametrize(
+    ("reason", "message"),
+    [
+        ("json", "invalid JSON"),
+        ("fields", "invalid structure"),
+        ("version", "invalid structure"),
+        ("items", "invalid structure"),
+        ("text", "invalid structure"),
+        ("action_fields", "invalid structure"),
+        ("source_ids", "source references"),
+        ("size", "output budget"),
+    ],
+)
+def test_invalid_notes_public_message_uses_known_safe_reason_mapping(reason, message):
+    error = ChatGPTError(502, "notes_invalid_output", "private provider content")
+    error.diagnostics = {"validation_reason": reason}
+
+    assert message in error.public_message
+    assert "private provider content" not in error.public_message
+
+
+@pytest.mark.parametrize("reason", ["private transcript text", ["source_ids"], {"code": "json"}])
+def test_unknown_notes_diagnostic_reason_falls_back_without_interpolation(reason):
+    error = ChatGPTError(502, "notes_invalid_output", "private provider content")
+    error.diagnostics = {"validation_reason": reason}
+
+    assert error.public_message == "ChatGPT returned invalid notes. No new notes were saved."
     assert "private provider content" not in error.public_message
 
 
@@ -566,8 +628,10 @@ def test_planned_repair_keeps_reasoning_and_schema_inside_the_transport_context(
             for index in range(1000)
         ],
     }
-    plan = plan_source(snapshot)
+    projection = project_source_snapshot(snapshot)
+    plan = plan_source(snapshot, projected_snapshot=projection.snapshot)
     requests = []
+    expected_scopes = []
 
     def handler(request):
         requests.append(request)
@@ -579,10 +643,14 @@ def test_planned_repair_keeps_reasoning_and_schema_inside_the_transport_context(
 
     adapter = ChatGPTHTTPAdapter(transport=httpx.MockTransport(handler))
     for index, chunk in enumerate(plan.chunks, 1):
+        projected_chunk = projection.project_chunk(chunk)
+        allowed_source_ids = tuple(segment["id"] for segment in projected_chunk["segments"])
+        expected_scopes.append(allowed_source_ids)
         prompt = build_chunk_prompt(
-            chunk,
+            projected_chunk,
             chunk_index=index,
             chunk_count=len(plan.chunks),
+            allowed_source_ids=allowed_source_ids,
             invalid_output="x" * MAX_REPAIR_OUTPUT_BYTES,
         )
         adapter.generate_notes(
@@ -590,15 +658,17 @@ def test_planned_repair_keeps_reasoning_and_schema_inside_the_transport_context(
             model="gpt-6-luna",
             reasoning_effort="max",
             prompt=prompt,
+            allowed_source_ids=allowed_source_ids,
         )
     assert len(requests) == len(plan.chunks) > 1
-    for request in requests:
+    for request, allowed_source_ids in zip(requests, expected_scopes, strict=True):
         body = json.loads(request.content)
         prompt_bytes = len(body["input"][0]["content"][0]["text"].encode())
-        schema_bytes = len(
-            json.dumps(body["text"]["format"]["schema"], separators=(",", ":")).encode()
-        )
+        schema = body["text"]["format"]["schema"]
+        assert schema == build_notes_schema(allowed_source_ids)
+        schema_bytes = len(json.dumps(schema, separators=(",", ":")).encode())
         assert prompt_bytes + schema_bytes + 1024 + body["max_output_tokens"] + 4000 <= 64_000
+        assert len(request.content) <= NOTES_MAX_REQUEST_BODY_BYTES
 
 
 def test_verification_accepts_valid_sse_without_content_type():

@@ -12,13 +12,15 @@ from typing import Any
 from urllib.parse import urlencode
 
 SCHEMA_VERSION = 1
-PROMPT_VERSION = "notes-hierarchical-v2"
+PROMPT_VERSION = "notes-hierarchical-v3"
 _MAX_PROMPT_HARD_LIMIT_BYTES = 48_000
 # max_output_tokens includes hidden reasoning as well as the visible JSON.
 # Keep planning and transport on the same bounded reasoning/output allocation.
 NOTES_MAX_OUTPUT_TOKENS = 25_000
 _CONTEXT_INPUT_BUDGET_BYTES = 64_000 - NOTES_MAX_OUTPUT_TOKENS - 4_000
 _CONTEXT_INPUT_HEADROOM_BYTES = 1_024
+MAX_SOURCE_IDS_PER_SCOPE = 999
+MAX_SOURCE_REFS_PER_ITEM = 200
 MAX_OUTPUT_BYTES = 128_000
 MAX_CHUNK_OUTPUT_BYTES = 8_000
 MAX_REPAIR_OUTPUT_BYTES = 8_000
@@ -27,6 +29,18 @@ MAX_NOTES_CHUNKS = 24
 MAX_REDUCTION_CALLS = 24
 MAX_PROVIDER_CALLS = MAX_NOTES_CHUNKS + MAX_REDUCTION_CALLS + 1
 MAX_REDUCTION_LEVELS = 8
+NOTES_VALIDATION_REASON_CODES = frozenset(
+    {"fields", "version", "json", "size", "items", "text", "source_ids", "action_fields"}
+)
+NOTES_VALIDATION_DETAIL_CODES = frozenset(
+    {
+        "invalid_source_list",
+        "unknown_source_id",
+        "duplicate_source_id",
+        "required_source_missing",
+    }
+)
+NOTES_ACTION_FIELD_NAMES = frozenset({"owner", "deadline_text", "deadline_date"})
 SECTIONS = (
     ("overview", "Overview"),
     ("key_topics", "Key Topics and Rationale"),
@@ -35,43 +49,122 @@ SECTIONS = (
     ("action_items", "Confirmed Action Items"),
     ("confirmation_items", "Items Requiring Confirmation"),
 )
-_ITEM_PROPERTIES = {
-    "text": {"type": "string"},
-    "source_ids": {"type": "array", "items": {"type": "string"}},
-}
-_ACTION_PROPERTIES = {
-    **_ITEM_PROPERTIES,
-    "owner": {"type": ["string", "null"]},
-    "deadline_text": {"type": ["string", "null"]},
-    "deadline_date": {"type": ["string", "null"]},
-}
-NOTES_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "schema_version": {"type": "integer", "enum": [SCHEMA_VERSION]},
-        **{
-            key: {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": _ACTION_PROPERTIES if key == "action_items" else _ITEM_PROPERTIES,
-                    "required": list(
-                        _ACTION_PROPERTIES if key == "action_items" else _ITEM_PROPERTIES
-                    ),
-                    "additionalProperties": False,
-                },
+
+
+class NotesDocumentError(ValueError):
+    """The complete provider document cannot be safely published."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason_code: str | None = None,
+        detail_code: str | None = None,
+        field_name: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
+        self.detail_code = detail_code
+        self.field_name = field_name
+
+
+def _validated_source_scope(allowed_source_ids: Any) -> tuple[str, ...]:
+    if isinstance(allowed_source_ids, (str, bytes)):
+        raise NotesDocumentError(
+            "The notes citation scope is invalid.",
+            reason_code="source_ids",
+            detail_code="invalid_source_list",
+        )
+    try:
+        scope = tuple(allowed_source_ids)
+    except TypeError as error:
+        raise NotesDocumentError(
+            "The notes citation scope is invalid.",
+            reason_code="source_ids",
+            detail_code="invalid_source_list",
+        ) from error
+    if (
+        len(scope) > MAX_SOURCE_IDS_PER_SCOPE
+        or any(not isinstance(source_id, str) for source_id in scope)
+        or len(set(scope)) != len(scope)
+    ):
+        raise NotesDocumentError(
+            "The notes citation scope exceeds its supported bounds.",
+            reason_code="source_ids",
+            detail_code="invalid_source_list",
+        )
+    return scope
+
+
+def build_notes_schema(allowed_source_ids: Any) -> dict[str, Any]:
+    """Build the strict provider schema for exactly one request's citation scope."""
+    scope = _validated_source_scope(allowed_source_ids)
+    source_items: dict[str, Any] = {"$ref": "#/$defs/source_id"} if scope else {"type": "string"}
+
+    properties: dict[str, Any] = {"text": {"type": "string"}}
+    source_ids: dict[str, Any] = {
+        "type": "array",
+        "items": source_items,
+        "maxItems": MAX_SOURCE_REFS_PER_ITEM if scope else 0,
+    }
+    properties["source_ids"] = source_ids
+
+    action_properties = {
+        **properties,
+        "owner": {"type": ["string", "null"]},
+        "deadline_text": {"type": ["string", "null"]},
+        "deadline_date": {"type": ["string", "null"]},
+    }
+    section_schemas: dict[str, Any] = {}
+    for section, _ in SECTIONS:
+        item_properties = copy.deepcopy(
+            action_properties if section == "action_items" else properties
+        )
+        if scope and section in {"decisions", "action_items"}:
+            item_properties["source_ids"]["minItems"] = 1
+        section_schemas[section] = {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": item_properties,
+                "required": list(item_properties),
+                "additionalProperties": False,
+            },
+            "maxItems": MAX_SOURCE_REFS_PER_ITEM
+            if scope
+            or section
+            not in {
+                "decisions",
+                "action_items",
             }
-            for key, _ in SECTIONS
+            else 0,
+        }
+
+    schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "schema_version": {"type": "integer", "enum": [SCHEMA_VERSION]},
+            **section_schemas,
         },
-    },
-    "required": ["schema_version", *(key for key, _ in SECTIONS)],
-    "additionalProperties": False,
-}
-NOTES_SCHEMA_JSON_BYTES = len(
-    json.dumps(NOTES_SCHEMA, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode(
-        "utf-8"
+        "required": ["schema_version", *(key for key, _ in SECTIONS)],
+        "additionalProperties": False,
+    }
+    if scope:
+        schema["$defs"] = {"source_id": {"type": "string", "enum": list(scope)}}
+    return schema
+
+
+def notes_schema_json_bytes(allowed_source_ids: Any) -> int:
+    schema = build_notes_schema(allowed_source_ids)
+    return len(
+        json.dumps(schema, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode(
+            "utf-8"
+        )
     )
-)
+
+
+NOTES_SCHEMA = build_notes_schema(())
+NOTES_SCHEMA_JSON_BYTES = notes_schema_json_bytes(())
 MAX_PROMPT_BYTES = min(
     _MAX_PROMPT_HARD_LIMIT_BYTES,
     _CONTEXT_INPUT_BUDGET_BYTES - NOTES_SCHEMA_JSON_BYTES - _CONTEXT_INPUT_HEADROOM_BYTES,
@@ -85,16 +178,197 @@ _REPAIR_RESERVE_BYTES = len(_REPAIR_PREFIX.encode("utf-8")) + MAX_REPAIR_OUTPUT_
 MAX_PRIMARY_PROMPT_BYTES = MAX_PROMPT_BYTES - _REPAIR_RESERVE_BYTES
 
 
-class NotesDocumentError(ValueError):
-    """The complete provider document cannot be safely published."""
-
-
 @dataclass(frozen=True, slots=True)
 class NotesPlan:
     """A fully checked source plan created before a notes task is persisted."""
 
     chunks: tuple[dict[str, Any], ...]
     chunked: bool
+
+
+@dataclass(frozen=True, slots=True)
+class NotesSourceProjection:
+    """A transient ID-only view used for provider prompts and citation validation."""
+
+    snapshot: dict[str, Any]
+    alias_to_original: dict[str, str]
+
+    def project_chunk(self, chunk: dict[str, Any]) -> dict[str, Any]:
+        original_to_alias = {
+            original_id: alias for alias, original_id in self.alias_to_original.items()
+        }
+        try:
+            projected = copy.deepcopy(chunk)
+            segments = projected["segments"]
+            if not isinstance(segments, list):
+                raise TypeError
+            for segment in segments:
+                if not isinstance(segment, dict) or segment.get("id") not in original_to_alias:
+                    raise TypeError
+                segment["id"] = original_to_alias[segment["id"]]
+        except (KeyError, TypeError, copy.Error) as error:
+            raise NotesDocumentError(
+                "The notes chunk does not match its source projection."
+            ) from error
+        return projected
+
+
+def _base36_alias(value: int) -> str:
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    encoded = "0" if value == 0 else ""
+    while value:
+        value, remainder = divmod(value, 36)
+        encoded = digits[remainder] + encoded
+    return encoded.rjust(5, "0")
+
+
+def project_source_snapshot(snapshot: dict[str, Any]) -> NotesSourceProjection:
+    """Copy a source snapshot and replace only its segment IDs with bounded aliases."""
+    try:
+        source_segments = snapshot["segments"]
+        if not isinstance(source_segments, list):
+            raise TypeError
+        original_ids = [segment["id"] for segment in source_segments]
+        if any(not isinstance(source_id, str) for source_id in original_ids):
+            raise TypeError
+        if len(set(original_ids)) != len(original_ids):
+            raise TypeError
+        encoded_lengths = {
+            source_id: len(
+                json.dumps(
+                    source_id, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+                ).encode("utf-8")
+            )
+            for source_id in original_ids
+        }
+    except (KeyError, TypeError, ValueError, UnicodeError) as error:
+        raise NotesDocumentError(
+            "The transcript source IDs cannot be projected safely.",
+            reason_code="source_ids",
+            detail_code="invalid_source_list",
+        ) from error
+
+    if len(original_ids) > 36**5:
+        raise NotesDocumentError("The transcript has too many segments to project safely.")
+
+    retained = {source_id for source_id in original_ids if encoded_lengths[source_id] <= 7}
+    used = set(retained)
+    alias_to_original: dict[str, str] = {}
+    candidate = 0
+    try:
+        projected = copy.deepcopy(snapshot)
+    except (TypeError, ValueError, copy.Error) as error:
+        raise NotesDocumentError("The transcript snapshot cannot be copied safely.") from error
+
+    for segment, original_id in zip(projected["segments"], original_ids, strict=True):
+        if original_id in retained:
+            alias = original_id
+        else:
+            while True:
+                alias = _base36_alias(candidate)
+                candidate += 1
+                if alias not in used:
+                    break
+        if (
+            len(
+                json.dumps(
+                    alias, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+                ).encode("utf-8")
+            )
+            > encoded_lengths[original_id]
+        ):
+            raise NotesDocumentError("A bounded source alias would expand its original ID.")
+        used.add(alias)
+        alias_to_original[alias] = original_id
+        segment["id"] = alias
+
+    return NotesSourceProjection(projected, alias_to_original)
+
+
+def normalize_duplicate_source_refs(document: object, allowed_source_ids: Any) -> object:
+    """Stable-deduplicate only well-formed, in-scope citation arrays at provider ingress."""
+    scope = set(_validated_source_scope(allowed_source_ids))
+    if not isinstance(document, dict):
+        return document
+    normalized = copy.deepcopy(document)
+    for section, _ in SECTIONS:
+        items = normalized.get(section)
+        if not isinstance(items, list) or len(items) > MAX_SOURCE_REFS_PER_ITEM:
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            references = item.get("source_ids")
+            if (
+                isinstance(references, list)
+                and len(references) <= MAX_SOURCE_REFS_PER_ITEM
+                and all(isinstance(ref, str) and ref in scope for ref in references)
+                and len(set(references)) != len(references)
+            ):
+                item["source_ids"] = list(dict.fromkeys(references))
+    return normalized
+
+
+def restore_source_refs(
+    document: dict[str, Any], alias_to_original: dict[str, str]
+) -> dict[str, Any]:
+    """Restore aliases only in citation arrays, leaving all note text untouched."""
+    if (
+        not isinstance(document, dict)
+        or not isinstance(alias_to_original, dict)
+        or any(
+            not isinstance(alias, str) or not isinstance(original, str)
+            for alias, original in alias_to_original.items()
+        )
+        or len(set(alias_to_original.values())) != len(alias_to_original)
+    ):
+        raise NotesDocumentError(
+            "The notes citations do not match their source projection.",
+            reason_code="source_ids",
+            detail_code="invalid_source_list",
+        )
+    try:
+        restored = copy.deepcopy(document)
+    except (TypeError, ValueError, copy.Error) as error:
+        raise NotesDocumentError(
+            "The notes citations cannot be restored from their source projection.",
+            reason_code="source_ids",
+            detail_code="invalid_source_list",
+        ) from error
+    for section, _ in SECTIONS:
+        items = restored.get(section)
+        if not isinstance(items, list) or len(items) > MAX_SOURCE_REFS_PER_ITEM:
+            raise NotesDocumentError(
+                "The notes citations do not match their source projection.",
+                reason_code="source_ids",
+                detail_code="invalid_source_list",
+            )
+        for item in items:
+            if not isinstance(item, dict):
+                raise NotesDocumentError(
+                    "The notes citations do not match their source projection.",
+                    reason_code="source_ids",
+                    detail_code="invalid_source_list",
+                )
+            references = item.get("source_ids")
+            if (
+                not isinstance(references, list)
+                or len(references) > MAX_SOURCE_REFS_PER_ITEM
+                or any(not isinstance(source_id, str) for source_id in references)
+            ):
+                raise NotesDocumentError(
+                    "The notes citations do not match their source projection.",
+                    reason_code="source_ids",
+                    detail_code="invalid_source_list",
+                )
+            if any(source_id not in alias_to_original for source_id in references):
+                raise NotesDocumentError(
+                    "The notes citations do not match their source projection.",
+                    reason_code="source_ids",
+                    detail_code="unknown_source_id",
+                )
+            item["source_ids"] = [alias_to_original[source_id] for source_id in references]
+    return restored
 
 
 def _text(value: object, *, nullable: bool = False) -> bool:
@@ -144,41 +418,73 @@ def validate_document(
     """Check every field and source ID before producing a canonical owned copy."""
     if not isinstance(document, dict) or set(document) != set(NOTES_SCHEMA["required"]):
         raise NotesDocumentError(
-            "The notes document must contain all six sections and its version."
+            "The notes document must contain all six sections and its version.",
+            reason_code="fields",
         )
     if type(document["schema_version"]) is not int or document["schema_version"] != SCHEMA_VERSION:
-        raise NotesDocumentError("Unsupported notes schema version.")
+        raise NotesDocumentError("Unsupported notes schema version.", reason_code="version")
     try:
-        size = len(json.dumps(document, ensure_ascii=False, allow_nan=False).encode("utf-8"))
+        canonical = json.dumps(document, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        size = len(canonical.encode("utf-8"))
     except (TypeError, ValueError, UnicodeError) as error:
-        raise NotesDocumentError("The notes document must be valid JSON.") from error
+        raise NotesDocumentError(
+            "The notes document must be valid JSON.", reason_code="json"
+        ) from error
     if size > max_output_bytes:
-        raise NotesDocumentError("The notes document exceeds the output budget.")
+        raise NotesDocumentError(
+            "The notes document exceeds the output budget.", reason_code="size"
+        )
     source_ids = {segment["id"] for segment in snapshot["segments"]}
     result = copy.deepcopy(document)
     for section, _ in SECTIONS:
         items = result[section]
-        if not isinstance(items, list) or len(items) > 200:
-            raise NotesDocumentError(f"Invalid {section} section.")
-        properties = _ACTION_PROPERTIES if section == "action_items" else _ITEM_PROPERTIES
+        if not isinstance(items, list) or len(items) > MAX_SOURCE_REFS_PER_ITEM:
+            raise NotesDocumentError(f"Invalid {section} section.", reason_code="items")
+        required_fields = {"text", "source_ids"}
+        if section == "action_items":
+            required_fields.update({"owner", "deadline_text", "deadline_date"})
         for item in items:
-            if not isinstance(item, dict) or set(item) != set(properties):
-                raise NotesDocumentError(f"Invalid fields in {section}.")
+            if not isinstance(item, dict) or set(item) != required_fields:
+                raise NotesDocumentError(f"Invalid fields in {section}.", reason_code="fields")
             if not _text(item["text"]):
-                raise NotesDocumentError(f"Invalid text in {section}.")
+                raise NotesDocumentError(f"Invalid text in {section}.", reason_code="text")
             references = item["source_ids"]
             if (
                 not isinstance(references, list)
-                or len(references) > 200
-                or any(not isinstance(ref, str) or ref not in source_ids for ref in references)
-                or len(set(references)) != len(references)
-                or (section in {"decisions", "action_items"} and not references)
+                or len(references) > MAX_SOURCE_REFS_PER_ITEM
+                or any(not isinstance(ref, str) for ref in references)
             ):
-                raise NotesDocumentError(f"Invalid source IDs in {section}.")
+                raise NotesDocumentError(
+                    f"Invalid source IDs in {section}.",
+                    reason_code="source_ids",
+                    detail_code="invalid_source_list",
+                )
+            if any(ref not in source_ids for ref in references):
+                raise NotesDocumentError(
+                    f"Invalid source IDs in {section}.",
+                    reason_code="source_ids",
+                    detail_code="unknown_source_id",
+                )
+            if len(set(references)) != len(references):
+                raise NotesDocumentError(
+                    f"Invalid source IDs in {section}.",
+                    reason_code="source_ids",
+                    detail_code="duplicate_source_id",
+                )
+            if section in {"decisions", "action_items"} and not references:
+                raise NotesDocumentError(
+                    f"Invalid source IDs in {section}.",
+                    reason_code="source_ids",
+                    detail_code="required_source_missing",
+                )
             if section == "action_items":
                 for field in ("owner", "deadline_text", "deadline_date"):
                     if not _text(item[field], nullable=True):
-                        raise NotesDocumentError(f"Invalid {field} in action_items.")
+                        raise NotesDocumentError(
+                            f"Invalid {field} in action_items.",
+                            reason_code="action_fields",
+                            field_name=field,
+                        )
                 item["deadline_date"] = _deadline(
                     item["deadline_text"], snapshot.get("meeting_date")
                 )
@@ -299,16 +605,22 @@ def _repair_prompt(prompt: str, invalid_output: str | None) -> str:
     return prompt + _REPAIR_PREFIX + invalid_output
 
 
-def _check_prompt(prompt: str, *, reserve_repair: bool = False) -> str:
+def _check_prompt(
+    prompt: str,
+    *,
+    allowed_source_ids: Any,
+    reserve_repair: bool = False,
+) -> str:
     try:
         prompt_bytes = len(prompt.encode("utf-8"))
     except UnicodeEncodeError as error:
         raise NotesDocumentError("The notes prompt is not valid UTF-8.") from error
+    schema_bytes = notes_schema_json_bytes(allowed_source_ids)
     if prompt_bytes > MAX_PROMPT_BYTES:
         raise NotesDocumentError(
             f"The notes prompt exceeds the {MAX_PROMPT_BYTES:,}-byte request budget."
         )
-    context_bytes = prompt_bytes + NOTES_SCHEMA_JSON_BYTES + _CONTEXT_INPUT_HEADROOM_BYTES
+    context_bytes = prompt_bytes + schema_bytes + _CONTEXT_INPUT_HEADROOM_BYTES
     if context_bytes > _CONTEXT_INPUT_BUDGET_BYTES:
         raise NotesDocumentError("The notes prompt exceeds the safe schema and context budget.")
     if reserve_repair and (
@@ -319,9 +631,35 @@ def _check_prompt(prompt: str, *, reserve_repair: bool = False) -> str:
     return prompt
 
 
-def build_prompt(snapshot: dict[str, Any], *, invalid_output: str | None = None) -> str:
+def _source_scope_ids(snapshot: dict[str, Any]) -> tuple[str, ...]:
+    try:
+        return tuple(segment["id"] for segment in provider_source(snapshot)["segments"])
+    except (KeyError, TypeError) as error:
+        raise NotesDocumentError("The notes source citation scope is invalid.") from error
+
+
+def _checked_source_scope(snapshot: dict[str, Any], allowed_source_ids: Any) -> tuple[str, ...]:
+    scope = (
+        _source_scope_ids(snapshot)
+        if allowed_source_ids is None
+        else _validated_source_scope(allowed_source_ids)
+    )
+    if scope != _source_scope_ids(snapshot):
+        raise NotesDocumentError("The notes prompt scope does not match its supplied source.")
+    return scope
+
+
+def build_prompt(
+    snapshot: dict[str, Any],
+    *,
+    allowed_source_ids: Any = None,
+    invalid_output: str | None = None,
+) -> str:
     """Build one complete-source request, including an optional bounded repair payload."""
-    return _check_prompt(_repair_prompt(_source_prompt(snapshot), invalid_output))
+    scope = _checked_source_scope(snapshot, allowed_source_ids)
+    return _check_prompt(
+        _repair_prompt(_source_prompt(snapshot), invalid_output), allowed_source_ids=scope
+    )
 
 
 def build_chunk_prompt(
@@ -329,16 +667,19 @@ def build_chunk_prompt(
     *,
     chunk_index: int,
     chunk_count: int,
+    allowed_source_ids: Any = None,
     invalid_output: str | None = None,
 ) -> str:
     """Build one source-local extraction request for a planned chunk."""
     if not 1 <= chunk_index <= chunk_count <= MAX_NOTES_CHUNKS:
         raise NotesDocumentError("The notes chunk index is outside the configured chunk limit.")
+    scope = _checked_source_scope(snapshot, allowed_source_ids)
     return _check_prompt(
         _repair_prompt(
             _source_prompt(snapshot, chunk_index=chunk_index, chunk_count=chunk_count),
             invalid_output,
-        )
+        ),
+        allowed_source_ids=scope,
     )
 
 
@@ -347,36 +688,45 @@ def _chunk_snapshot(snapshot: dict[str, Any], segments: list[dict[str, Any]]) ->
 
 
 def _chunk_prompt_for_budget(snapshot: dict[str, Any], segments: list[dict[str, Any]]) -> str:
+    chunk = _chunk_snapshot(snapshot, segments)
     return _source_prompt(
-        _chunk_snapshot(snapshot, segments),
+        chunk,
         chunk_index=MAX_NOTES_CHUNKS,
         chunk_count=MAX_NOTES_CHUNKS,
     )
 
 
-def _fits_repairable_prompt(prompt: str) -> bool:
+def _fits_repairable_prompt(prompt: str, allowed_source_ids: Any) -> bool:
     try:
         prompt_bytes = len(prompt.encode("utf-8"))
-    except UnicodeEncodeError:
+        schema_bytes = notes_schema_json_bytes(allowed_source_ids)
+    except (NotesDocumentError, UnicodeEncodeError):
         return False
     return (
         prompt_bytes <= MAX_PRIMARY_PROMPT_BYTES
-        and prompt_bytes
-        + _REPAIR_RESERVE_BYTES
-        + NOTES_SCHEMA_JSON_BYTES
-        + _CONTEXT_INPUT_HEADROOM_BYTES
+        and prompt_bytes + _REPAIR_RESERVE_BYTES + schema_bytes + _CONTEXT_INPUT_HEADROOM_BYTES
         <= _CONTEXT_INPUT_BUDGET_BYTES
     )
 
 
-def prompt_fits_repair(prompt: str) -> bool:
+def prompt_fits_repair(prompt: str, *, allowed_source_ids: Any) -> bool:
     """Whether the request leaves space for schema, context and one bounded repair."""
-    return _fits_repairable_prompt(prompt)
+    return _fits_repairable_prompt(prompt, allowed_source_ids)
 
 
-def plan_source(snapshot: dict[str, Any]) -> NotesPlan:
-    """Return a repair-safe single-call or complete bounded segment chunk plan."""
+def plan_source(
+    snapshot: dict[str, Any], *, projected_snapshot: dict[str, Any] | None = None
+) -> NotesPlan:
+    """Plan original-ID chunks against projected prompts and their actual schemas."""
     source = provider_source(snapshot)
+    planning_snapshot = (
+        projected_snapshot
+        if projected_snapshot is not None
+        else project_source_snapshot(snapshot).snapshot
+    )
+    prompt_source = provider_source(planning_snapshot)
+    if len(source["segments"]) != len(prompt_source["segments"]):
+        raise NotesDocumentError("The projected notes source does not preserve segment positions.")
     try:
         total_bytes = len(
             json.dumps(source, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode(
@@ -390,30 +740,43 @@ def plan_source(snapshot: dict[str, Any]) -> NotesPlan:
             f"This transcript exceeds the {MAX_TOTAL_SOURCE_BYTES}-byte total notes source limit."
         )
 
-    full_prompt = _source_prompt(snapshot)
-    if _fits_repairable_prompt(full_prompt):
+    full_prompt = _source_prompt(planning_snapshot)
+    full_scope = tuple(segment["id"] for segment in prompt_source["segments"])
+    if _fits_repairable_prompt(full_prompt, full_scope):
         return NotesPlan((snapshot,), chunked=False)
 
     segments = source["segments"]
+    prompt_segments = prompt_source["segments"]
     chunks: list[dict[str, Any]] = []
     current: list[dict[str, Any]] = []
-    for segment in segments:
+    prompt_current: list[dict[str, Any]] = []
+    for segment, prompt_segment in zip(segments, prompt_segments, strict=True):
         candidate = [*current, segment]
-        if _fits_repairable_prompt(_chunk_prompt_for_budget(snapshot, candidate)):
+        prompt_candidate = [*prompt_current, prompt_segment]
+        candidate_scope = tuple(item["id"] for item in prompt_candidate)
+        if _fits_repairable_prompt(
+            _chunk_prompt_for_budget(planning_snapshot, prompt_candidate), candidate_scope
+        ):
             current = candidate
+            prompt_current = prompt_candidate
             continue
         if current:
             chunks.append(_chunk_snapshot(snapshot, current))
             current = []
+            prompt_current = []
             if len(chunks) >= MAX_NOTES_CHUNKS:
                 raise NotesDocumentError(
                     f"This transcript exceeds the maximum of {MAX_NOTES_CHUNKS} notes chunks."
                 )
-        if not _fits_repairable_prompt(_chunk_prompt_for_budget(snapshot, [segment])):
+        single_scope = (prompt_segment["id"],)
+        if not _fits_repairable_prompt(
+            _chunk_prompt_for_budget(planning_snapshot, [prompt_segment]), single_scope
+        ):
             raise NotesDocumentError(
                 "A single transcript segment exceeds the maximum notes chunk context budget."
             )
         current = [segment]
+        prompt_current = [prompt_segment]
 
     if current:
         chunks.append(_chunk_snapshot(snapshot, current))
@@ -499,8 +862,11 @@ def build_reduction_prompt(
     invalid_output: str | None = None,
 ) -> str:
     """Build a bounded chronological reduction request with an optional repair payload."""
+    citation_scope = _prompt_citation_scope(snapshot, documents)
+    allowed_source_ids = tuple(segment["id"] for segment in citation_scope["segments"])
     return _check_prompt(
-        _repair_prompt(_reduction_prompt(snapshot, documents, final=final), invalid_output)
+        _repair_prompt(_reduction_prompt(snapshot, documents, final=final), invalid_output),
+        allowed_source_ids=allowed_source_ids,
     )
 
 

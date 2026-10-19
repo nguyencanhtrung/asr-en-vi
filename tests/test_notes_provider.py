@@ -22,6 +22,7 @@ class NotesReply:
     access_token: str
     model: str
     reasoning_effort: str
+    allowed_source_ids: tuple[str, ...]
     max_output_bytes: int | None
 
 
@@ -54,10 +55,24 @@ class NotesOnlyAdapter:
         }
 
     def generate_notes(
-        self, *, access_token, model, reasoning_effort, prompt, max_output_bytes=None
+        self,
+        *,
+        access_token,
+        model,
+        reasoning_effort,
+        prompt,
+        allowed_source_ids,
+        max_output_bytes=None,
     ):
         self.calls.append(
-            NotesReply(prompt, access_token, model, reasoning_effort, max_output_bytes)
+            NotesReply(
+                prompt,
+                access_token,
+                model,
+                reasoning_effort,
+                tuple(allowed_source_ids),
+                max_output_bytes,
+            )
         )
         if self.responder is not None:
             return self.responder(prompt, max_output_bytes)
@@ -109,7 +124,7 @@ def _snapshot():
 def _valid_document():
     return {
         "schema_version": 1,
-        "overview": [{"text": "Morgan will prepare a draft.", "source_ids": ["c" * 32]}],
+        "overview": [{"text": "Morgan will prepare a draft.", "source_ids": ["00000"]}],
         "key_topics": [],
         "decisions": [],
         "open_questions": [],
@@ -173,11 +188,14 @@ def test_invalid_first_result_gets_one_bounded_repair_on_the_pinned_account(tmp_
     assert result["overview"][0]["text"] == "Morgan will prepare a draft."
     assert len(adapter.calls) == 2
     assert adapter.calls[0].prompt != adapter.calls[1].prompt
+    assert all(call.allowed_source_ids == ("00000",) for call in adapter.calls)
+    assert "c" * 32 not in adapter.calls[0].prompt
     assert all(len(call.prompt.encode("utf-8")) <= MAX_PROMPT_BYTES for call in adapter.calls)
     assert all(call.access_token == "local-test-access-token" for call in adapter.calls)
     assert all(call.model == "gpt-6.1-sol" for call in adapter.calls)
     assert all(call.reasoning_effort == "high" for call in adapter.calls)
     assert all(call.max_output_bytes == 128_000 for call in adapter.calls)
+    assert provider.store._read().get("last_diagnostic") is None
 
 
 def test_invalid_repair_fails_without_a_third_provider_call(tmp_path):
@@ -212,6 +230,283 @@ def test_provider_failure_is_not_retried_as_a_repair(tmp_path):
 
     assert failed.value.code == "provider_timeout"
     assert len(adapter.calls) == 1
+
+
+def test_compact_near_limit_document_is_accepted_without_schema_repair(tmp_path, monkeypatch):
+    from asr_en_vi import notes_document
+
+    output_budget = 8_000
+    compact_budget = 7_985
+    document = _valid_document()
+    snapshot = _snapshot()
+    snapshot["segments"][0]["id"] = "c0000"
+    document["overview"][0]["source_ids"] = ["c0000"]
+    document["overview"][0]["text"] = ""
+    template = json.dumps(document, ensure_ascii=False, separators=(",", ":"))
+    document["overview"][0]["text"] = "x" * (compact_budget - len(template.encode("utf-8")))
+    compact_output = json.dumps(document, ensure_ascii=False, separators=(",", ":"))
+
+    assert len(compact_output.encode("utf-8")) == compact_budget
+    assert len(json.dumps(json.loads(compact_output), ensure_ascii=False).encode("utf-8")) == (
+        output_budget + 1
+    )
+    monkeypatch.setattr(notes_document, "MAX_OUTPUT_BYTES", output_budget)
+    adapter = NotesOnlyAdapter([compact_output, compact_output])
+    provider = _provider(tmp_path, adapter)
+
+    result = provider.generate_notes_document(
+        snapshot=snapshot,
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+    )
+
+    assert len(result["overview"][0]["text"]) > 7_000
+    assert len(adapter.calls) == 1
+    assert adapter.calls[0].max_output_bytes == output_budget
+    assert "INVALID_OUTPUT:" not in adapter.calls[0].prompt
+
+
+def test_invalid_citation_terminal_failure_is_safe_and_uses_only_one_repair(tmp_path):
+    invalid_document = _valid_document()
+    invalid_document["overview"][0]["source_ids"] = ["private-unknown-source-id"]
+    invalid_output = json.dumps(invalid_document)
+    adapter = NotesOnlyAdapter([invalid_output, invalid_output])
+    provider = _provider(tmp_path, adapter)
+
+    with pytest.raises(ChatGPTError) as invalid:
+        provider.generate_notes_document(
+            snapshot=_snapshot(),
+            connection_version=7,
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+        )
+
+    assert invalid.value.code == "notes_invalid_output"
+    assert "source references" in invalid.value.public_message
+    assert "private-unknown-source-id" not in invalid.value.public_message
+    assert len(adapter.calls) == 2
+    diagnostic = provider.store._read()["last_diagnostic"]
+    assert diagnostic["validation_reason"] == "source_ids"
+    assert diagnostic["stage"] == "single"
+    assert diagnostic["provider_call_index"] == 2
+    assert diagnostic["attempt"] == "repair"
+    assert diagnostic["output_bytes"] == len(invalid_output.encode("utf-8"))
+    assert diagnostic["repair_state"] == "already_consumed"
+    assert "private-unknown-source-id" not in json.dumps(diagnostic)
+
+
+def test_provider_normalizes_only_valid_duplicate_citations_without_repair(tmp_path):
+    document = _valid_document()
+    document["overview"][0]["source_ids"] = ["00000", "00000"]
+    adapter = NotesOnlyAdapter([json.dumps(document), json.dumps(_valid_document())])
+    provider = _provider(tmp_path, adapter)
+
+    result = provider.generate_notes_document(
+        snapshot=_snapshot(),
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+    )
+
+    assert len(adapter.calls) == 1
+    assert result["overview"][0]["source_ids"] == ["c" * 32]
+    assert adapter.calls[0].allowed_source_ids == ("00000",)
+
+
+def test_final_output_expansion_fails_safely_after_restoring_original_ids(tmp_path):
+    from asr_en_vi.notes_document import MAX_OUTPUT_BYTES, project_source_snapshot
+
+    snapshot = _snapshot()
+    snapshot["segments"] = [
+        {
+            "id": f"segment-{index:04d}-" + "x" * 124,
+            "start_seconds": float(index),
+            "end_seconds": float(index + 1),
+            "text": "source",
+        }
+        for index in range(200)
+    ]
+    projection = project_source_snapshot(snapshot)
+    alias_ids = list(projection.alias_to_original)
+    document = {
+        "schema_version": 1,
+        **{
+            key: []
+            for key in (
+                "overview",
+                "key_topics",
+                "decisions",
+                "open_questions",
+                "action_items",
+                "confirmation_items",
+            )
+        },
+        "overview": [
+            {
+                "text": "x" * 11_500,
+                "source_ids": alias_ids[index * 20 : (index + 1) * 20],
+            }
+            for index in range(10)
+        ],
+    }
+    output = json.dumps(document, ensure_ascii=False, separators=(",", ":"))
+    assert len(output.encode("utf-8")) <= MAX_OUTPUT_BYTES
+    adapter = NotesOnlyAdapter([output])
+    provider = _provider(tmp_path, adapter)
+
+    with pytest.raises(ChatGPTError) as oversized:
+        provider.generate_notes_document(
+            snapshot=snapshot,
+            connection_version=7,
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+        )
+
+    assert oversized.value.code == "notes_invalid_output"
+    diagnostic = provider.store._read()["last_diagnostic"]
+    assert diagnostic["stage"] == "single"
+    assert diagnostic["validation_reason"] == "size"
+    assert diagnostic["output_bytes"] > MAX_OUTPUT_BYTES
+    assert len(adapter.calls) == 1
+    assert "segment-" not in json.dumps(diagnostic)
+
+
+@pytest.mark.parametrize(
+    ("failure_kind", "expected_detail"),
+    [
+        ("unknown", "unknown_source_id"),
+        ("missing", "required_source_missing"),
+    ],
+)
+def test_terminal_source_diagnostics_distinguish_failures_without_content(
+    tmp_path, failure_kind, expected_detail
+):
+    document = _valid_document()
+    document["overview"][0]["text"] = "private summary content"
+    if failure_kind == "unknown":
+        document["overview"][0]["source_ids"] = ["private-unknown-source-id"]
+    else:
+        document["decisions"] = [{"text": "private decision content", "source_ids": []}]
+    invalid_output = json.dumps(document)
+    adapter = NotesOnlyAdapter([invalid_output, invalid_output])
+    provider = _provider(tmp_path, adapter)
+
+    with pytest.raises(ChatGPTError) as invalid:
+        provider.generate_notes_document(
+            snapshot=_snapshot(),
+            connection_version=7,
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+        )
+
+    assert invalid.value.code == "notes_invalid_output"
+    assert invalid.value.public_message == (
+        "ChatGPT returned notes with invalid source references. No new notes were saved."
+    )
+    assert len(adapter.calls) == 2
+    diagnostic = provider.store._read()["last_diagnostic"]
+    assert diagnostic["validation_reason"] == "source_ids"
+    assert diagnostic["validation_detail"] == expected_detail
+    serialized_diagnostic = json.dumps(diagnostic)
+    assert "private" not in serialized_diagnostic
+    assert "c" * 32 not in serialized_diagnostic
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    [
+        ("owner", {"secret": "private owner value"}),
+        ("deadline_text", "private deadline phrase\x01"),
+        ("deadline_date", {"secret": "private date value"}),
+    ],
+)
+def test_action_field_diagnostics_keep_only_allowlisted_field_name(
+    tmp_path, field_name, invalid_value
+):
+    document = _valid_document()
+    action = {
+        "text": "private action content",
+        "source_ids": ["00000"],
+        "owner": None,
+        "deadline_text": None,
+        "deadline_date": None,
+    }
+    action[field_name] = invalid_value
+    document["action_items"] = [action]
+    invalid_output = json.dumps(document)
+    adapter = NotesOnlyAdapter([invalid_output, invalid_output])
+    provider = _provider(tmp_path, adapter)
+
+    with pytest.raises(ChatGPTError) as invalid:
+        provider.generate_notes_document(
+            snapshot=_snapshot(),
+            connection_version=7,
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+        )
+
+    assert invalid.value.code == "notes_invalid_output"
+    assert len(adapter.calls) == 2
+    diagnostic = provider.store._read()["last_diagnostic"]
+    assert diagnostic["validation_reason"] == "action_fields"
+    assert diagnostic["validation_field"] == field_name
+    serialized_diagnostic = json.dumps(diagnostic)
+    assert "private" not in serialized_diagnostic
+    assert "c" * 32 not in serialized_diagnostic
+
+
+def test_invalid_output_keeps_safe_diagnostic_when_repair_cannot_fit(tmp_path):
+    invalid_output = "not-json" + "x" * 8_001
+    adapter = NotesOnlyAdapter([invalid_output])
+    provider = _provider(tmp_path, adapter)
+
+    with pytest.raises(ChatGPTError) as invalid:
+        provider.generate_notes_document(
+            snapshot=_snapshot(),
+            connection_version=7,
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+        )
+
+    assert invalid.value.code == "notes_invalid_output"
+    assert len(adapter.calls) == 1
+    diagnostic = provider.store._read()["last_diagnostic"]
+    assert diagnostic["validation_reason"] == "json"
+    assert diagnostic["stage"] == "single"
+    assert diagnostic["provider_call_index"] == 1
+    assert diagnostic["attempt"] == "primary"
+    assert diagnostic["output_bytes"] == len(invalid_output.encode("utf-8"))
+    assert diagnostic["repair_state"] == "unavailable"
+    assert "not-json" not in json.dumps(diagnostic)
+
+
+def test_deeply_nested_provider_json_is_normalized_as_invalid_output(tmp_path):
+    valid = json.dumps(_valid_document(), separators=(",", ":"))
+    start = valid.index('"overview":') + len('"overview":')
+    end = valid.index(',"key_topics"', start)
+    nested_array = "[" * 1_200 + "0" + "]" * 1_200
+    invalid_output = valid[:start] + "[" + nested_array + "]" + valid[end:]
+    adapter = NotesOnlyAdapter([invalid_output, invalid_output])
+    provider = _provider(tmp_path, adapter)
+
+    with pytest.raises(ChatGPTError) as invalid:
+        provider.generate_notes_document(
+            snapshot=_snapshot(),
+            connection_version=7,
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+        )
+
+    assert invalid.value.code == "notes_invalid_output"
+    assert len(adapter.calls) == 2
+    diagnostic = provider.store._read()["last_diagnostic"]
+    assert diagnostic["validation_reason"] == "json"
+    assert diagnostic["stage"] == "single"
+    assert diagnostic["provider_call_index"] == 2
+    assert diagnostic["attempt"] == "repair"
+    assert diagnostic["output_bytes"] == len(invalid_output.encode("utf-8"))
+    assert diagnostic["repair_state"] == "already_consumed"
 
 
 def test_notes_refreshes_access_token_between_stages_and_keeps_the_task_pin(tmp_path, monkeypatch):
@@ -351,7 +646,7 @@ def test_only_one_schema_repair_is_available_across_all_chunks(tmp_path):
         {"id": "d" * 32, "start_seconds": 3, "end_seconds": 4, "text": "y" * 20_000},
     ]
     first_chunk_result = _valid_document()
-    first_chunk_result["overview"][0]["source_ids"] = ["c" * 32]
+    first_chunk_result["overview"][0]["source_ids"] = ["00000"]
     adapter = NotesOnlyAdapter(["not-json", json.dumps(first_chunk_result), "still-not-json"])
     provider = _provider(tmp_path, adapter)
 
@@ -368,16 +663,23 @@ def test_only_one_schema_repair_is_available_across_all_chunks(tmp_path):
     assert "INVALID_OUTPUT:" in adapter.calls[1].prompt
     assert "INVALID_OUTPUT:" not in adapter.calls[2].prompt
     assert all(call.max_output_bytes == 8_000 for call in adapter.calls)
+    diagnostic = provider.store._read()["last_diagnostic"]
+    assert diagnostic["validation_reason"] == "json"
+    assert diagnostic["stage"] == "chunk"
+    assert diagnostic["provider_call_index"] == 3
+    assert diagnostic["attempt"] == "primary"
+    assert diagnostic["output_bytes"] == len(b"still-not-json")
+    assert diagnostic["repair_state"] == "already_consumed"
 
 
-def test_reducer_cannot_cite_real_source_ids_absent_from_its_inputs(tmp_path):
+def test_reducer_scope_contains_only_aliases_cited_by_its_inputs(tmp_path):
     snapshot = _snapshot()
     snapshot["segments"] = [
         {"id": "c" * 32, "start_seconds": 1, "end_seconds": 2, "text": "x" * 20_000},
         {"id": "d" * 32, "start_seconds": 3, "end_seconds": 4, "text": "y" * 20_000},
     ]
     first_chunk_result = _valid_document()
-    first_chunk_result["overview"][0]["source_ids"] = ["c" * 32]
+    first_chunk_result["overview"][0]["source_ids"] = ["00000"]
     empty_chunk_result = {
         "schema_version": 1,
         **{
@@ -394,7 +696,7 @@ def test_reducer_cannot_cite_real_source_ids_absent_from_its_inputs(tmp_path):
     }
     invalid_reducer_result = {
         **empty_chunk_result,
-        "overview": [{"text": "Unsupported citation", "source_ids": ["d" * 32]}],
+        "overview": [{"text": "Unsupported citation", "source_ids": ["00001"]}],
     }
     adapter = NotesOnlyAdapter(
         [
@@ -416,8 +718,51 @@ def test_reducer_cannot_cite_real_source_ids_absent_from_its_inputs(tmp_path):
 
     assert invalid.value.code == "notes_invalid_output"
     assert len(adapter.calls) == 4
+    assert adapter.calls[0].allowed_source_ids == ("00000",)
+    assert adapter.calls[1].allowed_source_ids == ("00001",)
+    assert adapter.calls[2].allowed_source_ids == ("00000",)
+    assert adapter.calls[3].allowed_source_ids == ("00000",)
     assert "SYNTHESIS_INPUT_JSON:" in adapter.calls[2].prompt
     assert "INVALID_OUTPUT:" in adapter.calls[3].prompt
+
+
+def test_empty_reducer_scope_is_sent_as_empty_after_uncited_chunk_summaries(tmp_path):
+    snapshot = _snapshot()
+    snapshot["segments"] = [
+        {"id": "c" * 32, "start_seconds": 1, "end_seconds": 2, "text": "x" * 20_000},
+        {"id": "d" * 32, "start_seconds": 3, "end_seconds": 4, "text": "y" * 20_000},
+    ]
+    empty_document = {
+        "schema_version": 1,
+        **{
+            key: []
+            for key in (
+                "overview",
+                "key_topics",
+                "decisions",
+                "open_questions",
+                "action_items",
+                "confirmation_items",
+            )
+        },
+    }
+    adapter = NotesOnlyAdapter([json.dumps(empty_document)] * 3)
+    provider = _provider(tmp_path, adapter)
+
+    result = provider.generate_notes_document(
+        snapshot=snapshot,
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+    )
+
+    assert len(adapter.calls) == 3
+    assert [call.allowed_source_ids for call in adapter.calls] == [
+        ("00000",),
+        ("00001",),
+        (),
+    ]
+    assert result["overview"] == []
 
 
 def test_changed_account_or_model_never_silently_replaces_the_pinned_selection(tmp_path):
@@ -442,7 +787,11 @@ def test_long_source_uses_bounded_multi_level_reduction_and_later_decision_wins(
     tmp_path, monkeypatch
 ):
     from asr_en_vi import notes_document
-    from asr_en_vi.notes_document import MAX_CHUNK_OUTPUT_BYTES, MAX_NOTES_CHUNKS
+    from asr_en_vi.notes_document import (
+        MAX_CHUNK_OUTPUT_BYTES,
+        MAX_NOTES_CHUNKS,
+        project_source_snapshot,
+    )
 
     monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
     snapshot = _snapshot()
@@ -549,8 +898,15 @@ def test_long_source_uses_bounded_multi_level_reduction_and_later_decision_wins(
     assert len(adapter.calls) <= 2 * MAX_NOTES_CHUNKS + 1
     first_source_id = snapshot["segments"][0]["id"]
     last_source_id = snapshot["segments"][-1]["id"]
-    assert first_source_id in map_calls[0].prompt and last_source_id not in map_calls[0].prompt
-    assert last_source_id in map_calls[-1].prompt and first_source_id not in map_calls[-1].prompt
+    projection = project_source_snapshot(snapshot)
+    original_to_alias = {
+        original_id: alias for alias, original_id in projection.alias_to_original.items()
+    }
+    assert original_to_alias[first_source_id] in map_calls[0].prompt
+    assert original_to_alias[last_source_id] not in map_calls[0].prompt
+    assert original_to_alias[last_source_id] in map_calls[-1].prompt
+    assert original_to_alias[first_source_id] not in map_calls[-1].prompt
+    assert first_source_id not in map_calls[0].prompt
     assert len(result["decisions"]) == 1
     assert "later Tuesday decision supersedes" in result["decisions"][0]["text"]
     assert result["confirmation_items"] == []
