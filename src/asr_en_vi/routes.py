@@ -17,6 +17,7 @@ from asr_en_vi.auth import AuthStateError, create_session_cookie, token_matches
 from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
 from asr_en_vi.config import Settings
 from asr_en_vi.media import ALLOWED_EXTENSIONS, OUTPUT_BITRATE, OUTPUT_CODEC
+from asr_en_vi.notes_routes import install_notes_routes
 from asr_en_vi.recordings import (
     RecordingError,
     begin_upload,
@@ -743,3 +744,5 @@ def install_routes(app: FastAPI, settings: Settings, chatgpt_provider: ChatGPTPr
         )
         response.status_code = 204
         return response
+
+    install_notes_routes(app, settings, chatgpt_provider)

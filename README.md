@@ -2,7 +2,7 @@
 
 Ứng dụng web chạy trên máy tự quản để lưu bản ghi cuộc họp và tạo transcript bằng faster-whisper
 cùng speaker diarization Community-1 trên máy local. Bản ghi, transcript và catalog người nói được
-lưu trong workspace; meeting notes chưa được triển khai.
+lưu trong workspace; ChatGPT tạo meeting notes tiếng Anh có thể đối chiếu transcript nguồn.
 
 ## Chạy trên máy local
 
@@ -44,7 +44,8 @@ Compose tạo các volume riêng:
 
 - `data` giữ SQLite và trạng thái liveness tối thiểu của worker; app và worker cùng gắn volume này.
 - `auth` giữ token và khóa ký cookie với quyền file hạn chế; chỉ app gắn volume này.
-- `provider` giữ đăng ký và credential ChatGPT riêng của bản cài; chỉ app gắn volume này.
+- `provider` giữ đăng ký và credential ChatGPT riêng của bản cài; app và worker cùng gắn volume
+  này để đăng nhập, gọi notes và refresh phiên. Worker không gắn volume `auth`.
 - Thư mục model trên host được gắn chỉ đọc vào app và worker; không nằm trong image ứng dụng.
 
 Restart hoặc recreate container vẫn giữ các volume. Một Compose project/volume mới sinh token
@@ -155,15 +156,14 @@ Sau khi kết nối, chọn và lưu model từ danh sách tài khoản cung c�
 dụng cần được chọn lại; ứng dụng không tự chuyển model. Danh sách model không bảo đảm còn quota
 hoặc tài khoản gọi được inference. Nút **Chạy kiểm tra bằng dữ liệu tổng hợp** gửi một yêu cầu nhỏ
 để kiểm chứng đầu ra JSON; yêu cầu có thể dùng hạn mức ChatGPT, không gửi dữ liệu cuộc họp và
-không tự gửi lại nếu lỗi. Tính năng này chuẩn bị kết nối cho bước tạo notes; chưa triển khai tạo
-notes từ transcript.
+không tự gửi lại nếu lỗi. Sau đó có thể chủ động tạo notes từ transcript hoàn chỉnh.
 
 Với GPT-5.6 Luna và GPT-6 Luna/Sol, có thể chọn `none`, `low`, `medium`, `high`, `xhigh` hoặc `max` cho
 `reasoning.effort`, rồi lưu cùng model. Chọn **Mặc định của mô hình** để ứng dụng không gửi tham số
 khi kiểm tra; GPT-5.6 Luna mặc định dùng `medium`. GPT-6.1 Sol và GPT-6 Astra hỗ trợ từ `low`
 đến `max`. Lần kiểm tra tổng hợp sử dụng effort đang hiển thị,
 kể cả khi thay đổi chưa được lưu. Mức effort cao hơn có thể làm yêu cầu lâu hơn và dùng thêm hạn
-mức; hiện chưa có bước tạo notes để áp dụng lựa chọn này vào nội dung cuộc họp.
+mức. Mỗi tác vụ notes cố định model và effort đã lưu khi nhận yêu cầu.
 
 Callback dùng HTTP `127.0.0.1` trên cổng app đã publish, tại `/auth/chatgpt/callback`. Mở trình
 duyệt trên cùng máy chạy Docker. Không chuyển callback sang `localhost`. Compose và lệnh mặc
@@ -181,6 +181,33 @@ Nếu chưa xác nhận được thu hồi từ xa, UI hướng dẫn kiểm tra
 
 Xem [quy trình kiểm chứng ChatGPT thật](docs/chatgpt-integration-check.md) để ghi nhận quyền tài
 khoản, model và kết quả. Kiểm thử giả lập không xác nhận entitlement hoặc quota của tài khoản thật.
+
+## Tạo và đối chiếu notes
+
+Mở cuộc họp đã có transcript hoàn chỉnh, lưu lựa chọn ChatGPT/model trong phần kết nối, rồi bấm
+**Tạo notes**. Worker gửi transcript cùng ID, timestamp, tên người nói và ngày họp cần thiết;
+không gửi audio. Lát triển khai này nhận nguồn vừa ngân sách một lượt gọi. Nguồn quá dài bị từ
+chối rõ ràng, không bị cắt mất phần cuối hoặc tự chuyển model.
+
+Notes tiếng Anh gồm Overview, Key Topics and Rationale, Decisions, Open Questions, Confirmed
+Action Items và Items Requiring Confirmation. Backend kiểm tra cấu trúc và ID nguồn trước khi
+lưu; quyết định và action item phải dẫn về nguồn hợp lệ. Owner hoặc deadline thiếu giữ là
+**Undetermined**. Chỉ quy đổi deadline tương đối khi ngày họp và cách diễn đạt đủ rõ; luôn giữ
+cách nói gốc để rà soát. Kiểm tra schema không thay thế việc người dùng đối chiếu nội dung.
+
+Khi nhận tác vụ, ứng dụng chụp nguồn bất biến và khóa transcript, người nói cùng ngày họp của
+cuộc họp đó. Tài khoản/model ChatGPT được giữ cố định; không đổi hoặc ngắt kết nối khi tác vụ còn
+hoạt động. Vẫn xem nguồn, sửa notes cũ và làm việc với cuộc họp khác được. Bấm hủy chuyển tác vụ
+sang đang dừng; chỉ khi tiến trình gọi provider đã kết thúc mới mở khóa và nhường slot. Lỗi,
+hủy hoặc restart giữ transcript và các notes đã lưu; không công bố đầu ra dở hoặc tự gửi lại
+inference. Đầu ra đã nhận đầy đủ nhưng không hợp lệ được phép sửa tối đa một lượt.
+
+Chọn phiên bản notes để xem hoặc sửa Markdown. Lưu dùng kiểm tra phiên bản; xung đột giữ bản
+nháp để đối chiếu. Sao chép và tải Markdown lấy cùng nội dung đã lưu của phiên bản đang chọn;
+cần lưu hoặc giải quyết bản nháp trước. Bấm timestamp để mở đúng đoạn trong snapshot và tua bản
+audio đã lưu, kể cả khi transcript hiện tại đã đổi. Link nguồn không chứa token truy cập.
+Notes cũ hiển thị nguồn lịch sử hoặc cần cập nhật khi nguồn thay đổi; đổi riêng tên cuộc họp
+không làm notes cần cập nhật.
 
 ## Phát triển và kiểm tra
 

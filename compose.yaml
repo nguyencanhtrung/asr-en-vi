@@ -62,6 +62,7 @@ services:
       - ALL
     environment:
       ASR_DATA_DIR: /var/lib/asr-en-vi/data
+      ASR_PROVIDER_DIR: /var/lib/asr-en-vi/provider
       ASR_DEVICE: ${ASR_DEVICE:-auto}
       ASR_MODEL_PATH: ${ASR_MODEL_PATH:-}
       ASR_COMPUTE_TYPE: ${ASR_COMPUTE_TYPE:-}
@@ -72,6 +73,7 @@ services:
       ASR_DIARIZATION_MODEL_PATH: ${ASR_DIARIZATION_MODEL_PATH:-/models/speaker-diarization-community-1}
     volumes:
       - data:/var/lib/asr-en-vi/data
+      - provider:/var/lib/asr-en-vi/provider
       - "${ASR_MODEL_HOST_PATH:-./models}:/models:ro"
     depends_on:
       app:

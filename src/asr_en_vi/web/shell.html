@@ -12,9 +12,11 @@
     <link rel="stylesheet" href="/assets/design-system.css" />
     <link rel="stylesheet" href="/assets/shell.css" />
     <link rel="stylesheet" href="/assets/history.css" />
+    <link rel="stylesheet" href="/assets/notes.css" />
     <link rel="stylesheet" href="/assets/connections.css" />
     <script src="/assets/shell.js" defer></script>
     <script src="/assets/history.js" defer></script>
+    <script src="/assets/notes.js" defer></script>
     <script src="/assets/connections.js" defer></script>
   </head>
   <body>
@@ -179,7 +181,7 @@
         <section class="meeting-view" id="meeting-view" aria-labelledby="meeting-title" hidden>
           <div class="meeting-intro">
             <h2 id="meeting-title" tabindex="-1"></h2>
-            <button class="secondary-button edit-meeting-button" id="edit-meeting" type="button">Sửa tên và ngày</button>
+            <button class="secondary-button edit-meeting-button" id="edit-meeting" type="button" aria-describedby="notes-lock-status">Sửa tên và ngày</button>
             <p class="edit-status" id="edit-status" role="status"></p>
           </div>
           <form class="meeting-edit" id="meeting-edit" aria-label="Sửa tên và ngày họp" novalidate hidden>
@@ -298,6 +300,80 @@
               <p class="transcript-empty" id="transcript-empty" hidden>Model không trả về đoạn lời nói nào.</p>
               <ol class="transcript-segments" id="transcript-segments"></ol>
             </div>
+          </section>
+          <section class="notes-panel" id="notes-panel" aria-labelledby="notes-heading">
+            <header class="notes-heading-row">
+              <div>
+                <h3 id="notes-heading">Meeting notes</h3>
+                <p class="notes-intro">Notes được tạo bằng tiếng Anh từ transcript hoàn chỉnh của cuộc họp.</p>
+              </div>
+              <div class="notes-run-actions">
+                <button class="primary-button" id="notes-start" type="button" disabled>Tạo notes bằng ChatGPT</button>
+                <button class="secondary-button" id="notes-cancel" type="button" hidden>Hủy xử lý</button>
+              </div>
+            </header>
+            <p class="notes-content-policy" id="notes-content-policy">
+              Chỉ ngày họp, lời thoại, mốc thời gian và tên người nói được gửi tới ChatGPT bằng model và effort đã lưu. File audio/video, tên cuộc họp và thông tin tài khoản không được gửi.
+            </p>
+            <p class="notes-lock-status" id="notes-lock-status" role="status" aria-live="polite" hidden></p>
+            <p class="notes-status" id="notes-status" role="status" aria-live="polite">Đang kiểm tra trạng thái notes…</p>
+            <dl class="notes-task-details" id="notes-task-details" hidden>
+              <div><dt>Trạng thái</dt><dd id="notes-task-state"></dd></div>
+              <div><dt>Giai đoạn</dt><dd id="notes-task-stage"></dd></div>
+            </dl>
+            <div class="notes-error" id="notes-error" role="alert" hidden>
+              <p id="notes-error-message"></p>
+            </div>
+            <section class="notes-saved-work" id="notes-saved-work" aria-label="Meeting notes đã lưu" hidden>
+              <div class="notes-revision-controls">
+                <div class="notes-revision-select-wrap">
+                  <label for="notes-revision-selector">Phiên bản notes đã lưu</label>
+                  <select id="notes-revision-selector" aria-label="Chọn phiên bản notes đã lưu"></select>
+                </div>
+                <p class="notes-revision-meta" id="notes-revision-meta"></p>
+              </div>
+              <div class="notes-document-grid">
+                <section class="notes-editor-section" aria-labelledby="notes-editor-heading">
+                  <h4 id="notes-editor-heading">Markdown đã lưu</h4>
+                  <label class="visually-hidden" for="notes-markdown">Chỉnh sửa Markdown của phiên bản notes đã chọn</label>
+                  <textarea id="notes-markdown" rows="20" spellcheck="true" aria-describedby="notes-draft-status"></textarea>
+                  <p class="notes-draft-status" id="notes-draft-status" role="status" aria-live="polite"></p>
+                  <div class="notes-conflict" id="notes-conflict" role="alert" hidden>
+                    <p id="notes-conflict-message"></p>
+                    <div class="notes-conflict-actions">
+                      <button class="secondary-button" id="notes-keep-draft" type="button">Giữ bản nháp và lưu lên bản mới nhất</button>
+                      <button class="text-button" id="notes-use-latest" type="button">Tải bản đã lưu mới nhất</button>
+                    </div>
+                  </div>
+                  <button class="secondary-button notes-save-button" id="notes-save" type="button">Lưu bản nháp</button>
+                </section>
+                <section class="notes-preview-section" aria-labelledby="notes-preview-heading">
+                  <h4 id="notes-preview-heading">Xem trước Markdown</h4>
+                  <div class="notes-markdown-preview" id="notes-preview" aria-label="Bản xem trước notes đã chọn"></div>
+                </section>
+              </div>
+              <div class="notes-saved-actions">
+                <button class="secondary-button" id="notes-copy" type="button">Sao chép bản đã lưu</button>
+                <button class="secondary-button" id="notes-export" type="button">Tải Markdown đã lưu</button>
+                <p id="notes-copy-export-status" role="status" aria-live="polite"></p>
+              </div>
+            </section>
+            <section class="notes-source-view" id="notes-source-view" aria-labelledby="notes-source-heading" hidden>
+              <header>
+                <div>
+                  <h4 id="notes-source-heading" tabindex="-1">Nguồn transcript đã lưu</h4>
+                  <p id="notes-source-context"></p>
+                </div>
+                <button class="text-button" id="notes-source-close" type="button">Đóng nguồn</button>
+              </header>
+              <dl class="notes-source-metadata">
+                <div><dt>Mốc thời gian</dt><dd><time id="notes-source-time"></time></dd></div>
+                <div><dt>Người nói</dt><dd id="notes-source-speaker"></dd></div>
+              </dl>
+              <p class="notes-source-text" id="notes-source-text"></p>
+              <button class="secondary-button" id="notes-source-seek" type="button">Tua bản ghi tới mốc này</button>
+              <p class="notes-source-status" id="notes-source-status" role="status" aria-live="polite"></p>
+            </section>
           </section>
           <p class="meeting-language-reminder">Transcript giữ nguyên ngôn ngữ đã nói. Meeting notes luôn bằng tiếng Anh.</p>
         </section>

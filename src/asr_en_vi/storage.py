@@ -6,7 +6,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def _migrate_v2(connection: sqlite3.Connection) -> None:
@@ -239,6 +239,119 @@ def _migrate_v5(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v6(connection: sqlite3.Connection) -> None:
+    """Add immutable notes sources and revisions, then extend the shared task table."""
+    connection.execute(
+        "CREATE TABLE notes_sources ("
+        "id TEXT PRIMARY KEY, "
+        "meeting_id TEXT NOT NULL REFERENCES meetings(id) ON DELETE RESTRICT, "
+        "generation_id TEXT NOT NULL REFERENCES transcript_generations(id) ON DELETE RESTRICT, "
+        "source_version INTEGER NOT NULL CHECK(source_version >= 1), "
+        "notes_source_version INTEGER NOT NULL CHECK(notes_source_version >= 1), "
+        "meeting_date TEXT CHECK(meeting_date IS NULL OR ("
+        "length(meeting_date) = 10 AND meeting_date GLOB "
+        "'[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')), "
+        "snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json)), "
+        "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP"
+        ")"
+    )
+    connection.execute(
+        "CREATE INDEX notes_sources_meeting_idx "
+        "ON notes_sources(meeting_id, created_at DESC, id DESC)"
+    )
+
+    connection.execute(
+        "CREATE TABLE tasks_v6 ("
+        "id TEXT PRIMARY KEY, "
+        "request_id TEXT NOT NULL UNIQUE, "
+        "request_hash TEXT NOT NULL, "
+        "meeting_id TEXT NOT NULL REFERENCES meetings(id) ON DELETE RESTRICT, "
+        "kind TEXT NOT NULL CHECK(kind IN ('transcription', 'notes')), "
+        "model_path TEXT NOT NULL, "
+        "model_name TEXT NOT NULL, "
+        "device TEXT NOT NULL CHECK(device IN ('auto', 'cpu', 'cuda')), "
+        "compute_type TEXT NOT NULL, "
+        "language_hint TEXT NOT NULL CHECK(language_hint IN ('en', 'vi')), "
+        "status TEXT NOT NULL CHECK(status IN ("
+        "'accepted', 'running', 'stopping', 'succeeded', 'failed', 'canceled', 'interrupted')), "
+        "stage TEXT NOT NULL, "
+        "result_scope TEXT CHECK(result_scope IS NULL OR result_scope IN "
+        "('transcript_only', 'notes_only')), "
+        "audio_duration_seconds REAL NOT NULL CHECK(audio_duration_seconds > 0), "
+        "transcript_end_seconds REAL NOT NULL DEFAULT 0 CHECK(transcript_end_seconds >= 0), "
+        "segment_count INTEGER NOT NULL DEFAULT 0 CHECK(segment_count >= 0), "
+        "elapsed_seconds REAL NOT NULL DEFAULT 0 CHECK(elapsed_seconds >= 0), "
+        "owner_id TEXT, "
+        "error_code TEXT, "
+        "error_message TEXT, "
+        "accepted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+        "started_at TEXT, "
+        "heartbeat_at TEXT, "
+        "cancel_requested_at TEXT, "
+        "completed_at TEXT, "
+        "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+        "diarization_model_path TEXT NOT NULL DEFAULT '', "
+        "notes_provider TEXT CHECK(notes_provider IS NULL OR notes_provider = 'chatgpt'), "
+        "notes_connection_version INTEGER CHECK(notes_connection_version IS NULL OR "
+        "notes_connection_version >= 0), "
+        "notes_model TEXT, "
+        "notes_reasoning_effort TEXT, "
+        "notes_prompt_version TEXT, "
+        "notes_schema_version INTEGER CHECK(notes_schema_version IS NULL OR "
+        "notes_schema_version >= 1), "
+        "notes_source_id TEXT REFERENCES notes_sources(id) ON DELETE RESTRICT, "
+        "CHECK((kind = 'transcription' AND notes_provider IS NULL AND "
+        "notes_connection_version IS NULL AND notes_model IS NULL AND "
+        "notes_reasoning_effort IS NULL AND notes_prompt_version IS NULL AND "
+        "notes_schema_version IS NULL AND notes_source_id IS NULL) OR "
+        "(kind = 'notes' AND notes_provider = 'chatgpt' AND "
+        "notes_connection_version IS NOT NULL AND notes_model IS NOT NULL AND "
+        "notes_reasoning_effort IS NOT NULL AND notes_prompt_version IS NOT NULL AND "
+        "notes_schema_version IS NOT NULL AND notes_source_id IS NOT NULL))"
+        ")"
+    )
+    connection.execute(
+        "INSERT INTO tasks_v6(id, request_id, request_hash, meeting_id, kind, model_path, "
+        "model_name, device, compute_type, language_hint, status, stage, result_scope, "
+        "audio_duration_seconds, transcript_end_seconds, segment_count, elapsed_seconds, "
+        "owner_id, error_code, error_message, accepted_at, started_at, heartbeat_at, "
+        "cancel_requested_at, completed_at, updated_at, diarization_model_path) "
+        "SELECT id, request_id, request_hash, meeting_id, kind, model_path, model_name, device, "
+        "compute_type, language_hint, status, stage, result_scope, audio_duration_seconds, "
+        "transcript_end_seconds, segment_count, elapsed_seconds, owner_id, error_code, "
+        "error_message, accepted_at, started_at, heartbeat_at, cancel_requested_at, completed_at, "
+        "updated_at, diarization_model_path FROM tasks"
+    )
+    connection.execute("DROP TABLE tasks")
+    connection.execute("ALTER TABLE tasks_v6 RENAME TO tasks")
+    connection.execute(
+        "CREATE INDEX tasks_meeting_created_idx ON tasks(meeting_id, accepted_at DESC, id DESC)"
+    )
+
+    connection.execute(
+        "CREATE TABLE notes_revisions ("
+        "id TEXT PRIMARY KEY, "
+        "meeting_id TEXT NOT NULL REFERENCES meetings(id) ON DELETE RESTRICT, "
+        "source_snapshot_id TEXT NOT NULL REFERENCES notes_sources(id) ON DELETE RESTRICT, "
+        "task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE RESTRICT, "
+        "markdown TEXT NOT NULL, "
+        "edit_version INTEGER NOT NULL DEFAULT 1 CHECK(edit_version >= 1), "
+        "provider TEXT NOT NULL CHECK(provider = 'chatgpt'), "
+        "model TEXT NOT NULL, "
+        "reasoning_effort TEXT NOT NULL, "
+        "connection_version INTEGER NOT NULL CHECK(connection_version >= 0), "
+        "prompt_version TEXT NOT NULL, "
+        "schema_version INTEGER NOT NULL CHECK(schema_version >= 1), "
+        "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+        "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP"
+        ")"
+    )
+    connection.execute(
+        "CREATE INDEX notes_revisions_meeting_idx "
+        "ON notes_revisions(meeting_id, created_at DESC, id DESC)"
+    )
+
+
 def database_path(data_dir: Path) -> Path:
     return Path(data_dir) / "app.sqlite3"
 
@@ -287,6 +400,28 @@ def initialize(data_dir: Path) -> Path:
             _migrate_v5(connection)
             connection.execute("INSERT INTO schema_migrations(version) VALUES (5)")
         connection.commit()
+        if current_version < 6:
+            # SQLite cannot change foreign_keys inside a transaction. The standard
+            # create-copy-drop-rename rebuild keeps child references pointed at `tasks`.
+            connection.execute("PRAGMA foreign_keys = OFF")
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                current_version = connection.execute(
+                    "SELECT COALESCE(MAX(version), 0) FROM schema_migrations"
+                ).fetchone()[0]
+                if current_version < 6:
+                    _migrate_v6(connection)
+                    connection.execute("INSERT INTO schema_migrations(version) VALUES (6)")
+                violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+                if violations:
+                    raise RuntimeError("Database migration produced foreign-key violations")
+                connection.commit()
+            except BaseException:
+                if connection.in_transaction:
+                    connection.rollback()
+                raise
+            finally:
+                connection.execute("PRAGMA foreign_keys = ON")
     finally:
         connection.close()
     os.chmod(path, 0o600)

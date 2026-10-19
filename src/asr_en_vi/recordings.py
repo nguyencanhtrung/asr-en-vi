@@ -539,9 +539,18 @@ def get_meeting(data_dir: Path, meeting_id: str) -> dict[str, object]:
             "WHERE meetings.id = ?",
             (meeting_id,),
         ).fetchone()
+        source_locked = (
+            connection.execute(
+                "SELECT 1 FROM tasks WHERE meeting_id = ? AND kind = 'notes' "
+                "AND status IN ('accepted', 'running', 'stopping') LIMIT 1",
+                (meeting_id,),
+            ).fetchone()
+            is not None
+        )
     if row is None:
         raise RecordingError(404, "meeting_not_found", "Meeting not found.")
     summary = _meeting_summary(row)
+    summary["notes_source_locked"] = source_locked
     from asr_en_vi.tasks import transcription_state
 
     summary["transcription"] = transcription_state(data_dir, meeting_id)
@@ -620,6 +629,18 @@ def update_meeting(
         title = current["title"] if new_title is None else new_title
         meeting_date = current["meeting_date"] if "meeting_date" not in fields else new_date
         date_changed = meeting_date != current["meeting_date"]
+        if date_changed:
+            active_notes = connection.execute(
+                "SELECT 1 FROM tasks WHERE meeting_id = ? AND kind = 'notes' "
+                "AND status IN ('accepted', 'running', 'stopping') LIMIT 1",
+                (meeting_id,),
+            ).fetchone()
+            if active_notes is not None:
+                raise RecordingError(
+                    409,
+                    "notes_source_locked",
+                    "The meeting date is locked while notes are being generated.",
+                )
         if title != current["title"] or date_changed:
             connection.execute(
                 "UPDATE meetings SET title = ?, meeting_date = ?, "

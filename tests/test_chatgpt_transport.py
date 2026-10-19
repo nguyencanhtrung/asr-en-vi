@@ -14,10 +14,13 @@ from asr_en_vi.chatgpt import (
     AUTHORIZATION_URL,
     DISCOVERY_URL,
     ISSUER,
+    NOTES_MAX_OUTPUT_TOKENS,
+    NOTES_MAX_REQUEST_BODY_BYTES,
     TOKEN_URL,
     ChatGPTError,
     ChatGPTHTTPAdapter,
 )
+from asr_en_vi.notes_document import MAX_PROMPT_BYTES
 
 CLIENT_ID = "oaiapp_test-123456"
 
@@ -210,6 +213,226 @@ def test_verification_sends_selected_reasoning_effort():
     body = json.loads(requests[0].content)
     assert body["reasoning"] == {"effort": "max"}
     assert body["store"] is False and body["stream"] is True
+
+
+def test_notes_request_caps_output_tokens_and_returns_only_a_completed_result():
+    requests: list[httpx.Request] = []
+    stream = (
+        b'data: {"type":"response.output_text.delta","delta":"{\\"overview\\":[]}"}\n\n'
+        b'data: {"type":"response.completed","response":{"output":[]}}\n\n'
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=stream)
+
+    adapter = ChatGPTHTTPAdapter(transport=httpx.MockTransport(handler))
+    output = adapter.generate_notes(
+        access_token="access-secret",
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+        prompt="Bounded test prompt.",
+    )
+
+    assert output == '{"overview":[]}'
+    assert len(requests) == 1
+    body = json.loads(requests[0].content)
+    assert body["max_output_tokens"] == NOTES_MAX_OUTPUT_TOKENS == 6000
+    assert body["max_output_tokens"] <= 6000
+    assert body["reasoning"] == {"effort": "high"}
+    assert body["store"] is False and body["stream"] is True
+    assert body["text"]["format"]["strict"] is True
+    assert len(requests[0].content) <= NOTES_MAX_REQUEST_BODY_BYTES
+
+
+def test_notes_reasoning_stream_can_finish_after_the_control_call_deadline(monkeypatch):
+    clock = [0.0]
+    requests = []
+    monkeypatch.setattr("asr_en_vi.chatgpt.time.monotonic", lambda: clock[0])
+
+    class ReasoningStream(httpx.SyncByteStream):
+        def __iter__(self):
+            clock[0] = 45.0
+            yield b": reasoning\n\n"
+            clock[0] = 120.0
+            yield b'data: {"type":"response.output_text.delta","delta":"{}"}\n\n'
+            clock[0] = 180.0
+            yield b'data: {"type":"response.completed","response":{"output":[]}}\n\n'
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, stream=ReasoningStream())
+
+    adapter = ChatGPTHTTPAdapter(transport=httpx.MockTransport(handler))
+    assert (
+        adapter.generate_notes(
+            access_token="test-token", model="gpt-6.1-sol", reasoning_effort="high", prompt="Test"
+        )
+        == "{}"
+    )
+    assert len(requests) == 1
+    assert requests[0].extensions["timeout"]["read"] >= 180
+    # The short connection-check budget remains independent from notes inference.
+    with adapter._client() as client:
+        assert client.timeout.read == 15.0
+
+
+def test_notes_total_deadline_closes_the_stream_without_resending(monkeypatch):
+    clock = [0.0]
+    calls = []
+    closed = []
+    monkeypatch.setattr("asr_en_vi.chatgpt.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr("asr_en_vi.chatgpt.NOTES_HTTP_TOTAL_TIMEOUT_SECONDS", 1.0, raising=False)
+
+    class ExpiredStream(httpx.SyncByteStream):
+        def __iter__(self):
+            clock[0] = 2.0
+            yield b'data: {"type":"response.completed","response":{"output":[]}}\n\n'
+
+        def close(self):
+            closed.append(True)
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, stream=ExpiredStream())
+
+    adapter = ChatGPTHTTPAdapter(transport=httpx.MockTransport(handler))
+    with pytest.raises(ChatGPTError) as failure:
+        adapter.generate_notes(
+            access_token="test-token", model="gpt-6.1-sol", reasoning_effort="high", prompt="Test"
+        )
+    assert failure.value.code == "provider_timeout"
+    assert len(calls) == 1 and closed == [True]
+
+
+def test_notes_stream_allows_framing_overhead_near_the_output_token_cap():
+    text = "a" * NOTES_MAX_OUTPUT_TOKENS
+    frames = []
+    for index, character in enumerate(text):
+        event = {
+            "type": "response.output_text.delta",
+            "sequence_number": index,
+            "item_id": "msg_" + "a" * 48,
+            "output_index": 0,
+            "content_index": 0,
+            "delta": character,
+            "logprobs": [],
+            "obfuscation": "Xa9kLm2Q",
+        }
+        frames.append(("data: " + json.dumps(event) + "\n\n").encode())
+    frames.append(b'data: {"type":"response.completed","response":{"output":[]}}\n\n')
+    wire_body = b"".join(frames)
+    assert len(wire_body) > 512 * 1024
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, content=wire_body)
+
+    adapter = ChatGPTHTTPAdapter(transport=httpx.MockTransport(handler))
+    assert (
+        adapter.generate_notes(
+            access_token="test-token", model="gpt-6.1-sol", reasoning_effort="high", prompt="Test"
+        )
+        == text
+    )
+    assert len(calls) == 1
+
+
+def test_notes_completed_event_can_exceed_the_short_verification_line_budget():
+    text = "a" * 70_000
+    event = {
+        "type": "response.completed",
+        "response": {
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": text}]}]
+        },
+    }
+    wire_body = ("data: " + json.dumps(event) + "\n\n").encode()
+    assert len(wire_body) > 64 * 1024
+    adapter = ChatGPTHTTPAdapter(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200, stream=SlowByteStream([wire_body[:66_000], wire_body[66_000:]], delay=0)
+            )
+        )
+    )
+    assert (
+        adapter.generate_notes(
+            access_token="test-token", model="gpt-6.1-sol", reasoning_effort="high", prompt="Test"
+        )
+        == text
+    )
+
+
+@pytest.mark.parametrize(
+    "budget,error_code",
+    [
+        ("NOTES_MAX_SSE_BODY_BYTES", "provider_stream_too_large"),
+        ("NOTES_MAX_SSE_LINE_BYTES", "provider_stream_line_too_large"),
+    ],
+)
+def test_notes_wire_budgets_remain_bounded_for_complete_single_chunk_lines(
+    monkeypatch, budget, error_code
+):
+    monkeypatch.setattr("asr_en_vi.chatgpt." + budget, 128, raising=False)
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, content=b":" + b"x" * 200 + b"\n\n")
+
+    adapter = ChatGPTHTTPAdapter(transport=httpx.MockTransport(handler))
+    with pytest.raises(ChatGPTError) as failure:
+        adapter.generate_notes(
+            access_token="test-token", model="gpt-6.1-sol", reasoning_effort="high", prompt="Test"
+        )
+    assert failure.value.code == error_code
+    assert len(calls) == 1
+
+
+def test_notes_request_body_cap_rejects_expanded_json_without_sending_it():
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise AssertionError("An oversized notes body must not be sent.")
+
+    adapter = ChatGPTHTTPAdapter(transport=httpx.MockTransport(handler))
+    with pytest.raises(ChatGPTError) as oversized:
+        adapter.generate_notes(
+            access_token="access-secret",
+            model="gpt-6.1-sol",
+            reasoning_effort="default",
+            prompt="\x01" * MAX_PROMPT_BYTES,
+        )
+
+    assert oversized.value.code == "notes_request_too_large"
+    assert calls == 0
+
+
+def test_notes_incomplete_stream_never_returns_partial_output():
+    stream = (
+        b'data: {"type":"response.output_text.delta","delta":"partial"}\n\n'
+        b'data: {"type":"response.incomplete","response":{}}\n\n'
+    )
+    adapter = ChatGPTHTTPAdapter(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200, headers={"content-type": "text/event-stream"}, content=stream
+            )
+        )
+    )
+
+    with pytest.raises(ChatGPTError) as incomplete:
+        adapter.generate_notes(
+            access_token="access-secret",
+            model="gpt-6.1-sol",
+            reasoning_effort="default",
+            prompt="Bounded test prompt.",
+        )
+
+    assert incomplete.value.code == "notes_incomplete"
 
 
 def test_verification_accepts_valid_sse_without_content_type():

@@ -84,6 +84,11 @@
     taskPollId: null,
     taskRequestInFlight: false,
     transcriptMutationInFlight: false,
+    notesSourceLocked: false,
+    notesSourceLockKnown: false,
+    notesHasRevisions: false,
+    notesTaskStatus: null,
+    editorBusy: false,
     transcriptMutationFocus: null,
     transcriptMutationFocusAfter: null,
     transcriptMutationFocusDescriptor: null,
@@ -101,6 +106,62 @@
     state.view = name;
   }
 
+  function sourceMutationUnavailable() {
+    return !state.notesSourceLockKnown || state.notesSourceLocked;
+  }
+
+  function notifyMeetingContext() {
+    document.dispatchEvent(new CustomEvent("asr:meeting-context", {
+      detail: {
+        meeting: state.view === "meeting" ? state.meeting : null,
+        view: state.view,
+      },
+    }));
+  }
+
+  function renderNotesSourceLock() {
+    const status = $("#notes-lock-status");
+    const unavailable = sourceMutationUnavailable();
+    syncMetadataLockControls();
+    if (!state.notesSourceLockKnown) {
+      status.textContent = "Đang kiểm tra trạng thái khóa nguồn trước khi cho phép sửa transcript, người nói hoặc ngày họp.";
+      status.hidden = false;
+    } else if (state.notesSourceLocked) {
+      status.textContent = "Nguồn đang được dùng để tạo notes. Chỉnh sửa transcript, người nói và ngày họp tạm thời bị khóa.";
+      status.hidden = false;
+    } else {
+      status.textContent = "";
+      status.hidden = true;
+    }
+    syncTranscriptMutationControls();
+    if (state.meeting && state.meeting.transcription) {
+      renderTranscription(state.meeting.transcription);
+    }
+    syncTranscriptMutationControls();
+  }
+
+  function syncMetadataLockControls() {
+    const dateInput = $("#edit-date");
+    const dateChanged = Boolean(
+      state.draft
+      && (dateInput.value || null) !== state.draft.original.meeting_date,
+    );
+    const locked = sourceMutationUnavailable();
+    $("#edit-title").disabled = state.editorBusy;
+    dateInput.disabled = state.editorBusy || (locked && !dateChanged);
+    $("#edit-clear-date").disabled = state.editorBusy || (locked && !dateChanged);
+    $("#edit-save").disabled = state.editorBusy || (locked && dateChanged);
+    $("#edit-cancel").disabled = state.editorBusy;
+  }
+
+  function setNotesSourceLock(meetingId, locked, known = true) {
+    if (!state.meeting || state.meeting.id !== meetingId) return;
+    if (state.notesSourceLocked === Boolean(locked) && state.notesSourceLockKnown === Boolean(known)) return;
+    state.notesSourceLocked = Boolean(locked);
+    state.notesSourceLockKnown = Boolean(known);
+    renderNotesSourceLock();
+  }
+
   function setHeading(title, documentTitle) {
     $("#page-title").textContent = title;
     document.title = documentTitle;
@@ -112,11 +173,13 @@
     showView("home");
     setHeading("Cuộc họp", "Workspace · ASR EN VI");
     renderSidebar();
+    notifyMeetingContext();
   }
 
   function showMeetingError(message) {
     $("#meeting-error-copy").textContent = message;
     showView("error");
+    notifyMeetingContext();
   }
 
   // ---- history data ----
@@ -443,6 +506,7 @@
     renderSidebar();
     renderCalendars();
     void refreshHistory();
+    notifyMeetingContext();
     $("#calendar-title").focus();
   }
 
@@ -465,6 +529,57 @@
     const path = `/meetings/${encodeURIComponent(id)}`;
     if (window.location.pathname !== path) window.history.pushState({}, "", path);
     void loadMeeting(id);
+  }
+
+  function waitForAudioMetadata(audio) {
+    if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (ready) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        audio.removeEventListener("loadedmetadata", onReady);
+        audio.removeEventListener("error", onError);
+        resolve(ready);
+      };
+      const onReady = () => finish(true);
+      const onError = () => finish(false);
+      const timer = window.setTimeout(() => finish(false), 5000);
+      audio.addEventListener("loadedmetadata", onReady, { once: true });
+      audio.addEventListener("error", onError, { once: true });
+    });
+  }
+
+  async function seekNotesSource({ meetingId, snapshotId, segmentId, startSeconds }) {
+    if (
+      typeof meetingId !== "string"
+      || !meetingId
+      || typeof snapshotId !== "string"
+      || !snapshotId
+      || typeof segmentId !== "string"
+      || !segmentId
+      || !Number.isFinite(startSeconds)
+      || startSeconds < 0
+    ) return false;
+    const path = `/meetings/${encodeURIComponent(meetingId)}`;
+    const query = `?notes_source=${encodeURIComponent(snapshotId)}&segment=${encodeURIComponent(segmentId)}`;
+    if (window.location.pathname !== path || window.location.search !== query) {
+      window.history.pushState({}, "", `${path}${query}`);
+    }
+    if (!state.meeting || state.meeting.id !== meetingId || state.view !== "meeting") {
+      const painted = await loadMeeting(meetingId);
+      if (!painted || !state.meeting || state.meeting.id !== meetingId || state.view !== "meeting") return false;
+    }
+    const audio = $("#meeting-audio");
+    if (audio.dataset.meetingId !== meetingId || !(await waitForAudioMetadata(audio))) return false;
+    try {
+      audio.currentTime = startSeconds;
+      updateActiveTranscriptIntervals();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   function renderMeeting(meeting) {
@@ -605,10 +720,12 @@
 
   function renderMeetingProcessingStatus(task, generation) {
     let status = "Đã lưu, chưa xử lý";
-    if (task && ACTIVE_TASK_STATES.has(task.status)) {
+    if (ACTIVE_TASK_STATES.has(state.notesTaskStatus)) {
+      status = state.notesTaskStatus === "stopping" ? "Đang dừng tạo notes" : "Đang tạo notes";
+    } else if (task && ACTIVE_TASK_STATES.has(task.status)) {
       status = task.status === "stopping" ? "Đang dừng xử lý" : "Đang chép lời";
     } else if (task && task.status === "succeeded") {
-      status = "Đã có transcript · chưa có notes";
+      status = state.notesHasRevisions ? "Đã có transcript và notes" : "Đã có transcript · chưa có notes";
     } else if (task && task.status === "failed") {
       status = generation ? "Lần chạy mới thất bại · transcript trước vẫn còn" : "Xử lý thất bại";
     } else if (task && task.status === "interrupted") {
@@ -616,7 +733,7 @@
     } else if (task && task.status === "canceled") {
       status = generation ? "Đã hủy · transcript trước vẫn còn" : "Đã hủy";
     } else if (generation) {
-      status = "Đã có transcript · chưa có notes";
+      status = state.notesHasRevisions ? "Đã có transcript và notes" : "Đã có transcript · chưa có notes";
     }
     $("#meeting-status-text").textContent = status;
   }
@@ -656,6 +773,7 @@
     return Boolean(
       generation
       && generation.status === "complete"
+      && !sourceMutationUnavailable()
       && !(draft && draft.conflictCode)
       && !state.transcriptMutationInFlight
       && !state.transcriptReloadInFlight
@@ -853,6 +971,17 @@
 
   function installServerMeeting(meeting) {
     const previous = state.meeting;
+    if (!previous || !meeting || previous.id !== meeting.id) {
+      state.notesHasRevisions = false;
+      state.notesTaskStatus = null;
+    }
+    if (meeting && typeof meeting.notes_source_locked === "boolean") {
+      state.notesSourceLocked = meeting.notes_source_locked;
+      state.notesSourceLockKnown = true;
+    } else if (!previous || !meeting || previous.id !== meeting.id) {
+      state.notesSourceLocked = false;
+      state.notesSourceLockKnown = false;
+    }
     const previousTranscription = previous && meeting && previous.id === meeting.id
       ? previous.transcription
       : null;
@@ -885,6 +1014,8 @@
     }
     state.meeting = meeting;
     reconcileTranscriptDrafts(meeting && meeting.transcription);
+    renderNotesSourceLock();
+    notifyMeetingContext();
     return meeting;
   }
 
@@ -946,6 +1077,7 @@
       else if (editable) updateTranscriptRenderKey(generation);
       else renderTranscriptGeneration(generation, false);
     }
+    notifyMeetingContext();
     return { meeting, generation };
   }
 
@@ -1390,7 +1522,18 @@
       delete panel.dataset.renderKey;
       return;
     }
+    // Lock changes affect controls and the mode label, not transcript content.
+    // Keep the content key consistent with incremental save reconciliation.
     const renderKey = `${generation.id}:${generation.source_version}:${editable}`;
+    const mode = $("#generation-mode");
+    mode.textContent = editable && !state.notesSourceLockKnown
+      ? "Bản hiện tại · Đang kiểm tra khóa nguồn trước khi cho phép chỉnh sửa."
+      : editable && state.notesSourceLocked
+        ? "Bản hiện tại · Tác vụ notes đang dùng nguồn; chỉnh sửa tạm thời bị khóa."
+        : editable
+          ? "Bản hiện tại · Bạn có thể chỉnh sửa transcript và người nói."
+          : "Bản lịch sử · Chỉ đọc.";
+    mode.classList.toggle("is-readonly", !editable || sourceMutationUnavailable());
     if (panel.dataset.renderKey === renderKey) {
       updateActiveTranscriptIntervals();
       return;
@@ -1409,11 +1552,6 @@
     }
     if (generation.diarization_model_name) meta.push(`Diarization · ${generation.diarization_model_name}`);
     $("#generation-meta").textContent = meta.join(" · ");
-    const mode = $("#generation-mode");
-    mode.textContent = editable
-      ? "Bản hiện tại · Bạn có thể chỉnh sửa transcript và người nói."
-      : "Bản lịch sử · Chỉ đọc.";
-    mode.classList.toggle("is-readonly", !editable);
     renderSpeakerCatalog(generation, editable);
 
     const segments = Array.isArray(generation.segments) ? generation.segments : [];
@@ -1872,10 +2010,16 @@
         control.disabled = !speakerAddRecoveryReady(currentGeneration, draft);
         continue;
       }
+      if (control.matches("#generation-selector, [data-reload-latest]")) {
+        control.disabled = state.transcriptMutationInFlight
+          || (control.matches("[data-reload-latest]") && state.transcriptReloadInFlight);
+        continue;
+      }
       const assignmentDraft = control.matches("[data-reapply-assignment-draft]")
         ? transcriptDraft(control.dataset.generationId, "speakerAssignment", control.dataset.segmentId)
         : null;
-      control.disabled = state.transcriptMutationInFlight
+      control.disabled = sourceMutationUnavailable()
+        || state.transcriptMutationInFlight
         || (control.matches("[data-reload-latest]") && state.transcriptReloadInFlight)
         || Boolean(assignmentDraft && assignmentDraft.conflictCode);
     }
@@ -1918,6 +2062,7 @@
     const segment = generation && generation.segments.find((item) => item.id === form.dataset.segmentId);
     if (
       !meeting
+      || sourceMutationUnavailable()
       || !generation
       || generation.id !== form.dataset.generationId
       || !segment
@@ -2022,6 +2167,7 @@
     const speaker = generation && generation.speakers.find((item) => item.speaker_id === speakerId);
     if (
       !meeting
+      || sourceMutationUnavailable()
       || !generation
       || generation.id !== form.dataset.generationId
       || !speaker
@@ -2109,7 +2255,7 @@
     const status = $("#speaker-add-status");
     const existingDraft = generation
       && transcriptDraft(generation.id, "speakerAddName", "speaker-add-name");
-    if (!meeting || !speakerAddRecoveryReady(generation, existingDraft)) return;
+    if (!meeting || sourceMutationUnavailable() || !speakerAddRecoveryReady(generation, existingDraft)) return;
     const requestedName = input.value;
     rememberSpeakerAddDraft(generation.id, requestedName);
     status.classList.remove("is-error");
@@ -2290,6 +2436,7 @@
     const segment = generation && generation.segments.find((item) => item.id === segmentId);
     if (
       !meeting
+      || sourceMutationUnavailable()
       || !generation
       || generation.id !== select.dataset.generationId
       || !segment
@@ -2458,7 +2605,7 @@
     renderRuntimeProfile(transcription && transcription.runtime);
 
     startButton.hidden = active;
-    startButton.disabled = state.taskRequestInFlight;
+    startButton.disabled = state.taskRequestInFlight || sourceMutationUnavailable();
     startButton.textContent = generation ? "Chạy lại bản ghi" : "Bắt đầu chép lời";
     cancelButton.hidden = !active;
     cancelButton.disabled = !task || task.status === "stopping";
@@ -2475,7 +2622,7 @@
         accepted: "Tác vụ đã được nhận. Worker sẽ bắt đầu xử lý.",
         running: "Đang chép lời bằng model local. Tác vụ tiếp tục nếu bạn đóng tab.",
         stopping: "Đang dừng và thu hồi runner. Slot chỉ được nhường sau khi runner đã kết thúc.",
-        succeeded: "Transcript đã được lưu hoàn chỉnh. Kết quả hiện tại là transcript_only; chưa có notes.",
+        succeeded: "Transcript đã được lưu hoàn chỉnh. Kết quả của lần chép lời là transcript_only.",
         failed: task.error_message || "Tác vụ thất bại. Transcript hoàn chỉnh trước đó vẫn được giữ.",
         canceled: "Đã hủy sau khi runner dừng. Transcript hoàn chỉnh trước đó vẫn được giữ.",
         interrupted: "Worker đã dừng giữa tác vụ. Không tự chạy lại; hãy bấm để thử lại.",
@@ -2608,7 +2755,7 @@
 
   async function startTranscription() {
     const meeting = state.meeting;
-    if (!meeting || state.taskRequestInFlight) return;
+    if (!meeting || state.taskRequestInFlight || sourceMutationUnavailable()) return;
     const requestId = getPendingTaskRequestId(meeting.id);
     state.taskRequestInFlight = true;
     state.taskRequestError = null;
@@ -2703,6 +2850,7 @@
         audio.load();
       }
       showView("meeting");
+      notifyMeetingContext();
       startTaskPolling(meeting.id, meeting.transcription && meeting.transcription.task);
       renderSidebar();
       if (!state.meetings.length) void refreshHistory();
@@ -2748,13 +2896,13 @@
     showEditError("");
     $("#meeting-edit").hidden = false;
     $("#edit-meeting").hidden = true;
+    syncMetadataLockControls();
     $("#edit-title").focus();
   }
 
   function setEditorBusy(busy) {
-    for (const selector of ["#edit-save", "#edit-cancel", "#edit-title", "#edit-date", "#edit-clear-date"]) {
-      $(selector).disabled = busy;
-    }
+    state.editorBusy = busy;
+    syncMetadataLockControls();
   }
 
   async function saveMeeting(event) {
@@ -2774,6 +2922,11 @@
       return;
     }
     const meetingDate = $("#edit-date").value || null;
+    if (meetingDate !== draft.original.meeting_date && sourceMutationUnavailable()) {
+      showEditError("Ngày họp đang bị khóa để giữ nguyên nguồn của notes. Tên cuộc họp vẫn có thể được lưu sau khi trả ngày về giá trị ban đầu.");
+      syncMetadataLockControls();
+      return;
+    }
     const fields = {};
     if (title !== draft.original.title) fields.title = title;
     if (meetingDate !== draft.original.meeting_date) fields.meeting_date = meetingDate;
@@ -2852,6 +3005,25 @@
     conflict.hidden = false;
   }
 
+  window.ASRMeetingHistory = Object.freeze({
+    setNotesSummary(meetingId, hasRevisions, taskStatus) {
+      if (!state.meeting || state.meeting.id !== meetingId) return;
+      state.notesHasRevisions = Boolean(hasRevisions);
+      state.notesTaskStatus = taskStatus || null;
+      const transcription = state.meeting.transcription || {};
+      renderMeetingProcessingStatus(transcription.task, transcription.generation);
+    },
+    currentContext() {
+      return { meeting: state.view === "meeting" ? state.meeting : null, view: state.view };
+    },
+    setNotesSourceLock,
+    seekNotesSource,
+    refreshMeeting(meetingId) {
+      if (!state.meeting || state.meeting.id !== meetingId) return Promise.resolve(false);
+      return loadMeeting(meetingId);
+    },
+  });
+
   // ---- wiring ----
   for (const root of document.querySelectorAll("[data-calendar]")) {
     buildCalendar(root);
@@ -2905,8 +3077,11 @@
   });
   $("#edit-clear-date").addEventListener("click", () => {
     $("#edit-date").value = "";
+    syncMetadataLockControls();
     $("#edit-date").focus();
   });
+  $("#edit-date").addEventListener("input", syncMetadataLockControls);
+  $("#edit-date").addEventListener("change", syncMetadataLockControls);
   $("#meeting-edit").addEventListener("submit", saveMeeting);
   $("#start-transcription").addEventListener("click", () => void startTranscription());
   $("#cancel-transcription").addEventListener("click", () => void cancelTranscription());
