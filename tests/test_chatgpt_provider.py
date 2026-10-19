@@ -125,15 +125,15 @@ def test_authorization_uses_dynamic_registration_pkce_scopes_and_stable_host(tmp
     assert disconnected == {"status": "disconnected", "remote_revocation_confirmed": True}
     state = provider.store._read()
     assert state["host_id"] == host_id
-    assert state["active_client_id"] == ISSUED_CLIENT_ID
-    assert state["registrations"][ISSUED_CLIENT_ID]["subject"] == adapter.subject
-    assert "refresh_token" not in state["registrations"][ISSUED_CLIENT_ID]
+    assert state["active_client_id"] is None
+    assert state["provisional_client_id"] == ISSUED_CLIENT_ID
+    assert state["registrations"] == {}
 
     returning = provider.start_login()
     returning_query = parse_qs(urlsplit(returning["authorization_url"]).query)
     assert returning_query["client_id"] == [ISSUED_CLIENT_ID]
     assert returning_query["ext_agent_host_id"] == [host_id]
-    assert returning_query["login_hint"] == ["verified@example.test"]
+    assert "login_hint" not in returning_query
     assert "agent_name_hint" not in returning_query
     assert "id_token_hint" not in returning_query
     provider.handle_callback(callback_pairs(returning, returned_client_id=None, code="second-code"))
@@ -315,25 +315,48 @@ def test_expired_login_cannot_be_replayed_or_exchanged(tmp_path):
     assert adapter.exchange_calls == []
 
 
-def test_returning_callback_rejects_client_id_and_subject_mismatch(tmp_path):
+def test_connected_reauthentication_rejects_client_id_and_subject_mismatch(tmp_path):
     adapter = FakeChatGPTAdapter()
     provider = provider_for(tmp_path, adapter)
     connect(provider)
-    provider.disconnect()
 
     started = provider.start_login()
     with pytest.raises(ChatGPTError) as wrong_client:
         provider.handle_callback(callback_pairs(started, returned_client_id="oaiapp_other-12345"))
     assert wrong_client.value.code == "invalid_callback"
-    assert provider.get_providers()["providers"][0]["status"] == "disconnected"
+    assert provider.get_providers()["providers"][0]["status"] == "connected"
 
     started = provider.start_login()
     adapter.subject = "different-subject"
     with pytest.raises(ChatGPTError) as wrong_subject:
         provider.handle_callback(callback_pairs(started, returned_client_id=None))
     assert wrong_subject.value.code == "account_identity_mismatch"
-    assert provider.get_providers()["providers"][0]["status"] == "disconnected"
-    assert "access_token" not in provider.store._read()["registrations"][ISSUED_CLIENT_ID]
+    assert provider.get_providers()["providers"][0]["status"] == "connected"
+    assert provider.store._read()["registrations"][ISSUED_CLIENT_ID]["subject"] != (
+        "different-subject"
+    )
+
+
+def test_disconnect_allows_signing_in_with_a_different_account(tmp_path):
+    adapter = FakeChatGPTAdapter()
+    provider = provider_for(tmp_path, adapter)
+    connect(provider)
+    provider.disconnect()
+
+    adapter.subject = "different-subject"
+    adapter.email = "different@example.test"
+    returning = provider.start_login()
+    query = parse_qs(urlsplit(returning["authorization_url"]).query)
+    assert query["client_id"] == [ISSUED_CLIENT_ID]
+    assert "login_hint" not in query
+
+    provider.handle_callback(callback_pairs(returning, returned_client_id=None))
+
+    connected = provider.get_providers()["providers"][0]
+    assert connected["status"] == "connected"
+    assert connected["account"] == {"label": "different@example.test"}
+    registration = provider.store._read()["registrations"][ISSUED_CLIENT_ID]
+    assert registration["subject"] == "different-subject"
 
 
 def test_missing_direct_scope_requires_reconnect_without_inference(tmp_path):
@@ -441,7 +464,9 @@ def test_scope_down_refresh_requires_reconnect(tmp_path):
     provider.disconnect()
     assert adapter.revoke_calls[-1]["refresh_token"] == "scope-down-refresh"
 
-    assert provider.store._read()["registrations"][ISSUED_CLIENT_ID]["subject"] == adapter.subject
+    state = provider.store._read()
+    assert state["registrations"] == {}
+    assert state["provisional_client_id"] == ISSUED_CLIENT_ID
 
 
 def test_disconnect_clears_local_tokens_after_bounded_revocation_failures(tmp_path):
@@ -461,10 +486,9 @@ def test_disconnect_clears_local_tokens_after_bounded_revocation_failures(tmp_pa
 
     assert result == {"status": "disconnected", "remote_revocation_confirmed": False}
     assert len(adapter.revoke_calls) == 3
-    registration = provider.store._read()["registrations"][ISSUED_CLIENT_ID]
-    assert registration["subject"] == adapter.subject
-    assert "access_token" not in registration
-    assert "refresh_token" not in registration
+    state = provider.store._read()
+    assert state["registrations"] == {}
+    assert state["provisional_client_id"] == ISSUED_CLIENT_ID
 
 
 def test_verification_and_disconnect_serialize_without_provider_locking_other_work(tmp_path):
@@ -634,8 +658,9 @@ def test_unexpected_revoke_failure_still_clears_local_credentials(tmp_path, monk
 
     monkeypatch.setattr(adapter, "revoke", fail_revoke)
     assert provider.disconnect() == {"status": "disconnected", "remote_revocation_confirmed": False}
-    registration = provider.store._read()["registrations"][ISSUED_CLIENT_ID]
-    assert not {"access_token", "refresh_token", "id_token"} & registration.keys()
+    state = provider.store._read()
+    assert state["registrations"] == {}
+    assert state["provisional_client_id"] == ISSUED_CLIENT_ID
 
 
 def test_initial_invalid_grant_retains_client_for_unverified_retry_after_restart(tmp_path):
@@ -684,7 +709,7 @@ def test_reconnect_blocks_use_but_retains_refresh_for_disconnect(tmp_path, code)
     assert len(adapter.model_calls) == calls
     assert provider.disconnect()["remote_revocation_confirmed"] is True
     assert adapter.revoke_calls[-1]["refresh_token"] == "refresh-secret-for-tests"
-    assert "refresh_token" not in provider.store._read()["registrations"][ISSUED_CLIENT_ID]
+    assert provider.store._read()["registrations"] == {}
 
 
 def test_invalid_subscriber_requires_confirmed_revoke_before_new_authorization(tmp_path):
@@ -742,7 +767,6 @@ def test_rejected_identity_attempts_revoke_even_if_revocation_unavailable(tmp_pa
     adapter = FakeChatGPTAdapter()
     provider = provider_for(tmp_path, adapter)
     connect(provider)
-    provider.disconnect()
     returning = provider.start_login()
     adapter.subject = "different-subject"
     adapter.revoke_results.clear()
@@ -752,5 +776,7 @@ def test_rejected_identity_attempts_revoke_even_if_revocation_unavailable(tmp_pa
         provider.handle_callback(callback_pairs(returning, returned_client_id=None))
     assert mismatch.value.code == "account_identity_mismatch"
     assert len(adapter.revoke_calls) == before + 1
-    assert provider.get_providers()["providers"][0]["status"] == "disconnected"
-    assert "refresh_token" not in provider.store._read()["registrations"][ISSUED_CLIENT_ID]
+    assert provider.get_providers()["providers"][0]["status"] == "connected"
+    assert provider.store._read()["registrations"][ISSUED_CLIENT_ID]["subject"] != (
+        "different-subject"
+    )

@@ -1710,9 +1710,13 @@ class ChatGPTProvider:
 
             with self.store.locked(write=True) as state:
                 client_id = state.get("active_client_id")
-                registration = state["registrations"].get(client_id) if client_id else None
-                if registration is not None:
-                    self._clear_tokens(registration)
+                if self._issued_client_id(client_id):
+                    # Keep the installation's issued client registration for the next
+                    # sign-in, but remove all account identity and credential fields so
+                    # disconnect can be followed by choosing a different account.
+                    state["registrations"].pop(client_id, None)
+                    state["provisional_client_id"] = client_id
+                state["active_client_id"] = None
                 state["connection_status"] = "disconnected"
                 state["connection_version"] += 1
                 state["notes_provider"] = None
