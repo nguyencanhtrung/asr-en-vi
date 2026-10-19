@@ -115,6 +115,7 @@
       detail: {
         meeting: state.view === "meeting" ? state.meeting : null,
         view: state.view,
+        transcriptionRequestInFlight: state.taskRequestInFlight,
       },
     }));
   }
@@ -2645,6 +2646,7 @@
     renderTranscriptGeneration(selected && selected.generation, Boolean(selected && selected.editable));
     renderTranscriptDraftRecovery(transcription, selected && selected.generation.id);
     renderTranscriptMutationError();
+    notifyMeetingContext();
   }
 
   function newTaskRequestId() {
@@ -2784,6 +2786,7 @@
     } finally {
       state.taskRequestInFlight = false;
       if (state.meeting && state.meeting.id === meeting.id) renderTranscription(state.meeting.transcription);
+      else notifyMeetingContext();
     }
   }
 
@@ -3014,7 +3017,11 @@
       renderMeetingProcessingStatus(transcription.task, transcription.generation);
     },
     currentContext() {
-      return { meeting: state.view === "meeting" ? state.meeting : null, view: state.view };
+      return {
+        meeting: state.view === "meeting" ? state.meeting : null,
+        view: state.view,
+        transcriptionRequestInFlight: state.taskRequestInFlight,
+      };
     },
     setNotesSourceLock,
     seekNotesSource,

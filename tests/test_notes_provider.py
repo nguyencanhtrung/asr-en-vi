@@ -20,15 +20,28 @@ class NotesReply:
     access_token: str
     model: str
     reasoning_effort: str
+    max_output_bytes: int | None
 
 
 class NotesOnlyAdapter:
-    def __init__(self, replies: list[str | ChatGPTError]) -> None:
-        self.replies = list(replies)
+    def __init__(
+        self,
+        replies: list[str | ChatGPTError] | None = None,
+        *,
+        responder=None,
+    ) -> None:
+        self.replies = list(replies or [])
+        self.responder = responder
         self.calls: list[NotesReply] = []
 
-    def generate_notes(self, *, access_token, model, reasoning_effort, prompt):
-        self.calls.append(NotesReply(prompt, access_token, model, reasoning_effort))
+    def generate_notes(
+        self, *, access_token, model, reasoning_effort, prompt, max_output_bytes=None
+    ):
+        self.calls.append(
+            NotesReply(prompt, access_token, model, reasoning_effort, max_output_bytes)
+        )
+        if self.responder is not None:
+            return self.responder(prompt, max_output_bytes)
         reply = self.replies.pop(0)
         if isinstance(reply, ChatGPTError):
             raise reply
@@ -104,6 +117,7 @@ def test_invalid_first_result_gets_one_bounded_repair_on_the_pinned_account(tmp_
     assert all(call.access_token == "local-test-access-token" for call in adapter.calls)
     assert all(call.model == "gpt-6.1-sol" for call in adapter.calls)
     assert all(call.reasoning_effort == "high" for call in adapter.calls)
+    assert all(call.max_output_bytes == 128_000 for call in adapter.calls)
 
 
 def test_invalid_repair_fails_without_a_third_provider_call(tmp_path):
@@ -140,6 +154,82 @@ def test_provider_failure_is_not_retried_as_a_repair(tmp_path):
     assert len(adapter.calls) == 1
 
 
+def test_only_one_schema_repair_is_available_across_all_chunks(tmp_path):
+    snapshot = _snapshot()
+    snapshot["segments"] = [
+        {"id": "c" * 32, "start_seconds": 1, "end_seconds": 2, "text": "x" * 20_000},
+        {"id": "d" * 32, "start_seconds": 3, "end_seconds": 4, "text": "y" * 20_000},
+    ]
+    first_chunk_result = _valid_document()
+    first_chunk_result["overview"][0]["source_ids"] = ["c" * 32]
+    adapter = NotesOnlyAdapter(["not-json", json.dumps(first_chunk_result), "still-not-json"])
+    provider = _provider(tmp_path, adapter)
+
+    with pytest.raises(ChatGPTError) as invalid:
+        provider.generate_notes_document(
+            snapshot=snapshot,
+            connection_version=7,
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+        )
+
+    assert invalid.value.code == "notes_invalid_output"
+    assert len(adapter.calls) == 3
+    assert "INVALID_OUTPUT:" in adapter.calls[1].prompt
+    assert "INVALID_OUTPUT:" not in adapter.calls[2].prompt
+    assert all(call.max_output_bytes == 8_000 for call in adapter.calls)
+
+
+def test_reducer_cannot_cite_real_source_ids_absent_from_its_inputs(tmp_path):
+    snapshot = _snapshot()
+    snapshot["segments"] = [
+        {"id": "c" * 32, "start_seconds": 1, "end_seconds": 2, "text": "x" * 20_000},
+        {"id": "d" * 32, "start_seconds": 3, "end_seconds": 4, "text": "y" * 20_000},
+    ]
+    first_chunk_result = _valid_document()
+    first_chunk_result["overview"][0]["source_ids"] = ["c" * 32]
+    empty_chunk_result = {
+        "schema_version": 1,
+        **{
+            key: []
+            for key in (
+                "overview",
+                "key_topics",
+                "decisions",
+                "open_questions",
+                "action_items",
+                "confirmation_items",
+            )
+        },
+    }
+    invalid_reducer_result = {
+        **empty_chunk_result,
+        "overview": [{"text": "Unsupported citation", "source_ids": ["d" * 32]}],
+    }
+    adapter = NotesOnlyAdapter(
+        [
+            json.dumps(first_chunk_result),
+            json.dumps(empty_chunk_result),
+            json.dumps(invalid_reducer_result),
+            json.dumps(invalid_reducer_result),
+        ]
+    )
+    provider = _provider(tmp_path, adapter)
+
+    with pytest.raises(ChatGPTError) as invalid:
+        provider.generate_notes_document(
+            snapshot=snapshot,
+            connection_version=7,
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+        )
+
+    assert invalid.value.code == "notes_invalid_output"
+    assert len(adapter.calls) == 4
+    assert "SYNTHESIS_INPUT_JSON:" in adapter.calls[2].prompt
+    assert "INVALID_OUTPUT:" in adapter.calls[3].prompt
+
+
 def test_changed_account_or_model_never_silently_replaces_the_pinned_selection(tmp_path):
     adapter = NotesOnlyAdapter([json.dumps(_valid_document())])
     provider = _provider(tmp_path, adapter)
@@ -156,3 +246,121 @@ def test_changed_account_or_model_never_silently_replaces_the_pinned_selection(t
 
     assert changed.value.code == "connection_changed"
     assert adapter.calls == []
+
+
+def test_long_source_uses_bounded_multi_level_reduction_and_later_decision_wins(
+    tmp_path, monkeypatch
+):
+    from asr_en_vi import notes_document
+    from asr_en_vi.notes_document import MAX_CHUNK_OUTPUT_BYTES, MAX_NOTES_CHUNKS
+
+    monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
+    snapshot = _snapshot()
+    snapshot["segments"] = [
+        {
+            "id": f"{index + 1:032x}",
+            "start_seconds": float(index * 60),
+            "end_seconds": float(index * 60 + 30),
+            "text": (
+                "proposal: postpone launch " + "x" * 16_000
+                if index == 0
+                else "decision: launch Tuesday " + "x" * 16_000
+                if index == 15
+                else f"discussion {index} " + "x" * 16_000
+            ),
+            "speaker_name": "Morgan",
+        }
+        for index in range(16)
+    ]
+    reduction_levels: list[int] = []
+
+    def respond(prompt, max_output_bytes):
+        if "SOURCE_JSON:\n" in prompt:
+            source = json.loads(prompt.split("SOURCE_JSON:\n", 1)[1])
+            segment = source["segments"][0]
+            index = (
+                int(segment["text"].split(maxsplit=2)[1])
+                if segment["text"].startswith("discussion")
+                else (0 if segment["text"].startswith("proposal") else 15)
+            )
+            summary_text = f"map-{index:02d}|" + "x" * 6_800
+            result = _valid_document()
+            result["overview"] = [{"text": summary_text, "source_ids": [segment["id"]]}]
+            if index == 0:
+                result["confirmation_items"] = [
+                    {
+                        "text": "Postponing launch was proposed, not decided.",
+                        "source_ids": [segment["id"]],
+                    }
+                ]
+            if index == 15:
+                result["decisions"] = [
+                    {
+                        "text": "The team decided to launch Tuesday.",
+                        "source_ids": [segment["id"]],
+                    }
+                ]
+            return json.dumps(result, separators=(",", ":"))
+
+        payload = json.loads(prompt.split("SYNTHESIS_INPUT_JSON:\n", 1)[1])
+        records = payload["summaries"]
+        source_ids = list(
+            dict.fromkeys(source_id for record in records for source_id in record["source_order"])
+        )
+        if "final meeting-level notes" in prompt:
+            result = _valid_document()
+            result["overview"] = [
+                {"text": "Launch timing was discussed.", "source_ids": [source_ids[0]]}
+            ]
+            result["decisions"] = [
+                {
+                    "text": (
+                        "The later Tuesday decision supersedes the earlier postponement proposal."
+                    ),
+                    "source_ids": [source_ids[0], source_ids[-1]],
+                }
+            ]
+            return json.dumps(result, separators=(",", ":"))
+
+        input_levels = [
+            int(item["text"].split("|", 1)[0].removeprefix("level-"))
+            for record in records
+            for item in record["notes"]["overview"]
+            if item["text"].startswith("level-")
+        ]
+        level = max(input_levels, default=0) + 1
+        reduction_levels.append(level)
+        result = _valid_document()
+        result["overview"] = [{"text": f"level-{level}|" + "y" * 6_800, "source_ids": source_ids}]
+        result["decisions"] = [item for record in records for item in record["notes"]["decisions"]]
+        result["confirmation_items"] = [
+            item for record in records for item in record["notes"]["confirmation_items"]
+        ]
+        return json.dumps(result, separators=(",", ":"))
+
+    adapter = NotesOnlyAdapter(responder=respond)
+    provider = _provider(tmp_path, adapter)
+
+    result = provider.generate_notes_document(
+        snapshot=snapshot,
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+    )
+
+    map_calls = [call for call in adapter.calls if "SOURCE_JSON:\n" in call.prompt]
+    reduction_calls = [call for call in adapter.calls if "SYNTHESIS_INPUT_JSON:\n" in call.prompt]
+    assert len(map_calls) == 16
+    assert len(reduction_calls) > 2
+    assert max(reduction_levels) >= 2
+    assert all(call.max_output_bytes == MAX_CHUNK_OUTPUT_BYTES for call in map_calls)
+    assert all(call.max_output_bytes == MAX_CHUNK_OUTPUT_BYTES for call in reduction_calls[:-1])
+    assert reduction_calls[-1].max_output_bytes == 128_000
+    assert len(adapter.calls) <= 2 * MAX_NOTES_CHUNKS + 1
+    first_source_id = snapshot["segments"][0]["id"]
+    last_source_id = snapshot["segments"][-1]["id"]
+    assert first_source_id in map_calls[0].prompt and last_source_id not in map_calls[0].prompt
+    assert last_source_id in map_calls[-1].prompt and first_source_id not in map_calls[-1].prompt
+    assert len(result["decisions"]) == 1
+    assert "later Tuesday decision supersedes" in result["decisions"][0]["text"]
+    assert result["confirmation_items"] == []

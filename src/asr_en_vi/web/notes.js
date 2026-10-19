@@ -39,6 +39,7 @@
   const state = {
     currentMeetingId: null,
     currentMeeting: null,
+    transcriptionRequestInFlight: false,
     view: "",
     meetings: new Map(),
     drafts: new Map(),
@@ -198,6 +199,13 @@
     return generation && generation.status === "complete" ? generation : null;
   }
 
+  function transcriptionBusy(meeting) {
+    const task = meeting && meeting.transcription && meeting.transcription.task;
+    return state.transcriptionRequestInFlight || Boolean(
+      task && ACTIVE_TASK_STATES.has(task.status),
+    );
+  }
+
   function hasRequestVersions(meeting, generation) {
     return Boolean(
       generation
@@ -212,6 +220,7 @@
       meeting
       && data
       && generation
+      && !transcriptionBusy(meeting)
       && hasRequestVersions(meeting, generation)
       && data.sourceLockKnown
       && !data.sourceLocked
@@ -493,8 +502,11 @@
       );
     }
     const runButton = $("#notes-start");
+    const waitForTranscript = transcriptionBusy(meeting);
+    const waitMessage = "Đang xử lý transcript. Chờ tác vụ kết thúc để tạo notes.";
     const pendingId = state.currentMeetingId && getPendingRequestId(state.currentMeetingId, false);
     runButton.disabled = !canStartNotes(meeting, data);
+    runButton.title = waitForTranscript ? waitMessage : "";
     runButton.textContent = data && data.requestInFlight
       ? "Đang gửi yêu cầu…"
       : pendingId
@@ -503,7 +515,9 @@
     renderTask(data);
     renderError(data);
     renderSelectedRevision(data);
-    if (data && data.runErrorUncertain) {
+    if (waitForTranscript) {
+      $("#notes-status").textContent = waitMessage;
+    } else if (data && data.runErrorUncertain) {
       $("#notes-status").textContent = `${data.runError} Yêu cầu chưa được tự gửi lại. Bấm “Xác minh yêu cầu notes” để gửi lại cùng request ID.`;
     }
     const copyStatus = $("#notes-copy-export-status");
@@ -1056,6 +1070,7 @@
     const previousMeeting = state.currentMeeting;
     state.view = detail.view || "";
     state.currentMeeting = detail.view === "meeting" ? detail.meeting : null;
+    state.transcriptionRequestInFlight = Boolean(detail.transcriptionRequestInFlight);
     const meetingId = state.currentMeeting && state.currentMeeting.id;
     if (!meetingId) {
       state.currentMeetingId = null;

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ from asr_en_vi.notes import (
     publish_notes_revision,
     update_note,
 )
+from asr_en_vi.notes_document import PROMPT_VERSION
 from asr_en_vi.recordings import RecordingError, update_meeting
 from asr_en_vi.storage import database_path
 from asr_en_vi.tasks import (
@@ -88,7 +90,7 @@ def test_acceptance_freezes_source_pins_account_and_locks_only_its_meeting(tmp_p
         slot_id = connection.execute(
             "SELECT active_task_id FROM processing_slot WHERE slot_id = 1"
         ).fetchone()[0]
-    assert row == ("chatgpt", 7, "gpt-6.1-sol", "high", "notes-single-pass-v1", 1)
+    assert row == ("chatgpt", 7, "gpt-6.1-sol", "high", PROMPT_VERSION, 1)
     assert slot_id == accepted["id"]
     snapshot = get_notes_source(data_dir, source_id)
     assert snapshot["meeting_id"] == meeting_id
@@ -337,6 +339,7 @@ def test_oversized_source_is_rejected_without_creating_task_or_snapshot(tmp_path
 
     assert oversized.value.status_code == 413
     assert oversized.value.code == "notes_source_too_large"
+    assert "single transcript segment" in oversized.value.message
     with sqlite3.connect(database_path(data_dir)) as connection:
         assert connection.execute("SELECT COUNT(*) FROM tasks WHERE kind = 'notes'").fetchone() == (
             0,
@@ -345,3 +348,43 @@ def test_oversized_source_is_rejected_without_creating_task_or_snapshot(tmp_path
         assert connection.execute(
             "SELECT active_task_id FROM processing_slot WHERE slot_id = 1"
         ).fetchone() == (None,)
+
+
+def test_long_transcript_is_accepted_with_all_source_segments_frozen(tmp_path):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, initial_segment_ids = seed_completed_transcript(data_dir)
+    additional_segments = [
+        (
+            uuid.uuid4().hex,
+            generation_id,
+            sequence,
+            5.0 + (sequence - 2) * 0.025,
+            5.01 + (sequence - 2) * 0.025,
+            f"Long-source segment {sequence}: review the proposal and unresolved question.",
+            "SPEAKER_00",
+            "SPEAKER_00",
+            0,
+        )
+        for sequence in range(2, 1_000)
+    ]
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        connection.executemany(
+            "INSERT INTO transcript_segments(id, generation_id, sequence, start_seconds, "
+            "end_seconds, text, original_speaker_id, speaker_id, uncertain) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            additional_segments,
+        )
+
+    accepted = _accept(data_dir, meeting_id, generation_id)
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        source_id = connection.execute(
+            "SELECT notes_source_id FROM tasks WHERE id = ?", (accepted["id"],)
+        ).fetchone()[0]
+    snapshot = get_notes_source(data_dir, source_id)
+
+    assert accepted["status"] == "accepted"
+    assert len(snapshot["segments"]) == 1_000
+    assert [segment["id"] for segment in snapshot["segments"][:2]] == initial_segment_ids
+    assert [segment["id"] for segment in snapshot["segments"][2:]] == [
+        row[0] for row in additional_segments
+    ]

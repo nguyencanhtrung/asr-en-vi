@@ -235,12 +235,12 @@
                 <p class="notes-intro">Notes được tạo bằng tiếng Anh từ transcript hoàn chỉnh của cuộc họp.</p>
               </div>
               <div class="notes-run-actions">
-                <button class="primary-button" id="notes-start" type="button" disabled>Tạo notes bằng ChatGPT</button>
+                <button class="primary-button" id="notes-start" type="button" aria-describedby="notes-status" disabled>Tạo notes bằng ChatGPT</button>
                 <button class="secondary-button" id="notes-cancel" type="button" hidden>Hủy xử lý</button>
               </div>
             </header>
             <p class="notes-content-policy" id="notes-content-policy">
-              Chỉ ngày họp, lời thoại, mốc thời gian và tên người nói được gửi tới ChatGPT bằng model và effort đã lưu. File audio/video, tên cuộc họp và thông tin tài khoản không được gửi.
+              Ngày họp, lời thoại, mốc thời gian và tên người nói được gửi tới ChatGPT bằng model và effort đã lưu. Với nguồn dài, các bản tóm tắt trung gian cũng được gửi để tổng hợp notes. File audio/video, tên cuộc họp và thông tin tài khoản không được gửi.
             </p>
             <p class="notes-lock-status" id="notes-lock-status" role="status" aria-live="polite" hidden></p>
             <p class="notes-status" id="notes-status" role="status" aria-live="polite">Đang kiểm tra trạng thái notes…</p>

@@ -186,8 +186,15 @@ khoản, model và kết quả. Kiểm thử giả lập không xác nhận enti
 
 Mở cuộc họp đã có transcript hoàn chỉnh, lưu lựa chọn ChatGPT/model trong phần kết nối, rồi bấm
 **Tạo notes**. Worker gửi transcript cùng ID, timestamp, tên người nói và ngày họp cần thiết;
-không gửi audio. Lát triển khai này nhận nguồn vừa ngân sách một lượt gọi. Nguồn quá dài bị từ
-chối rõ ràng, không bị cắt mất phần cuối hoặc tự chuyển model.
+không gửi audio. Nguồn dài được chia tại ranh giới đoạn, tạo các tóm tắt có trích dẫn đã kiểm tra
+riêng theo từng phần, rồi tổng hợp theo thứ tự transcript để xử lý quyết định hoặc đề xuất thay
+đổi về sau. Nguồn vượt giới hạn tổng, số phần hoặc có đoạn đơn lẻ quá lớn sẽ bị từ chối trước khi
+lưu task và snapshot; transcript không bị cắt hoặc âm thầm bỏ đoạn. Tóm tắt trung gian vẫn có thể
+bỏ sót chi tiết, vì vậy hãy đối chiếu nội dung cuối với nguồn.
+
+Mỗi lượt gọi dành tối đa 25.000 token cho reasoning và đầu ra; phần nguồn được chia nhỏ để vẫn
+giữ ngân sách context an toàn. Toàn tác vụ có giới hạn 60 phút, không tự đổi model/effort hoặc
+tự gửi lại inference nếu hết ngân sách, lỗi hay bị hủy.
 
 Notes tiếng Anh gồm Overview, Key Topics and Rationale, Decisions, Open Questions, Confirmed
 Action Items và Items Requiring Confirmation. Backend kiểm tra cấu trúc và ID nguồn trước khi

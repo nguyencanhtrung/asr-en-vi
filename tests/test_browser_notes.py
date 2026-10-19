@@ -24,9 +24,96 @@ from asr_en_vi.notes import (
 )
 from asr_en_vi.notes_document import render_markdown
 from asr_en_vi.storage import database_path
-from asr_en_vi.tasks import claim_next_task
+from asr_en_vi.tasks import claim_next_task, transcription_state
 
 pytestmark = pytest.mark.browser
+
+
+def test_notes_recovers_when_transcription_submission_finishes_after_navigation(live, signed_in):
+    _context, page = signed_in()
+    first_id, _generation, _segments = seed_completed_transcript(live.settings.data_dir)
+    other_id, _other_generation, _other_segments = seed_completed_transcript(
+        live.settings.data_dir, title="Other meeting"
+    )
+    held_requests = []
+    page.route(f"{live.url}/api/tasks", lambda route: held_requests.append(route))
+    page.goto(f"{live.url}/meetings/{first_id}")
+    expect(page.locator("#notes-start")).to_be_enabled()
+    page.locator("#start-transcription").click()
+    expect(page.locator("#notes-start")).to_be_disabled()
+    page.locator(f'a[href="/meetings/{other_id}"]').first.click()
+    expect(page.locator("#meeting-title")).to_have_text("Other meeting")
+    expect(page.locator("#notes-start")).to_be_disabled()
+    assert len(held_requests) == 1
+    held_requests.pop().fulfill(
+        status=409, json={"detail": {"code": "system_busy", "message": "Processing is busy."}}
+    )
+    expect(page.locator("#notes-start")).to_be_enabled()
+
+
+@pytest.mark.parametrize("cached", [True, False])
+def test_notes_waits_for_transcription_request_and_active_task(live, signed_in, cached):
+    _context, page = signed_in()
+    meeting_id, _generation_id, _segments = seed_completed_transcript(live.settings.data_dir)
+    if not cached:
+        with sqlite3.connect(database_path(live.settings.data_dir)) as connection:
+            connection.execute(
+                "UPDATE meetings SET current_generation_id = NULL WHERE id = ?", (meeting_id,)
+            )
+    task = transcription_state(live.settings.data_dir, meeting_id)["task"]
+    task.update(id="new-transcription-task", status="accepted", stage="queued", worker_state="idle")
+    held_requests = []
+    notes_requests = []
+    started = False
+
+    def meeting_response(route):
+        payload = route.fetch().json()
+        meeting = payload.get("meeting", payload)
+        if started:
+            meeting["transcription"]["task"] = task
+        route.fulfill(json=payload)
+
+    page.route(f"{live.url}/api/meetings/{meeting_id}", meeting_response)
+    page.route(f"{live.url}/api/tasks", lambda route: held_requests.append(route))
+    page.route(f"{live.url}/api/tasks/{task['id']}", lambda route: route.fulfill(json=task))
+    page.on(
+        "request",
+        lambda request: (
+            notes_requests.append(request.url)
+            if request.method == "POST" and request.url.endswith("/notes-runs")
+            else None
+        ),
+    )
+    page.goto(f"{live.url}/meetings/{meeting_id}")
+    if cached:
+        expect(page.locator("#notes-start")).to_be_enabled()
+    else:
+        expect(page.locator("#notes-status")).to_contain_text("Cần transcript hoàn chỉnh")
+    page.locator("#start-transcription").click()
+    expect(page.locator("#notes-start")).to_be_disabled()
+    expect(page.locator("#notes-status")).to_contain_text("Chờ tác vụ kết thúc")
+    assert len(held_requests) == 1
+    started = True
+    held_requests.pop().fulfill(status=202, json=task)
+    expect(page.locator("#cancel-transcription")).to_be_visible()
+    expect(page.locator("#notes-start")).to_be_disabled()
+    task.update(status="running", stage="transcribing")
+    expect(page.locator("#transcription-status")).to_contain_text("Đang chép lời")
+    expect(page.locator("#notes-start")).to_be_disabled()
+    page.reload()
+    expect(page.locator("#notes-status")).to_contain_text("Chờ tác vụ kết thúc")
+    expect(page.locator("#notes-start")).to_be_disabled()
+    task.update(status="stopping", stage="stopping")
+    expect(page.locator("#cancel-transcription")).to_be_disabled()
+    expect(page.locator("#notes-start")).to_be_disabled()
+    task.update(status="canceled", stage="canceled")
+    expect(page.locator("#start-transcription")).to_be_visible()
+    if cached:
+        expect(page.locator("#notes-start")).to_be_enabled()
+    else:
+        expect(page.locator("#notes-start")).to_be_disabled()
+        expect(page.locator("#notes-status")).to_contain_text("Cần transcript hoàn chỉnh")
+    assert notes_requests == []
 
 
 @pytest.mark.parametrize("width", [1440, 390])

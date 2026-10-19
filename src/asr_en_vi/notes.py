@@ -15,11 +15,10 @@ from typing import Any
 from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
 from asr_en_vi.notes_document import (
     MAX_OUTPUT_BYTES,
-    MAX_PROMPT_BYTES,
     PROMPT_VERSION,
     SCHEMA_VERSION,
     NotesDocumentError,
-    build_prompt,
+    plan_source,
 )
 from asr_en_vi.storage import database_path
 from asr_en_vi.tasks import TaskError, _request_id, _task_summary
@@ -283,14 +282,13 @@ def accept_notes_task(
                     "The current transcript has no source segments for notes generation.",
                 )
             try:
-                prompt = build_prompt(snapshot)
-            except NotesDocumentError:
+                plan_source(snapshot)
+            except NotesDocumentError as error:
                 raise TaskError(
                     413,
                     "notes_source_too_large",
-                    f"This transcript exceeds the {MAX_PROMPT_BYTES}-byte notes context budget.",
+                    str(error),
                 ) from None
-            del prompt
             snapshot_json = json.dumps(
                 snapshot, ensure_ascii=False, allow_nan=False, separators=(",", ":")
             )

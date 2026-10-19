@@ -58,6 +58,7 @@ TASK_PROGRESS_INTERVAL_SECONDS = 1.0
 RUNNER_TERM_GRACE_SECONDS = 5.0
 RUNNER_KILL_GRACE_SECONDS = 5.0
 RUNNER_POST_EOF_GRACE_SECONDS = 2.0
+NOTES_TASK_TIMEOUT_SECONDS = 3600.0
 MAX_CHILD_EVENT_LINE_BYTES = 1024 * 1024
 WORKER_LOCK_NAME = ".worker.lock"
 WORKER_LOCK_RETRY_SECONDS = 1.0
@@ -307,6 +308,8 @@ def _run_child(
     task_started: float,
     progress: Any,
     on_event: Any,
+    *,
+    deadline: float | None = None,
 ) -> dict[str, object]:
     """Run one isolated phase and return only after its process group is gone."""
     process: subprocess.Popen[bytes] | None = None
@@ -324,6 +327,9 @@ def _run_child(
         return result
     if stop_event.is_set():
         result["stop_reason"] = "interrupted"
+        return result
+    if deadline is not None and time.monotonic() >= deadline:
+        result["stop_reason"] = "deadline"
         return result
 
     try:
@@ -392,6 +398,8 @@ def _run_child(
                 result["stop_reason"] = "canceled"
             elif stop_event.is_set():
                 result["stop_reason"] = "interrupted"
+            elif deadline is not None and now >= deadline:
+                result["stop_reason"] = "deadline"
             if result["stop_reason"] is not None:
                 break
 
@@ -492,6 +500,7 @@ def _run_notes_task(
     task_id = str(task["id"])
     owner_id = str(task["owner_id"])
     started = time.monotonic()
+    deadline = started + NOTES_TASK_TIMEOUT_SECONDS
     state: dict[str, Any] = {"stage": "starting_notes", "markdown": None, "error": None}
 
     def finish_failure(code: str, message: str) -> None:
@@ -558,8 +567,15 @@ def _run_notes_task(
             started,
             lambda: (state["stage"], 0.0, int(task["segment_count"])),
             on_event,
+            deadline=deadline,
         )
         elapsed = time.monotonic() - started
+        if child["stop_reason"] == "deadline":
+            finish_failure(
+                "notes_timeout",
+                "Notes generation exceeded the task-wide time limit.",
+            )
+            return
         if child["stop_reason"] is not None:
             _finish_after_child_stop(settings, task_id, owner_id, stop_event, elapsed)
             return
@@ -571,6 +587,12 @@ def _run_notes_task(
             finish_failure(
                 "notes_runner_protocol_error",
                 "The notes worker did not return a complete result.",
+            )
+            return
+        if time.monotonic() >= deadline:
+            finish_failure(
+                "notes_timeout",
+                "Notes generation exceeded the task-wide time limit.",
             )
             return
         if not update_task_progress(

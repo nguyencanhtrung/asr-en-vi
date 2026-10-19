@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+import signal
 import sqlite3
 import sys
 import threading
 import time
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
@@ -109,4 +111,60 @@ def test_notes_worker_keeps_stopping_slot_until_local_child_is_reaped(tmp_path, 
                 term_grace_seconds=0.2,
                 kill_grace_seconds=1.0,
             )
+        os.close(lock_fd)
+
+
+def test_notes_task_deadline_reaps_child_and_publishes_no_partial_revision(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, _ = seed_completed_transcript(data_dir)
+    accepted = _accept(data_dir, meeting_id, generation_id, "notes-worker-deadline-001")
+    task = claim_next_task(data_dir, owner_id="worker-deadline-owner")
+    assert task is not None and task["id"] == accepted["id"]
+    settings = Settings(data_dir=data_dir, auth_dir=tmp_path / "auth")
+    lock_fd = acquire_worker_lock(data_dir)
+    assert lock_fd is not None
+    marker = tmp_path / "notes-deadline-child-started"
+    monkeypatch.setattr(worker, "NOTES_TASK_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(
+        worker,
+        "_notes_command",
+        lambda *_args: [
+            sys.executable,
+            "-c",
+            "import os,pathlib,sys,time; "
+            "pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(60)",
+            str(marker),
+        ],
+    )
+    runner_thread = threading.Thread(
+        target=worker._run_notes_task,
+        args=(settings, lock_fd, task, threading.Event()),
+    )
+    runner_thread.start()
+    child_pid = None
+    try:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not marker.exists():
+            time.sleep(0.02)
+        assert marker.exists(), "The notes child did not start."
+        child_pid = int(marker.read_text(encoding="ascii"))
+        runner_thread.join(timeout=8)
+        assert not runner_thread.is_alive()
+
+        state = notes_state(data_dir, meeting_id)
+        assert state["task"]["status"] == "failed"
+        assert state["task"]["error_code"] == "notes_timeout"
+        assert state["revisions"] == []
+        with sqlite3.connect(database_path(data_dir)) as connection:
+            assert connection.execute(
+                "SELECT active_task_id FROM processing_slot WHERE slot_id = 1"
+            ).fetchone() == (None,)
+        with pytest.raises(ProcessLookupError):
+            os.kill(child_pid, 0)
+    finally:
+        runner_thread.join(timeout=8)
+        if runner_thread.is_alive() and child_pid is not None:
+            with suppress(ProcessLookupError):
+                os.kill(child_pid, signal.SIGKILL)
+            runner_thread.join(timeout=8)
         os.close(lock_fd)

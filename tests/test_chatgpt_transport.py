@@ -20,7 +20,12 @@ from asr_en_vi.chatgpt import (
     ChatGPTError,
     ChatGPTHTTPAdapter,
 )
-from asr_en_vi.notes_document import MAX_PROMPT_BYTES
+from asr_en_vi.notes_document import (
+    MAX_PROMPT_BYTES,
+    MAX_REPAIR_OUTPUT_BYTES,
+    build_chunk_prompt,
+    plan_source,
+)
 
 CLIENT_ID = "oaiapp_test-123456"
 
@@ -237,12 +242,37 @@ def test_notes_request_caps_output_tokens_and_returns_only_a_completed_result():
     assert output == '{"overview":[]}'
     assert len(requests) == 1
     body = json.loads(requests[0].content)
-    assert body["max_output_tokens"] == NOTES_MAX_OUTPUT_TOKENS == 6000
-    assert body["max_output_tokens"] <= 6000
+    # Reasoning and visible JSON share this cap; high effort needs room for both.
+    assert body["max_output_tokens"] == NOTES_MAX_OUTPUT_TOKENS == 25_000
     assert body["reasoning"] == {"effort": "high"}
     assert body["store"] is False and body["stream"] is True
     assert body["text"]["format"]["strict"] is True
     assert len(requests[0].content) <= NOTES_MAX_REQUEST_BODY_BYTES
+
+
+def test_notes_request_enforces_the_per_stage_stream_output_cap():
+    stream = (
+        b'data: {"type":"response.output_text.delta","delta":"12345"}\n\n'
+        b'data: {"type":"response.completed","response":{"output":[]}}\n\n'
+    )
+    adapter = ChatGPTHTTPAdapter(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200, headers={"content-type": "text/event-stream"}, content=stream
+            )
+        )
+    )
+
+    with pytest.raises(ChatGPTError) as oversized:
+        adapter.generate_notes(
+            access_token="test-token",
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+            prompt="Bounded test prompt.",
+            max_output_bytes=4,
+        )
+
+    assert oversized.value.code == "provider_output_too_large"
 
 
 def test_notes_reasoning_stream_can_finish_after_the_control_call_deadline(monkeypatch):
@@ -433,6 +463,97 @@ def test_notes_incomplete_stream_never_returns_partial_output():
         )
 
     assert incomplete.value.code == "notes_incomplete"
+
+
+@pytest.mark.parametrize(
+    ("reason", "code", "message"),
+    [
+        ("max_output_tokens", "notes_token_budget_exceeded", "token budget"),
+        ("content_filter", "notes_content_filtered", "content filter"),
+        ("untrusted-provider-text", "notes_incomplete", "did not complete"),
+    ],
+)
+def test_notes_incomplete_reports_only_allowlisted_reason_without_retry(reason, code, message):
+    calls = []
+    event = {
+        "type": "response.incomplete",
+        "response": {"incomplete_details": {"reason": reason}},
+    }
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=b"data: " + json.dumps(event).encode() + b"\n\n",
+        )
+
+    adapter = ChatGPTHTTPAdapter(transport=httpx.MockTransport(handler))
+    with pytest.raises(ChatGPTError) as failed:
+        adapter.generate_notes(
+            access_token="local-test-token",
+            model="gpt-6-luna",
+            reasoning_effort="max",
+            prompt="Test",
+        )
+    assert failed.value.code == code
+    assert message in failed.value.public_message
+    assert reason not in failed.value.public_message
+    assert len(calls) == 1
+
+
+def test_invalid_notes_json_has_specific_public_error_instead_of_provider_outage():
+    error = ChatGPTError(502, "notes_invalid_output", "private provider content")
+    assert "invalid notes" in error.public_message
+    assert "private provider content" not in error.public_message
+
+
+def test_planned_repair_keeps_reasoning_and_schema_inside_the_transport_context():
+    snapshot = {
+        "meeting_date": "2026-10-19",
+        "segments": [
+            {
+                "id": f"{index:032x}",
+                "start_seconds": index,
+                "end_seconds": index + 1,
+                "text": "Lời thoại cuộc họp " * 5,
+            }
+            for index in range(1000)
+        ],
+    }
+    plan = plan_source(snapshot)
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=b'data: {"type":"response.completed","response":{"output":[]}}\n\n',
+        )
+
+    adapter = ChatGPTHTTPAdapter(transport=httpx.MockTransport(handler))
+    for index, chunk in enumerate(plan.chunks, 1):
+        prompt = build_chunk_prompt(
+            chunk,
+            chunk_index=index,
+            chunk_count=len(plan.chunks),
+            invalid_output="x" * MAX_REPAIR_OUTPUT_BYTES,
+        )
+        adapter.generate_notes(
+            access_token="local-test-token",
+            model="gpt-6-luna",
+            reasoning_effort="max",
+            prompt=prompt,
+        )
+    assert len(requests) == len(plan.chunks) > 1
+    for request in requests:
+        body = json.loads(request.content)
+        prompt_bytes = len(body["input"][0]["content"][0]["text"].encode())
+        schema_bytes = len(
+            json.dumps(body["text"]["format"]["schema"], separators=(",", ":")).encode()
+        )
+        assert prompt_bytes + schema_bytes + 1024 + body["max_output_tokens"] + 4000 <= 64_000
 
 
 def test_verification_accepts_valid_sse_without_content_type():
