@@ -74,15 +74,15 @@ def document():
     }
 
 
-def test_only_renderer_builds_source_links_and_deadlines(document, snapshot):
+def test_renderer_keeps_summary_and_deadlines_without_timestamp_references(document, snapshot):
     result = validate_document(document, snapshot)
     assert result["action_items"][0]["deadline_date"] == "2026-10-20"
     assert document["action_items"][0]["deadline_date"] == "2099-01-01"
     markdown = render_markdown(document, snapshot)
     assert "Owner: Undetermined; Deadline: tomorrow (2026-10-20)." in markdown
-    assert (
-        f"[01:01:01](/meetings/{'b' * 32}?notes_source={'a' * 32}&segment={'c' * 32})" in markdown
-    )
+    assert r"- Ship the update\." in markdown
+    assert "notes_source=" not in markdown
+    assert "01:01:01" not in markdown
     for _, heading in SECTIONS:
         assert f"## {heading}" in markdown
 

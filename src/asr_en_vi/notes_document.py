@@ -9,7 +9,6 @@ import re
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
-from urllib.parse import urlencode
 
 SCHEMA_VERSION = 1
 PROMPT_VERSION = "notes-hierarchical-v4"
@@ -507,7 +506,6 @@ def timestamp(seconds: float) -> str:
 
 def render_markdown(document: dict[str, Any], snapshot: dict[str, Any]) -> str:
     document = validate_document(document, snapshot)
-    segments = {segment["id"]: segment for segment in snapshot["segments"]}
     lines: list[str] = []
     for section, heading in SECTIONS:
         lines.extend([f"## {heading}", ""])
@@ -524,12 +522,7 @@ def render_markdown(document: dict[str, Any], snapshot: dict[str, Any]) -> str:
                 if item["deadline_date"] and item["deadline_date"] != item["deadline_text"]:
                     deadline += f" ({item['deadline_date']})"
                 content += f" — Owner: {owner}; Deadline: {deadline}."
-            links = []
-            for source_id in item["source_ids"]:
-                query = urlencode({"notes_source": snapshot["id"], "segment": source_id})
-                label = timestamp(segments[source_id]["start_seconds"])
-                links.append(f"[{label}](/meetings/{snapshot['meeting_id']}?{query})")
-            lines.append(f"- {content}" + (" " + " ".join(links) if links else ""))
+            lines.append(f"- {content}")
         lines.append("")
     return "\n".join(lines)
 

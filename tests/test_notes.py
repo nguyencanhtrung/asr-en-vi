@@ -150,6 +150,38 @@ def test_acceptance_freezes_source_pins_account_and_locks_only_its_meeting(tmp_p
     assert changed["source_version"] == 2
 
 
+def test_existing_notes_omit_timestamp_references_in_reads_and_export(tmp_path):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, segment_ids = seed_completed_transcript(data_dir)
+    accepted = _accept(data_dir, meeting_id, generation_id)
+    claim_next_task(data_dir, owner_id="notes-worker")
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        source_id = connection.execute(
+            "SELECT notes_source_id FROM tasks WHERE id = ?", (accepted["id"],)
+        ).fetchone()[0]
+    reference = (
+        f"[00:00:01](/meetings/{meeting_id}?notes_source={source_id}&segment={segment_ids[0]})"
+    )
+    summary = "## Overview\n\n- Review at 10:30.\n- Keep [00:00:01](https://example.test).\n"
+    legacy = summary.replace("Review at 10:30.", f"Review at 10:30. {reference} {reference}")
+    revision = publish_notes_revision(
+        data_dir,
+        accepted["id"],
+        owner_id="notes-worker",
+        markdown=legacy,
+        elapsed_seconds=1.0,
+    )
+    assert revision is not None
+    assert get_note(data_dir, revision["id"])["markdown"] == summary
+    assert notes_state(data_dir, meeting_id)["revisions"][0]["markdown"] == summary
+    assert export_note(data_dir, revision["id"]) == summary
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        saved = connection.execute(
+            "SELECT markdown, edit_version FROM notes_revisions WHERE id = ?", (revision["id"],)
+        ).fetchone()
+    assert saved == (legacy, 1)
+
+
 def test_revision_edit_conflicts_export_and_source_staleness(tmp_path):
     data_dir = tmp_path / "data"
     meeting_id, generation_id, segment_ids = seed_completed_transcript(data_dir)

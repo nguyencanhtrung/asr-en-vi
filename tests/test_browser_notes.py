@@ -340,7 +340,7 @@ def test_notes_browser_generation_revisions_conflicts_copy_export_and_markdown_s
     ]
     expect(page.locator("#notes-preview")).to_contain_text("Prepare the launch plan.")
     expect(page.locator("#notes-preview")).to_contain_text("Send the draft.")
-    expect(page.locator("#notes-preview a[data-notes-source-link]")).to_have_count(6)
+    expect(page.locator("#notes-preview a[data-notes-source-link]")).to_have_count(0)
     assert "token=" not in page.url and "access_token=" not in page.url
 
     screenshots = Path("/tmp/asr-issue9/screenshots")
@@ -487,9 +487,9 @@ def test_saved_source_stays_frozen_and_seeks_same_audio_after_live_edit(
     audio = page.locator("#meeting-audio")
     expect(audio).to_be_visible()
     assert audio.get_attribute("src") == f"/api/meetings/{meeting_id}/audio"
-    expect(page.locator("#notes-preview a[data-notes-source-link]")).to_have_count(6)
+    expect(page.locator("#notes-preview a[data-notes-source-link]")).to_have_count(0)
 
-    page.locator("#notes-preview a[data-notes-source-link]").first.click()
+    page.goto(f"{live.url}/meetings/{meeting_id}?notes_source={source_id}&segment={segment_ids[0]}")
     expect(page.locator("#notes-source-view")).to_be_visible()
     expect(page.locator("#notes-source-text")).to_have_text(original_text)
     expect(page.locator("#notes-source-time")).to_have_text("00:00:01")

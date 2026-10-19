@@ -11,6 +11,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
 from asr_en_vi.notes_document import (
@@ -343,6 +344,20 @@ def accept_notes_task(
             return _task_summary(row)
 
 
+def _summary_markdown(row: sqlite3.Row) -> str:
+    """Hide generated timestamp citations in older revisions without rewriting saved notes."""
+    prefix = (
+        f"/meetings/{row['meeting_id']}?"
+        + urlencode({"notes_source": row["source_snapshot_id"]})
+        + "&segment="
+    )
+    return re.sub(
+        r"(?<!\\)[ \t]*\[\d{2,}:\d{2}:\d{2}\]\(" + re.escape(prefix) + r"[^\s)]+\)",
+        "",
+        row["markdown"],
+    )
+
+
 def _revision_payload(
     connection: sqlite3.Connection,
     row: sqlite3.Row,
@@ -366,7 +381,7 @@ def _revision_payload(
         "id": row["id"],
         "meeting_id": row["meeting_id"],
         "source_snapshot_id": row["source_snapshot_id"],
-        "markdown": row["markdown"],
+        "markdown": _summary_markdown(row),
         "edit_version": row["edit_version"],
         "source_state": source_state,
         "provider": row["provider"],
@@ -523,11 +538,12 @@ def update_note(
 def export_note(data_dir: Path, note_id: str) -> str:
     with _connect_read_only(data_dir) as connection:
         row = connection.execute(
-            "SELECT markdown FROM notes_revisions WHERE id = ?", (note_id,)
+            "SELECT markdown, meeting_id, source_snapshot_id FROM notes_revisions WHERE id = ?",
+            (note_id,),
         ).fetchone()
     if row is None:
         raise TaskError(404, "notes_not_found", "Notes revision not found.")
-    return row["markdown"]
+    return _summary_markdown(row)
 
 
 def get_notes_source(data_dir: Path, source_id: str) -> dict[str, Any]:
