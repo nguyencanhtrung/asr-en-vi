@@ -1723,6 +1723,10 @@ class ChatGPTProvider:
                 state["verification"] = None
                 state.pop("last_provider_error", None)
                 for session in state["sessions"].values():
+                    # Older releases could persist the bound account subject on
+                    # an already closed login session. Disconnect removes that
+                    # identity from every retained session, including legacy data.
+                    session.pop("expected_subject", None)
                     if session.get("status") == "pending":
                         session["status"] = "cancelled"
                         session["error"] = None

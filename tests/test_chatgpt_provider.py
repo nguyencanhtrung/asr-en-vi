@@ -340,13 +340,18 @@ def test_connected_reauthentication_rejects_client_id_and_subject_mismatch(tmp_p
 def test_disconnect_allows_signing_in_with_a_different_account(tmp_path):
     adapter = FakeChatGPTAdapter()
     provider = provider_for(tmp_path, adapter)
-    connect(provider)
+    connected_session = connect(provider)
+    with provider.store.locked(write=True) as state:
+        # Simulate a closed session persisted by a version that did not scrub
+        # the account binding when the login completed.
+        state["sessions"][connected_session["id"]]["expected_subject"] = adapter.subject
     pending_reauthentication = provider.start_login()
     provider.disconnect()
 
-    cancelled = provider.store._read()["sessions"][pending_reauthentication["id"]]
+    sessions = provider.store._read()["sessions"]
+    cancelled = sessions[pending_reauthentication["id"]]
     assert cancelled["status"] == "cancelled"
-    assert "expected_subject" not in cancelled
+    assert all("expected_subject" not in session for session in sessions.values())
 
     adapter.subject = "different-subject"
     adapter.email = "different@example.test"
