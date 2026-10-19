@@ -35,8 +35,8 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 RUN groupadd --gid 10001 asr \
     && useradd --uid 10001 --gid asr --no-create-home --shell /usr/sbin/nologin asr \
-    && mkdir -p /var/lib/asr-en-vi/data /var/lib/asr-en-vi/auth \
+    && mkdir -p /var/lib/asr-en-vi/data /var/lib/asr-en-vi/auth /var/lib/asr-en-vi/provider \
     && chown -R 10001:10001 /var/lib/asr-en-vi \
-    && chmod 0700 /var/lib/asr-en-vi/data /var/lib/asr-en-vi/auth
+    && chmod 0700 /var/lib/asr-en-vi/data /var/lib/asr-en-vi/auth /var/lib/asr-en-vi/provider
 USER 10001:10001
-CMD ["uvicorn", "asr_en_vi.app:app", "--host", "0.0.0.0", "--port", "8765", "--no-proxy-headers", "--no-server-header"]
+CMD ["uvicorn", "asr_en_vi.app:app", "--host", "0.0.0.0", "--port", "8765", "--no-proxy-headers", "--no-server-header", "--no-access-log"]

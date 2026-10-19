@@ -9,11 +9,12 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
 from asr_en_vi.auth import AuthStateError, create_session_cookie, token_matches
+from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
 from asr_en_vi.config import Settings
 from asr_en_vi.media import ALLOWED_EXTENSIONS, OUTPUT_BITRATE, OUTPUT_CODEC
 from asr_en_vi.recordings import (
@@ -145,8 +146,17 @@ def _parse_byte_range(value: str, size: int) -> _RangeResult:
     return start, min(end, size - 1)
 
 
-def install_routes(app: FastAPI, settings: Settings) -> None:
+def install_routes(app: FastAPI, settings: Settings, chatgpt_provider: ChatGPTProvider) -> None:
     validation_slots = asyncio.Semaphore(_MEDIA_VALIDATION_CONCURRENCY)
+
+    async def provider_json(operation):
+        try:
+            return await run_in_threadpool(operation)
+        except ChatGPTError as error:
+            raise HTTPException(
+                status_code=error.status_code,
+                detail={"code": error.code, "message": error.public_message},
+            ) from None
 
     @app.api_route("/healthz", methods=["GET", "HEAD"], include_in_schema=False)
     async def healthz() -> dict[str, str]:
@@ -194,6 +204,20 @@ def install_routes(app: FastAPI, settings: Settings) -> None:
             return Response(status_code=404)
         return FileResponse(asset_path, media_type="text/javascript")
 
+    @app.get("/assets/connections.css", include_in_schema=False)
+    async def connections_css() -> Response:
+        asset_path = WEB_DIR / "connections.css"
+        if not asset_path.is_file():
+            return Response(status_code=404)
+        return FileResponse(asset_path, media_type="text/css")
+
+    @app.get("/assets/connections.js", include_in_schema=False)
+    async def connections_js() -> Response:
+        asset_path = WEB_DIR / "connections.js"
+        if not asset_path.is_file():
+            return Response(status_code=404)
+        return FileResponse(asset_path, media_type="text/javascript")
+
     @app.get("/assets/history.css", include_in_schema=False)
     async def history_css() -> FileResponse:
         return _asset_response("history.css", "text/css")
@@ -219,6 +243,101 @@ def install_routes(app: FastAPI, settings: Settings) -> None:
                 "faststart": True,
             },
         }
+
+    @app.get("/api/providers")
+    async def list_providers() -> dict[str, Any]:
+        return await provider_json(chatgpt_provider.get_providers)
+
+    @app.post("/api/providers/chatgpt/login-sessions", status_code=201)
+    async def start_chatgpt_login(request: Request) -> dict[str, Any]:
+        await _json_object(request, required=set())
+        return await provider_json(chatgpt_provider.start_login)
+
+    @app.get("/api/providers/chatgpt/login-sessions/{session_id}")
+    async def get_chatgpt_login(session_id: str) -> dict[str, Any]:
+        return await provider_json(lambda: chatgpt_provider.login_session(session_id))
+
+    @app.delete("/api/providers/chatgpt/login-sessions/{session_id}")
+    async def cancel_chatgpt_login(session_id: str) -> dict[str, Any]:
+        return await provider_json(lambda: chatgpt_provider.cancel_login(session_id))
+
+    @app.get("/api/providers/chatgpt/models")
+    async def list_chatgpt_models() -> dict[str, Any]:
+        return await provider_json(chatgpt_provider.list_models)
+
+    @app.get("/api/notes-preferences")
+    async def get_notes_preferences() -> dict[str, Any]:
+        return await provider_json(chatgpt_provider.notes_preferences)
+
+    @app.put("/api/notes-preferences")
+    async def put_notes_preferences(request: Request) -> dict[str, Any]:
+        payload = await _json_object(
+            request, required={"provider", "model"}, optional={"reasoning_effort"}
+        )
+        if (
+            not isinstance(payload["provider"], str)
+            or not isinstance(payload["model"], str)
+            or not isinstance(payload.get("reasoning_effort", "default"), str)
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "invalid_preference",
+                    "message": "Choose an available ChatGPT model.",
+                },
+            )
+        return await provider_json(
+            lambda: chatgpt_provider.set_notes_preference(
+                provider=payload["provider"],
+                model=payload["model"],
+                reasoning_effort=payload.get("reasoning_effort", "default"),
+            )
+        )
+
+    @app.post("/api/providers/chatgpt/verify")
+    async def verify_chatgpt(request: Request) -> dict[str, Any]:
+        payload = await _json_object(request, required={"model"}, optional={"reasoning_effort"})
+        if not isinstance(payload["model"], str) or not isinstance(
+            payload.get("reasoning_effort", "default"), str
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "invalid_model",
+                    "message": "Choose an available ChatGPT model to verify.",
+                },
+            )
+        return await provider_json(
+            lambda: chatgpt_provider.verify(
+                model=payload["model"], reasoning_effort=payload.get("reasoning_effort")
+            )
+        )
+
+    @app.delete("/api/providers/chatgpt/connection")
+    async def disconnect_chatgpt() -> dict[str, Any]:
+        return await provider_json(chatgpt_provider.disconnect)
+
+    @app.get("/auth/chatgpt/callback", include_in_schema=False)
+    async def chatgpt_callback(request: Request) -> HTMLResponse:
+        try:
+            await run_in_threadpool(
+                chatgpt_provider.handle_callback,
+                request.query_params.multi_items(),
+            )
+        except ChatGPTError as error:
+            page = (
+                '<!doctype html><html lang="vi"><meta charset="utf-8">'
+                '<meta name="viewport" content="width=device-width,initial-scale=1">'
+                "<title>ChatGPT sign-in</title><p>Không thể hoàn tất đăng nhập ChatGPT. "
+                "Trở về ASR EN VI để xem chi tiết.</p></html>"
+            )
+            return HTMLResponse(page, status_code=error.status_code)
+        return HTMLResponse(
+            '<!doctype html><html lang="vi"><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            "<title>ChatGPT sign-in</title>"
+            "<p>Đăng nhập ChatGPT đã hoàn tất. Bạn có thể đóng thẻ này.</p></html>"
+        )
 
     @app.post("/api/uploads", status_code=201)
     async def start_upload(request: Request) -> dict[str, object]:

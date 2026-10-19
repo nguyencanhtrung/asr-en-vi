@@ -22,11 +22,19 @@ from asr_en_vi.auth import AuthState, AuthStore
 from asr_en_vi.config import Settings
 from asr_en_vi.diarization_runner import (
     DIARIZATION_ERROR_MESSAGES,
+    DiarizationConfigurationError,
+    prepared_diarization_directory,
     safe_diarization_error,
 )
 from asr_en_vi.runner import ModelConfigurationError, prepared_model_directory
-from asr_en_vi.runtime import MODEL_REPOSITORIES, RuntimeConfigurationError, select_runtime
+from asr_en_vi.runtime import (
+    MODEL_REPOSITORIES,
+    RuntimeConfigurationError,
+    read_runtime_profile,
+    select_runtime,
+)
 from asr_en_vi.tasks import TASK_ERROR_MESSAGES, TaskError, get_task
+from asr_en_vi.worker import is_healthy as worker_is_healthy
 
 _TASK_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 _SAFE_TASK_STATES = frozenset(
@@ -167,6 +175,28 @@ def check_runtime(settings: Settings, *, verbose: bool = False) -> int:
     return 0
 
 
+def check_installation(settings: Settings) -> int:
+    """Check that the app can use the worker and both mounted local models."""
+    if not worker_is_healthy(settings.data_dir):
+        print("Installation incomplete: the transcription worker is not ready.", file=sys.stderr)
+        return 1
+    profile = read_runtime_profile(settings.data_dir)
+    if profile is None:
+        print("Installation incomplete: the app cannot read the worker model.", file=sys.stderr)
+        return 1
+    try:
+        prepared_model_directory(profile.model_path)
+        prepared_diarization_directory(settings.diarization_model_path)
+    except (ModelConfigurationError, DiarizationConfigurationError, OSError):
+        print("Installation incomplete: the app cannot read the mounted models.", file=sys.stderr)
+        return 1
+    print(
+        "Installation ready: worker and local models are visible to the app "
+        f"({profile.device}, {profile.compute_type}, {profile.model_name})."
+    )
+    return 0
+
+
 def _run_diarization_preflight(
     *, model_path: Path, device: str, verbose: bool = False
 ) -> tuple[str, str] | None:
@@ -275,6 +305,11 @@ def _parser() -> argparse.ArgumentParser:
     runtime_check_parser.add_argument(
         "--verbose", action="store_true", help="show local preflight traceback details"
     )
+    installation_parser = commands.add_parser("installation", help="check the running installation")
+    installation_commands = installation_parser.add_subparsers(
+        dest="installation_command", required=True
+    )
+    installation_commands.add_parser("check", help="check worker and app-visible models")
     task_parser = commands.add_parser("task", help="inspect a local processing task")
     task_commands = task_parser.add_subparsers(dest="task_command", required=True)
     diagnose_parser = task_commands.add_parser("diagnose", help="show safe task diagnostics")
@@ -293,6 +328,8 @@ def main(argv: list[str] | None = None) -> int:
         return check_model(settings)
     if arguments.command == "runtime":
         return check_runtime(settings, verbose=arguments.verbose)
+    if arguments.command == "installation":
+        return check_installation(settings)
     if arguments.command == "task":
         return diagnose_task(settings, arguments.task_id)
 

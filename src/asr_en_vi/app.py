@@ -11,7 +11,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response
 
 from asr_en_vi.auth import AuthStateError, AuthStore, session_is_valid
-from asr_en_vi.config import Settings
+from asr_en_vi.chatgpt import ChatGPTAdapter, ChatGPTHTTPAdapter, ChatGPTProvider
+from asr_en_vi.config import CHATGPT_CALLBACK_PATH, Settings
 from asr_en_vi.recordings import recover_recordings
 from asr_en_vi.routes import SESSION_COOKIE, install_routes
 from asr_en_vi.storage import initialize
@@ -26,6 +27,7 @@ PUBLIC_ROUTES = frozenset(
         ("GET", "/healthz"),
         ("HEAD", "/healthz"),
         ("POST", "/api/access/session"),
+        ("GET", CHATGPT_CALLBACK_PATH),
     }
 )
 UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -51,6 +53,13 @@ def _normalized_origin(scheme: str, authority: str) -> tuple[str, str, int] | No
 def _host_is_expected(request: Request, settings: Settings) -> bool:
     host_header = request.headers.get("host", "")
     actual = _normalized_origin(urlsplit(settings.public_url).scheme, host_header)
+    if request.method.upper() == "GET" and request.url.path == CHATGPT_CALLBACK_PATH:
+        if not settings.chatgpt_callback_url:
+            return False
+        callback = urlsplit(settings.chatgpt_callback_url)
+        callback_origin = _normalized_origin(callback.scheme, host_header)
+        expected_callback_origin = _normalized_origin(callback.scheme, callback.netloc)
+        return callback_origin is not None and callback_origin == expected_callback_origin
     return actual == settings.origin
 
 
@@ -88,9 +97,21 @@ def _with_security_headers(response: Response) -> Response:
     return response
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    chatgpt_adapter: ChatGPTAdapter | None = None,
+) -> FastAPI:
     runtime_settings = settings or Settings.from_env()
     auth_store = AuthStore(runtime_settings.auth_dir)
+    provider_dir = runtime_settings.provider_dir
+    if provider_dir is None:
+        raise ValueError("ASR_PROVIDER_DIR could not be resolved")
+    chatgpt_provider = ChatGPTProvider(
+        provider_dir,
+        callback_url=runtime_settings.chatgpt_callback_url or "",
+        adapter=(chatgpt_adapter if chatgpt_adapter is not None else ChatGPTHTTPAdapter()),
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -98,7 +119,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             runtime_settings.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             runtime_settings.auth_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            provider_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             auth_store.ensure()
+            chatgpt_provider.ensure()
             initialize(runtime_settings.data_dir)
             recover_recordings(runtime_settings.data_dir)
             yield
@@ -115,6 +138,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.auth_store = auth_store
     app.state.settings = runtime_settings
+    app.state.chatgpt_provider = chatgpt_provider
 
     @app.middleware("http")
     async def protect_requests(request: Request, call_next) -> Response:
@@ -161,7 +185,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response = await call_next(request)
         return _with_security_headers(response)
 
-    install_routes(app, runtime_settings)
+    install_routes(app, runtime_settings, chatgpt_provider)
     return app
 
 
