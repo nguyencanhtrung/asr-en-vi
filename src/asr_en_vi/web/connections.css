@@ -1,0 +1,428 @@
+.connection-launcher {
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.connection-launcher-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+.connection-launcher[data-state="connected"] .connection-launcher-dot {
+  background: var(--success);
+  box-shadow: 0 0 0 3px var(--success-soft);
+}
+
+.connection-launcher[data-state="reconnect_required"] .connection-launcher-dot {
+  background: var(--warning);
+  box-shadow: 0 0 0 3px var(--warning-soft);
+}
+
+.connection-launcher[data-state="error"] .connection-launcher-dot {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+.connection-launcher-status {
+  color: var(--ink-3);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.connection-launcher[data-state="connected"] .connection-launcher-status {
+  color: var(--success);
+}
+
+.connection-launcher[data-state="reconnect_required"] .connection-launcher-status {
+  color: var(--warning);
+}
+
+.connections-dialog {
+  width: min(580px, calc(100% - 32px));
+  max-width: none;
+  max-height: min(760px, calc(100vh - 32px));
+  max-height: min(760px, calc(100dvh - 32px));
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+
+.connections-dialog::backdrop {
+  background: var(--overlay);
+}
+
+.connections-shell {
+  display: flex;
+  max-height: min(760px, calc(100vh - 32px));
+  max-height: min(760px, calc(100dvh - 32px));
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: inherit;
+  background: var(--surface);
+}
+
+.connections-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px 26px 14px;
+}
+
+.connections-header h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+.connections-body {
+  overflow-y: auto;
+  padding: 0 26px 24px;
+  overscroll-behavior: contain;
+}
+
+.connections-intro,
+.connection-section > p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.connections-intro {
+  padding: 0 0 17px;
+}
+
+.connection-section {
+  padding: 17px 0 18px;
+  border-top: 1px solid var(--hairline);
+}
+
+.connection-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.connection-section-heading h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 560;
+  line-height: 1.3;
+}
+
+.connection-state-badge {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.connection-state-badge[data-state="connected"] {
+  border-color: color-mix(in srgb, var(--success) 34%, var(--hairline));
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.connection-state-badge[data-state="reconnect_required"] {
+  border-color: color-mix(in srgb, var(--warning) 34%, var(--hairline));
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.connection-state-badge[data-state="error"] {
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--hairline));
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.connection-ledger {
+  margin: 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.connection-ledger > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(0, 1.2fr);
+  gap: 14px;
+  padding: 9px 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.connection-ledger dt {
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.connection-ledger dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.connection-message {
+  margin: 11px 0 0;
+  color: var(--ink-2);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.connection-message:empty {
+  display: none;
+}
+
+.connection-error {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px 9px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--hairline));
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.connection-error[hidden] {
+  display: none;
+}
+
+.connection-error span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.connection-error .text-button {
+  grid-column: 1;
+  justify-self: start;
+  color: var(--danger);
+}
+
+.connection-sign-in {
+  margin-top: 14px;
+}
+
+.connection-pending-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.connection-pending-actions p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.connection-disconnect {
+  margin-top: 12px;
+}
+
+.connection-disconnect-trigger {
+  color: var(--danger);
+}
+
+.connection-disconnect-confirm {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--warning) 42%, var(--hairline));
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+}
+
+.connection-disconnect-confirm p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.connection-disconnect-confirm a,
+.connection-usage-link {
+  color: var(--accent);
+  font-weight: 600;
+  text-underline-offset: 3px;
+}
+
+.connection-disconnect-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.connection-model-section form {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+.connection-model-section label {
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.connection-model-section select {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.connection-model-section select:disabled {
+  color: var(--ink-2);
+}
+
+.connection-help,
+.connection-model-status,
+.connection-verification-result {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+.connection-model-status:empty,
+.connection-verification-result:empty {
+  display: none;
+}
+
+.connection-model-status[data-state="saved"],
+.connection-verification-result[data-state="success"] {
+  color: var(--success);
+}
+
+.connection-model-status[data-state="error"],
+.connection-verification-result[data-state="error"] {
+  color: var(--danger);
+}
+
+.connection-verification-section > p {
+  margin-bottom: 10px;
+}
+
+.connection-verification-section .connection-verification-result {
+  margin: 0 0 10px;
+}
+
+.connection-usage-link {
+  display: inline-block;
+  margin-left: 12px;
+  font-size: 10px;
+}
+
+@media (max-width: 680px) {
+  .workspace-header h1 {
+    min-width: 0;
+    max-width: none;
+    flex: 1 1 auto;
+  }
+
+  .header-actions {
+    flex: 0 0 auto;
+    gap: 8px;
+  }
+
+  .connection-launcher {
+    gap: 6px;
+    padding-right: 9px;
+    padding-left: 9px;
+  }
+}
+
+@media (max-width: 980px) {
+  .connection-launcher {
+    width: 42px;
+    min-width: 42px;
+    flex: 0 0 42px;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+  }
+
+  .connection-launcher-name,
+  .connection-launcher-status {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+}
+
+@media (max-width: 520px) {
+  .connections-dialog {
+    width: calc(100% - 16px);
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
+    margin: 8px;
+  }
+
+  .connections-shell {
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+
+  .connections-header {
+    padding: 19px 17px 12px;
+  }
+
+  .connections-header h2 {
+    font-size: 23px;
+  }
+
+  .connections-body {
+    padding: 0 17px 18px;
+  }
+
+  .connection-ledger > div {
+    grid-template-columns: minmax(92px, 0.72fr) minmax(0, 1.28fr);
+    gap: 10px;
+  }
+
+  .connection-usage-link {
+    display: block;
+    margin: 10px 0 0;
+  }
+}
+
+@media (max-width: 360px) {
+  .connection-ledger > div {
+    grid-template-columns: minmax(82px, 0.7fr) minmax(0, 1.3fr);
+  }
+
+  .connection-disconnect-actions > button {
+    flex: 1 1 100%;
+  }
+}

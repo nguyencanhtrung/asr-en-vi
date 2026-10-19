@@ -8,7 +8,11 @@ import huggingface_hub
 
 from asr_en_vi import cli
 from asr_en_vi.cli import main
-from asr_en_vi.diarization_runner import DIARIZATION_ERROR_MESSAGES
+from asr_en_vi.diarization_runner import (
+    DIARIZATION_ERROR_MESSAGES,
+    DiarizationConfigurationError,
+)
+from asr_en_vi.runtime import RuntimeProfile
 from asr_en_vi.tasks import TASK_ERROR_MESSAGES
 
 
@@ -33,6 +37,53 @@ def _prepared_model(path):
         encoding="utf-8",
     )
     return path
+
+
+def test_installation_check_requires_worker_before_printing_access_link(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("ASR_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(cli, "worker_is_healthy", lambda _directory: False)
+
+    assert main(["installation", "check"]) == 1
+    captured = capsys.readouterr()
+    assert "worker is not ready" in captured.err
+    assert captured.out == ""
+
+
+def test_installation_check_requires_models_visible_from_app(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ASR_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(cli, "worker_is_healthy", lambda _directory: True)
+    model = _prepared_model(tmp_path / "model")
+    monkeypatch.setattr(cli, "read_runtime_profile", lambda _directory: None)
+    assert main(["installation", "check"]) == 1
+    assert "cannot read the worker model" in capsys.readouterr().err
+
+    monkeypatch.setattr(
+        cli,
+        "read_runtime_profile",
+        lambda _directory: RuntimeProfile("cpu", "int8", model),
+    )
+    monkeypatch.setattr(cli, "prepared_diarization_directory", lambda _path: None)
+
+    assert main(["installation", "check"]) == 0
+    assert "worker and local models" in capsys.readouterr().out
+
+    unmounted_model = tmp_path / "unmounted-model"
+    model.rename(unmounted_model)
+    assert main(["installation", "check"]) == 1
+    captured = capsys.readouterr()
+    assert "cannot read the mounted models" in captured.err
+    assert captured.out == ""
+
+    unmounted_model.rename(model)
+
+    def missing_diarization(_path):
+        raise DiarizationConfigurationError("not mounted")
+
+    monkeypatch.setattr(cli, "prepared_diarization_directory", missing_diarization)
+    assert main(["installation", "check"]) == 1
+    assert "cannot read the mounted models" in capsys.readouterr().err
 
 
 def test_model_check_fails_cleanly_when_local_model_is_missing(tmp_path, monkeypatch, capsys):

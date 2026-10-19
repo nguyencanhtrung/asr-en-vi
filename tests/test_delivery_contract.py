@@ -35,6 +35,7 @@ def _run_start(
     tmp_path: Path,
     model_files: tuple[str, ...] = (),
     model_overrides: dict[str, bytes] | None = None,
+    fail_install_check: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     model_root = tmp_path / "models"
     model_directory = model_root / "speaker-diarization-community-1"
@@ -54,6 +55,8 @@ def _run_start(
         stub_directory / "docker",
         "#!/bin/sh\n"
         'printf \'%s\\n\' "$*" >> "$DOCKER_LOG"\n'
+        'case "$*" in *"asr_en_vi.cli installation check"*) '
+        '[ "${FAIL_INSTALL_CHECK:-0}" != 1 ] || exit 1 ;; esac\n'
         'if [ "$1" = compose ] && [ "$4" = config ]; then\n'
         "  printf '%s\\n' \\\n"
         f"    'ASR_DEVICE=cpu' 'ASR_MODEL_HOST_PATH={model_root}' \\\n"
@@ -63,6 +66,7 @@ def _run_start(
     environment = os.environ.copy()
     environment["PATH"] = f"{stub_directory}:{environment['PATH']}"
     environment["DOCKER_LOG"] = str(command_log)
+    environment["FAIL_INSTALL_CHECK"] = "1" if fail_install_check else "0"
     result = subprocess.run(
         ["sh", str(ROOT / "scripts" / "start.sh")],
         cwd=ROOT,
@@ -167,7 +171,17 @@ def test_startup_checks_complete_community_model_then_preflights_before_services
     model_prepare = commands.index("python -m asr_en_vi.cli model prepare")
     runtime_check = commands.index("python -m asr_en_vi.cli runtime check")
     services = commands.index("compose -f compose.yaml up")
-    assert build < model_prepare < runtime_check < services
+    install_check = commands.index("python -m asr_en_vi.cli installation check")
+    access_link = commands.index("python -m asr_en_vi.cli access show")
+    assert build < model_prepare < runtime_check < services < install_check < access_link
+
+
+def test_startup_does_not_print_access_link_when_app_cannot_see_worker_or_models(tmp_path):
+    result = _run_start(tmp_path, COMMUNITY_1_FILES, fail_install_check=True)
+
+    assert result.returncode != 0
+    assert "python -m asr_en_vi.cli installation check" in result.docker_log
+    assert "python -m asr_en_vi.cli access show" not in result.docker_log
 
 
 def test_startup_rejects_git_lfs_pointer_before_image_build(tmp_path):

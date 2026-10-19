@@ -104,4 +104,5 @@ compose_runtime run --rm --no-deps --user "$(id -u):$(id -g)" \
     worker python -m asr_en_vi.cli model prepare
 compose_runtime run --rm --no-deps worker python -m asr_en_vi.cli runtime check
 compose_runtime up --detach --wait --wait-timeout "${ASR_STARTUP_TIMEOUT:-120}"
+compose_runtime exec -T app python -m asr_en_vi.cli installation check
 compose_runtime exec -T app python -m asr_en_vi.cli access show

@@ -18,6 +18,10 @@ def test_compose_separates_services_volumes_and_loopback_publish():
     assert "data:/var/lib/asr-en-vi/data" in worker["volumes"]
     assert "auth:/var/lib/asr-en-vi/auth" in app["volumes"]
     assert all("auth:" not in mount for mount in worker["volumes"])
+    assert "provider:/var/lib/asr-en-vi/provider" in app["volumes"]
+    assert all("provider:" not in mount for mount in worker["volumes"])
+    assert app["environment"]["ASR_PROVIDER_DIR"] == "/var/lib/asr-en-vi/provider"
+    assert "--no-access-log" in app["command"]
     assert app["image"] == worker["image"]
     assert app["environment"]["ASR_MAX_UPLOAD_BYTES"] == "${ASR_MAX_UPLOAD_BYTES:-4294967296}"
     assert app["environment"]["ASR_MAX_RECORDING_SECONDS"] == (
@@ -41,6 +45,16 @@ def test_compose_separates_services_volumes_and_loopback_publish():
     assert any(mount.endswith(":/models:ro") for mount in worker["volumes"])
     assert app["healthcheck"]
     assert worker["healthcheck"]
+
+
+def test_provider_volume_is_created_for_runtime_uid_and_default_server_suppresses_access_logs():
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "/var/lib/asr-en-vi/provider" in dockerfile
+    assert (
+        "chmod 0700 /var/lib/asr-en-vi/data /var/lib/asr-en-vi/auth /var/lib/asr-en-vi/provider"
+        in dockerfile
+    )
+    assert '"--no-access-log"]' in dockerfile
 
 
 def test_image_build_context_is_allowlisted_and_excludes_user_owned_files():

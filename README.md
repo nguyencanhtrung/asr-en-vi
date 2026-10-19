@@ -17,7 +17,18 @@ cp .env.example .env
 ./scripts/start.sh
 ```
 
-Script build image, chờ app và worker healthy, rồi in access link cùng QR trong terminal.
+Script build image, khởi động cả app và worker, chờ hai service healthy, rồi kiểm tra từ trong app
+rằng worker đang chạy và cả model chép lời lẫn Community-1 đều đọc được qua mount chỉ đọc.
+Chỉ sau khi kiểm tra này đạt, script mới in access link cùng QR trong terminal. Một container app
+chạy riêng bằng `docker run` không tự khởi động worker hoặc gắn model; dùng `./scripts/start.sh`
+cho bản cài mới. Có thể kiểm tra lại bản cài đang chạy bằng:
+
+```sh
+docker compose exec -T app python -m asr_en_vi.cli installation check
+```
+
+Nếu lệnh báo worker chưa sẵn sàng, kiểm tra service `worker` và volume `data` dùng chung. Nếu
+báo không đọc được model, kiểm tra `ASR_MODEL_HOST_PATH` và mount `/models` của cả hai service.
 Link chứa token trong URL fragment. Trang truy cập xóa fragment trước khi gửi token trong
 JSON body để đổi lấy phiên trình duyệt.
 
@@ -29,13 +40,14 @@ Model chép lời được tải một lần khi còn thiếu, sau đó script k
 type trước khi khởi động service. Community-1 phải được chuẩn bị riêng trên host trước khi chạy
 script.
 
-Compose tạo hai volume riêng:
+Compose tạo các volume riêng:
 
 - `data` giữ SQLite và trạng thái liveness tối thiểu của worker; app và worker cùng gắn volume này.
 - `auth` giữ token và khóa ký cookie với quyền file hạn chế; chỉ app gắn volume này.
+- `provider` giữ đăng ký và credential ChatGPT riêng của bản cài; chỉ app gắn volume này.
 - Thư mục model trên host được gắn chỉ đọc vào app và worker; không nằm trong image ứng dụng.
 
-Restart hoặc recreate container vẫn giữ hai volume. Một Compose project/volume mới sinh token
+Restart hoặc recreate container vẫn giữ các volume. Một Compose project/volume mới sinh token
 riêng. Đổi cổng bằng `ASR_PORT` trong `.env`; link mặc định tự theo cổng đó. Có thể đặt
 `ASR_PUBLIC_URL` nếu cần một URL loopback cụ thể. `ASR_COOKIE_SECURE` mặc định là `false` cho
 HTTP localhost; bật khi đặt một TLS terminator local phía trước app.
@@ -131,6 +143,44 @@ giữ nguyên. Các lý do rà soát từ nhận dạng và diarization được
 
 Lệnh in link và QR mới. Việc này chỉ thay auth state; SQLite và worker tiếp tục dùng volume cũ.
 `docker compose down` giữ volume. `docker compose down -v` xóa volume dữ liệu và auth của project.
+
+## Kết nối ChatGPT
+
+Mở **ChatGPT** trong thanh đầu workspace, rồi chọn **Continue with ChatGPT** để đăng nhập
+và cấp quyền dùng gói. Kết nối này độc lập với token truy cập localhost. Ứng dụng lưu phiên trong
+volume `provider` với quyền truy cập hạn chế để dùng lại sau restart; không đọc credential từ
+Codex hoặc công cụ cá nhân khác. Khi phiên mất hiệu lực, UI yêu cầu kết nối ChatGPT lại.
+
+Sau khi kết nối, chọn và lưu model từ danh sách tài khoản cung cấp. Model đã nhớ không còn khả
+dụng cần được chọn lại; ứng dụng không tự chuyển model. Danh sách model không bảo đảm còn quota
+hoặc tài khoản gọi được inference. Nút **Chạy kiểm tra bằng dữ liệu tổng hợp** gửi một yêu cầu nhỏ
+để kiểm chứng đầu ra JSON; yêu cầu có thể dùng hạn mức ChatGPT, không gửi dữ liệu cuộc họp và
+không tự gửi lại nếu lỗi. Tính năng này chuẩn bị kết nối cho bước tạo notes; chưa triển khai tạo
+notes từ transcript.
+
+Với GPT-5.6 Luna và GPT-6 Luna/Sol, có thể chọn `none`, `low`, `medium`, `high`, `xhigh` hoặc `max` cho
+`reasoning.effort`, rồi lưu cùng model. Chọn **Mặc định của mô hình** để ứng dụng không gửi tham số
+khi kiểm tra; GPT-5.6 Luna mặc định dùng `medium`. GPT-6.1 Sol và GPT-6 Astra hỗ trợ từ `low`
+đến `max`. Lần kiểm tra tổng hợp sử dụng effort đang hiển thị,
+kể cả khi thay đổi chưa được lưu. Mức effort cao hơn có thể làm yêu cầu lâu hơn và dùng thêm hạn
+mức; hiện chưa có bước tạo notes để áp dụng lựa chọn này vào nội dung cuộc họp.
+
+Callback dùng HTTP `127.0.0.1` trên cổng app đã publish, tại `/auth/chatgpt/callback`. Mở trình
+duyệt trên cùng máy chạy Docker. Không chuyển callback sang `localhost`. Compose và lệnh mặc
+định của image tắt access log để tránh ghi authorization code trong query string. Khi tự chạy
+Uvicorn, thêm `--no-access-log`; proxy phía trước cũng phải bỏ hoặc che query callback.
+Nếu workspace dùng HTTPS qua TLS terminator, ASR vẫn hoạt động; để đăng nhập ChatGPT, đặt
+`ASR_CHATGPT_CALLBACK_URL` thành một URL HTTP `127.0.0.1` được route về app tại đường dẫn trên.
+Không gửi HTTP vào cổng chỉ nhận TLS. Khi chưa cấu hình đường HTTP riêng, chỉ bước đăng nhập
+ChatGPT bị chặn với lỗi cấu hình callback.
+
+**Ngắt kết nối** xóa token ChatGPT đang lưu và thử thu hồi phiên ở OpenAI, không xóa cuộc họp.
+Nếu chưa xác nhận được thu hồi từ xa, UI hướng dẫn kiểm tra quyền ứng dụng trong
+[ChatGPT Settings → Usage](https://chatgpt.com/settings/usage). Đăng ký và định danh host vẫn
+được giữ để dùng lại khi đăng nhập; quay vòng token localhost không ngắt kết nối ChatGPT.
+
+Xem [quy trình kiểm chứng ChatGPT thật](docs/chatgpt-integration-check.md) để ghi nhận quyền tài
+khoản, model và kết quả. Kiểm thử giả lập không xác nhận entitlement hoặc quota của tài khoản thật.
 
 ## Phát triển và kiểm tra
 

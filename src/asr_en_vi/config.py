@@ -8,6 +8,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 DEFAULT_PUBLIC_URL = "http://127.0.0.1:8765"
+DEFAULT_PROVIDER_DIR = Path("/var/lib/asr-en-vi/provider")
+CHATGPT_CALLBACK_PATH = "/auth/chatgpt/callback"
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost"})
 DEFAULT_MAX_UPLOAD_BYTES = 4 * 1024**3
 DEFAULT_MAX_RECORDING_SECONDS = 4 * 60 * 60
@@ -67,6 +69,30 @@ def _validate_public_url(raw_url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
+def _validate_chatgpt_callback_url(raw_url: str) -> str:
+    parsed = urlsplit(raw_url)
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname != "127.0.0.1"
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path != CHATGPT_CALLBACK_PATH
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError(
+            "ASR_CHATGPT_CALLBACK_URL must be an HTTP 127.0.0.1 callback URL at "
+            f"{CHATGPT_CALLBACK_PATH}"
+        )
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("ASR_CHATGPT_CALLBACK_URL has an invalid port") from exc
+    if port is not None and not 1 <= port <= 65535:
+        raise ValueError("ASR_CHATGPT_CALLBACK_URL has an invalid port")
+    return f"http://{parsed.netloc}{CHATGPT_CALLBACK_PATH}"
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     data_dir: Path
@@ -83,16 +109,32 @@ class Settings:
     asr_gpu_compute_type: str = "float16"
     asr_cpu_compute_type: str = "int8"
     diarization_model_path: Path = DEFAULT_DIARIZATION_MODEL_PATH
+    provider_dir: Path | None = None
+    chatgpt_callback_url: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "data_dir", Path(self.data_dir))
         object.__setattr__(self, "auth_dir", Path(self.auth_dir))
+        provider_dir = self.provider_dir
+        if provider_dir is None:
+            provider_dir = Path(self.data_dir).parent / "provider"
+        object.__setattr__(self, "provider_dir", Path(provider_dir))
         if self.asr_model_path is not None:
             object.__setattr__(self, "asr_model_path", Path(self.asr_model_path))
         object.__setattr__(self, "asr_gpu_model_path", Path(self.asr_gpu_model_path))
         object.__setattr__(self, "asr_cpu_model_path", Path(self.asr_cpu_model_path))
         object.__setattr__(self, "diarization_model_path", Path(self.diarization_model_path))
         object.__setattr__(self, "public_url", _validate_public_url(self.public_url))
+        callback_url = self.chatgpt_callback_url
+        if callback_url is None and urlsplit(self.public_url).scheme == "http":
+            parsed_public_url = urlsplit(self.public_url)
+            callback_port = parsed_public_url.port or 80
+            callback_url = f"http://127.0.0.1:{callback_port}{CHATGPT_CALLBACK_PATH}"
+        object.__setattr__(
+            self,
+            "chatgpt_callback_url",
+            _validate_chatgpt_callback_url(callback_url) if callback_url else None,
+        )
         if isinstance(self.max_upload_bytes, bool) or self.max_upload_bytes < 1:
             raise ValueError("max_upload_bytes must be a positive integer")
         if isinstance(self.max_recording_seconds, bool) or self.max_recording_seconds < 1:
@@ -112,7 +154,9 @@ class Settings:
         return cls(
             data_dir=Path(os.environ.get("ASR_DATA_DIR", "/var/lib/asr-en-vi/data")),
             auth_dir=Path(os.environ.get("ASR_AUTH_DIR", "/var/lib/asr-en-vi/auth")),
+            provider_dir=Path(os.environ.get("ASR_PROVIDER_DIR", str(DEFAULT_PROVIDER_DIR))),
             public_url=os.environ.get("ASR_PUBLIC_URL", DEFAULT_PUBLIC_URL),
+            chatgpt_callback_url=os.environ.get("ASR_CHATGPT_CALLBACK_URL") or None,
             cookie_secure=_bool_from_env("ASR_COOKIE_SECURE", False),
             max_upload_bytes=_positive_int_from_env(
                 "ASR_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES
