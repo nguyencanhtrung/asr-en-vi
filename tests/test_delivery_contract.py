@@ -122,9 +122,7 @@ def test_container_job_runs_runtime_smoke_check_on_the_built_image():
     assert container["timeout-minutes"] >= 30
     assert build["with"]["load"] is True
     assert build["with"]["cache-from"] == "type=gha,scope=container"
-    assert build["with"]["cache-to"] == (
-        "${{ github.event_name == 'push' && 'type=gha,mode=max,scope=container' || '' }}"
-    )
+    assert "cache-to" not in build["with"]
     assert steps.index(smoke) > steps.index(build)
     assert smoke["run"] == f"./scripts/container-smoke.sh {build['with']['tags']}"
     script = (ROOT / "scripts" / "container-smoke.sh").read_text(encoding="utf-8")
@@ -236,12 +234,62 @@ def test_shell_syntax_gate_propagates_a_script_failure(tmp_path):
     assert "syntax error" in result.stderr.casefold() or "unterminated" in result.stderr.casefold()
 
 
-def test_publish_waits_for_every_gate_and_has_only_required_write_permissions():
-    publish = load_yaml(PIPELINE_PATH)["jobs"]["publish"]
+def test_platform_images_publish_only_on_version_tags_with_native_runners():
+    jobs = load_yaml(PIPELINE_PATH)["jobs"]
+    publish_platform = jobs["publish-platform"]
+    expected_platforms = {
+        "linux/amd64": {"runner": "ubuntu-24.04", "artifact": "amd64"},
+        "linux/arm64": {"runner": "ubuntu-24.04-arm", "artifact": "arm64"},
+    }
 
-    assert publish["if"] == "github.event_name == 'push'"
-    assert publish["needs"] == ["quality", "container"]
-    assert publish["timeout-minutes"] >= 60
+    assert publish_platform["if"] == "startsWith(github.ref, 'refs/tags/v')"
+    assert publish_platform["needs"] == ["quality", "container"]
+    assert publish_platform["timeout-minutes"] >= 60
+    assert publish_platform["permissions"] == {"contents": "read", "packages": "write"}
+    assert publish_platform["strategy"]["fail-fast"] is False
+    matrix_entries = publish_platform["strategy"]["matrix"]["include"]
+    assert {
+        entry["platform"]: {"runner": entry["runner"], "artifact": entry["artifact"]}
+        for entry in matrix_entries
+    } == expected_platforms
+    assert all("qemu" not in str(step).casefold() for step in publish_platform["steps"])
+
+    build_step = next(
+        step
+        for step in publish_platform["steps"]
+        if step["name"] == "Build and push platform image"
+    )
+    assert build_step["with"]["platforms"] == "${{ matrix.platform }}"
+    assert "push-by-digest=true" in build_step["with"]["outputs"]
+    assert "name-canonical=true" in build_step["with"]["outputs"]
+    assert "push=true" in build_step["with"]["outputs"]
+    assert "cache-to" not in build_step["with"]
+    assert build_step["with"]["cache-from"] == "type=gha,scope=container"
+    assert build_step["with"]["provenance"] == "mode=max"
+    assert build_step["with"]["sbom"] is True
+
+    export_digest = next(
+        step for step in publish_platform["steps"] if step["name"] == "Export image digest"
+    )
+    assert '"${{ steps.publish.outputs.digest }}"' in export_digest["run"]
+    assert 'touch "${RUNNER_TEMP}/digests/${digest#sha256:}"' in export_digest["run"]
+    upload_digest = next(
+        step for step in publish_platform["steps"] if step["name"] == "Upload image digest"
+    )
+    assert upload_digest["with"]["name"] == "digest-${{ matrix.artifact }}"
+    assert upload_digest["with"]["if-no-files-found"] == "error"
+
+
+def test_manifest_publish_waits_for_platform_images_and_attests_manifest_digest():
+    jobs = load_yaml(PIPELINE_PATH)["jobs"]
+    publish_platform = jobs["publish-platform"]
+    publish = jobs["publish"]
+    version_tag_condition = "startsWith(github.ref, 'refs/tags/v')"
+
+    assert publish_platform["if"] == version_tag_condition
+    assert publish["if"] == version_tag_condition
+    assert publish["needs"] == ["publish-platform"]
+    assert publish["timeout-minutes"] >= 15
     assert publish["permissions"] == {
         "contents": "read",
         "packages": "write",
@@ -249,14 +297,39 @@ def test_publish_waits_for_every_gate_and_has_only_required_write_permissions():
         "id-token": "write",
     }
 
-    build_step = next(
-        step for step in publish["steps"] if step["name"] == "Build and publish container"
+    download_digests = next(
+        step for step in publish["steps"] if step["name"] == "Download image digests"
     )
-    assert build_step["with"]["push"] is True
-    assert build_step["with"]["platforms"] == "linux/amd64,linux/arm64"
-    assert build_step["with"]["provenance"] == "mode=max"
-    assert build_step["with"]["sbom"] is True
-    assert any(step["name"] == "Attest published container" for step in publish["steps"])
+    assert download_digests["with"]["pattern"] == "digest-*"
+    assert download_digests["with"]["merge-multiple"] is True
+
+    manifest = next(
+        step
+        for step in publish["steps"]
+        if step["name"] == "Create and publish multi-platform manifest"
+    )
+    assert manifest["id"] == "publish"
+    assert manifest["working-directory"] == "${{ runner.temp }}/digests"
+    assert manifest["env"]["IMAGE_TAGS_JSON"] == "${{ steps.metadata.outputs.json }}"
+    assert "docker buildx imagetools create" in manifest["run"]
+    assert '.tags | map("-t " + .)' in manifest["run"]
+    assert "$(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *)" in manifest["run"]
+    assert "--metadata-file" in manifest["run"]
+    assert 'echo "digest=${digest}" >> "${GITHUB_OUTPUT}"' in manifest["run"]
+
+    attest = next(step for step in publish["steps"] if step["name"] == "Attest published container")
+    assert attest["with"]["subject-name"] == "${{ env.IMAGE_NAME }}"
+    assert attest["with"]["subject-digest"] == "${{ steps.publish.outputs.digest }}"
+    assert attest["with"]["push-to-registry"] is True
+
+    metadata = next(step for step in publish["steps"] if step.get("id") == "metadata")
+    assert metadata["with"]["tags"].splitlines() == [
+        "type=sha,format=long",
+        "type=ref,event=tag",
+        "type=semver,pattern={{version}}",
+        "type=semver,pattern={{major}}.{{minor}}",
+        "type=raw,value=latest",
+    ]
 
 
 def test_every_action_is_pinned_to_an_immutable_commit():

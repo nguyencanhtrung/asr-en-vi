@@ -220,12 +220,15 @@ mong đợi sau khi chuẩn hóa chữ hoa/thường và khoảng trắng.
 ## CI/CD
 
 GitHub Actions chạy cùng `./scripts/check.sh` cho mọi pull request và mọi push lên `main`, đồng
-thời build Docker image để chặn lỗi đóng gói. Pipeline chỉ phát hành sau khi cả quality gate và
-container build thành công:
+thời build và smoke-test Docker image để chặn lỗi đóng gói. Bước kiểm tra chỉ đọc cache BuildKit;
+không xuất lại cache image CUDA/PyTorch nhiều GB sau mỗi lần chạy. Pipeline chỉ phát hành sau khi
+cả quality gate và container build thành công:
 
-- Push lên `main` phát hành image `ghcr.io/nguyencanhtrung/asr-en-vi` với tag `edge` và tag SHA.
-- Push tag dạng `v1.2.3` phát hành các tag version, `latest` và SHA.
-- Image phát hành cho `linux/amd64` và `linux/arm64`, kèm SBOM, provenance và attestation.
+- Push lên `main` chỉ chạy kiểm tra; không phát hành image.
+- Push tag dạng `v1.2.3` phát hành image `ghcr.io/nguyencanhtrung/asr-en-vi` với các tag version,
+  `latest` và SHA.
+- Image phát hành cho `linux/amd64` và `linux/arm64` trên runner native song song, sau đó ghép
+  manifest đa kiến trúc kèm SBOM, provenance và attestation.
 
 Workflow chỉ dùng `GITHUB_TOKEN`; không cần secret registry riêng. Các action được pin bằng commit
 SHA bất biến, còn Dependabot kiểm tra cập nhật hằng tuần cho uv, GitHub Actions và Docker base image.
