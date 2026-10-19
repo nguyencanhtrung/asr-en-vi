@@ -2,7 +2,7 @@
 
 Ứng dụng web chạy trên máy tự quản để lưu bản ghi cuộc họp và tạo transcript bằng faster-whisper
 cùng speaker diarization Community-1 trên máy local. Bản ghi, transcript và catalog người nói được
-lưu trong workspace; ChatGPT tạo meeting notes tiếng Anh có thể đối chiếu transcript nguồn.
+lưu trong workspace; ChatGPT tạo meeting notes tiếng Anh hoặc tiếng Việt theo lựa chọn khi tạo notes.
 
 ## Chạy trên máy local
 
@@ -196,10 +196,12 @@ Mỗi lượt gọi dành tối đa 25.000 token cho reasoning và đầu ra; ph
 giữ ngân sách context an toàn. Toàn tác vụ có giới hạn 60 phút, không tự đổi model/effort hoặc
 tự gửi lại inference nếu hết ngân sách, lỗi hay bị hủy.
 
-Notes tiếng Anh gồm Overview, Key Topics and Rationale, Decisions, Open Questions, Confirmed
-Action Items và Items Requiring Confirmation. Backend kiểm tra cấu trúc và ID nguồn trước khi
-lưu; quyết định và action item phải dẫn về nguồn hợp lệ. Owner hoặc deadline thiếu giữ là
-**Undetermined**. Chỉ quy đổi deadline tương đối khi ngày họp và cách diễn đạt đủ rõ; luôn giữ
+Chọn **Tiếng Anh** hoặc **Tiếng Việt** trước khi bấm tạo notes; mặc định là tiếng Anh.
+Ngôn ngữ được giữ cố định cho từng tác vụ và bản notes, độc lập với ngôn ngữ transcript.
+Notes gồm tổng quan, chủ đề chính và lập luận, quyết định, câu hỏi còn mở, công việc đã xác nhận
+và các mục cần xác nhận; tiêu đề và nội dung theo ngôn ngữ đã chọn. Backend kiểm tra cấu trúc và
+ID nguồn trước khi lưu. Người phụ trách hoặc thời hạn thiếu giữ là **Undetermined** hoặc
+**Chưa xác định**. Chỉ quy đổi deadline tương đối khi ngày họp và cách diễn đạt đủ rõ; luôn giữ
 cách nói gốc để rà soát. Kiểm tra schema không thay thế việc người dùng đối chiếu nội dung.
 
 Khi nhận tác vụ, ứng dụng chụp nguồn bất biến và khóa transcript, người nói cùng ngày họp của
@@ -211,8 +213,8 @@ inference. Đầu ra đã nhận đầy đủ nhưng không hợp lệ được 
 
 Chọn phiên bản notes để xem hoặc sửa Markdown. Lưu dùng kiểm tra phiên bản; xung đột giữ bản
 nháp để đối chiếu. Sao chép và tải Markdown lấy cùng nội dung đã lưu của phiên bản đang chọn;
-cần lưu hoặc giải quyết bản nháp trước. Bấm timestamp để mở đúng đoạn trong snapshot và tua bản
-audio đã lưu, kể cả khi transcript hiện tại đã đổi. Link nguồn không chứa token truy cập.
+cần lưu hoặc giải quyết bản nháp trước. Notes hiển thị, copy và export chỉ chứa nội dung tóm tắt,
+không kèm liên kết timestamp. Bản chụp nguồn vẫn được giữ để kiểm tra nội bộ và lưu lịch sử.
 Notes cũ hiển thị nguồn lịch sử hoặc cần cập nhật khi nguồn thay đổi; đổi riêng tên cuộc họp
 không làm notes cần cập nhật.
 

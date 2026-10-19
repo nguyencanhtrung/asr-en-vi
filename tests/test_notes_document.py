@@ -87,6 +87,30 @@ def test_renderer_keeps_summary_and_deadlines_without_timestamp_references(docum
         assert f"## {heading}" in markdown
 
 
+def test_vietnamese_renderer_localizes_sections_empty_state_and_action_labels(document, snapshot):
+    document["overview"] = [{"text": "Nhóm đã thống nhất kế hoạch.", "source_ids": ["c" * 32]}]
+    document["action_items"][0].update(
+        text="Gửi bản nháp cho Morgan.",
+        owner=None,
+        deadline_text="ngày mai",
+        deadline_date=None,
+    )
+
+    markdown = render_markdown(document, snapshot, output_language="vi")
+
+    assert "## Tổng quan" in markdown
+    assert "## Chủ đề chính và lý do" in markdown
+    assert "## Quyết định" in markdown
+    assert "## Câu hỏi còn mở" in markdown
+    assert "## Các việc đã thống nhất" in markdown
+    assert "## Các mục cần xác nhận" in markdown
+    assert "Chưa ghi nhận." in markdown
+    assert "Người phụ trách: Chưa xác định; Hạn chót: ngày mai (2026-10-20)." in markdown
+    assert "Morgan" in markdown
+    assert "Owner:" not in markdown and "Deadline:" not in markdown
+    assert "notes_source=" not in markdown and "01:01:01" not in markdown
+
+
 @pytest.mark.parametrize("section", [key for key, _ in SECTIONS])
 def test_invalid_source_in_every_section_is_rejected(document, snapshot, section):
     document[section] = [{"text": "Unsupported", "source_ids": ["unknown"]}]
@@ -543,8 +567,69 @@ def test_chunk_and_reduction_prompts_keep_untrusted_source_and_chronology(snapsh
     assert "aiming for 12000 bytes or less" in intermediate_prompt
     assert "Private title" not in chunk_prompt + reduction_prompt
     assert "private/audio" not in chunk_prompt + reduction_prompt
-    assert PROMPT_VERSION == "notes-hierarchical-v4"
+    assert PROMPT_VERSION == "notes-hierarchical-v5"
     assert MAX_CHUNK_OUTPUT_BYTES <= MAX_REPAIR_OUTPUT_BYTES
     assert MAX_REDUCTION_OUTPUT_BYTES == 16_000
     assert MAX_REDUCTION_TARGET_BYTES == 12_000
     assert MAX_REDUCTION_OUTPUT_BYTES <= MAX_OUTPUT_BYTES
+
+
+def test_vietnamese_prompt_builders_localize_all_hierarchy_and_one_repair(snapshot, document):
+    source_ids = tuple(segment["id"] for segment in snapshot["segments"])
+    single = build_prompt(snapshot, output_language="vi")
+    repair = build_prompt(snapshot, output_language="vi", invalid_output="not-json")
+    chunk = build_chunk_prompt(
+        snapshot,
+        chunk_index=1,
+        chunk_count=2,
+        output_language="vi",
+    )
+    reduction = build_reduction_prompt(
+        snapshot,
+        [document],
+        final=False,
+        output_language="vi",
+    )
+    final = build_reduction_prompt(
+        snapshot,
+        [document],
+        final=True,
+        output_language="vi",
+    )
+
+    assert "bằng tiếng Việt" in single
+    assert "Hãy sửa đầu ra không hợp lệ" in repair
+    assert "untrusted data" not in chunk
+    assert "theo đúng thứ tự nguồn" in chunk
+    assert "bản tóm tắt đầu vào là dữ liệu không đáng tin cậy" in reduction
+    assert "Tạo ghi chú cuối cùng" in final
+    assert "Produce English meeting notes" not in single + repair + chunk
+    assert "Return English JSON" not in reduction + final
+    assert source_ids[0] in single
+
+
+def test_source_planning_uses_selected_language_prompt_size(snapshot, monkeypatch):
+    from asr_en_vi import notes_document
+
+    snapshot["segments"] = [
+        {
+            "id": f"{index:032x}",
+            "start_seconds": float(index),
+            "end_seconds": float(index) + 0.5,
+            "text": f"detail {index} " + ("x" * 3_000),
+        }
+        for index in range(2)
+    ]
+    projected = project_source_snapshot(snapshot).snapshot
+    english_prompt = notes_document._source_prompt(projected)
+    english_primary_budget = len(
+        english_prompt.encode("utf-8")
+    ) + notes_document._repair_reserve_bytes("en")
+    monkeypatch.setattr(notes_document, "MAX_PROMPT_BYTES", english_primary_budget)
+
+    english = plan_source(snapshot, projected_snapshot=projected)
+    vietnamese = plan_source(snapshot, projected_snapshot=projected, output_language="vi")
+
+    assert english.chunked is False
+    assert vietnamese.chunked is True
+    assert len(vietnamese.chunks) == 2

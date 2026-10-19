@@ -232,9 +232,16 @@
             <header class="notes-heading-row">
               <div>
                 <h3 id="notes-heading">Meeting notes</h3>
-                <p class="notes-intro">Notes được tạo bằng tiếng Anh từ transcript hoàn chỉnh của cuộc họp.</p>
+                <p class="notes-intro">Chọn ngôn ngữ đầu ra cho notes được tạo từ transcript hoàn chỉnh của cuộc họp.</p>
               </div>
               <div class="notes-run-actions">
+                <div class="notes-output-language-control">
+                  <label for="notes-output-language">Ngôn ngữ đầu ra</label>
+                  <select id="notes-output-language">
+                    <option value="en">English / Tiếng Anh</option>
+                    <option value="vi">Vietnamese / Tiếng Việt</option>
+                  </select>
+                </div>
                 <button class="primary-button" id="notes-start" type="button" aria-describedby="notes-status" disabled>Tạo notes bằng ChatGPT</button>
                 <button class="secondary-button" id="notes-cancel" type="button" hidden>Hủy xử lý</button>
               </div>

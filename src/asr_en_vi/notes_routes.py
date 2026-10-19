@@ -25,7 +25,9 @@ from asr_en_vi.worker import is_healthy as worker_is_healthy
 WEB_DIR = Path(__file__).parent / "web"
 
 
-async def _json_object(request: Request, *, required: set[str]) -> dict[str, Any]:
+async def _json_object(
+    request: Request, *, required: set[str], optional: set[str] | None = None
+) -> dict[str, Any]:
     try:
         payload = await request.json()
     except (UnicodeDecodeError, ValueError):
@@ -33,7 +35,8 @@ async def _json_object(request: Request, *, required: set[str]) -> dict[str, Any
             status_code=400,
             detail={"code": "invalid_json", "message": "Provide a valid JSON object."},
         ) from None
-    if not isinstance(payload, dict) or set(payload) != required:
+    allowed = required | (optional or set())
+    if not isinstance(payload, dict) or not required <= set(payload) or not set(payload) <= allowed:
         raise HTTPException(
             status_code=400,
             detail={"code": "invalid_request", "message": "The JSON fields are invalid."},
@@ -76,6 +79,7 @@ def install_notes_routes(
                 "expected_source_version",
                 "expected_metadata_version",
             },
+            optional={"output_language"},
         )
         worker_ready = worker_is_healthy(settings.data_dir)
         try:
@@ -88,6 +92,7 @@ def install_notes_routes(
                 expected_generation_id=payload["expected_generation_id"],
                 expected_source_version=payload["expected_source_version"],
                 expected_metadata_version=payload["expected_metadata_version"],
+                output_language=payload.get("output_language", "en"),
                 worker_ready=worker_ready,
             )
             return result

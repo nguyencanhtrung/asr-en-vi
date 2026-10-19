@@ -6,7 +6,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 def _migrate_v2(connection: sqlite3.Connection) -> None:
@@ -352,6 +352,18 @@ def _migrate_v6(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v7(connection: sqlite3.Connection) -> None:
+    """Pin each notes task and revision to its requested output language."""
+    connection.execute(
+        "ALTER TABLE tasks ADD COLUMN notes_output_language TEXT NOT NULL DEFAULT 'en' "
+        "CHECK(notes_output_language IN ('en', 'vi'))"
+    )
+    connection.execute(
+        "ALTER TABLE notes_revisions ADD COLUMN output_language TEXT NOT NULL DEFAULT 'en' "
+        "CHECK(output_language IN ('en', 'vi'))"
+    )
+
+
 def database_path(data_dir: Path) -> Path:
     return Path(data_dir) / "app.sqlite3"
 
@@ -422,6 +434,14 @@ def initialize(data_dir: Path) -> Path:
                 raise
             finally:
                 connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("BEGIN IMMEDIATE")
+        current_version = connection.execute(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_migrations"
+        ).fetchone()[0]
+        if current_version < 7:
+            _migrate_v7(connection)
+            connection.execute("INSERT INTO schema_migrations(version) VALUES (7)")
+        connection.commit()
     finally:
         connection.close()
     os.chmod(path, 0o600)

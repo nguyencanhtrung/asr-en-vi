@@ -206,6 +206,78 @@ def test_invalid_first_result_gets_one_bounded_repair_on_the_pinned_account(tmp_
     assert provider.store._read().get("last_diagnostic") is None
 
 
+def test_vietnamese_generation_localizes_chunk_repair_reduction_and_final_prompts(tmp_path):
+    from asr_en_vi.notes_document import NotesDocumentError
+
+    snapshot = _snapshot()
+    snapshot["segments"] = [
+        {
+            "id": f"{index:032x}",
+            "start_seconds": float(index),
+            "end_seconds": float(index) + 1,
+            "text": "x" * 18_000,
+            "speaker_name": "Morgan",
+        }
+        for index in range(4)
+    ]
+    calls = 0
+
+    def respond(prompt, _max_output_bytes):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return "not-json"
+        if "SOURCE_JSON:\n" in prompt:
+            payload = json.loads(prompt.split("SOURCE_JSON:\n", 1)[1].splitlines()[0])
+            source_ids = [payload["segments"][0]["id"]]
+            document = _valid_document()
+            document["overview"] = [
+                {"text": "Bản tóm tắt " + "x" * 7_200, "source_ids": source_ids}
+            ]
+        else:
+            payload = json.loads(prompt.split("SYNTHESIS_INPUT_JSON:\n", 1)[1].splitlines()[0])
+            source_ids = list(
+                dict.fromkeys(
+                    source_id
+                    for summary in payload["summaries"]
+                    for source_id in summary["source_order"]
+                )
+            )
+            document = _valid_document()
+            document["overview"] = [{"text": "Tổng hợp ngắn gọn.", "source_ids": source_ids[:1]}]
+        return json.dumps(document, ensure_ascii=False, separators=(",", ":"))
+
+    adapter = NotesOnlyAdapter(responder=respond)
+    provider = _provider(tmp_path, adapter)
+    result = provider.generate_notes_document(
+        snapshot=snapshot,
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+        output_language="vi",
+    )
+
+    prompts = [call.prompt for call in adapter.calls]
+    assert len(adapter.calls) == 6
+    assert result["overview"][0]["text"] == "Tổng hợp ngắn gọn."
+    assert all("tiếng Việt" in prompt for prompt in prompts)
+    assert any("Hãy sửa đầu ra không hợp lệ" in prompt for prompt in prompts)
+    assert any("Tạo ghi chú cuối cùng" in prompt for prompt in prompts)
+    assert all(len(prompt.encode("utf-8")) <= MAX_PROMPT_BYTES for prompt in prompts)
+
+    no_calls = NotesOnlyAdapter([json.dumps(_valid_document())])
+    invalid_provider = _provider(tmp_path / "invalid", no_calls)
+    with pytest.raises(NotesDocumentError):
+        invalid_provider.generate_notes_document(
+            snapshot=_snapshot(),
+            connection_version=7,
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+            output_language=None,
+        )
+    assert no_calls.calls == []
+
+
 def test_invalid_repair_fails_without_a_third_provider_call(tmp_path):
     adapter = NotesOnlyAdapter(["not-json", "still-not-json"])
     provider = _provider(tmp_path, adapter)

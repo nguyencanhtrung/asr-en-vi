@@ -35,6 +35,10 @@
     stale: "Nguồn đã thay đổi",
     historical: "Nguồn lịch sử",
   };
+  const OUTPUT_LANGUAGE_LABELS = {
+    en: "English / Tiếng Anh",
+    vi: "Vietnamese / Tiếng Việt",
+  };
 
   const state = {
     currentMeetingId: null,
@@ -43,7 +47,8 @@
     view: "",
     meetings: new Map(),
     drafts: new Map(),
-    pendingRequestIds: new Map(),
+    outputLanguages: new Map(),
+    pendingRequests: new Map(),
     sourceCache: new Map(),
     readSeq: 0,
     pollSeq: 0,
@@ -141,7 +146,12 @@
       || !Number.isInteger(revision.edit_version)
       || !["current", "stale", "historical"].includes(revision.source_state)
     ) return null;
-    return { ...revision };
+    return {
+      ...revision,
+      output_language: ["en", "vi"].includes(revision.output_language)
+        ? revision.output_language
+        : "en",
+    };
   }
 
   function isNotesTask(task) {
@@ -163,7 +173,12 @@
     data.sourceLockKnown = true;
     data.readError = "";
     if (!data.selectedNoteId && revisions.length) data.selectedNoteId = revisions[0].id;
-    if (data.task && ACTIVE_TASK_STATES.has(data.task.status)) clearPendingRequestId(meetingId);
+    const pending = getPendingRequest(meetingId, false);
+    if (
+      data.task
+      && pending
+      && (data.task.request_id === pending.request_id || ACTIVE_TASK_STATES.has(data.task.status))
+    ) clearPendingRequest(meetingId);
     if (window.ASRMeetingHistory && typeof window.ASRMeetingHistory.setNotesSourceLock === "function") {
       window.ASRMeetingHistory.setNotesSourceLock(meetingId, data.sourceLocked, true);
     }
@@ -179,6 +194,10 @@
 
   function sourceStateLabel(sourceState) {
     return SOURCE_STATE_LABELS[sourceState] || "Nguồn chưa xác định";
+  }
+
+  function outputLanguageLabel(language) {
+    return OUTPUT_LANGUAGE_LABELS[language] || OUTPUT_LANGUAGE_LABELS.en;
   }
 
   function revisionOptionLabel(revision, index, count) {
@@ -471,6 +490,7 @@
     ).join(" · ");
     $("#notes-revision-meta").textContent = [
       sourceStateLabel(revision.source_state),
+      `Ngôn ngữ: ${outputLanguageLabel(revision.output_language)}`,
       provenance,
       `Edit ${revision.edit_version}`,
     ].filter(Boolean).join(" · ");
@@ -504,12 +524,29 @@
     const runButton = $("#notes-start");
     const waitForTranscript = transcriptionBusy(meeting);
     const waitMessage = "Đang xử lý transcript. Chờ tác vụ kết thúc để tạo notes.";
-    const pendingId = state.currentMeetingId && getPendingRequestId(state.currentMeetingId, false);
+    const pending = state.currentMeetingId
+      ? getPendingRequest(state.currentMeetingId, false)
+      : null;
+    const activeOutputLanguage = activeTask(data)
+      ? (data.task.output_language === "vi" ? "vi" : "en")
+      : null;
+    const outputLanguage = pending
+      ? pending.output_language
+      : activeOutputLanguage
+        || (state.currentMeetingId ? getOutputLanguage(state.currentMeetingId) : "en");
+    const languageSelect = $("#notes-output-language");
+    languageSelect.value = outputLanguage;
+    languageSelect.disabled = Boolean(
+      transcriptionBusy(meeting)
+      || (data && data.requestInFlight)
+      || activeTask(data)
+      || pending,
+    );
     runButton.disabled = !canStartNotes(meeting, data);
     runButton.title = waitForTranscript ? waitMessage : "";
     runButton.textContent = data && data.requestInFlight
       ? "Đang gửi yêu cầu…"
-      : pendingId
+      : pending
         ? "Xác minh yêu cầu notes"
         : "Tạo notes bằng ChatGPT";
     renderTask(data);
@@ -587,38 +624,193 @@
     return `asr-en-vi:notes-request:${meetingId}`;
   }
 
+  function pendingRequestStorageKey(meetingId) {
+    return `asr-en-vi:notes-request-v2:${meetingId}`;
+  }
+
+  function outputLanguageStorageKey(meetingId) {
+    return `asr-en-vi:notes-output-language:${meetingId}`;
+  }
+
+  function browserStorages() {
+    const storages = [];
+    for (const name of ["localStorage", "sessionStorage"]) {
+      try {
+        if (window[name]) storages.push(window[name]);
+      } catch {
+        // The in-memory maps keep the current page session usable.
+      }
+    }
+    return storages;
+  }
+
+  function readStoredValue(key) {
+    for (const storage of browserStorages()) {
+      try {
+        const value = storage.getItem(key);
+        if (value) return value;
+      } catch {
+        // Try the next browser storage area.
+      }
+    }
+    return "";
+  }
+
+  function writeStoredValue(key, value) {
+    let stored = false;
+    for (const storage of browserStorages()) {
+      try {
+        storage.setItem(key, value);
+        stored = true;
+      } catch {
+        // Keep trying, then rely on the in-memory value if both areas are blocked.
+      }
+    }
+    return stored;
+  }
+
+  function removeStoredValue(key) {
+    for (const storage of browserStorages()) {
+      try {
+        storage.removeItem(key);
+      } catch {
+        // The in-memory value is cleared even when browser storage is blocked.
+      }
+    }
+  }
+
+  function validRequestId(value) {
+    return typeof value === "string" && /^[A-Za-z0-9._:-]{8,128}$/.test(value);
+  }
+
+  function normalizePendingRequest(value, { legacy = false } = {}) {
+    if (typeof value !== "string" || !value) return null;
+    let parsed = value;
+    let isJson = false;
+    try {
+      parsed = JSON.parse(value);
+      isJson = true;
+    } catch {
+      // Legacy storage contains a plain request ID.
+    }
+    if (isJson && parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      if (
+        !validRequestId(parsed.request_id)
+        || !["en", "vi"].includes(parsed.output_language)
+      ) return null;
+      const result = {
+        request_id: parsed.request_id,
+        output_language: parsed.output_language,
+      };
+      const hasExpectedFields = [
+        "expected_generation_id",
+        "expected_source_version",
+        "expected_metadata_version",
+      ].every((key) => Object.prototype.hasOwnProperty.call(parsed, key));
+      const hasNoExpectedFields = [
+        "expected_generation_id",
+        "expected_source_version",
+        "expected_metadata_version",
+      ].every((key) => !Object.prototype.hasOwnProperty.call(parsed, key));
+      if (hasExpectedFields) {
+        if (
+          typeof parsed.expected_generation_id !== "string"
+          || !parsed.expected_generation_id
+          || !Number.isInteger(parsed.expected_source_version)
+          || parsed.expected_source_version < 1
+          || !Number.isInteger(parsed.expected_metadata_version)
+          || parsed.expected_metadata_version < 1
+        ) return null;
+        result.expected_generation_id = parsed.expected_generation_id;
+        result.expected_source_version = parsed.expected_source_version;
+        result.expected_metadata_version = parsed.expected_metadata_version;
+      } else if (!hasNoExpectedFields && !legacy) {
+        return null;
+      }
+      return result;
+    }
+    const requestId = isJson && typeof parsed === "string" ? parsed : value;
+    if (!validRequestId(requestId)) return null;
+    return { request_id: requestId, output_language: "en" };
+  }
+
   function newRequestId() {
     if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID();
     return `notes-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 
-  function getPendingRequestId(meetingId, create = true) {
-    if (state.pendingRequestIds.has(meetingId)) return state.pendingRequestIds.get(meetingId);
-    let requestId = "";
-    try {
-      requestId = window.localStorage.getItem(requestStorageKey(meetingId)) || "";
-    } catch {
-      requestId = "";
-    }
-    if (!requestId && create) requestId = newRequestId();
-    if (requestId) {
-      state.pendingRequestIds.set(meetingId, requestId);
-      try {
-        window.localStorage.setItem(requestStorageKey(meetingId), requestId);
-      } catch {
-        // The in-memory request ID still protects retries in this page session.
-      }
-    }
-    return requestId || null;
+  function savePendingRequest(meetingId, pending) {
+    state.pendingRequests.set(meetingId, pending);
+    const encoded = JSON.stringify(pending);
+    writeStoredValue(pendingRequestStorageKey(meetingId), encoded);
   }
 
-  function clearPendingRequestId(meetingId) {
-    state.pendingRequestIds.delete(meetingId);
-    try {
-      window.localStorage.removeItem(requestStorageKey(meetingId));
-    } catch {
-      // Keep the confirmed task state even when browser storage is unavailable.
+  function getPendingRequest(meetingId, create = false) {
+    if (state.pendingRequests.has(meetingId)) return state.pendingRequests.get(meetingId);
+    const stored = normalizePendingRequest(
+      readStoredValue(pendingRequestStorageKey(meetingId)),
+    );
+    if (stored) {
+      state.pendingRequests.set(meetingId, stored);
+      return stored;
     }
+    const legacy = normalizePendingRequest(readStoredValue(requestStorageKey(meetingId)), {
+      legacy: true,
+    });
+    if (legacy) {
+      savePendingRequest(meetingId, legacy);
+      return legacy;
+    }
+    if (!create) return null;
+    const pending = {
+      request_id: newRequestId(),
+      output_language: getOutputLanguage(meetingId),
+    };
+    savePendingRequest(meetingId, pending);
+    return pending;
+  }
+
+  function clearPendingRequest(meetingId) {
+    state.pendingRequests.delete(meetingId);
+    removeStoredValue(pendingRequestStorageKey(meetingId));
+    removeStoredValue(requestStorageKey(meetingId));
+  }
+
+  function getOutputLanguage(meetingId) {
+    if (state.outputLanguages.has(meetingId)) return state.outputLanguages.get(meetingId);
+    const pending = getPendingRequest(meetingId, false);
+    if (pending) {
+      state.outputLanguages.set(meetingId, pending.output_language);
+      return pending.output_language;
+    }
+    const stored = readStoredValue(outputLanguageStorageKey(meetingId));
+    const language = ["en", "vi"].includes(stored) ? stored : "en";
+    state.outputLanguages.set(meetingId, language);
+    return language;
+  }
+
+  function setOutputLanguage(meetingId, language) {
+    if (!meetingId || !["en", "vi"].includes(language)) return;
+    if (getPendingRequest(meetingId, false)) return;
+    state.outputLanguages.set(meetingId, language);
+    writeStoredValue(outputLanguageStorageKey(meetingId), language);
+  }
+
+  function requestPayload(pending, meeting, generation) {
+    if (
+      typeof pending.expected_generation_id === "string"
+      && Number.isInteger(pending.expected_source_version)
+      && Number.isInteger(pending.expected_metadata_version)
+    ) return pending;
+    const complete = {
+      request_id: pending.request_id,
+      output_language: pending.output_language,
+      expected_generation_id: generation.id,
+      expected_source_version: generation.source_version,
+      expected_metadata_version: meeting.metadata_version,
+    };
+    savePendingRequest(meeting.id, complete);
+    return complete;
   }
 
   function taskFromResponse(payload) {
@@ -636,13 +828,7 @@
     const data = currentNotes();
     const generation = currentGeneration(meeting);
     if (!canStartNotes(meeting, data) || !generation || !meetingId) return;
-    const requestId = getPendingRequestId(meetingId);
-    const body = {
-      request_id: requestId,
-      expected_generation_id: generation.id,
-      expected_source_version: generation.source_version,
-      expected_metadata_version: meeting.metadata_version,
-    };
+    const body = requestPayload(getPendingRequest(meetingId, true), meeting, generation);
     data.requestInFlight = true;
     data.runError = "";
     data.runErrorUncertain = false;
@@ -653,7 +839,7 @@
         `/api/meetings/${encodeURIComponent(meetingId)}/notes-runs`,
         { method: "POST", body: JSON.stringify(body) },
       ));
-      clearPendingRequestId(meetingId);
+      clearPendingRequest(meetingId);
       data.task = task;
       data.sourceLocked = ACTIVE_TASK_STATES.has(task.status);
       data.sourceLockKnown = true;
@@ -669,7 +855,7 @@
         && Number.isInteger(error.status)
         && error.status >= 400
         && error.status < 500;
-      if (definitive) clearPendingRequestId(meetingId);
+      if (definitive) clearPendingRequest(meetingId);
       data.runError = error && error.message ? error.message : "Không thể xác nhận yêu cầu notes.";
       data.runErrorUncertain = !definitive;
       data.actionMessage = "";
@@ -1100,6 +1286,12 @@
   }
 
   $("#notes-start").addEventListener("click", () => void startNotes());
+  $("#notes-output-language").addEventListener("change", (event) => {
+    const meetingId = state.currentMeetingId;
+    if (!meetingId) return;
+    setOutputLanguage(meetingId, event.currentTarget.value);
+    render();
+  });
   $("#notes-cancel").addEventListener("click", () => void cancelNotes());
   $("#notes-revision-selector").addEventListener("change", (event) => {
     const data = currentNotes();

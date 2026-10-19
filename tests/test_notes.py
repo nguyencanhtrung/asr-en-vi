@@ -16,6 +16,7 @@ from asr_en_vi.notes import (
     get_note,
     get_notes_source,
     has_active_notes_task,
+    load_notes_task_input,
     notes_state,
     publish_notes_revision,
     update_note,
@@ -148,6 +149,91 @@ def test_acceptance_freezes_source_pins_account_and_locks_only_its_meeting(tmp_p
         text="The lock released after the task stopped.",
     )
     assert changed["source_version"] == 2
+
+
+def test_notes_output_language_is_pinned_and_part_of_idempotency(tmp_path):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, _segment_ids = seed_completed_transcript(data_dir)
+    english = _accept(data_dir, meeting_id, generation_id, request_id="language-req-0001")
+    explicit_english = accept_notes_task(
+        data_dir,
+        provider=StubNotesProvider(),
+        meeting_id=meeting_id,
+        request_id="language-req-0001",
+        expected_generation_id=generation_id,
+        expected_source_version=1,
+        expected_metadata_version=1,
+        worker_ready=False,
+        output_language="en",
+    )
+    assert english["output_language"] == "en"
+    assert explicit_english["id"] == english["id"]
+    with pytest.raises(TaskError) as conflict:
+        accept_notes_task(
+            data_dir,
+            provider=StubNotesProvider(),
+            meeting_id=meeting_id,
+            request_id="language-req-0001",
+            expected_generation_id=generation_id,
+            expected_source_version=1,
+            expected_metadata_version=1,
+            worker_ready=False,
+            output_language="vi",
+        )
+    assert conflict.value.code == "idempotency_conflict"
+
+    cancel_task(data_dir, english["id"])
+    vietnamese = accept_notes_task(
+        data_dir,
+        provider=StubNotesProvider(),
+        meeting_id=meeting_id,
+        request_id="language-req-0002",
+        expected_generation_id=generation_id,
+        expected_source_version=1,
+        expected_metadata_version=1,
+        worker_ready=True,
+        output_language="vi",
+    )
+    assert vietnamese["output_language"] == "vi"
+    task = claim_next_task(data_dir, owner_id="language-worker")
+    assert task is not None and task["id"] == vietnamese["id"]
+    loaded_task, _snapshot = load_notes_task_input(
+        data_dir, vietnamese["id"], owner_id="language-worker"
+    )
+    assert loaded_task["notes_output_language"] == "vi"
+    markdown = "## Tổng quan\n\n- Bản nháp đã lưu.\n"
+    revision = publish_notes_revision(
+        data_dir,
+        vietnamese["id"],
+        owner_id="language-worker",
+        markdown=markdown,
+        elapsed_seconds=1.0,
+    )
+    assert revision is not None
+    assert revision["output_language"] == "vi"
+    assert revision["markdown"] == markdown
+    assert get_note(data_dir, revision["id"])["output_language"] == "vi"
+    assert notes_state(data_dir, meeting_id)["revisions"][0]["output_language"] == "vi"
+
+
+@pytest.mark.parametrize("language", [None, True, False, "EN", "fr", "", 0])
+def test_notes_output_language_rejects_values_outside_exact_language_codes(tmp_path, language):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, _segment_ids = seed_completed_transcript(data_dir)
+
+    with pytest.raises(TaskError) as invalid:
+        accept_notes_task(
+            data_dir,
+            provider=StubNotesProvider(),
+            meeting_id=meeting_id,
+            request_id="invalid-language-001",
+            expected_generation_id=generation_id,
+            expected_source_version=1,
+            expected_metadata_version=1,
+            worker_ready=True,
+            output_language=language,
+        )
+    assert invalid.value.code == "invalid_output_language"
 
 
 def test_existing_notes_omit_timestamp_references_in_reads_and_export(tmp_path):

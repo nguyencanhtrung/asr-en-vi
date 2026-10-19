@@ -59,6 +59,27 @@ async def test_notes_routes_enforce_auth_and_preserve_saved_revision_contract(
                 state["selected_model"] = "gpt-6.1-sol"
                 state["selected_reasoning_effort"] = "high"
 
+            base_payload = {
+                "request_id": "api-notes-request-invalid",
+                "expected_generation_id": generation_id,
+                "expected_source_version": 1,
+                "expected_metadata_version": 1,
+            }
+            for language in (None, True, "fr"):
+                invalid = await client.post(
+                    f"/api/meetings/{meeting_id}/notes-runs",
+                    headers=origin,
+                    json={**base_payload, "output_language": language},
+                )
+                assert invalid.status_code == 400
+                assert invalid.json()["detail"]["code"] == "invalid_output_language"
+            unknown = await client.post(
+                f"/api/meetings/{meeting_id}/notes-runs",
+                headers=origin,
+                json={**base_payload, "unexpected": "rejected"},
+            )
+            assert unknown.status_code == 400
+
             accepted = await client.post(
                 f"/api/meetings/{meeting_id}/notes-runs",
                 headers=origin,
@@ -74,6 +95,34 @@ async def test_notes_routes_enforce_auth_and_preserve_saved_revision_contract(
             assert task["kind"] == "notes"
             assert task["status"] == "accepted"
             assert task["result_scope"] == "notes_only"
+            assert task["output_language"] == "en"
+
+            same_english_request = await client.post(
+                f"/api/meetings/{meeting_id}/notes-runs",
+                headers=origin,
+                json={
+                    "request_id": "api-notes-request-001",
+                    "expected_generation_id": generation_id,
+                    "expected_source_version": 1,
+                    "expected_metadata_version": 1,
+                    "output_language": "en",
+                },
+            )
+            assert same_english_request.status_code == 202
+            assert same_english_request.json()["id"] == task["id"]
+            language_conflict = await client.post(
+                f"/api/meetings/{meeting_id}/notes-runs",
+                headers=origin,
+                json={
+                    "request_id": "api-notes-request-001",
+                    "expected_generation_id": generation_id,
+                    "expected_source_version": 1,
+                    "expected_metadata_version": 1,
+                    "output_language": "vi",
+                },
+            )
+            assert language_conflict.status_code == 409
+            assert language_conflict.json()["detail"]["code"] == "idempotency_conflict"
 
             listing = await client.get(f"/api/meetings/{meeting_id}/notes")
             assert listing.status_code == 200
@@ -97,6 +146,7 @@ async def test_notes_routes_enforce_auth_and_preserve_saved_revision_contract(
                 elapsed_seconds=2.0,
             )
             assert saved is not None
+            assert saved["output_language"] == "en"
 
             source = await client.get(f"/api/notes-sources/{source_id}")
             assert source.status_code == 200
@@ -123,3 +173,30 @@ async def test_notes_routes_enforce_auth_and_preserve_saved_revision_contract(
             assert updated.status_code == 200
             assert updated.json()["edit_version"] == 2
             assert updated.json()["markdown"] == "# Edited locally\n"
+
+            vietnamese = await client.post(
+                f"/api/meetings/{meeting_id}/notes-runs",
+                headers=origin,
+                json={
+                    "request_id": "api-notes-request-vi-001",
+                    "expected_generation_id": generation_id,
+                    "expected_source_version": 1,
+                    "expected_metadata_version": 1,
+                    "output_language": "vi",
+                },
+            )
+            assert vietnamese.status_code == 202
+            assert vietnamese.json()["output_language"] == "vi"
+            claim_next_task(settings.data_dir, owner_id="api-notes-worker-vi")
+            vietnamese_revision = publish_notes_revision(
+                settings.data_dir,
+                vietnamese.json()["id"],
+                owner_id="api-notes-worker-vi",
+                markdown="## Tổng quan\n\nĐã lưu.\n",
+                elapsed_seconds=1.0,
+            )
+            assert vietnamese_revision is not None
+            assert vietnamese_revision["output_language"] == "vi"
+            history = await client.get(f"/api/meetings/{meeting_id}/notes")
+            assert history.json()["revisions"][0]["output_language"] == "vi"
+            assert history.json()["task"]["output_language"] == "vi"

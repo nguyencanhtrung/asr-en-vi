@@ -122,7 +122,7 @@ def _worker_state(row: sqlite3.Row) -> str:
 
 
 def _task_summary(row: sqlite3.Row) -> dict[str, object]:
-    return {
+    summary: dict[str, object] = {
         "id": row["id"],
         "request_id": row["request_id"],
         "meeting_id": row["meeting_id"],
@@ -147,6 +147,9 @@ def _task_summary(row: sqlite3.Row) -> dict[str, object]:
         "completed_at": row["completed_at"],
         "updated_at": row["updated_at"],
     }
+    if row["kind"] == "notes":
+        summary["output_language"] = row["notes_output_language"]
+    return summary
 
 
 def accept_transcription_task(

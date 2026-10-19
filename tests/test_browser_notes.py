@@ -193,6 +193,7 @@ def _accept(
     *,
     request_id: str,
     expected_source_version: int = 1,
+    output_language: str = "en",
 ):
     return accept_notes_task(
         data_dir,
@@ -203,6 +204,7 @@ def _accept(
         expected_source_version=expected_source_version,
         expected_metadata_version=1,
         worker_ready=True,
+        output_language=output_language,
     )
 
 
@@ -274,6 +276,107 @@ def _assert_no_token_urls(urls: list[str]) -> None:
         assert not {key.casefold() for key in query} & {"token", "access_token"}, raw_url
 
 
+def test_active_vietnamese_task_overrides_stale_future_language_preference(live, signed_in):
+    _context, page = signed_in()
+    meeting_id, generation_id, _segment_ids = seed_completed_transcript(
+        live.settings.data_dir,
+        title="Active Vietnamese notes language",
+    )
+    active = _accept(
+        live.settings.data_dir,
+        meeting_id,
+        generation_id,
+        request_id="browser-active-vietnamese-language",
+        output_language="vi",
+    )
+    assert active["status"] == "accepted"
+    assert active["output_language"] == "vi"
+    preference_key = f"asr-en-vi:notes-output-language:{meeting_id}"
+    page.evaluate("([key, value]) => localStorage.setItem(key, value)", [preference_key, "en"])
+
+    page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
+
+    language_select = page.locator("#notes-output-language")
+    expect(language_select).to_have_value("vi", timeout=10_000)
+    expect(language_select).to_be_disabled()
+    assert page.evaluate("key => localStorage.getItem(key)", preference_key) == "en"
+    page.context.close()
+
+
+def test_notes_language_pending_request_survives_reload_and_saved_language_is_revision_pinned(
+    live, signed_in, fake_notes_provider
+):
+    _context, page = signed_in()
+    page.add_init_script(
+        "Object.defineProperty(window, 'localStorage', { configurable: true, "
+        "get() { throw new Error('local storage unavailable'); } });"
+    )
+    meeting_id, generation_id, _segment_ids = seed_completed_transcript(
+        live.settings.data_dir,
+        title="Output language browser check",
+    )
+    held_requests = []
+    request_bodies = []
+
+    def notes_request(route):
+        body = json.loads(route.request.post_data or "{}")
+        request_bodies.append(body)
+        if len(request_bodies) == 1:
+            held_requests.append(route)
+        else:
+            route.continue_()
+
+    page.route(f"{live.url}/api/meetings/{meeting_id}/notes-runs", notes_request)
+    page.goto(f"{live.url}/meetings/{meeting_id}")
+    expect(page.locator("#notes-output-language")).to_have_value("en")
+    page.locator("#notes-output-language").select_option("vi")
+    expect(page.locator("#notes-output-language")).to_have_value("vi")
+    page.locator("#notes-start").click()
+    expect(page.locator("#notes-output-language")).to_be_disabled()
+    assert len(held_requests) == 1
+    first_body = request_bodies[0]
+    assert first_body["output_language"] == "vi"
+    assert first_body["expected_generation_id"] == generation_id
+    assert first_body["expected_source_version"] == 1
+    assert first_body["expected_metadata_version"] == 1
+    held_requests.pop().fulfill(
+        status=503,
+        json={"detail": {"code": "temporary_failure", "message": "Try again."}},
+    )
+    expect(page.locator("#notes-start")).to_have_text("Xác minh yêu cầu notes")
+    expect(page.locator("#notes-output-language")).to_be_disabled()
+
+    page.reload()
+    expect(page.locator("#notes-output-language")).to_have_value("vi")
+    expect(page.locator("#notes-output-language")).to_be_disabled()
+    expect(page.locator("#notes-start")).to_have_text("Xác minh yêu cầu notes")
+    with page.expect_response(
+        lambda response: response.url.endswith("/notes-runs") and response.request.method == "POST"
+    ) as accepted_response:
+        page.locator("#notes-start").click()
+    assert accepted_response.value.status == 202
+    accepted = accepted_response.value.json()
+    second_body = request_bodies[1]
+    assert second_body == first_body
+    assert accepted["output_language"] == "vi"
+    expect(page.locator("#notes-output-language")).to_be_disabled()
+
+    _complete_fake_task(
+        live.settings.data_dir,
+        accepted["id"],
+        "language-browser",
+        "## Tổng quan\n\nBản notes tiếng Việt.\n",
+    )
+    page.evaluate(f"window.ASRMeetingHistory.refreshMeeting('{meeting_id}')")
+    expect(page.locator("#notes-revision-meta")).to_contain_text(
+        "Vietnamese / Tiếng Việt", timeout=10_000
+    )
+    expect(page.locator("#notes-output-language")).to_be_enabled()
+    page.locator("#notes-output-language").select_option("en")
+    expect(page.locator("#notes-revision-meta")).to_contain_text("Vietnamese / Tiếng Việt")
+    expect(page.locator("#notes-revision-meta")).not_to_contain_text("English / Tiếng Anh")
+
+
 def test_notes_browser_generation_revisions_conflicts_copy_export_and_markdown_safety(
     live, signed_in, fake_notes_provider, tmp_path
 ):
@@ -313,6 +416,7 @@ def test_notes_browser_generation_revisions_conflicts_copy_export_and_markdown_s
             "expected_generation_id": generation_id,
             "expected_source_version": 1,
             "expected_metadata_version": 1,
+            "output_language": "en",
         }
     ]
     assert note_requests[0]["request_id"]
@@ -327,6 +431,7 @@ def test_notes_browser_generation_revisions_conflicts_copy_export_and_markdown_s
         first_markdown,
     )
     expect(page.locator("#notes-saved-work")).to_be_visible(timeout=10_000)
+    expect(page.locator("#notes-revision-meta")).to_contain_text("English / Tiếng Anh")
     expect(page.locator("#notes-task-state")).to_have_text("Đã lưu")
     expect(page.locator("#notes-task-stage")).to_have_text("Đã lưu")
     expect(page.locator("#meeting-status-text")).to_have_text("Đã có transcript và notes")

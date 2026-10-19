@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import signal
 import sqlite3
@@ -20,7 +21,14 @@ from asr_en_vi.tasks import TaskError, cancel_task, claim_next_task
 from asr_en_vi.worker import acquire_worker_lock, heartbeat_path
 
 
-def _accept(data_dir: Path, meeting_id: str, generation_id: str, request_id: str):
+def _accept(
+    data_dir: Path,
+    meeting_id: str,
+    generation_id: str,
+    request_id: str,
+    *,
+    output_language: str = "en",
+):
     return accept_notes_task(
         data_dir,
         provider=StubNotesProvider(),
@@ -30,7 +38,53 @@ def _accept(data_dir: Path, meeting_id: str, generation_id: str, request_id: str
         expected_source_version=1,
         expected_metadata_version=1,
         worker_ready=True,
+        output_language=output_language,
     )
+
+
+def test_notes_runner_uses_the_durable_language_pin_for_provider_and_render(
+    tmp_path, monkeypatch, capsys
+):
+    from asr_en_vi import notes_runner
+
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, _ = seed_completed_transcript(data_dir)
+    accepted = _accept(
+        data_dir,
+        meeting_id,
+        generation_id,
+        "notes-runner-language-vi",
+        output_language="vi",
+    )
+    claimed = claim_next_task(data_dir, owner_id="notes-runner-language-owner")
+    assert claimed is not None and claimed["id"] == accepted["id"]
+    monkeypatch.setenv("ASR_PROVIDER_DIR", str(tmp_path / "provider"))
+    provider_calls = []
+    render_calls = []
+
+    class StubProvider:
+        def __init__(self, _directory, *, callback_url):
+            assert callback_url == ""
+
+        def generate_notes_document(self, **kwargs):
+            provider_calls.append(kwargs)
+            return {"schema_version": 1}
+
+    def render(_document, _snapshot, *, output_language):
+        render_calls.append(output_language)
+        return "## Tổng quan\n\nBản tóm tắt.\n"
+
+    monkeypatch.setattr(notes_runner, "ChatGPTProvider", StubProvider)
+    monkeypatch.setattr(notes_runner, "render_markdown", render)
+
+    assert notes_runner.run_notes_task(data_dir, accepted["id"], "notes-runner-language-owner") == 0
+    output = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert output == {
+        "type": "result",
+        "markdown": "## Tổng quan\n\nBản tóm tắt.\n",
+    }
+    assert provider_calls[0]["output_language"] == "vi"
+    assert render_calls == ["vi"]
 
 
 def test_notes_worker_keeps_stopping_slot_until_local_child_is_reaped(tmp_path, monkeypatch):

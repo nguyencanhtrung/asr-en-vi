@@ -12,6 +12,7 @@ from typing import Any
 from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
 from asr_en_vi.notes import load_notes_task_input
 from asr_en_vi.notes_document import (
+    LEGACY_ENGLISH_PROMPT_VERSION,
     PROMPT_VERSION,
     SCHEMA_VERSION,
     NotesDocumentError,
@@ -27,10 +28,13 @@ def _emit(event: dict[str, Any]) -> None:
 def run_notes_task(data_dir: Path, task_id: str, owner_id: str) -> int:
     try:
         task, snapshot = load_notes_task_input(data_dir, task_id, owner_id=owner_id)
-        if (
-            task["notes_prompt_version"] != PROMPT_VERSION
-            or task["notes_schema_version"] != SCHEMA_VERSION
-        ):
+        legacy_english_task = (
+            task["notes_prompt_version"] == LEGACY_ENGLISH_PROMPT_VERSION
+            and task["notes_output_language"] == "en"
+        )
+        if (task["notes_prompt_version"] != PROMPT_VERSION and not legacy_english_task) or task[
+            "notes_schema_version"
+        ] != SCHEMA_VERSION:
             _emit(
                 {
                     "type": "error",
@@ -56,8 +60,11 @@ def run_notes_task(data_dir: Path, task_id: str, owner_id: str) -> int:
             connection_version=task["notes_connection_version"],
             model=task["notes_model"],
             reasoning_effort=task["notes_reasoning_effort"],
+            output_language=task["notes_output_language"],
         )
-        markdown = render_markdown(document, snapshot)
+        markdown = render_markdown(
+            document, snapshot, output_language=task["notes_output_language"]
+        )
         _emit({"type": "result", "markdown": markdown})
         return 0
     except ChatGPTError as error:

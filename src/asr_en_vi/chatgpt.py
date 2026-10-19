@@ -2114,6 +2114,7 @@ class ChatGPTProvider:
         connection_version: int,
         model: str,
         reasoning_effort: str,
+        output_language: str = "en",
     ) -> dict[str, Any]:
         """Generate and validate notes using only the account and model pinned at acceptance."""
         from asr_en_vi.notes_document import (
@@ -2133,11 +2134,17 @@ class ChatGPTProvider:
             project_source_snapshot,
             restore_source_refs,
             validate_document,
+            validate_output_language,
         )
 
+        output_language = validate_output_language(output_language)
         projection = project_source_snapshot(snapshot)
         projected_snapshot = projection.snapshot
-        plan = plan_source(snapshot, projected_snapshot=projected_snapshot)
+        plan = plan_source(
+            snapshot,
+            projected_snapshot=projected_snapshot,
+            output_language=output_language,
+        )
         pin = {
             "connection_version": connection_version,
             "model": model,
@@ -2405,12 +2412,19 @@ class ChatGPTProvider:
             if not plan.chunked:
                 source_ids = tuple(segment["id"] for segment in projected_snapshot["segments"])
                 document = request_document(
-                    build_prompt(projected_snapshot, allowed_source_ids=source_ids),
+                    build_prompt(
+                        projected_snapshot,
+                        allowed_source_ids=source_ids,
+                        output_language=output_language,
+                    ),
                     projected_snapshot,
                     max_output_bytes=MAX_OUTPUT_BYTES,
                     stage="single",
                     repair_prompt=lambda raw: build_prompt(
-                        projected_snapshot, allowed_source_ids=source_ids, invalid_output=raw
+                        projected_snapshot,
+                        allowed_source_ids=source_ids,
+                        invalid_output=raw,
+                        output_language=output_language,
                     ),
                 )
                 return restore_final_document(document, stage="single")
@@ -2424,6 +2438,7 @@ class ChatGPTProvider:
                     chunk_index=index,
                     chunk_count=len(plan.chunks),
                     allowed_source_ids=source_ids,
+                    output_language=output_language,
                 )
 
                 def repair_chunk(
@@ -2439,6 +2454,7 @@ class ChatGPTProvider:
                         chunk_count=len(plan.chunks),
                         allowed_source_ids=allowed_ids,
                         invalid_output=raw,
+                        output_language=output_language,
                     )
 
                 summaries.append(
@@ -2457,7 +2473,12 @@ class ChatGPTProvider:
                 final_prompt = None
                 final_scope = _prompt_citation_scope(projected_snapshot, documents)
                 with suppress(NotesDocumentError):
-                    final_prompt = build_reduction_prompt(projected_snapshot, documents, final=True)
+                    final_prompt = build_reduction_prompt(
+                        projected_snapshot,
+                        documents,
+                        final=True,
+                        output_language=output_language,
+                    )
                 if final_prompt is not None:
                     if reduction_calls >= MAX_REDUCTION_CALLS:
                         raise ChatGPTError(
@@ -2472,7 +2493,11 @@ class ChatGPTProvider:
                         max_output_bytes=MAX_OUTPUT_BYTES,
                         stage="final",
                         repair_prompt=lambda raw, inputs=documents: build_reduction_prompt(
-                            projected_snapshot, inputs, final=True, invalid_output=raw
+                            projected_snapshot,
+                            inputs,
+                            final=True,
+                            invalid_output=raw,
+                            output_language=output_language,
                         ),
                     )
                     return restore_final_document(final_document, stage="final")
@@ -2481,7 +2506,12 @@ class ChatGPTProvider:
                 current: list[dict[str, Any]] = []
                 for document in documents:
                     try:
-                        build_reduction_prompt(projected_snapshot, [document], final=False)
+                        build_reduction_prompt(
+                            projected_snapshot,
+                            [document],
+                            final=False,
+                            output_language=output_language,
+                        )
                     except NotesDocumentError:
                         raise ChatGPTError(
                             413,
@@ -2497,7 +2527,12 @@ class ChatGPTProvider:
                         continue
                     candidate = [*current, document]
                     try:
-                        build_reduction_prompt(projected_snapshot, candidate, final=False)
+                        build_reduction_prompt(
+                            projected_snapshot,
+                            candidate,
+                            final=False,
+                            output_language=output_language,
+                        )
                     except NotesDocumentError:
                         groups.append(current)
                         current = [document]
@@ -2520,7 +2555,10 @@ class ChatGPTProvider:
                     reduction_calls += 1
                     group_scope = _prompt_citation_scope(projected_snapshot, group)
                     intermediate_prompt = build_reduction_prompt(
-                        projected_snapshot, group, final=False
+                        projected_snapshot,
+                        group,
+                        final=False,
+                        output_language=output_language,
                     )
                     next_documents.append(
                         request_document(
@@ -2529,7 +2567,11 @@ class ChatGPTProvider:
                             max_output_bytes=MAX_REDUCTION_OUTPUT_BYTES,
                             stage="reduce",
                             repair_prompt=lambda raw, inputs=group: build_reduction_prompt(
-                                projected_snapshot, inputs, final=False, invalid_output=raw
+                                projected_snapshot,
+                                inputs,
+                                final=False,
+                                invalid_output=raw,
+                                output_language=output_language,
                             ),
                         )
                     )

@@ -57,6 +57,29 @@
   justify-content: flex-end;
 }
 
+.notes-output-language-control {
+  display: grid;
+  min-width: 164px;
+  gap: 5px;
+}
+
+.notes-output-language-control label {
+  color: var(--ink-2);
+  font-size: 10px;
+  font-weight: 620;
+}
+
+.notes-output-language-control select {
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+}
+
 .notes-content-policy {
   margin: 14px 0 0;
   padding-top: 11px;
@@ -411,6 +434,10 @@
   .notes-run-actions > button,
   .notes-saved-actions > button,
   .notes-conflict-actions > button {
+    width: 100%;
+  }
+
+  .notes-output-language-control {
     width: 100%;
   }
 

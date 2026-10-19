@@ -60,12 +60,23 @@ def _positive_version(value: object, *, field: str) -> int:
     return value
 
 
+def _output_language(value: object) -> str:
+    if not isinstance(value, str) or value not in {"en", "vi"}:
+        raise TaskError(
+            400,
+            "invalid_output_language",
+            "Choose either English (en) or Vietnamese (vi) for notes output.",
+        )
+    return value
+
+
 def _request_hash(
     *,
     meeting_id: str,
     expected_generation_id: str,
     expected_source_version: int,
     expected_metadata_version: int,
+    output_language: str = "en",
 ) -> str:
     value = {
         "expected_generation_id": expected_generation_id,
@@ -73,6 +84,8 @@ def _request_hash(
         "expected_source_version": expected_source_version,
         "meeting_id": meeting_id,
     }
+    if output_language == "vi":
+        value["output_language"] = "vi"
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -177,10 +190,12 @@ def accept_notes_task(
     expected_source_version: object,
     expected_metadata_version: object,
     worker_ready: bool,
+    output_language: object = "en",
 ) -> dict[str, object]:
     """Pin provider state, freeze the source and claim the shared slot atomically."""
     if not isinstance(meeting_id, str) or not meeting_id:
         raise TaskError(400, "invalid_meeting_id", "Provide a meeting_id.")
+    normalized_output_language = _output_language(output_language)
     normalized_request_id = _request_id(request_id)
     if not isinstance(expected_generation_id, str) or not expected_generation_id:
         raise TaskError(400, "invalid_generation_id", "Provide the expected generation id.")
@@ -191,6 +206,7 @@ def accept_notes_task(
         expected_generation_id=expected_generation_id,
         expected_source_version=source_version,
         expected_metadata_version=metadata_version,
+        output_language=normalized_output_language,
     )
     existing = _existing_task(data_dir, normalized_request_id, request_hash)
     if existing is not None:
@@ -283,7 +299,7 @@ def accept_notes_task(
                     "The current transcript has no source segments for notes generation.",
                 )
             try:
-                plan_source(snapshot)
+                plan_source(snapshot, output_language=normalized_output_language)
             except NotesDocumentError as error:
                 raise TaskError(
                     413,
@@ -312,8 +328,9 @@ def accept_notes_task(
                 "model_name, device, compute_type, language_hint, status, stage, result_scope, "
                 "audio_duration_seconds, segment_count, notes_provider, notes_connection_version, "
                 "notes_model, notes_reasoning_effort, notes_prompt_version, notes_schema_version, "
-                "notes_source_id) VALUES (?, ?, ?, ?, 'notes', '', ?, 'auto', 'provider', ?, "
-                "'accepted', 'accepted', 'notes_only', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "notes_source_id, notes_output_language) "
+                "VALUES (?, ?, ?, ?, 'notes', '', ?, 'auto', 'provider', ?, "
+                "'accepted', 'accepted', 'notes_only', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     task_id,
                     normalized_request_id,
@@ -330,6 +347,7 @@ def accept_notes_task(
                     PROMPT_VERSION,
                     SCHEMA_VERSION,
                     snapshot_id,
+                    normalized_output_language,
                 ),
             )
             cursor = connection.execute(
@@ -390,6 +408,7 @@ def _revision_payload(
         "connection_version": row["connection_version"],
         "prompt_version": row["prompt_version"],
         "schema_version": row["schema_version"],
+        "output_language": row["output_language"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -574,7 +593,7 @@ def load_notes_task_input(
         task = connection.execute(
             "SELECT id, owner_id, status, kind, notes_provider, notes_connection_version, "
             "notes_model, notes_reasoning_effort, notes_prompt_version, notes_schema_version, "
-            "notes_source_id FROM tasks WHERE id = ?",
+            "notes_source_id, notes_output_language FROM tasks WHERE id = ?",
             (task_id,),
         ).fetchone()
         if task is None or task["kind"] != "notes":
@@ -626,8 +645,8 @@ def publish_notes_revision(
         connection.execute(
             "INSERT INTO notes_revisions(id, meeting_id, source_snapshot_id, task_id, markdown, "
             "provider, model, reasoning_effort, connection_version, prompt_version, "
-            "schema_version) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "schema_version, output_language) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 revision_id,
                 task["meeting_id"],
@@ -640,6 +659,7 @@ def publish_notes_revision(
                 task["notes_connection_version"],
                 task["notes_prompt_version"],
                 task["notes_schema_version"],
+                task["notes_output_language"],
             ),
         )
         connection.execute(
