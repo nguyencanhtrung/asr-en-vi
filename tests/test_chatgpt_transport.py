@@ -508,6 +508,51 @@ def test_invalid_notes_json_has_specific_public_error_instead_of_provider_outage
     assert "private provider content" not in error.public_message
 
 
+@pytest.mark.parametrize(
+    "status_code,code,message",
+    [
+        (
+            502,
+            "provider_output_too_large",
+            "ChatGPT's response exceeded the allowed output size.",
+        ),
+        (
+            502,
+            "provider_stream_too_large",
+            "ChatGPT's response exceeded the allowed transfer size.",
+        ),
+        (
+            502,
+            "provider_stream_line_too_large",
+            "ChatGPT sent a response line that exceeded the allowed size.",
+        ),
+        (
+            502,
+            "provider_invalid_stream",
+            "ChatGPT returned a response in an invalid format.",
+        ),
+        (
+            503,
+            "provider_timeout",
+            "ChatGPT did not finish responding in time.",
+        ),
+    ],
+)
+def test_notes_transport_errors_have_accurate_safe_public_messages(status_code, code, message):
+    error = ChatGPTError(status_code, code, "private provider response details")
+
+    assert message in error.public_message
+    assert "temporarily unavailable" not in error.public_message
+    assert "private provider response details" not in error.public_message
+
+
+def test_actual_provider_unavailable_keeps_its_unavailable_message():
+    error = ChatGPTError(503, "provider_unavailable", "private provider response details")
+
+    assert error.public_message == "ChatGPT plan use is temporarily unavailable."
+    assert "private provider response details" not in error.public_message
+
+
 def test_planned_repair_keeps_reasoning_and_schema_inside_the_transport_context():
     snapshot = {
         "meeting_date": "2026-10-19",

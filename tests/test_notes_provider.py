@@ -7,7 +7,9 @@ from dataclasses import dataclass
 import pytest
 
 from asr_en_vi.chatgpt import (
+    ACCESS_REFRESH_MARGIN_SECONDS,
     DIRECT_SCOPE,
+    NOTES_HTTP_TOTAL_TIMEOUT_SECONDS,
     ChatGPTError,
     ChatGPTProvider,
 )
@@ -33,6 +35,23 @@ class NotesOnlyAdapter:
         self.replies = list(replies or [])
         self.responder = responder
         self.calls: list[NotesReply] = []
+        self.refresh_calls: list[dict[str, str]] = []
+        self.refresh_results: list[dict | ChatGPTError] = []
+
+    def refresh(self, *, client_id, refresh_token):
+        self.refresh_calls.append({"client_id": client_id, "refresh_token": refresh_token})
+        if self.refresh_results:
+            result = self.refresh_results.pop(0)
+            if isinstance(result, ChatGPTError):
+                raise result
+            return result
+        return {
+            "access_token": "refreshed-test-access-token",
+            "refresh_token": "refreshed-test-refresh-token",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": DIRECT_SCOPE,
+        }
 
     def generate_notes(
         self, *, access_token, model, reasoning_effort, prompt, max_output_bytes=None
@@ -48,8 +67,8 @@ class NotesOnlyAdapter:
         return reply
 
 
-def _provider(tmp_path, adapter):
-    provider = ChatGPTProvider(tmp_path / "provider", callback_url="", adapter=adapter)
+def _provider(tmp_path, adapter, *, clock=time.time):
+    provider = ChatGPTProvider(tmp_path / "provider", callback_url="", adapter=adapter, clock=clock)
     provider.ensure()
     client_id = "oaiapp_test-123456"
     with provider.store.locked(write=True) as state:
@@ -59,7 +78,7 @@ def _provider(tmp_path, adapter):
         state["registrations"][client_id] = {
             "access_token": "local-test-access-token",
             "refresh_token": "local-test-refresh-token",
-            "expires_at": time.time() + 3600,
+            "expires_at": provider._now() + 3600,
             "scopes": [DIRECT_SCOPE],
             "subject": "test-subject",
             "label": "Test account",
@@ -97,6 +116,47 @@ def _valid_document():
         "action_items": [],
         "confirmation_items": [],
     }
+
+
+def _chunked_snapshot():
+    snapshot = _snapshot()
+    snapshot["segments"] = [
+        {
+            "id": f"{index:032x}",
+            "start_seconds": float(index),
+            "end_seconds": float(index + 1),
+            "text": "x" * 16_000,
+            "speaker_name": "Morgan",
+        }
+        for index in (1, 2)
+    ]
+    return snapshot
+
+
+def _document_for_prompt(prompt):
+    if "SOURCE_JSON:\n" in prompt:
+        payload = json.loads(prompt.split("SOURCE_JSON:\n", 1)[1])
+        source_ids = [payload["segments"][0]["id"]]
+    else:
+        payload = json.loads(prompt.split("SYNTHESIS_INPUT_JSON:\n", 1)[1])
+        source_ids = list(
+            dict.fromkeys(
+                source_id
+                for summary in payload["summaries"]
+                for source_id in summary["source_order"]
+            )
+        )
+    document = _valid_document()
+    document["overview"] = [{"text": "A concise summary.", "source_ids": source_ids[:1]}]
+    return json.dumps(document)
+
+
+class MutableClock:
+    def __init__(self, value=1_800_000_000):
+        self.value = float(value)
+
+    def __call__(self):
+        return self.value
 
 
 def test_invalid_first_result_gets_one_bounded_repair_on_the_pinned_account(tmp_path):
@@ -152,6 +212,136 @@ def test_provider_failure_is_not_retried_as_a_repair(tmp_path):
 
     assert failed.value.code == "provider_timeout"
     assert len(adapter.calls) == 1
+
+
+def test_notes_refreshes_access_token_between_stages_and_keeps_the_task_pin(tmp_path, monkeypatch):
+    from asr_en_vi import notes_document
+
+    monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
+    clock = MutableClock()
+    adapter = NotesOnlyAdapter(responder=lambda prompt, _limit: _document_for_prompt(prompt))
+    provider = _provider(tmp_path, adapter, clock=clock)
+    with provider.store.locked(write=True) as state:
+        registration = state["registrations"]["oaiapp_test-123456"]
+        registration["expires_at"] = clock.value + 1_800
+
+    def advance_each_stage(prompt, _limit):
+        clock.value += 700
+        return _document_for_prompt(prompt)
+
+    adapter.responder = advance_each_stage
+    result = provider.generate_notes_document(
+        snapshot=_chunked_snapshot(),
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+    )
+
+    assert result["overview"]
+    assert len(adapter.calls) == 3
+    assert [call.access_token for call in adapter.calls] == [
+        "local-test-access-token",
+        "local-test-access-token",
+        "refreshed-test-access-token",
+    ]
+    assert clock.value - 1_800_000_000 == 2_100
+    assert adapter.refresh_calls == [
+        {"client_id": "oaiapp_test-123456", "refresh_token": "local-test-refresh-token"}
+    ]
+    assert all(call.model == "gpt-6.1-sol" for call in adapter.calls)
+    assert all(call.reasoning_effort == "high" for call in adapter.calls)
+    state = provider.store._read()
+    assert state["connection_status"] == "connected"
+    assert state["connection_version"] == 7
+    assert state["active_client_id"] == "oaiapp_test-123456"
+    assert state["selected_model"] == "gpt-6.1-sol"
+    assert state["selected_reasoning_effort"] == "high"
+    registration = state["registrations"]["oaiapp_test-123456"]
+    assert registration["subject"] == "test-subject"
+    assert registration["label"] == "Test account"
+    assert registration["access_token"] == "refreshed-test-access-token"
+
+
+def test_notes_proactively_refreshes_when_token_cannot_cover_stage_deadline(tmp_path):
+    clock = MutableClock()
+    adapter = NotesOnlyAdapter([json.dumps(_valid_document())])
+    provider = _provider(tmp_path, adapter, clock=clock)
+    with provider.store.locked(write=True) as state:
+        state["registrations"]["oaiapp_test-123456"]["expires_at"] = (
+            clock.value + NOTES_HTTP_TOTAL_TIMEOUT_SECONDS + ACCESS_REFRESH_MARGIN_SECONDS - 1
+        )
+
+    provider.generate_notes_document(
+        snapshot=_snapshot(),
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+    )
+
+    assert len(adapter.refresh_calls) == 1
+    assert adapter.calls[0].access_token == "refreshed-test-access-token"
+
+
+def test_terminal_refresh_failure_stops_notes_without_replaying_inference(tmp_path, monkeypatch):
+    from asr_en_vi import notes_document
+
+    monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
+    clock = MutableClock()
+    adapter = NotesOnlyAdapter(responder=lambda prompt, _limit: _document_for_prompt(prompt))
+    adapter.refresh_results.append(ChatGPTError(400, "invalid_grant", "private refresh detail"))
+    provider = _provider(tmp_path, adapter, clock=clock)
+    with provider.store.locked(write=True) as state:
+        state["registrations"]["oaiapp_test-123456"]["expires_at"] = clock.value + 1_800
+
+    def advance_each_stage(prompt, _limit):
+        clock.value += 700
+        return _document_for_prompt(prompt)
+
+    adapter.responder = advance_each_stage
+    with pytest.raises(ChatGPTError) as failed:
+        provider.generate_notes_document(
+            snapshot=_chunked_snapshot(),
+            connection_version=7,
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+        )
+
+    assert failed.value.code == "reconnect_required"
+    assert len(adapter.calls) == 2
+    assert len(adapter.refresh_calls) == 1
+    assert clock.value - 1_800_000_000 == 1_400
+    state = provider.store._read()
+    assert state["connection_status"] == "reconnect_required"
+    assert "access_token" not in state["registrations"]["oaiapp_test-123456"]
+    assert "refresh_token" not in state["registrations"]["oaiapp_test-123456"]
+
+
+def test_refresh_auth_failure_marks_reconnect_once_before_any_inference(tmp_path):
+    clock = MutableClock()
+    adapter = NotesOnlyAdapter([json.dumps(_valid_document())])
+    adapter.refresh_results.append(
+        ChatGPTError(401, "provider_auth_error", "private refresh authorization detail")
+    )
+    provider = _provider(tmp_path, adapter, clock=clock)
+    with provider.store.locked(write=True) as state:
+        state["registrations"]["oaiapp_test-123456"]["expires_at"] = (
+            clock.value + NOTES_HTTP_TOTAL_TIMEOUT_SECONDS + ACCESS_REFRESH_MARGIN_SECONDS - 1
+        )
+
+    with pytest.raises(ChatGPTError) as failed:
+        provider.generate_notes_document(
+            snapshot=_snapshot(),
+            connection_version=7,
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+        )
+
+    assert failed.value.code == "provider_auth_error"
+    assert adapter.calls == []
+    assert len(adapter.refresh_calls) == 1
+    state = provider.store._read()
+    assert state["connection_status"] == "reconnect_required"
+    assert state["connection_version"] == 8
 
 
 def test_only_one_schema_repair_is_available_across_all_chunks(tmp_path):

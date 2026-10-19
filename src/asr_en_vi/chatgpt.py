@@ -422,6 +422,16 @@ class ChatGPTHTTPAdapter:
             return "ChatGPT did not grant permission for plan use. Sign in again to review access."
         if code == "provider_busy":
             return "Another ChatGPT operation is still running. Try again shortly."
+        if code == "provider_output_too_large":
+            return "ChatGPT's response exceeded the allowed output size."
+        if code == "provider_stream_too_large":
+            return "ChatGPT's response exceeded the allowed transfer size."
+        if code == "provider_stream_line_too_large":
+            return "ChatGPT sent a response line that exceeded the allowed size."
+        if code == "provider_invalid_stream":
+            return "ChatGPT returned a response in an invalid format."
+        if code == "provider_timeout":
+            return "ChatGPT did not finish responding in time."
         if code in {"notes_request_too_large", "notes_context_budget_exceeded"}:
             return "This transcript exceeds the safe ChatGPT notes request limit."
         if code == "notes_token_budget_exceeded":
@@ -1816,13 +1826,15 @@ class ChatGPTProvider:
             state["verification"] = None
             state["last_provider_error"] = code
 
-    def _access_token(self) -> str:
+    def _access_token(
+        self, *, minimum_lifetime_seconds: float = ACCESS_REFRESH_MARGIN_SECONDS
+    ) -> str:
         client_id, registration = self._active_registration()
         expires_at = registration.get("expires_at")
         refresh_token = registration.get("refresh_token")
         if not isinstance(expires_at, (float, int)) or not isinstance(refresh_token, str):
             raise ProviderStateError("Provider token state is invalid")
-        if expires_at > self._now() + ACCESS_REFRESH_MARGIN_SECONDS:
+        if expires_at > self._now() + minimum_lifetime_seconds:
             return registration["access_token"]
         try:
             refreshed = self.adapter.refresh(client_id=client_id, refresh_token=refresh_token)
@@ -2003,7 +2015,6 @@ class ChatGPTProvider:
                     "connection_changed",
                     "The ChatGPT connection or selected model changed before notes started.",
                 )
-            access_token = self._access_token()
             call_count = 0
             repair_used = False
 
@@ -2016,6 +2027,11 @@ class ChatGPTProvider:
                         "This transcript exceeds the bounded notes synthesis request limit.",
                     )
                 call_count += 1
+                access_token = self._access_token(
+                    minimum_lifetime_seconds=(
+                        NOTES_HTTP_TOTAL_TIMEOUT_SECONDS + ACCESS_REFRESH_MARGIN_SECONDS
+                    )
+                )
                 try:
                     return self.adapter.generate_notes(
                         access_token=access_token,
