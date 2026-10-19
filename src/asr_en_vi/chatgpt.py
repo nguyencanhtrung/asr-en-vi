@@ -958,6 +958,24 @@ class ChatGPTProvider:
 
     def ensure(self) -> None:
         self.store.ensure()
+        with self.store.locked() as state:
+            needs_disconnected_migration = state["connection_status"] == "disconnected" and (
+                state.get("active_client_id") is not None
+                or bool(state["registrations"])
+                or any("expected_subject" in session for session in state["sessions"].values())
+            )
+        if not needs_disconnected_migration:
+            return
+        with self.store.locked(write=True) as state:
+            if state["connection_status"] != "disconnected":
+                return
+            client_id = state.get("active_client_id")
+            if self._issued_client_id(client_id):
+                state["provisional_client_id"] = client_id
+            state["active_client_id"] = None
+            state["registrations"].clear()
+            for session in state["sessions"].values():
+                session.pop("expected_subject", None)
 
     def _now(self) -> float:
         return float(self._clock())

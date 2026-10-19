@@ -369,6 +369,49 @@ def test_disconnect_allows_signing_in_with_a_different_account(tmp_path):
     assert registration["subject"] == "different-subject"
 
 
+def test_startup_migrates_legacy_disconnected_account_binding(tmp_path):
+    adapter = FakeChatGPTAdapter()
+    provider = provider_for(tmp_path, adapter)
+    connected_session = connect(provider)
+
+    with provider.store.locked(write=True) as state:
+        registration = state["registrations"][ISSUED_CLIENT_ID]
+        for key in ("access_token", "refresh_token", "id_token", "expires_at"):
+            registration.pop(key, None)
+        state["connection_status"] = "disconnected"
+        state["sessions"][connected_session["id"]]["expected_subject"] = adapter.subject
+
+    legacy_pending = provider.start_login()
+    legacy_query = parse_qs(urlsplit(legacy_pending["authorization_url"]).query)
+    assert legacy_query["login_hint"] == [adapter.email]
+
+    restarted = ChatGPTProvider(
+        provider.store.directory,
+        callback_url=CALLBACK_URL,
+        adapter=adapter,
+        clock=MutableClock(),
+    )
+    restarted.ensure()
+
+    migrated = restarted.store._read()
+    assert migrated["active_client_id"] is None
+    assert migrated["provisional_client_id"] == ISSUED_CLIENT_ID
+    assert migrated["registrations"] == {}
+    assert migrated["sessions"][legacy_pending["id"]]["status"] == "pending"
+    assert all("expected_subject" not in session for session in migrated["sessions"].values())
+
+    adapter.subject = "different-subject"
+    adapter.email = "different@example.test"
+    returning = restarted.start_login()
+    query = parse_qs(urlsplit(returning["authorization_url"]).query)
+    assert query["client_id"] == [ISSUED_CLIENT_ID]
+    assert "login_hint" not in query
+    restarted.handle_callback(callback_pairs(returning, returned_client_id=None))
+    assert restarted.get_providers()["providers"][0]["account"] == {
+        "label": "different@example.test"
+    }
+
+
 def test_missing_direct_scope_requires_reconnect_without_inference(tmp_path):
     adapter = FakeChatGPTAdapter()
     adapter.scopes = "openid profile offline_access"
