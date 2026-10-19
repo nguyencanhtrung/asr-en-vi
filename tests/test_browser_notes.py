@@ -29,6 +29,24 @@ from asr_en_vi.tasks import claim_next_task
 pytestmark = pytest.mark.browser
 
 
+@pytest.mark.parametrize("width", [1440, 390])
+def test_notes_action_precedes_long_transcript(live, signed_in, width):
+    _context, page = signed_in(viewport={"width": width, "height": 900})
+    meeting_id, generation_id, _segments = seed_completed_transcript(live.settings.data_dir)
+    with sqlite3.connect(database_path(live.settings.data_dir)) as connection:
+        connection.execute(
+            "UPDATE transcript_segments SET text = ? WHERE generation_id = ?",
+            ("A long meeting discussion. " * 500, generation_id),
+        )
+    page.goto(f"{live.url}/meetings/{meeting_id}")
+    expect(page.locator("#notes-start")).to_be_enabled()
+    expect(page.locator("#transcript-segments > li")).to_have_count(2)
+    action = page.locator("#notes-start").bounding_box()
+    transcript = page.locator("#transcription-panel").bounding_box()
+    assert action is not None and transcript is not None
+    assert action["y"] + action["height"] < transcript["y"]
+
+
 def test_notes_late_asset_still_receives_current_meeting_context(live, signed_in):
     _context, page = signed_in()
     meeting_id, _generation_id, _segments = seed_completed_transcript(live.settings.data_dir)
