@@ -341,7 +341,12 @@ def test_disconnect_allows_signing_in_with_a_different_account(tmp_path):
     adapter = FakeChatGPTAdapter()
     provider = provider_for(tmp_path, adapter)
     connect(provider)
+    pending_reauthentication = provider.start_login()
     provider.disconnect()
+
+    cancelled = provider.store._read()["sessions"][pending_reauthentication["id"]]
+    assert cancelled["status"] == "cancelled"
+    assert "expected_subject" not in cancelled
 
     adapter.subject = "different-subject"
     adapter.email = "different@example.test"

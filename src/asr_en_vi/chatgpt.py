@@ -970,7 +970,7 @@ class ChatGPTProvider:
 
     @staticmethod
     def _clear_session_secrets(session: dict[str, Any]) -> None:
-        for key in ("state", "nonce", "verifier"):
+        for key in ("state", "nonce", "verifier", "expected_subject"):
             session.pop(key, None)
         session["claimed"] = False
 
