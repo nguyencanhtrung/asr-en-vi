@@ -220,7 +220,8 @@ không làm notes cần cập nhật.
 
 ## Phát triển và kiểm tra
 
-Cài Python 3.12, uv, Node.js và Docker Compose rồi chạy toàn bộ quality gate bằng một lệnh:
+Cài Python 3.12, uv, Node.js, Docker Compose và actionlint v1.7.11 rồi chạy toàn bộ quality gate
+bằng một lệnh (xem [hướng dẫn môi trường và workflow](docs/agents/development.md)):
 
 ```sh
 ./scripts/check.sh

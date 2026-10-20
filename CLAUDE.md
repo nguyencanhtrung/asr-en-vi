@@ -15,4 +15,8 @@ These tracker and triage conventions apply only to this repository and override 
 
 ## Pull request cleanup
 
-After merging a pull request, verify the base branch contains the merge, switch the local worktree to that base branch, fast-forward it, and delete the local source branch with `git branch -d`. Verify that GitHub deleted the remote source branch through the repository's automatic head-branch cleanup setting. If the local branch is not fully merged, stop and report the remaining commits instead of force-deleting it.
+After a pull request has merged, run `./scripts/finish-pr.sh <PR_NUMBER>` to verify the merge and remote cleanup, fast-forward the local base, and safely delete the local source branch. The script stops if commits remain unmerged; resolve the reported blocker before reporting cleanup complete.
+
+## Development checks
+
+Before changing a workflow or running tests in a restricted environment, read `docs/agents/development.md` for related contract tests, workflow linting and environment preflight.
