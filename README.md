@@ -205,7 +205,9 @@ theo nhóm có thể hành động; nội dung lỗi thô và credential không 
 tự gửi lại.
 
 **Ngắt kết nối Antigravity** yêu cầu OMP vô hiệu hóa credential `google-antigravity` trong store
-riêng. Việc này không ảnh hưởng ChatGPT, token truy cập localhost, transcript hoặc notes đã lưu.
+riêng. OMP không xác nhận thu hồi quyền truy cập ở phía Google; nếu cần thu hồi quyền từ xa, hãy
+kiểm tra [quyền truy cập tài khoản Google](https://myaccount.google.com/permissions). Việc ngắt
+kết nối không ảnh hưởng ChatGPT, token truy cập localhost, transcript hoặc notes đã lưu.
 
 ## Tạo và đối chiếu notes
 
