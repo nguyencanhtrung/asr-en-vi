@@ -19,4 +19,4 @@ After a pull request has merged, run `./scripts/finish-pr.sh <PR_NUMBER>` to ver
 
 ## Development checks
 
-Before changing a workflow or running tests in a restricted environment, read `docs/agents/development.md` for related contract tests, workflow linting and environment preflight.
+Before changing a workflow, the OMP adapter, or running tests in a restricted environment, read `docs/agents/development.md` for related contract tests, workflow linting and environment preflight.

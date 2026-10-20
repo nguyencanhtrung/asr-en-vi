@@ -46,6 +46,37 @@ UV_CACHE_DIR=/tmp/asr-uv-cache .venv/bin/python scripts/check-environment.py
 probes before pytest. Probes are isolated from application state and live models;
 they do not change sandbox permissions or application configuration.
 
+## OMP contract
+
+Run the opt-in real-binary contract test with:
+
+```sh
+ASR_RUN_OMP_CONTRACT=1 .venv/bin/python -m pytest -q tests/test_omp_contract.py
+```
+
+Run it when changing OMP adapter or RPC code in
+`src/asr_en_vi/antigravity.py`, or when bumping `OMP_VERSION` and the OMP
+checksums in `Dockerfile`. The contract runs offline and sends no prompt or
+inference request.
+
+For OMP v18.5.0, source facts that the contract cannot test are:
+
+- S-1: the auth-broker logout path deletes only local SQLite credentials and
+  does not revoke a remote token. Read the tagged
+  [`auth-broker-cli.ts` source](https://github.com/can1357/oh-my-pi/blob/v18.5.0/packages/coding-agent/src/cli/auth-broker-cli.ts#L277).
+- S-2: an RPC `prompt_result` error has `status: "error"` and an `error`
+  object with `message` and `retryable`. Provider-run errors also carry
+  `provider`, `model`, and optional `httpStatus`; pre-agent rejections carry
+  only `message` and `retryable`. Read the tagged
+  [`rpc-prompt-results.ts` source](https://github.com/can1357/oh-my-pi/blob/v18.5.0/packages/coding-agent/src/modes/rpc/rpc-prompt-results.ts#L108-L110)
+  for pre-agent rejections and [provider-run errors](https://github.com/can1357/oh-my-pi/blob/v18.5.0/packages/coding-agent/src/modes/rpc/rpc-prompt-results.ts#L181-L199).
+
+Read the tagged source, not `strings` on the binary.
+
+The CI-equivalent full suite is
+`ASR_RUN_BROWSER_TESTS=1 ASR_REQUIRE_MEDIA_TOOLS=1 .venv/bin/python -m pytest -q`;
+read-only review runs add `PYTHONDONTWRITEBYTECODE=1` and `-p no:cacheprovider`.
+
 ## Pull request cleanup
 
 After GitHub reports a PR as merged, run `./scripts/finish-pr.sh <PR_NUMBER>`.

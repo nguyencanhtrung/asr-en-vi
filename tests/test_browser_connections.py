@@ -690,7 +690,15 @@ def test_missing_antigravity_login_can_be_cancelled_without_sticking(browser_run
     open_connection_dialog(page)
     page.get_by_role("button", name="Kết nối Google Antigravity").click()
     expect(page.locator("#antigravity-cancel")).to_be_visible()
-    api.antigravity_session = None
+
+    # Drop the session only for the cancel request; a background poll seeing
+    # 404 first would finish the login and hide the button before the click.
+    def drop_session_on_cancel(route):
+        if route.request.method == "DELETE":
+            api.antigravity_session = None
+        route.fallback()
+
+    context.route("**/antigravity-session", drop_session_on_cancel)
     page.locator("#antigravity-cancel").click()
 
     expect(page.get_by_role("button", name="Kết nối Google Antigravity")).to_be_visible()
