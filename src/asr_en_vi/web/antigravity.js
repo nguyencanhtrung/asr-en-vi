@@ -256,6 +256,7 @@ function finishAntigravityLogin(status, error = null) {
   if (status === "connected") {
     antigravityElements.message.textContent = "Đã kết nối Google Antigravity qua OMP.";
     void loadAntigravity();
+    window.dispatchEvent(new CustomEvent("asr:provider-choice-changed"));
   } else if (status === "cancelled") {
     antigravityElements.message.textContent = "Đã hủy đăng nhập Antigravity.";
   } else if (status === "expired") {
@@ -354,6 +355,7 @@ async function saveAntigravityModel(event) {
     antigravityState.savedModel = model;
     antigravityElements.modelStatus.dataset.state = "saved";
     antigravityElements.modelStatus.textContent = `Đã lưu ${antigravityModelName(model)} cho Antigravity.`;
+    window.dispatchEvent(new CustomEvent("asr:provider-choice-changed"));
   } catch (error) {
     await handleAntigravityReconnect(error);
     showAntigravityError(error);
@@ -399,6 +401,7 @@ async function disconnectAntigravity() {
     await connectionRequest("/api/providers/antigravity/connection", { method: "DELETE" });
     antigravityElements.message.textContent = "Đã ngắt kết nối Antigravity và vô hiệu hóa credential OMP đã lưu.";
     await loadAntigravity();
+    window.dispatchEvent(new CustomEvent("asr:provider-choice-changed"));
   } catch (error) {
     showAntigravityError(error);
   } finally {

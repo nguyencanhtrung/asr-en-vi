@@ -185,7 +185,7 @@ def test_login_replacement_preserves_established_connection_and_preferences(tmp_
     clock = MutableClock()
     provider = provider_for(tmp_path, adapter, clock=clock)
     connect(provider)
-    provider.set_notes_preference(provider="chatgpt", model="gpt-6.1-sol")
+    provider.save_notes_preference(model="gpt-6.1-sol")
     provider.verify(model="gpt-6.1-sol")
     before = provider.store._read()
 
@@ -211,11 +211,7 @@ def test_login_replacement_preserves_established_connection_and_preferences(tmp_
     ):
         assert after[key] == before[key]
     assert provider.get_providers()["providers"][0]["account"] == {"label": "verified@example.test"}
-    assert provider.notes_preferences() == {
-        "provider": "chatgpt",
-        "models": {"chatgpt": "gpt-6.1-sol"},
-        "reasoning_effort": "default",
-    }
+    assert provider.saved_notes_settings() == ("gpt-6.1-sol", "default")
     assert provider.login_session(old_session["id"])["status"] == "cancelled"
     assert provider.login_session(new_session["id"])["status"] == "pending"
 
@@ -557,11 +553,7 @@ def test_verification_and_disconnect_serialize_without_provider_locking_other_wo
         time.sleep(0.05)
         assert not disconnection.done()
         # This is the same stateless path used by the app while provider work is locked.
-        assert provider.notes_preferences() == {
-            "provider": None,
-            "models": {},
-            "reasoning_effort": "default",
-        }
+        assert provider.saved_notes_settings() == (None, "default")
         adapter.verification_release.set()
         assert verification.result(timeout=2) == {
             "model": "gpt-6.1-sol",

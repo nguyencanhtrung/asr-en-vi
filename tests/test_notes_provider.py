@@ -847,12 +847,25 @@ def test_empty_reducer_scope_is_sent_as_empty_after_uncited_chunk_summaries(tmp_
     assert result["overview"] == []
 
 
-def test_changed_account_or_model_never_silently_replaces_the_pinned_selection(tmp_path):
+def test_changed_saved_model_does_not_change_the_pinned_run_but_a_new_connection_does(tmp_path):
     adapter = NotesOnlyAdapter([json.dumps(_valid_document())])
     provider = _provider(tmp_path, adapter)
     with provider.store.locked(write=True) as state:
         state["selected_model"] = "gpt-6-luna"
+        state["selected_reasoning_effort"] = "none"
 
+    provider.generate_notes_document(
+        snapshot=_snapshot(),
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+    )
+    assert [(call.model, call.reasoning_effort) for call in adapter.calls] == [
+        ("gpt-6.1-sol", "high")
+    ]
+
+    with provider.store.locked(write=True) as state:
+        state["connection_version"] = 8
     with pytest.raises(ChatGPTError) as changed:
         provider.generate_notes_document(
             snapshot=_snapshot(),
@@ -860,9 +873,8 @@ def test_changed_account_or_model_never_silently_replaces_the_pinned_selection(t
             model="gpt-6.1-sol",
             reasoning_effort="high",
         )
-
     assert changed.value.code == "connection_changed"
-    assert adapter.calls == []
+    assert len(adapter.calls) == 1
 
 
 def test_long_source_uses_bounded_multi_level_reduction_and_later_decision_wins(

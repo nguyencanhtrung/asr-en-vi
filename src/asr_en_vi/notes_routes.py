@@ -9,14 +9,18 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from starlette.concurrency import run_in_threadpool
 
+from asr_en_vi.antigravity import AntigravityError, AntigravityProvider
 from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
 from asr_en_vi.config import Settings
 from asr_en_vi.notes import (
+    ABSENT,
     accept_notes_task,
     export_note,
     get_note,
     get_notes_source,
+    notes_preferences,
     notes_state,
+    save_notes_preference,
     update_note,
 )
 from asr_en_vi.tasks import TaskError
@@ -51,7 +55,7 @@ def _raise_task_error(error: TaskError) -> None:
     ) from None
 
 
-def _raise_provider_error(error: ChatGPTError) -> None:
+def _raise_provider_error(error: ChatGPTError | AntigravityError) -> None:
     raise HTTPException(
         status_code=error.status_code,
         detail={"code": error.code, "message": error.public_message},
@@ -59,7 +63,10 @@ def _raise_provider_error(error: ChatGPTError) -> None:
 
 
 def install_notes_routes(
-    app: FastAPI, settings: Settings, chatgpt_provider: ChatGPTProvider
+    app: FastAPI,
+    settings: Settings,
+    chatgpt_provider: ChatGPTProvider,
+    antigravity_provider: AntigravityProvider,
 ) -> None:
     @app.get("/assets/notes.js", include_in_schema=False)
     async def notes_js() -> FileResponse:
@@ -79,26 +86,62 @@ def install_notes_routes(
                 "expected_source_version",
                 "expected_metadata_version",
             },
-            optional={"output_language"},
+            optional={"output_language", "provider", "expected_model", "expected_reasoning_effort"},
         )
         worker_ready = worker_is_healthy(settings.data_dir)
+        provider_id = payload.get("provider", "chatgpt")
         try:
             result = await run_in_threadpool(
                 accept_notes_task,
                 settings.data_dir,
-                provider=chatgpt_provider,
+                provider=antigravity_provider if provider_id == "antigravity" else chatgpt_provider,
+                provider_id=provider_id,
                 meeting_id=meeting_id,
                 request_id=payload["request_id"],
                 expected_generation_id=payload["expected_generation_id"],
                 expected_source_version=payload["expected_source_version"],
                 expected_metadata_version=payload["expected_metadata_version"],
                 output_language=payload.get("output_language", "en"),
+                expected_model=payload.get("expected_model", ABSENT),
+                expected_reasoning_effort=payload.get("expected_reasoning_effort", ABSENT),
                 worker_ready=worker_ready,
             )
             return result
         except TaskError as error:
             _raise_task_error(error)
-        except ChatGPTError as error:
+        except (ChatGPTError, AntigravityError) as error:
+            _raise_provider_error(error)
+
+    @app.get("/api/notes-preferences")
+    async def get_notes_preferences() -> dict[str, Any]:
+        try:
+            return await run_in_threadpool(
+                notes_preferences,
+                settings.data_dir,
+                chatgpt_provider=chatgpt_provider,
+                antigravity_provider=antigravity_provider,
+            )
+        except (ChatGPTError, AntigravityError) as error:
+            _raise_provider_error(error)
+
+    @app.put("/api/notes-preferences")
+    async def put_notes_preferences(request: Request) -> dict[str, Any]:
+        payload = await _json_object(
+            request, required={"provider", "model"}, optional={"reasoning_effort"}
+        )
+        try:
+            return await run_in_threadpool(
+                save_notes_preference,
+                settings.data_dir,
+                chatgpt_provider=chatgpt_provider,
+                antigravity_provider=antigravity_provider,
+                provider=payload["provider"],
+                model=payload["model"],
+                reasoning_effort=payload.get("reasoning_effort", "default"),
+            )
+        except TaskError as error:
+            _raise_task_error(error)
+        except (ChatGPTError, AntigravityError) as error:
             _raise_provider_error(error)
 
     @app.get("/api/meetings/{meeting_id}/notes")

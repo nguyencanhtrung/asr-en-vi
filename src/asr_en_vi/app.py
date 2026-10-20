@@ -118,7 +118,9 @@ def create_app(
         provider_dir,
         callback_url=runtime_settings.chatgpt_callback_url or "",
         adapter=(chatgpt_adapter if chatgpt_adapter is not None else ChatGPTHTTPAdapter()),
-        active_task_guard=lambda: assert_provider_mutation_allowed(runtime_settings.data_dir),
+        active_task_guard=lambda: assert_provider_mutation_allowed(
+            runtime_settings.data_dir, "chatgpt"
+        ),
     )
     antigravity_provider = AntigravityProvider(
         provider_dir,
@@ -127,7 +129,9 @@ def create_app(
             if antigravity_adapter is not None
             else OmpRpcAdapter(provider_dir / "omp")
         ),
-        active_task_guard=lambda: assert_provider_mutation_allowed(runtime_settings.data_dir),
+        active_task_guard=lambda: assert_provider_mutation_allowed(
+            runtime_settings.data_dir, "antigravity"
+        ),
     )
 
     @asynccontextmanager
