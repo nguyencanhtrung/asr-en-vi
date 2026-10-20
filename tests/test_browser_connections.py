@@ -116,6 +116,8 @@ class MockProviderApi:
         self.antigravity_polls = ["pending", "connected"]
         self.antigravity_selected_model = None
         self.antigravity_verification = None
+        self.antigravity_failure_operation = None
+        self.antigravity_failure_code = "reconnect_required"
         self.antigravity_models = [
             {"id": "gemini-3-pro-high", "display_name": "Gemini 3 Pro High"},
             {"id": "claude-sonnet-test", "display_name": "Claude Sonnet Test"},
@@ -194,6 +196,18 @@ class MockProviderApi:
             self.fulfill(route, self.antigravity_session, status=201)
             return
         if path == "/api/providers/antigravity/login-sessions/antigravity-session":
+            if self.antigravity_session is None:
+                self.fulfill(
+                    route,
+                    {
+                        "detail": {
+                            "code": "login_session_not_found",
+                            "message": "Antigravity sign-in session not found.",
+                        }
+                    },
+                    status=404,
+                )
+                return
             if method == "DELETE":
                 self.antigravity_session["status"] = "cancelled"
                 self.fulfill(route, self.antigravity_session)
@@ -209,6 +223,15 @@ class MockProviderApi:
                 self.fulfill(route, self.antigravity_session)
                 return
         if method == "GET" and path == "/api/providers/antigravity/models":
+            if self.antigravity_failure_operation == "models":
+                self.antigravity_failure_operation = None
+                self.antigravity_status = "reconnect_required"
+                self.fulfill(
+                    route,
+                    {"detail": {"code": "reconnect_required", "message": "Reconnect."}},
+                    status=409,
+                )
+                return
             self.fulfill(
                 route,
                 {
@@ -218,6 +241,20 @@ class MockProviderApi:
             )
             return
         if method == "PUT" and path == "/api/providers/antigravity/preference":
+            if self.antigravity_failure_operation == "preference":
+                self.antigravity_failure_operation = None
+                self.antigravity_status = (
+                    "disconnected"
+                    if self.antigravity_failure_code == "provider_disconnected"
+                    else "reconnect_required"
+                )
+                self.antigravity_verification = None
+                self.fulfill(
+                    route,
+                    {"detail": {"code": self.antigravity_failure_code, "message": "Reconnect."}},
+                    status=409,
+                )
+                return
             self.antigravity_selected_model = body["model"]
             self.fulfill(
                 route,
@@ -225,6 +262,16 @@ class MockProviderApi:
             )
             return
         if method == "POST" and path == "/api/providers/antigravity/verify":
+            if self.antigravity_failure_operation == "verify":
+                self.antigravity_failure_operation = None
+                self.antigravity_status = "reconnect_required"
+                self.antigravity_verification = None
+                self.fulfill(
+                    route,
+                    {"detail": {"code": "reconnect_required", "message": "Reconnect."}},
+                    status=409,
+                )
+                return
             self.antigravity_verification = {
                 "model": body["model"],
                 "verified_at": "2026-10-18T04:30:00Z",
@@ -553,6 +600,124 @@ def test_antigravity_login_catalog_verification_and_disconnect(browser_runtime):
     page.get_by_role("button", name="Ngắt kết nối Antigravity").click()
     expect(page.locator("#antigravity-status")).to_have_text("Chưa kết nối")
     expect(page.locator("#antigravity-message")).to_contain_text("vô hiệu hóa credential OMP")
+    context.close()
+
+
+@pytest.mark.parametrize(
+    ("operation", "error_code", "expected_status", "expected_error"),
+    [
+        (
+            "models",
+            "reconnect_required",
+            "Cần kết nối lại",
+            "Phiên Google Antigravity không còn hiệu lực. Hãy kết nối lại.",
+        ),
+        (
+            "verify",
+            "reconnect_required",
+            "Cần kết nối lại",
+            "Phiên Google Antigravity không còn hiệu lực. Hãy kết nối lại.",
+        ),
+        (
+            "preference",
+            "reconnect_required",
+            "Cần kết nối lại",
+            "Phiên Google Antigravity không còn hiệu lực. Hãy kết nối lại.",
+        ),
+        (
+            "preference",
+            "provider_disconnected",
+            "Chưa kết nối",
+            "Hãy kết nối Google Antigravity trước.",
+        ),
+    ],
+)
+def test_antigravity_reconnect_error_refreshes_status_and_hides_stale_controls(
+    browser_runtime, operation, error_code, expected_status, expected_error
+):
+    live, browser = browser_runtime
+    context, page, api = signed_in_page(browser, live)
+    api.antigravity_status = "connected"
+    api.antigravity_selected_model = "gemini-3-pro-high"
+    api.antigravity_failure_code = error_code
+    if operation == "models":
+        api.antigravity_failure_operation = operation
+    open_connection_dialog(page)
+
+    if operation == "verify":
+        expect(page.locator("#antigravity-status")).to_have_text("Đã kết nối")
+        api.antigravity_failure_operation = operation
+        page.get_by_role("button", name="Chạy kiểm tra model đã chọn").click()
+    elif operation == "preference":
+        expect(page.locator("#antigravity-status")).to_have_text("Đã kết nối")
+        api.antigravity_failure_operation = operation
+        page.locator("#antigravity-model").select_option("claude-sonnet-test")
+        page.get_by_role("button", name="Lưu mô hình Antigravity").click()
+
+    expect(page.locator("#antigravity-status")).to_have_text(expected_status)
+    expect(page.get_by_role("button", name="Kết nối Google Antigravity")).to_be_visible()
+    expect(page.locator("#antigravity-model-section")).to_be_hidden()
+    expect(page.locator("#antigravity-verification-section")).to_be_hidden()
+    expect(page.locator("#antigravity-error-message")).to_have_text(expected_error)
+    assert sum(method == "GET" and path == "/api/providers" for method, path, _ in api.calls) >= 2
+    context.close()
+
+
+def test_restored_antigravity_login_missing_on_server_expires_locally(browser_runtime):
+    live, browser = browser_runtime
+    context, page, api = signed_in_page(browser, live)
+    future = (datetime.now(UTC) + timedelta(minutes=10)).isoformat()
+    page.evaluate(
+        "([id, expiresAt]) => sessionStorage.setItem("
+        "'asr.antigravity.pendingLogin', JSON.stringify({id, expiresAt}))",
+        ["antigravity-session", future],
+    )
+    page.reload(wait_until="domcontentloaded")
+    open_connection_dialog(page)
+
+    expect(page.get_by_role("button", name="Kết nối Google Antigravity")).to_be_visible()
+    assert page.evaluate("sessionStorage.getItem('asr.antigravity.pendingLogin')") is None
+    assert any(
+        method == "GET" and path.endswith("/antigravity-session") for method, path, _ in api.calls
+    )
+    context.close()
+
+
+def test_missing_antigravity_login_can_be_cancelled_without_sticking(browser_runtime):
+    live, browser = browser_runtime
+    context, page, api = signed_in_page(browser, live)
+    api.antigravity_polls = ["pending"] * 10
+    open_connection_dialog(page)
+    page.get_by_role("button", name="Kết nối Google Antigravity").click()
+    expect(page.locator("#antigravity-cancel")).to_be_visible()
+    api.antigravity_session = None
+    page.locator("#antigravity-cancel").click()
+
+    expect(page.get_by_role("button", name="Kết nối Google Antigravity")).to_be_visible()
+    assert page.evaluate("sessionStorage.getItem('asr.antigravity.pendingLogin')") is None
+    assert any(
+        method == "DELETE" and path.endswith("/antigravity-session")
+        for method, path, _ in api.calls
+    )
+    context.close()
+
+
+def test_expired_restored_antigravity_login_is_discarded_without_polling(browser_runtime):
+    live, browser = browser_runtime
+    context, page, api = signed_in_page(browser, live)
+    expired = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+    page.evaluate(
+        "([id, expiresAt]) => sessionStorage.setItem("
+        "'asr.antigravity.pendingLogin', JSON.stringify({id, expiresAt}))",
+        ["antigravity-session", expired],
+    )
+    api.calls.clear()
+    page.reload(wait_until="domcontentloaded")
+    open_connection_dialog(page)
+
+    expect(page.get_by_role("button", name="Kết nối Google Antigravity")).to_be_visible()
+    assert page.evaluate("sessionStorage.getItem('asr.antigravity.pendingLogin')") is None
+    assert not any(path.endswith("/antigravity-session") for _, path, _ in api.calls)
     context.close()
 
 

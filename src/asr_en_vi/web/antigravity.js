@@ -148,6 +148,44 @@ function renderAntigravityModels(catalog) {
   updateAntigravityActions();
 }
 
+function clearAntigravityModels() {
+  antigravityState.models = [];
+  antigravityState.selectedModel = "";
+  antigravityState.savedModel = "";
+  antigravityElements.modelSelect.replaceChildren();
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Kết nối Antigravity để tải model";
+  antigravityElements.modelSelect.append(placeholder);
+}
+
+async function handleAntigravityReconnect(error) {
+  if (!error || !["reconnect_required", "provider_disconnected"].includes(error.code)) return;
+  const status = error.code === "provider_disconnected" ? "disconnected" : "reconnect_required";
+  antigravityState.provider = {
+    id: "antigravity",
+    connection_version: 0,
+    ...antigravityState.provider,
+    status,
+    account: null,
+    verification: null,
+  };
+  clearAntigravityModels();
+  renderAntigravityProvider();
+  try {
+    const payload = await connectionRequest("/api/providers");
+    const provider = Array.isArray(payload.providers)
+      ? payload.providers.find((item) => item?.id === "antigravity") : null;
+    if (provider) {
+      antigravityState.provider = provider;
+      if (provider.status !== "connected") clearAntigravityModels();
+      renderAntigravityProvider();
+    }
+  } catch {
+    // Keep the conservative reconnect state when the refresh itself is unavailable.
+  }
+}
+
 async function loadAntigravity() {
   clearAntigravityError();
   try {
@@ -160,18 +198,16 @@ async function loadAntigravity() {
     if (provider.status === "connected") {
       renderAntigravityModels(await connectionRequest("/api/providers/antigravity/models"));
     } else {
-      antigravityState.models = [];
-      antigravityElements.modelSelect.replaceChildren();
-      const placeholder = document.createElement("option");
-      placeholder.value = "";
-      placeholder.textContent = "Kết nối Antigravity để tải model";
-      antigravityElements.modelSelect.append(placeholder);
+      clearAntigravityModels();
       updateAntigravityActions();
     }
   } catch (error) {
+    await handleAntigravityReconnect(error);
     showAntigravityError(error);
-    antigravityElements.badge.dataset.state = "error";
-    antigravityElements.badge.textContent = "Không khả dụng";
+    if (!["reconnect_required", "provider_disconnected"].includes(error.code)) {
+      antigravityElements.badge.dataset.state = "error";
+      antigravityElements.badge.textContent = "Không khả dụng";
+    }
   }
 }
 
@@ -230,6 +266,10 @@ function finishAntigravityLogin(status, error = null) {
   updateAntigravityActions();
 }
 
+function antigravityLoginIsMissing(error) {
+  return Boolean(error && (error.code === "login_session_not_found" || error.status === 404));
+}
+
 async function pollAntigravityLogin() {
   if (!antigravityState.activeLogin) return;
   try {
@@ -243,6 +283,10 @@ async function pollAntigravityLogin() {
     }
     finishAntigravityLogin(session.status, session.error);
   } catch (error) {
+    if (antigravityLoginIsMissing(error)) {
+      finishAntigravityLogin("expired");
+      return;
+    }
     showAntigravityError(error);
     antigravityState.pollTimer = window.setTimeout(pollAntigravityLogin, 2000);
   }
@@ -273,6 +317,10 @@ async function cancelAntigravityLogin() {
     );
     finishAntigravityLogin(session.status);
   } catch (error) {
+    if (antigravityLoginIsMissing(error)) {
+      finishAntigravityLogin("expired");
+      return;
+    }
     showAntigravityError(error);
   }
 }
@@ -307,6 +355,7 @@ async function saveAntigravityModel(event) {
     antigravityElements.modelStatus.dataset.state = "saved";
     antigravityElements.modelStatus.textContent = `Đã lưu ${antigravityModelName(model)} cho Antigravity.`;
   } catch (error) {
+    await handleAntigravityReconnect(error);
     showAntigravityError(error);
   } finally {
     antigravityState.busy = false;
@@ -334,6 +383,7 @@ async function verifyAntigravity() {
   } catch (error) {
     antigravityElements.verificationResult.dataset.state = "error";
     antigravityElements.verificationResult.textContent = "Kiểm tra thất bại; yêu cầu không được tự động gửi lại.";
+    await handleAntigravityReconnect(error);
     showAntigravityError(error);
   } finally {
     antigravityState.busy = false;
@@ -375,9 +425,14 @@ antigravityElements.disconnect.addEventListener("click", () => void disconnectAn
 try {
   const saved = JSON.parse(sessionStorage.getItem(antigravityLoginStorageKey));
   if (saved && typeof saved.id === "string" && typeof saved.expiresAt === "string") {
-    antigravityState.activeLogin = saved;
-    updateAntigravityActions();
-    void pollAntigravityLogin();
+    const expiresAt = Date.parse(saved.expiresAt);
+    if (Number.isFinite(expiresAt) && expiresAt > Date.now()) {
+      antigravityState.activeLogin = saved;
+      updateAntigravityActions();
+      void pollAntigravityLogin();
+    } else {
+      persistAntigravityLogin(null);
+    }
   }
 } catch {
   persistAntigravityLogin(null);

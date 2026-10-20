@@ -28,9 +28,106 @@ RPC_START_TIMEOUT_SECONDS = 20.0
 RPC_COMMAND_TIMEOUT_SECONDS = 30.0
 RPC_INFERENCE_TIMEOUT_SECONDS = 5 * 60.0
 MAX_RPC_FRAME_BYTES = 1024 * 1024
+MAX_STARTUP_DIAGNOSTIC_BYTES = 64 * 1024
 MAX_INPUT_BYTES = 16 * 1024
+MAX_SYSTEM_PROMPT_DEPTH = 8
+MAX_SYSTEM_PROMPT_NODES = 256
+MAX_SYSTEM_PROMPT_CHARS = 256 * 1024
 _SAFE_ID = re.compile(r"[A-Za-z0-9._:/-]{1,240}\Z")
 _AUTH_BROKER_URL = re.compile(r"(?m)^https://[^\s\x1b]+")
+_CONTEXT_AUTOLOAD_MARKERS = ("<repo-rules>", "context files above auto-loaded")
+_AUTH_FAILURE_MARKERS = (
+    "invalid_grant",
+    "invalid_token",
+    "token expired",
+    "token has expired",
+    "token has been expired",
+    "token is expired",
+    "expired token",
+    "token_expired",
+    "expired_token",
+    "refresh token expired",
+    "refresh_token_expired",
+    "refresh token revoked",
+    "refresh_token_revoked",
+    "token revoked",
+    "token has been revoked",
+    "token is revoked",
+    "token_revoked",
+    "credential expired",
+    "credential has expired",
+    "credentials expired",
+    "credentials have expired",
+    "credential revoked",
+    "credential has been revoked",
+    "credentials revoked",
+    "invalid credential",
+    "invalid credentials",
+    "credential_error",
+    "credential_invalid",
+    "credentials_invalid",
+    "auth_error",
+    "auth_required",
+    "authentication_error",
+    "unauthenticated",
+    "unauthorized",
+    "authentication failed",
+    "authentication required",
+    "login_required",
+    "login_failed",
+    "login_expired",
+)
+_QUOTA_ERROR_MARKERS = ("quota", "rate_limit", "rate limit", "usage limit")
+_MODEL_ACCESS_ERROR_MARKERS = (
+    "model_access_denied",
+    "model access denied",
+    "model_not_allowed",
+    "model not allowed",
+    "model_unavailable",
+    "model not available",
+    "model_not_entitled",
+    "model entitlement",
+    "entitlement denied for model",
+    "access to model",
+    "model permission denied",
+    "not entitled to use this model",
+    "not permitted to use model",
+    "not authorized to use model",
+)
+
+
+def _system_prompt_contains_context(system_prompt: Any) -> bool:
+    if system_prompt is None:
+        return False
+    pending: list[tuple[Any, int]] = [(system_prompt, 0)]
+    text_parts: list[str] = []
+    node_count = 0
+    character_count = 0
+    while pending:
+        item, depth = pending.pop()
+        node_count += 1
+        if node_count > MAX_SYSTEM_PROMPT_NODES:
+            raise AntigravityError(
+                503, "omp_invalid_runtime", "OMP returned an oversized system prompt."
+            )
+        if isinstance(item, str):
+            character_count += len(item)
+            if character_count > MAX_SYSTEM_PROMPT_CHARS:
+                raise AntigravityError(
+                    503, "omp_invalid_runtime", "OMP returned an oversized system prompt."
+                )
+            text_parts.append(item.casefold())
+            continue
+        if isinstance(item, list):
+            if depth >= MAX_SYSTEM_PROMPT_DEPTH:
+                raise AntigravityError(
+                    503, "omp_invalid_runtime", "OMP returned an invalid system prompt."
+                )
+            pending.extend((child, depth + 1) for child in reversed(item))
+            continue
+        raise AntigravityError(503, "omp_invalid_runtime", "OMP returned an invalid system prompt.")
+    normalized_prompt = "".join(text_parts)
+    return any(marker in normalized_prompt for marker in _CONTEXT_AUTOLOAD_MARKERS)
 
 
 class AntigravityError(RuntimeError):
@@ -114,6 +211,10 @@ class _RpcClient:
         self.process: subprocess.Popen[bytes] | None = None
         self.selector: selectors.BaseSelector | None = None
         self.buffer = bytearray()
+        self.startup_diagnostics = bytearray()
+        self.rpc_ready = False
+        self.stdout_eof = False
+        self.stderr_eof = False
 
     def __enter__(self) -> _RpcClient:
         self.adapter.prepare()
@@ -124,24 +225,31 @@ class _RpcClient:
                 env=self.adapter.environment,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
                 start_new_session=True,
             )
         except (FileNotFoundError, OSError) as exc:
             raise AntigravityError(503, "omp_unavailable", "OMP could not be started.") from exc
         self.process = process
-        if process.stdout is None:
+        if process.stdout is None or process.stderr is None:
             raise AntigravityError(503, "omp_unavailable", "OMP stdout is unavailable.")
         self.selector = selectors.DefaultSelector()
         self.selector.register(process.stdout, selectors.EVENT_READ)
+        self.selector.register(process.stderr, selectors.EVENT_READ)
         try:
             ready = self._read_frame(RPC_START_TIMEOUT_SECONDS)
             if ready.get("type") != "ready":
                 raise AntigravityError(503, "omp_invalid_runtime", "OMP did not become ready.")
+            self.rpc_ready = True
             state = self.request({"type": "get_state"})
             tools = state.get("dumpTools") if isinstance(state, dict) else None
             if tools not in (None, []):
                 raise AntigravityError(503, "omp_invalid_runtime", "OMP exposed agent tools.")
+            system_prompt = state.get("systemPrompt") if isinstance(state, dict) else None
+            if _system_prompt_contains_context(system_prompt):
+                raise AntigravityError(
+                    503, "omp_invalid_runtime", "OMP loaded project context files."
+                )
             self.request({"type": "set_auto_compaction", "enabled": False})
             self.request({"type": "set_auto_retry", "enabled": False})
         except BaseException:
@@ -165,8 +273,26 @@ class _RpcClient:
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=2)
+            for stream in (process.stdout, process.stderr):
+                if stream is not None:
+                    with suppress(OSError):
+                        stream.close()
         if selector is not None:
             selector.close()
+
+    def _capture_startup_diagnostic(self, chunk: bytes) -> None:
+        if self.rpc_ready:
+            return
+        self.startup_diagnostics.extend(chunk)
+        excess = len(self.startup_diagnostics) - MAX_STARTUP_DIAGNOSTIC_BYTES
+        if excess > 0:
+            del self.startup_diagnostics[:excess]
+
+    def _process_exit_error(self, message: str) -> AntigravityError:
+        diagnostic = self.startup_diagnostics.decode("utf-8", errors="replace").casefold()
+        if not self.rpc_ready and any(marker in diagnostic for marker in _AUTH_FAILURE_MARKERS):
+            return AntigravityError(409, "reconnect_required", "Antigravity login is invalid.")
+        return AntigravityError(503, "provider_unavailable", message)
 
     def _read_frame(self, timeout: float) -> dict[str, Any]:
         if self.process is None or self.process.stdout is None or self.selector is None:
@@ -196,16 +322,29 @@ class _RpcClient:
             events = self.selector.select(min(0.25, remaining))
             if not events:
                 if self.process.poll() is not None:
-                    raise AntigravityError(503, "provider_unavailable", "OMP exited early.")
+                    raise self._process_exit_error("OMP exited early.")
                 continue
-            chunk = os.read(self.process.stdout.fileno(), 64 * 1024)
-            if not chunk:
-                raise AntigravityError(503, "provider_unavailable", "OMP closed its output.")
-            self.buffer.extend(chunk)
-            if len(self.buffer) > MAX_RPC_FRAME_BYTES:
-                raise AntigravityError(
-                    502, "provider_invalid_response", "OMP emitted an oversized frame."
-                )
+            for key, _ in events:
+                stream = key.fileobj
+                chunk = os.read(stream.fileno(), 64 * 1024)
+                if stream is self.process.stderr:
+                    if chunk:
+                        self._capture_startup_diagnostic(chunk)
+                    else:
+                        self.stderr_eof = True
+                        self.selector.unregister(stream)
+                    continue
+                if not chunk:
+                    self.stdout_eof = True
+                    self.selector.unregister(stream)
+                    continue
+                self.buffer.extend(chunk)
+                if len(self.buffer) > MAX_RPC_FRAME_BYTES:
+                    raise AntigravityError(
+                        502, "provider_invalid_response", "OMP emitted an oversized frame."
+                    )
+            if self.stdout_eof and self.process.poll() is not None and self.stderr_eof:
+                raise self._process_exit_error("OMP closed its output.")
 
     def send(self, payload: dict[str, Any]) -> None:
         if self.process is None or self.process.stdin is None:
@@ -301,6 +440,7 @@ class OmpRpcAdapter:
             self.agent_dir,
             self.home_dir,
             self.workspace_dir,
+            self.workspace_dir / ".git",
             self.directory / "xdg-config",
             self.directory / "xdg-data",
             self.directory / "xdg-state",
@@ -347,14 +487,54 @@ class OmpRpcAdapter:
 
     @staticmethod
     def raise_rpc_error(frame: dict[str, Any]) -> None:
-        raw_code = frame.get("code")
-        code = raw_code.lower() if isinstance(raw_code, str) else ""
+        evidence: list[str] = []
+        status: int | None = None
+        evidence_keys = {
+            "code",
+            "type",
+            "reason",
+            "message",
+            "detail",
+            "error",
+            "name",
+            "resource",
+            "scope",
+            "target",
+            "model",
+            "modelid",
+            "model_id",
+            "modelname",
+            "model_name",
+        }
+        status_keys = {"httpstatus", "statuscode", "status"}
+        pending: list[tuple[Any, int]] = [(frame, 0)]
+        visited = 0
+        while pending and visited < 128:
+            item, depth = pending.pop()
+            visited += 1
+            if isinstance(item, dict) and depth < 4:
+                for key, value in item.items():
+                    normalized_key = key.casefold() if isinstance(key, str) else ""
+                    if normalized_key in evidence_keys and isinstance(value, (str, int)):
+                        evidence.append(str(value)[:1024])
+                    if normalized_key in status_keys and status is None:
+                        if type(value) is int:
+                            status = value
+                        elif isinstance(value, str) and value.isdecimal():
+                            status = int(value)
+                    if isinstance(value, (dict, list)):
+                        pending.append((value, depth + 1))
+            elif isinstance(item, list) and depth < 4:
+                pending.extend((value, depth + 1) for value in item[:64])
+
+        details = " ".join(evidence[:64]).casefold()[:8192]
         command = frame.get("command")
-        if any(part in code for part in ("auth", "credential", "login")):
+        if any(marker in details for marker in _AUTH_FAILURE_MARKERS) or status == 401:
             raise AntigravityError(409, "reconnect_required", "Antigravity login is invalid.")
-        if any(part in code for part in ("quota", "rate_limit", "usage")):
+        if any(marker in details for marker in _QUOTA_ERROR_MARKERS) or status == 429:
             raise AntigravityError(429, "provider_quota", "Antigravity quota is unavailable.")
-        if command == "set_model" or "model" in code:
+        model_access_denied = any(marker in details for marker in _MODEL_ACCESS_ERROR_MARKERS)
+        if command == "set_model" or model_access_denied:
             raise AntigravityError(422, "model_unavailable", "Antigravity model is unavailable.")
         raise AntigravityError(502, "provider_unavailable", "OMP could not complete the request.")
 
@@ -537,19 +717,7 @@ class OmpRpcAdapter:
                         break
                 if frame.get("type") == "prompt_result" and frame.get("id") == prompt_id:
                     if frame.get("status") != "completed":
-                        error = frame.get("error")
-                        status = error.get("httpStatus") if isinstance(error, dict) else None
-                        if status == 429:
-                            raise AntigravityError(
-                                429, "provider_quota", "Antigravity quota is unavailable."
-                            )
-                        if status in {401, 403}:
-                            raise AntigravityError(
-                                409, "reconnect_required", "Antigravity login is invalid."
-                            )
-                        raise AntigravityError(
-                            502, "provider_unavailable", "Antigravity inference failed."
-                        )
+                        self.raise_rpc_error(frame)
                     break
             if not accepted:
                 raise AntigravityError(
@@ -799,6 +967,16 @@ class AntigravityProvider:
             session = self._sessions[session_id]
         try:
             self.adapter.login(session.interaction)
+            with self._sessions_lock:
+                current = self._sessions.get(session_id)
+                if current is None or current.status != "pending":
+                    return
+                with self.store.locked(write=True) as state:
+                    state["connection_status"] = "connected"
+                    state["connection_version"] = int(state.get("connection_version", 0)) + 1
+                    state["verification"] = None
+                current.status = "connected"
+                current.input_prompt = None
         except AntigravityError as error:
             with self._sessions_lock:
                 current = self._sessions.get(session_id)
@@ -817,16 +995,6 @@ class AntigravityProvider:
                         "message": "Google Antigravity could not be reached.",
                     }
             return
-        with self._sessions_lock:
-            current = self._sessions.get(session_id)
-            if current is None or current.status != "pending":
-                return
-            current.status = "connected"
-            current.input_prompt = None
-        with self.store.locked(write=True) as state:
-            state["connection_status"] = "connected"
-            state["connection_version"] = int(state.get("connection_version", 0)) + 1
-            state["verification"] = None
 
     def login_session(self, session_id: str) -> dict[str, Any]:
         with self._sessions_lock:

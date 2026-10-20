@@ -1,6 +1,7 @@
 # ruff: noqa: E501 -- the embedded fake OMP script keeps its JSON frames readable.
 from __future__ import annotations
 
+import json
 import os
 import threading
 import time
@@ -14,6 +15,7 @@ from asr_en_vi.antigravity import (
     AntigravityProvider,
     LoginInteraction,
     OmpRpcAdapter,
+    _system_prompt_contains_context,
     omp_runtime_contract,
 )
 
@@ -137,6 +139,50 @@ def test_login_can_request_non_secret_code_and_be_cancelled(tmp_path):
     assert cancelled["status"] == "cancelled"
 
 
+def test_login_persists_connection_before_publishing_connected_session(tmp_path, monkeypatch):
+    adapter = FakeAntigravityAdapter()
+    provider = AntigravityProvider(tmp_path / "provider", adapter=adapter)
+    provider.ensure()
+    original_write = provider.store._write
+    statuses_at_write: list[str] = []
+
+    def record_session_status_before_write(state):
+        statuses_at_write.extend(session.status for session in provider._sessions.values())
+        original_write(state)
+
+    monkeypatch.setattr(provider.store, "_write", record_session_status_before_write)
+    started = provider.start_login()
+    adapter.login_release.set()
+
+    connected = wait_for_status(provider, started["id"], "connected")
+
+    assert statuses_at_write == ["pending"]
+    assert connected["status"] == "connected"
+    assert provider.provider_view()["status"] == "connected"
+
+
+def test_login_store_failure_becomes_failed_session(tmp_path, monkeypatch):
+    adapter = FakeAntigravityAdapter()
+    provider = AntigravityProvider(tmp_path / "provider", adapter=adapter)
+    provider.ensure()
+
+    def fail_write(state):
+        raise OSError("private storage failure")
+
+    monkeypatch.setattr(provider.store, "_write", fail_write)
+    started = provider.start_login()
+    adapter.login_release.set()
+
+    failed = wait_for_status(provider, started["id"], "failed")
+
+    assert failed["error"] == {
+        "code": "provider_unavailable",
+        "message": "Google Antigravity could not be reached.",
+    }
+    assert "private storage failure" not in str(failed)
+    assert provider.provider_view()["status"] == "disconnected"
+
+
 def test_runner_contract_is_isolated_and_disables_agent_surfaces(tmp_path, monkeypatch):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/personal/claude")
     monkeypatch.setenv("OPENAI_API_KEY", "personal-secret")
@@ -164,6 +210,7 @@ def test_runner_contract_is_isolated_and_disables_agent_surfaces(tmp_path, monke
     assert "retry:\n  enabled: false\n  modelFallback: false" in config
     assert "mcp:\n  enabled: false" in config
     assert "memory:\n  backend: off" in config
+    assert (adapter.workspace_dir / ".git").is_dir()
     assert os.stat(adapter.directory).st_mode & 0o777 == 0o700
     assert os.stat(adapter.config_path).st_mode & 0o777 == 0o600
 
@@ -255,6 +302,109 @@ for line in sys.stdin:
     assert adapter.logout() is True
 
 
+def test_rpc_context_discovery_stops_before_planted_parent_instructions(tmp_path):
+    parent = tmp_path / "project"
+    parent.mkdir()
+    marker = "PARENT_CONTEXT_MUST_NOT_REACH_OMP"
+    (parent / "AGENTS.md").write_text(marker, encoding="utf-8")
+    executable = tmp_path / "fake-omp-context-discovery"
+    executable.write_text(
+        """#!/usr/bin/env python3
+import json
+import sys
+from pathlib import Path
+
+current = Path.cwd()
+loaded = []
+while True:
+    for name in ("AGENTS.md", "CLAUDE.md"):
+        candidate = current / name
+        if candidate.is_file():
+            loaded.append(candidate.read_text(encoding="utf-8"))
+    if (current / ".git").exists() or current.parent == current:
+        break
+    current = current.parent
+system_prompt = ["base OMP prompt", "isolated workspace prompt"]
+if loaded:
+    system_prompt.append("<repo-rules> Context files above auto-loaded: " + " ".join(loaded))
+print(json.dumps({"type": "ready"}), flush=True)
+for line in sys.stdin:
+    command = json.loads(line)
+    command_type = command.get("type")
+    data = None
+    if command_type == "get_state":
+        data = {"dumpTools": [], "systemPrompt": system_prompt}
+    elif command_type == "get_available_models":
+        data = {"models": [{"provider": "google-antigravity", "id": "gemini-test", "name": "Gemini Test"}]}
+    print(json.dumps({
+        "id": command.get("id"), "type": "response", "command": command_type,
+        "success": True, "data": data,
+    }), flush=True)
+""",
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
+    adapter = OmpRpcAdapter(parent / "provider" / "omp", executable=str(executable))
+
+    assert adapter.list_models()[0]["id"] == "gemini-test"
+    assert (adapter.workspace_dir / ".git").is_dir()
+
+
+@pytest.mark.parametrize(
+    "system_prompt",
+    [
+        "prefix <repo-rules> planted context suffix",
+        "Context files above auto-loaded: /parent/AGENTS.md",
+        ["base OMP prompt", "prefix <repo-rules> planted context suffix"],
+        ["base OMP prompt", ["Context files above auto-loaded: /parent/AGENTS.md"]],
+    ],
+)
+def test_rpc_rejects_auto_loaded_context_markers(tmp_path, system_prompt):
+    executable = tmp_path / "fake-omp-context-leak"
+    executable.write_text(
+        """#!/usr/bin/env python3
+import json
+import sys
+
+system_prompt = __SYSTEM_PROMPT__
+print(json.dumps({"type": "ready"}), flush=True)
+for line in sys.stdin:
+    command = json.loads(line)
+    data = {"dumpTools": [], "systemPrompt": system_prompt} if command.get("type") == "get_state" else None
+    print(json.dumps({
+        "id": command.get("id"), "type": "response", "command": command.get("type"),
+        "success": True, "data": data,
+    }), flush=True)
+""".replace("__SYSTEM_PROMPT__", repr(system_prompt)),
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
+    adapter = OmpRpcAdapter(tmp_path / "omp-context-leak", executable=str(executable))
+
+    with pytest.raises(AntigravityError) as failure:
+        adapter.list_models()
+
+    assert failure.value.code == "omp_invalid_runtime"
+
+
+def test_rpc_rejects_malformed_or_oversized_system_prompt_shapes():
+    deeply_nested = "safe"
+    for _ in range(9):
+        deeply_nested = [deeply_nested]
+
+    for system_prompt in (
+        {"text": "private malformed prompt"},
+        ["safe", 7],
+        deeply_nested,
+        ["x" * (256 * 1024 + 1)],
+    ):
+        with pytest.raises(AntigravityError) as failure:
+            _system_prompt_contains_context(system_prompt)
+
+        assert failure.value.code == "omp_invalid_runtime"
+        assert "private malformed prompt" not in str(failure.value)
+
+
 def test_connection_ui_exposes_antigravity_login_model_and_verification_controls():
     root = Path(__file__).parents[1]
     markup = (root / "src/asr_en_vi/web/shell.html").read_text(encoding="utf-8")
@@ -273,3 +423,167 @@ def test_connection_ui_exposes_antigravity_login_model_and_verification_controls
     assert "/api/providers/antigravity/login-sessions" in script
     assert "/api/providers/antigravity/models" in script
     assert "/api/providers/antigravity/verify" in script
+
+
+@pytest.mark.parametrize(
+    ("diagnostic", "expected_code", "expected_status"),
+    [
+        (
+            "OAuth refresh token revoked",
+            "reconnect_required",
+            "reconnect_required",
+        ),
+        (
+            "OAuth error: Token has been expired",
+            "reconnect_required",
+            "reconnect_required",
+        ),
+        ("OMP internal startup failure", "provider_unavailable", "connected"),
+    ],
+)
+def test_rpc_startup_failure_classifies_auth_without_exposing_diagnostics(
+    tmp_path, diagnostic, expected_code, expected_status
+):
+    executable = tmp_path / "fake-omp-startup-failure"
+    executable.write_text(
+        """#!/usr/bin/env python3
+import sys
+sys.stderr.write("x" * 70000 + __DIAGNOSTIC__ + " secret=private-startup-value")
+sys.stderr.flush()
+raise SystemExit(1)
+""".replace("__DIAGNOSTIC__", repr(diagnostic)),
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
+    adapter = OmpRpcAdapter(tmp_path / "omp-startup-failure", executable=str(executable))
+    provider = AntigravityProvider(tmp_path / "provider-startup-failure", adapter=adapter)
+    provider.ensure()
+    with provider.store.locked(write=True) as state:
+        state["connection_status"] = "connected"
+        state["connection_version"] = 7
+        state["verification"] = {"model": "gemini-test"}
+
+    with pytest.raises(AntigravityError) as failure:
+        provider.verify("gemini-test")
+
+    assert failure.value.code == expected_code
+    assert "private-startup-value" not in str(failure.value)
+    assert "private-startup-value" not in failure.value.public_message
+    assert provider.provider_view()["status"] == expected_status
+    with provider.store.locked() as state:
+        if expected_status == "reconnect_required":
+            assert state["connection_version"] == 8
+            assert state["verification"] is None
+        else:
+            assert state["connection_version"] == 7
+            assert state["verification"] == {"model": "gemini-test"}
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_code", "expected_status"),
+    [
+        (
+            {
+                "httpStatus": 403,
+                "code": "invalid_grant",
+                "message": "refresh token revoked; secret=private-rpc-value",
+            },
+            "reconnect_required",
+            "reconnect_required",
+        ),
+        (
+            {"httpStatus": 429, "code": "quota_exceeded", "message": "try later"},
+            "provider_quota",
+            "connected",
+        ),
+        (
+            {
+                "httpStatus": 403,
+                "code": "model_access_denied",
+                "provider": "google-antigravity",
+                "model": "gemini-restricted",
+                "message": "selected model is not entitled for this account",
+            },
+            "model_unavailable",
+            "connected",
+        ),
+        (
+            {
+                "httpStatus": 403,
+                "code": "permission_denied",
+                "provider": "google-antigravity",
+                "model": "gemini-restricted",
+                "message": "access denied; secret=private-rpc-value",
+            },
+            "provider_unavailable",
+            "connected",
+        ),
+        (
+            {
+                "httpStatus": 403,
+                "code": "forbidden",
+                "provider": "google-antigravity",
+                "model": "gemini-test",
+                "message": "unknown provider failure; secret=private-rpc-value",
+            },
+            "provider_unavailable",
+            "connected",
+        ),
+    ],
+)
+def test_synthetic_inference_classifies_structured_errors_safely(
+    tmp_path, error, expected_code, expected_status
+):
+    executable = tmp_path / "fake-omp-inference-error"
+    error_json = json.dumps(error, separators=(",", ":"))
+    executable.write_text(
+        """#!/usr/bin/env python3
+import json
+import sys
+
+error = __ERROR__
+print(json.dumps({"type": "ready"}), flush=True)
+for line in sys.stdin:
+    command = json.loads(line)
+    request_id = command.get("id")
+    command_type = command.get("type")
+    if command_type == "get_state":
+        data = {"dumpTools": []}
+    elif command_type in {"set_auto_compaction", "set_auto_retry", "set_model"}:
+        data = {}
+    elif command_type == "prompt":
+        print(json.dumps({
+            "type": "response", "id": request_id, "command": "prompt",
+            "success": True, "data": {"agentInvoked": True},
+        }), flush=True)
+        print(json.dumps({
+            "type": "prompt_result", "id": request_id, "status": "failed",
+            "error": error,
+        }), flush=True)
+        break
+    else:
+        data = None
+    print(json.dumps({
+        "type": "response", "id": request_id, "command": command_type,
+        "success": True, "data": data,
+    }), flush=True)
+""".replace("__ERROR__", error_json),
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
+    adapter = OmpRpcAdapter(tmp_path / "omp-inference-error", executable=str(executable))
+    provider = AntigravityProvider(tmp_path / "provider-inference-error", adapter=adapter)
+    provider.ensure()
+    with provider.store.locked(write=True) as state:
+        state["connection_status"] = "connected"
+        state["connection_version"] = 3
+
+    with pytest.raises(AntigravityError) as failure:
+        provider.verify("gemini-test")
+
+    assert failure.value.code == expected_code
+    assert "private-rpc-value" not in str(failure.value)
+    assert "private-rpc-value" not in failure.value.public_message
+    assert provider.provider_view()["status"] == expected_status
+    with provider.store.locked() as state:
+        assert state["connection_version"] == (4 if expected_status == "reconnect_required" else 3)
