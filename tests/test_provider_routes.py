@@ -57,7 +57,14 @@ async def test_provider_routes_obey_auth_contract_and_never_expose_credentials(p
                 "account": None,
                 "connection_version": 0,
                 "verification": None,
-            }
+            },
+            {
+                "id": "antigravity",
+                "status": "disconnected",
+                "account": None,
+                "connection_version": 0,
+                "verification": None,
+            },
         ]
     }
     assert (await client.get("/api/notes-preferences")).json() == {

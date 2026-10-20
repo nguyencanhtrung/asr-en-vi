@@ -10,6 +10,11 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response
 
+from asr_en_vi.antigravity import (
+    AntigravityAdapter,
+    AntigravityProvider,
+    OmpRpcAdapter,
+)
 from asr_en_vi.auth import AuthStateError, AuthStore, session_is_valid
 from asr_en_vi.chatgpt import ChatGPTAdapter, ChatGPTHTTPAdapter, ChatGPTProvider
 from asr_en_vi.config import CHATGPT_CALLBACK_PATH, Settings
@@ -102,6 +107,7 @@ def create_app(
     settings: Settings | None = None,
     *,
     chatgpt_adapter: ChatGPTAdapter | None = None,
+    antigravity_adapter: AntigravityAdapter | None = None,
 ) -> FastAPI:
     runtime_settings = settings or Settings.from_env()
     auth_store = AuthStore(runtime_settings.auth_dir)
@@ -114,6 +120,15 @@ def create_app(
         adapter=(chatgpt_adapter if chatgpt_adapter is not None else ChatGPTHTTPAdapter()),
         active_task_guard=lambda: assert_provider_mutation_allowed(runtime_settings.data_dir),
     )
+    antigravity_provider = AntigravityProvider(
+        provider_dir,
+        adapter=(
+            antigravity_adapter
+            if antigravity_adapter is not None
+            else OmpRpcAdapter(provider_dir / "omp")
+        ),
+        active_task_guard=lambda: assert_provider_mutation_allowed(runtime_settings.data_dir),
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -124,6 +139,7 @@ def create_app(
             provider_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             auth_store.ensure()
             chatgpt_provider.ensure()
+            antigravity_provider.ensure()
             initialize(runtime_settings.data_dir)
             recover_recordings(runtime_settings.data_dir)
             yield
@@ -141,6 +157,7 @@ def create_app(
     app.state.auth_store = auth_store
     app.state.settings = runtime_settings
     app.state.chatgpt_provider = chatgpt_provider
+    app.state.antigravity_provider = antigravity_provider
 
     @app.middleware("http")
     async def protect_requests(request: Request, call_next) -> Response:
@@ -187,7 +204,7 @@ def create_app(
         response = await call_next(request)
         return _with_security_headers(response)
 
-    install_routes(app, runtime_settings, chatgpt_provider)
+    install_routes(app, runtime_settings, chatgpt_provider, antigravity_provider)
     return app
 
 

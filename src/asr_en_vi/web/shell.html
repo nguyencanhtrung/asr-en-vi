@@ -18,6 +18,7 @@
     <script src="/assets/history.js" defer></script>
     <script src="/assets/notes.js" defer></script>
     <script src="/assets/connections.js" defer></script>
+    <script src="/assets/antigravity.js" defer></script>
   </head>
   <body>
     <!--
@@ -114,7 +115,7 @@
               aria-label="Kết nối ChatGPT: đang kiểm tra trạng thái"
             >
               <span class="connection-launcher-dot" aria-hidden="true"></span>
-              <span class="connection-launcher-name">ChatGPT</span>
+              <span class="connection-launcher-name">AI</span>
               <span class="connection-launcher-status" id="connection-launcher-status">Đang kiểm tra</span>
             </button>
             <button class="secondary-button header-calendar" id="open-calendar" type="button">Lịch</button>
@@ -510,14 +511,14 @@
     >
       <div class="connections-shell">
         <header class="connections-header">
-          <h2 id="connections-title">Kết nối ChatGPT</h2>
+          <h2 id="connections-title">Kết nối tạo notes</h2>
           <button class="icon-button" id="connections-close" type="button" aria-label="Đóng cài đặt kết nối">
             <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
           </button>
         </header>
         <div class="connections-body">
           <p class="connections-intro" id="connections-intro">
-            Kết nối tài khoản ChatGPT để chọn mô hình tạo ghi chú cuộc họp. Tài khoản này tách biệt với quyền truy cập không gian làm việc.
+            Kết nối riêng ChatGPT hoặc Google Antigravity qua OMP. Các tài khoản này tách biệt với quyền truy cập không gian làm việc; bạn không cần kết nối cả hai.
           </p>
 
           <section class="connection-section" aria-labelledby="connection-section-title">
@@ -599,6 +600,60 @@
             <p class="connection-verification-result" id="connection-verification-result" role="status" aria-live="polite"></p>
             <button class="secondary-button" id="connection-verify" type="button" disabled>Chạy kiểm tra bằng dữ liệu tổng hợp</button>
             <a class="connection-usage-link" href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">Xem mức sử dụng ChatGPT</a>
+          </section>
+
+          <section class="connection-provider-divider" aria-labelledby="antigravity-title">
+            <p class="connection-provider-kicker">OMP · GOOGLE</p>
+            <div class="connection-section-heading">
+              <h3 id="antigravity-title">Google Antigravity</h3>
+              <span class="connection-state-badge" id="antigravity-badge" data-state="loading">Đang kiểm tra</span>
+            </div>
+            <p>
+              OMP chạy trong vùng cấu hình riêng, không nạp tools, extensions, skills, MCP hay ngữ cảnh dự án. Quyền dùng model và hạn mức vẫn do tài khoản Google quyết định.
+            </p>
+            <dl class="connection-ledger">
+              <div><dt>Kết nối</dt><dd id="antigravity-status">Đang kiểm tra trạng thái</dd></div>
+              <div><dt>Tài khoản</dt><dd id="antigravity-account">Chưa có thông tin</dd></div>
+              <div id="antigravity-verification-row" hidden>
+                <dt>Lần kiểm tra gần nhất</dt><dd id="antigravity-verification-summary">Chưa kiểm tra</dd>
+              </div>
+            </dl>
+            <p class="connection-message" id="antigravity-message" role="status" aria-live="polite"></p>
+            <div class="connection-error" id="antigravity-error" role="alert" hidden>
+              <span id="antigravity-error-message"></span>
+            </div>
+            <button class="primary-button connection-sign-in" id="antigravity-sign-in" type="button">
+              Kết nối Google Antigravity
+            </button>
+            <div class="antigravity-login" id="antigravity-login" hidden>
+              <p id="antigravity-login-copy">Đang chuẩn bị đăng nhập qua OMP…</p>
+              <a id="antigravity-login-link" target="_blank" rel="noopener noreferrer" hidden>Mở trang đăng nhập Google</a>
+              <form id="antigravity-input-form" hidden>
+                <label for="antigravity-input" id="antigravity-input-label">Mã xác nhận hoặc URL chuyển hướng</label>
+                <input id="antigravity-input" type="text" maxlength="16384" autocomplete="off" />
+                <button class="secondary-button" type="submit">Gửi cho OMP</button>
+              </form>
+              <button class="text-button" id="antigravity-cancel" type="button">Hủy đăng nhập</button>
+            </div>
+            <button class="text-button connection-disconnect-trigger" id="antigravity-disconnect" type="button" hidden>Ngắt kết nối Antigravity</button>
+          </section>
+
+          <section class="connection-section connection-model-section" id="antigravity-model-section" aria-labelledby="antigravity-model-title" hidden>
+            <div class="connection-section-heading"><h3 id="antigravity-model-title">Mô hình Antigravity</h3></div>
+            <form id="antigravity-model-form">
+              <label for="antigravity-model">Mô hình dùng cho ghi chú cuộc họp</label>
+              <select id="antigravity-model" disabled><option value="">Đang tải mô hình khả dụng</option></select>
+              <p class="connection-help">Catalog chỉ cho biết model xuất hiện với tài khoản. Hãy chạy kiểm tra tổng hợp để xác nhận model thực sự tạo được đầu ra.</p>
+              <p class="connection-model-status" id="antigravity-model-status" role="status" aria-live="polite"></p>
+              <button class="primary-button" id="antigravity-model-save" type="submit" disabled>Lưu mô hình Antigravity</button>
+            </form>
+          </section>
+
+          <section class="connection-section connection-verification-section" id="antigravity-verification-section" hidden>
+            <div class="connection-section-heading"><h3>Kiểm tra Antigravity bằng dữ liệu tổng hợp</h3></div>
+            <p>Yêu cầu chỉ chứa chỉ dẫn tổng hợp cố định, không chứa transcript hoặc dữ liệu cuộc họp. OMP không tự gửi lại khi lỗi.</p>
+            <p class="connection-verification-result" id="antigravity-verification-result" role="status" aria-live="polite"></p>
+            <button class="secondary-button" id="antigravity-verify" type="button" disabled>Chạy kiểm tra model đã chọn</button>
           </section>
         </div>
       </div>
