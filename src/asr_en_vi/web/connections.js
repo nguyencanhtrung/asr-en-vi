@@ -280,7 +280,9 @@ function updateConnectionActions() {
   const canUseSelectedModel = connected && modelIsAvailable(connectionElements.modelSelect.value);
   const selectedModel = connectionElements.modelSelect.value;
   const selectedEffort = connectionElements.effortSelect.value;
-  const preferenceIsActive = connectionState.preferences.provider === "chatgpt";
+  // The last notes provider may be Antigravity; a saved ChatGPT model is still a saved preference.
+  const preferenceIsActive = typeof connectionState.preferences.models.chatgpt === "string"
+    && connectionState.preferences.models.chatgpt !== "";
 
   connectionElements.modelSelect.disabled = !connected || connectionState.savingModel || connectionState.models.length === 0;
   connectionElements.effortSelect.disabled = !canUseSelectedModel || connectionState.savingModel
@@ -346,7 +348,7 @@ function renderModels(catalog, preferences) {
     (model) => model && typeof model.id === "string" && typeof model.display_name === "string",
   );
   connectionState.preferences = {
-    provider: preferences.provider === "chatgpt" ? "chatgpt" : null,
+    provider: ["chatgpt", "antigravity"].includes(preferences.provider) ? preferences.provider : null,
     models: preferences.models && typeof preferences.models === "object" ? preferences.models : {},
     reasoning_effort: typeof preferences.reasoning_effort === "string"
       ? preferences.reasoning_effort : "default",
@@ -479,6 +481,7 @@ function finishLogin(status, payload = null) {
   if (status === "connected") {
     setConnectionMessage("Đã xác thực tài khoản ChatGPT.");
     void loadAccountData();
+    window.dispatchEvent(new CustomEvent("asr:provider-choice-changed"));
     return;
   }
   if (status === "cancelled") {
@@ -641,7 +644,7 @@ async function loadAccountData() {
     const preferences = await connectionRequest("/api/notes-preferences");
     if (generation !== connectionState.loadGeneration) return;
     connectionState.preferences = {
-      provider: preferences.provider === "chatgpt" ? "chatgpt" : null,
+      provider: ["chatgpt", "antigravity"].includes(preferences.provider) ? preferences.provider : null,
       models: preferences.models && typeof preferences.models === "object" ? preferences.models : {},
       reasoning_effort: typeof preferences.reasoning_effort === "string"
         ? preferences.reasoning_effort : "default",
@@ -724,6 +727,7 @@ async function saveModel(event) {
     renderEfforts(connectionState.selectedModel, connectionState.savedEffort);
     connectionElements.modelStatus.dataset.state = "saved";
     connectionElements.modelStatus.textContent = `Đã lưu ${modelName(connectionState.selectedModel)} · effort ${connectionState.savedEffort} cho ghi chú cuộc họp.`;
+    window.dispatchEvent(new CustomEvent("asr:provider-choice-changed"));
   } catch (error) {
     await refreshProviderAfterAuthFailure(error);
     connectionElements.modelStatus.dataset.state = "error";
@@ -806,6 +810,7 @@ async function disconnectConnection() {
     connectionElements.disconnectConfirm.hidden = true;
     connectionElements.disconnectTrigger.hidden = false;
     renderProvider();
+    window.dispatchEvent(new CustomEvent("asr:provider-choice-changed"));
     if (result.remote_revocation_confirmed === true) {
       setConnectionMessage("Đã xóa thông tin đăng nhập trong không gian làm việc và xác nhận thu hồi quyền truy cập từ xa.");
     } else {

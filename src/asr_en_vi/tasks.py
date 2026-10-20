@@ -149,6 +149,9 @@ def _task_summary(row: sqlite3.Row) -> dict[str, object]:
     }
     if row["kind"] == "notes":
         summary["output_language"] = row["notes_output_language"]
+        summary["provider"] = row["notes_provider"]
+        summary["model"] = row["notes_model"]
+        summary["reasoning_effort"] = row["notes_reasoning_effort"]
     return summary
 
 

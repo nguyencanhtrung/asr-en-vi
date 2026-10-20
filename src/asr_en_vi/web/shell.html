@@ -243,10 +243,26 @@
                     <option value="vi">Vietnamese / Tiếng Việt</option>
                   </select>
                 </div>
+                <div class="notes-output-language-control">
+                  <label for="notes-provider">Nhà cung cấp</label>
+                  <select id="notes-provider" aria-describedby="notes-run-plan">
+                    <option value="chatgpt">ChatGPT</option>
+                    <option value="antigravity">Google Antigravity</option>
+                  </select>
+                </div>
+                <div class="notes-output-language-control">
+                  <label for="notes-model">Model</label>
+                  <select id="notes-model" aria-describedby="notes-run-plan">
+                    <option value="">Chưa có model</option>
+                  </select>
+                </div>
                 <button class="primary-button" id="notes-start" type="button" aria-describedby="notes-status" disabled>Tạo notes bằng ChatGPT</button>
                 <button class="secondary-button" id="notes-cancel" type="button" hidden>Hủy xử lý</button>
               </div>
             </header>
+            <p class="notes-run-plan" id="notes-run-plan" role="status" aria-live="polite"></p>
+            <p class="notes-preference-status" id="notes-preference-status" role="status" aria-live="polite"></p>
+            <button type="button" class="secondary-button" id="notes-choice-reload" hidden>Tải lại lựa chọn</button>
             <p class="notes-content-policy" id="notes-content-policy">
               Ngày họp, lời thoại, mốc thời gian và tên người nói được gửi tới ChatGPT bằng model và effort đã lưu. Với nguồn dài, các bản tóm tắt trung gian cũng được gửi để tổng hợp notes. File audio/video, tên cuộc họp và thông tin tài khoản không được gửi.
             </p>
@@ -255,6 +271,8 @@
             <dl class="notes-task-details" id="notes-task-details" hidden>
               <div><dt>Trạng thái</dt><dd id="notes-task-state"></dd></div>
               <div><dt>Giai đoạn</dt><dd id="notes-task-stage"></dd></div>
+              <div><dt>Nhà cung cấp</dt><dd id="notes-task-provider"></dd></div>
+              <div><dt>Model</dt><dd id="notes-task-model"></dd></div>
             </dl>
             <div class="notes-error" id="notes-error" role="alert" hidden>
               <p id="notes-error-message"></p>

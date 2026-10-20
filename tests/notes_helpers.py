@@ -25,6 +25,9 @@ class StubNotesProvider:
     def __init__(self) -> None:
         self.store = StubNotesProviderStore()
 
+    def assert_notes_acceptable(self) -> None:
+        return None
+
     def notes_task_pin(self) -> dict[str, object]:
         return {
             "provider": "chatgpt",
