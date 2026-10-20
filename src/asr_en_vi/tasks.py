@@ -40,7 +40,10 @@ _TASK_HEARTBEAT_MAX_AGE_SECONDS = 20
 TASK_ERROR_MESSAGES = {
     "publication_failed": (
         "The completed transcript could not be saved. Check local storage and retry."
-    )
+    ),
+    "notes_publication_failed": (
+        "The completed notes could not be saved. Check local storage and retry."
+    ),
 }
 
 
@@ -119,7 +122,7 @@ def _worker_state(row: sqlite3.Row) -> str:
 
 
 def _task_summary(row: sqlite3.Row) -> dict[str, object]:
-    return {
+    summary: dict[str, object] = {
         "id": row["id"],
         "request_id": row["request_id"],
         "meeting_id": row["meeting_id"],
@@ -144,6 +147,9 @@ def _task_summary(row: sqlite3.Row) -> dict[str, object]:
         "completed_at": row["completed_at"],
         "updated_at": row["updated_at"],
     }
+    if row["kind"] == "notes":
+        summary["output_language"] = row["notes_output_language"]
+    return summary
 
 
 def accept_transcription_task(
@@ -424,12 +430,12 @@ def finish_interrupted_task(
     *,
     owner_id: str,
     elapsed_seconds: float,
-    message: str = "The worker stopped before transcription finished.",
+    message: str | None = None,
 ) -> bool:
     with _connect(data_dir) as connection, connection:
         connection.execute("BEGIN IMMEDIATE")
         task = connection.execute(
-            "SELECT status FROM tasks WHERE id = ? AND owner_id = ?", (task_id, owner_id)
+            "SELECT status, kind FROM tasks WHERE id = ? AND owner_id = ?", (task_id, owner_id)
         ).fetchone()
         if task is None or task["status"] not in {"running", "stopping"}:
             return False
@@ -441,12 +447,17 @@ def finish_interrupted_task(
                 (max(0.0, elapsed_seconds), task_id, owner_id),
             )
         else:
+            interruption_message = message or (
+                "The worker stopped before notes finished."
+                if task["kind"] == "notes"
+                else "The worker stopped before transcription finished."
+            )
             connection.execute(
                 "UPDATE tasks SET status = 'interrupted', stage = 'interrupted', "
                 "error_code = 'worker_stopped', error_message = ?, elapsed_seconds = ?, "
                 "completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP "
                 "WHERE id = ? AND owner_id = ? AND status = 'running'",
-                (message, max(0.0, elapsed_seconds), task_id, owner_id),
+                (interruption_message, max(0.0, elapsed_seconds), task_id, owner_id),
             )
         connection.execute(
             "UPDATE processing_slot SET active_task_id = NULL, updated_at = CURRENT_TIMESTAMP "
@@ -766,7 +777,9 @@ def recover_abandoned_tasks(data_dir: Path) -> list[str]:
         connection.execute(
             "UPDATE tasks SET status = 'interrupted', stage = 'interrupted', "
             "error_code = 'worker_restarted', "
-            "error_message = 'The worker restarted before transcription finished.', "
+            "error_message = CASE kind WHEN 'notes' "
+            "THEN 'The worker restarted before notes finished.' "
+            "ELSE 'The worker restarted before transcription finished.' END, "
             "completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP "
             "WHERE status IN ('accepted', 'running')"
         )
@@ -852,10 +865,11 @@ def _generation_payload(
 
 
 def transcription_state(data_dir: Path, meeting_id: str) -> dict[str, object]:
-    """Return the latest task, current transcript, and read-only prior generations."""
+    """Return transcription work, the current transcript, and read-only prior generations."""
     with _connect(data_dir) as connection:
         latest = connection.execute(
-            "SELECT * FROM tasks WHERE meeting_id = ? ORDER BY rowid DESC LIMIT 1",
+            "SELECT * FROM tasks WHERE meeting_id = ? AND kind = 'transcription' "
+            "ORDER BY rowid DESC LIMIT 1",
             (meeting_id,),
         ).fetchone()
         meeting = connection.execute(
@@ -905,6 +919,17 @@ def _current_generation_for_write(
     ).fetchone()
     if meeting is None:
         raise TaskError(404, "meeting_not_found", "Meeting not found.")
+    active_notes = connection.execute(
+        "SELECT 1 FROM tasks WHERE meeting_id = ? AND kind = 'notes' "
+        "AND status IN ('accepted', 'running', 'stopping') LIMIT 1",
+        (meeting_id,),
+    ).fetchone()
+    if active_notes is not None:
+        raise TaskError(
+            409,
+            "notes_source_locked",
+            "This transcript is locked while notes are being generated.",
+        )
     if meeting["current_generation_id"] != expected_generation_id:
         raise TaskError(
             409,

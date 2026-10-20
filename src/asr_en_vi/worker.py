@@ -7,6 +7,7 @@ import fcntl
 import json
 import math
 import os
+import re
 import select
 import signal
 import sqlite3
@@ -29,6 +30,7 @@ from asr_en_vi.diarization_runner import (
     prepared_diarization_directory,
     safe_diarization_error,
 )
+from asr_en_vi.notes import publish_notes_revision
 from asr_en_vi.recordings import RecordingError, recording_path
 from asr_en_vi.runtime import (
     RuntimeConfigurationError,
@@ -56,6 +58,8 @@ TASK_PROGRESS_INTERVAL_SECONDS = 1.0
 RUNNER_TERM_GRACE_SECONDS = 5.0
 RUNNER_KILL_GRACE_SECONDS = 5.0
 RUNNER_POST_EOF_GRACE_SECONDS = 2.0
+NOTES_TASK_TIMEOUT_SECONDS = 3600.0
+MAX_CHILD_EVENT_LINE_BYTES = 1024 * 1024
 WORKER_LOCK_NAME = ".worker.lock"
 WORKER_LOCK_RETRY_SECONDS = 1.0
 WORKER_LOCK_RETRY_INTERVAL_SECONDS = 0.05
@@ -280,6 +284,20 @@ def _diarization_command(task: dict[str, Any], audio_path: Path) -> list[str]:
     ]
 
 
+def _notes_command(task: dict[str, Any], owner_id: str, data_dir: Path) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "asr_en_vi.notes_runner",
+        "--data-dir",
+        str(data_dir),
+        "--task-id",
+        str(task["id"]),
+        "--owner-id",
+        owner_id,
+    ]
+
+
 def _run_child(
     settings: Settings,
     lock_fd: int,
@@ -290,6 +308,8 @@ def _run_child(
     task_started: float,
     progress: Any,
     on_event: Any,
+    *,
+    deadline: float | None = None,
 ) -> dict[str, object]:
     """Run one isolated phase and return only after its process group is gone."""
     process: subprocess.Popen[bytes] | None = None
@@ -308,6 +328,9 @@ def _run_child(
     if stop_event.is_set():
         result["stop_reason"] = "interrupted"
         return result
+    if deadline is not None and time.monotonic() >= deadline:
+        result["stop_reason"] = "deadline"
+        return result
 
     try:
         process = subprocess.Popen(
@@ -319,7 +342,11 @@ def _run_child(
             close_fds=True,
             pass_fds=(lock_fd,),
             start_new_session=True,
-            env=_safe_runner_environment(),
+            env={
+                **_safe_runner_environment(),
+                "ASR_DATA_DIR": str(settings.data_dir),
+                "ASR_PROVIDER_DIR": str(settings.provider_dir),
+            },
         )
         assert process.stdout is not None
         descriptor = process.stdout.fileno()
@@ -355,9 +382,11 @@ def _run_child(
                     while b"\n" in pending:
                         raw_line, _, remainder = pending.partition(b"\n")
                         pending = bytearray(remainder)
-                        if not consume_line(raw_line):
+                        if len(raw_line) > MAX_CHILD_EVENT_LINE_BYTES or not consume_line(raw_line):
                             result["protocol_error"] = True
                             break
+                    if len(pending) > MAX_CHILD_EVENT_LINE_BYTES:
+                        result["protocol_error"] = True
                     if result["protocol_error"]:
                         break
 
@@ -369,6 +398,8 @@ def _run_child(
                 result["stop_reason"] = "canceled"
             elif stop_event.is_set():
                 result["stop_reason"] = "interrupted"
+            elif deadline is not None and now >= deadline:
+                result["stop_reason"] = "deadline"
             if result["stop_reason"] is not None:
                 break
 
@@ -460,12 +491,153 @@ def _finish_after_child_stop(
         )
 
 
+def _run_notes_task(
+    settings: Settings,
+    lock_fd: int,
+    task: dict[str, Any],
+    stop_event: threading.Event,
+) -> None:
+    task_id = str(task["id"])
+    owner_id = str(task["owner_id"])
+    started = time.monotonic()
+    deadline = started + NOTES_TASK_TIMEOUT_SECONDS
+    state: dict[str, Any] = {"stage": "starting_notes", "markdown": None, "error": None}
+
+    def finish_failure(code: str, message: str) -> None:
+        elapsed = time.monotonic() - started
+        _finish_after_child_stop(settings, task_id, owner_id, stop_event, elapsed)
+        runtime_state = task_runtime_state(settings.data_dir, task_id)
+        if runtime_state is None or runtime_state[1] != owner_id:
+            return
+        if runtime_state[0] in {"stopping", "canceled"} or stop_event.is_set():
+            return
+        fail_task(
+            settings.data_dir,
+            task_id,
+            owner_id=owner_id,
+            error_code=code,
+            message=message,
+            elapsed_seconds=elapsed,
+        )
+
+    def on_event(event: dict[str, Any]) -> bool:
+        event_type = event["type"]
+        if event_type == "stage" and event.get("stage") == "generating_notes":
+            state["stage"] = "generating_notes"
+            return True
+        if event_type == "result" and state["markdown"] is None:
+            markdown = event.get("markdown")
+            if not isinstance(markdown, str) or "\x00" in markdown:
+                return False
+            state["markdown"] = markdown
+            return True
+        if event_type == "error" and state["error"] is None:
+            code = event.get("code")
+            message = event.get("message")
+            if (
+                not isinstance(code, str)
+                or not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", code)
+                or not isinstance(message, str)
+                or len(message) > 500
+            ):
+                return False
+            state["error"] = (code, message)
+            return True
+        return False
+
+    try:
+        if not update_task_progress(
+            settings.data_dir,
+            task_id,
+            owner_id=owner_id,
+            stage=state["stage"],
+            elapsed_seconds=0,
+            transcript_end_seconds=0,
+            segment_count=int(task["segment_count"]),
+        ):
+            _finish_after_child_stop(settings, task_id, owner_id, stop_event, 0)
+            return
+        child = _run_child(
+            settings,
+            lock_fd,
+            task_id,
+            owner_id,
+            _notes_command(task, owner_id, settings.data_dir),
+            stop_event,
+            started,
+            lambda: (state["stage"], 0.0, int(task["segment_count"])),
+            on_event,
+            deadline=deadline,
+        )
+        elapsed = time.monotonic() - started
+        if child["stop_reason"] == "deadline":
+            finish_failure(
+                "notes_timeout",
+                "Notes generation exceeded the task-wide time limit.",
+            )
+            return
+        if child["stop_reason"] is not None:
+            _finish_after_child_stop(settings, task_id, owner_id, stop_event, elapsed)
+            return
+        if state["error"] is not None:
+            code, message = state["error"]
+            finish_failure(code, message)
+            return
+        if child["protocol_error"] or child["return_code"] != 0 or state["markdown"] is None:
+            finish_failure(
+                "notes_runner_protocol_error",
+                "The notes worker did not return a complete result.",
+            )
+            return
+        if time.monotonic() >= deadline:
+            finish_failure(
+                "notes_timeout",
+                "Notes generation exceeded the task-wide time limit.",
+            )
+            return
+        if not update_task_progress(
+            settings.data_dir,
+            task_id,
+            owner_id=owner_id,
+            stage="publishing",
+            elapsed_seconds=elapsed,
+            transcript_end_seconds=0,
+            segment_count=int(task["segment_count"]),
+        ):
+            _finish_after_child_stop(settings, task_id, owner_id, stop_event, elapsed)
+            return
+        revision = publish_notes_revision(
+            settings.data_dir,
+            task_id,
+            owner_id=owner_id,
+            markdown=state["markdown"],
+            elapsed_seconds=elapsed,
+        )
+        if revision is None:
+            _finish_after_child_stop(settings, task_id, owner_id, stop_event, elapsed)
+    except TaskError:
+        finish_failure("notes_publication_failed", TASK_ERROR_MESSAGES["notes_publication_failed"])
+    except (OSError, subprocess.SubprocessError, sqlite3.Error):
+        print(
+            json.dumps(
+                {"event": "notes_worker_error", "task_id": task_id, "code": "notes_failed"},
+                separators=(",", ":"),
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+        finish_failure("notes_failed", "Notes generation failed. Check the worker logs.")
+
+
 def _run_task(
     settings: Settings,
     lock_fd: int,
     task: dict[str, Any],
     stop_event: threading.Event,
 ) -> None:
+    if task.get("kind") == "notes":
+        _run_notes_task(settings, lock_fd, task, stop_event)
+        return
     task_id = str(task["id"])
     owner_id = str(task["owner_id"])
     started = time.monotonic()

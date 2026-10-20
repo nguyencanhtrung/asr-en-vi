@@ -31,7 +31,7 @@ Liên kết giữa một đoạn transcript và nhãn người nói của đoạ
 _Avoid_: Đổi tên người nói
 
 **Meeting notes**:
-Bản tổng kết bằng tiếng Anh gồm các ý quan trọng, lập luận, quyết định, vấn đề còn mở và công việc cần thực hiện, được người dùng duyệt dựa trên nguồn.
+Bản tổng kết bằng tiếng Anh hoặc tiếng Việt theo lựa chọn của người vận hành, gồm các ý quan trọng, lập luận, quyết định, vấn đề còn mở và công việc cần thực hiện, được người dùng duyệt dựa trên nguồn. Ngôn ngữ của mỗi bản notes được chọn khi tạo bản đó, độc lập với ngôn ngữ của transcript.
 _Avoid_: Transcript
 
 **Bản notes (Notes revision)**:
@@ -52,7 +52,7 @@ Một lần chuyển bản ghi thành transcript, có thể kèm tạo meeting n
 Một lần tạo bản notes mới từ nguồn tạo notes của cuộc họp. Lần tạo notes có thể thuộc quá trình xử lý bản ghi hoặc do người vận hành yêu cầu sau khi đã có transcript.
 
 **Nhà cung cấp tạo notes (Notes provider)**:
-Dịch vụ được người vận hành chọn cho một lần tạo notes, nhận nguồn tạo notes và trả bản nháp tiếng Anh. Kết nối tài khoản dịch vụ này là thao tác riêng với truy cập ứng dụng; không dùng nó để nhận dạng âm thanh.
+Dịch vụ được người vận hành chọn cho một lần tạo notes, nhận nguồn tạo notes và trả bản nháp theo ngôn ngữ đầu ra đã chọn. Kết nối tài khoản dịch vụ này là thao tác riêng với truy cập ứng dụng; không dùng nó để nhận dạng âm thanh.
 
 **Action item**:
 Công việc được nêu trong cuộc họp, có trạng thái đã thống nhất hoặc cần xác nhận và có người phụ trách, thời hạn khi nguồn cung cấp đủ thông tin. Người phụ trách công việc có thể khác người phát biểu.

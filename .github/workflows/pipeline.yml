@@ -48,6 +48,11 @@ jobs:
           ffprobe -version | head -n 1
       - name: Install Chromium
         run: uv run --locked playwright install --with-deps chromium
+      - name: Install actionlint
+        run: |
+          mkdir -p "${RUNNER_TEMP}/actionlint-bin"
+          GOBIN="${RUNNER_TEMP}/actionlint-bin" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.11
+          echo "${RUNNER_TEMP}/actionlint-bin" >> "${GITHUB_PATH}"
       - name: Run repository checks
         env:
           ASR_RUN_BROWSER_TESTS: "1"

@@ -19,8 +19,9 @@ def test_compose_separates_services_volumes_and_loopback_publish():
     assert "auth:/var/lib/asr-en-vi/auth" in app["volumes"]
     assert all("auth:" not in mount for mount in worker["volumes"])
     assert "provider:/var/lib/asr-en-vi/provider" in app["volumes"]
-    assert all("provider:" not in mount for mount in worker["volumes"])
+    assert "provider:/var/lib/asr-en-vi/provider" in worker["volumes"]
     assert app["environment"]["ASR_PROVIDER_DIR"] == "/var/lib/asr-en-vi/provider"
+    assert worker["environment"]["ASR_PROVIDER_DIR"] == "/var/lib/asr-en-vi/provider"
     assert "--no-access-log" in app["command"]
     assert app["image"] == worker["image"]
     assert app["environment"]["ASR_MAX_UPLOAD_BYTES"] == "${ASR_MAX_UPLOAD_BYTES:-4294967296}"

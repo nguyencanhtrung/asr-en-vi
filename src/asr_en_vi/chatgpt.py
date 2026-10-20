@@ -15,7 +15,7 @@ import tempfile
 import threading
 import time
 import uuid
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -25,6 +25,16 @@ from urllib.parse import urlencode, urlsplit
 
 import httpx
 import jwt
+
+from asr_en_vi.notes_document import (
+    MAX_OUTPUT_BYTES,
+    MAX_PROMPT_BYTES,
+    MAX_PROVIDER_CALLS,
+    NOTES_ACTION_FIELD_NAMES,
+    NOTES_MAX_OUTPUT_TOKENS,
+    NOTES_VALIDATION_DETAIL_CODES,
+    NOTES_VALIDATION_REASON_CODES,
+)
 
 ISSUER = "https://auth.openai.com"
 DISCOVERY_URL = f"{ISSUER}/.well-known/openid-configuration"
@@ -46,7 +56,18 @@ HTTP_READ_TIMEOUT_SECONDS = 15.0
 HTTP_WRITE_TIMEOUT_SECONDS = 5.0
 HTTP_POOL_TIMEOUT_SECONDS = 5.0
 HTTP_TOTAL_TIMEOUT_SECONDS = 30.0
+NOTES_HTTP_READ_TIMEOUT_SECONDS = 300.0
+NOTES_HTTP_TOTAL_TIMEOUT_SECONDS = 900.0
 OPERATION_LOCK_TIMEOUT_SECONDS = 5.0
+# Wire framing repeats IDs and metadata per delta; it is separate from text size.
+NOTES_MAX_SSE_BODY_BYTES = NOTES_MAX_OUTPUT_TOKENS * 512 + 1024 * 1024
+NOTES_MAX_SSE_LINE_BYTES = 512 * 1024
+NOTES_CONTEXT_WINDOW_TOKENS = 64_000
+NOTES_CONTEXT_HEADROOM_TOKENS = 4_000
+NOTES_CONTEXT_INPUT_BUDGET_BYTES = (
+    NOTES_CONTEXT_WINDOW_TOKENS - NOTES_MAX_OUTPUT_TOKENS - NOTES_CONTEXT_HEADROOM_TOKENS
+)
+NOTES_MAX_REQUEST_BODY_BYTES = 128 * 1024
 _RECONNECT_ERROR_CODES = frozenset(
     {
         "provider_auth_error",
@@ -59,6 +80,77 @@ _CLIENT_ID_RE = re.compile(r"[A-Za-z0-9._-]{5,256}\Z")
 _SAFE_ERROR_CODE_RE = re.compile(r"[A-Za-z0-9_.-]{1,100}\Z")
 _ALL_REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
 _POSITIVE_REASONING_EFFORTS = _ALL_REASONING_EFFORTS[1:]
+_NOTES_VALIDATION_STAGES = frozenset({"single", "chunk", "reduce", "final"})
+_NOTES_VALIDATION_ATTEMPTS = frozenset({"primary", "repair"})
+_NOTES_REPAIR_STATES = frozenset({"unavailable", "already_consumed"})
+
+
+def _bounded_diagnostic_int(value: object, *, minimum: int, maximum: int) -> int | None:
+    if type(value) is int and minimum <= value <= maximum:
+        return value
+    return None
+
+
+def _safe_notes_call_diagnostics(diagnostics: object) -> dict[str, Any]:
+    if not isinstance(diagnostics, dict):
+        return {}
+    result: dict[str, Any] = {}
+    stage = diagnostics.get("stage")
+    attempt = diagnostics.get("attempt")
+    repair_state = diagnostics.get("repair_state")
+    if isinstance(stage, str) and stage in _NOTES_VALIDATION_STAGES:
+        result["stage"] = stage
+    if isinstance(attempt, str) and attempt in _NOTES_VALIDATION_ATTEMPTS:
+        result["attempt"] = attempt
+    bounded_fields = (
+        ("provider_call_index", 1, MAX_PROVIDER_CALLS),
+        ("prompt_bytes", 0, MAX_PROMPT_BYTES),
+        ("response_limit", 1, MAX_OUTPUT_BYTES),
+        ("output_bytes", 0, NOTES_MAX_SSE_BODY_BYTES),
+    )
+    for field, minimum, maximum in bounded_fields:
+        value = _bounded_diagnostic_int(diagnostics.get(field), minimum=minimum, maximum=maximum)
+        if value is not None:
+            result[field] = value
+    if isinstance(repair_state, str) and repair_state in _NOTES_REPAIR_STATES:
+        result["repair_state"] = repair_state
+    body_shape = diagnostics.get("body_shape")
+    if isinstance(body_shape, str) and body_shape in {"non_json", "detail", "error"}:
+        result["body_shape"] = body_shape
+    http_status = _bounded_diagnostic_int(diagnostics.get("http_status"), minimum=100, maximum=599)
+    if http_status is not None:
+        result["http_status"] = http_status
+    request_id = diagnostics.get("request_id")
+    if isinstance(request_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,200}", request_id):
+        result["request_id"] = request_id
+    param = diagnostics.get("param")
+    if isinstance(param, str) and re.fullmatch(r"[A-Za-z0-9_.\[\]-]{1,200}", param):
+        result["param"] = param
+    return result
+
+
+def _safe_notes_validation_diagnostics(diagnostics: object) -> dict[str, Any]:
+    if not isinstance(diagnostics, dict):
+        return {}
+    result = _safe_notes_call_diagnostics(diagnostics)
+    reason = diagnostics.get("validation_reason")
+    detail = diagnostics.get("validation_detail")
+    field_name = diagnostics.get("validation_field")
+    if isinstance(reason, str) and reason in NOTES_VALIDATION_REASON_CODES:
+        result["validation_reason"] = reason
+    if (
+        reason == "source_ids"
+        and isinstance(detail, str)
+        and detail in NOTES_VALIDATION_DETAIL_CODES
+    ):
+        result["validation_detail"] = detail
+    if (
+        reason == "action_fields"
+        and isinstance(field_name, str)
+        and field_name in NOTES_ACTION_FIELD_NAMES
+    ):
+        result["validation_field"] = field_name
+    return result
 
 
 def reasoning_efforts_for_model(model: str) -> tuple[str, ...]:
@@ -105,7 +197,7 @@ class ChatGPTError(RuntimeError):
 
     @property
     def public_message(self) -> str:
-        return ChatGPTHTTPAdapter._message_for(self.status_code, self.code)
+        return ChatGPTHTTPAdapter._message_for(self.status_code, self.code, self.diagnostics)
 
 
 class ProviderStateError(ChatGPTError):
@@ -143,6 +235,17 @@ class ChatGPTAdapter(Protocol):
     def verify(
         self, *, access_token: str, model: str, reasoning_effort: str = "default"
     ) -> None: ...
+
+    def generate_notes(
+        self,
+        *,
+        access_token: str,
+        model: str,
+        reasoning_effort: str,
+        prompt: str,
+        allowed_source_ids: Sequence[str],
+        max_output_bytes: int | None = None,
+    ) -> str: ...
 
     def revoke(self, *, client_id: str, refresh_token: str) -> bool: ...
 
@@ -319,10 +422,10 @@ class ChatGPTHTTPAdapter:
         self._discovery_lock = threading.Lock()
 
     @contextmanager
-    def _client(self) -> Iterator[httpx.Client]:
+    def _client(self, *, read_timeout: float | None = None) -> Iterator[httpx.Client]:
         timeout = httpx.Timeout(
             connect=HTTP_CONNECT_TIMEOUT_SECONDS,
-            read=HTTP_READ_TIMEOUT_SECONDS,
+            read=HTTP_READ_TIMEOUT_SECONDS if read_timeout is None else read_timeout,
             write=HTTP_WRITE_TIMEOUT_SECONDS,
             pool=HTTP_POOL_TIMEOUT_SECONDS,
         )
@@ -384,7 +487,7 @@ class ChatGPTHTTPAdapter:
         return value
 
     @staticmethod
-    def _message_for(status_code: int, code: str) -> str:
+    def _message_for(status_code: int, code: str, diagnostics: dict[str, Any] | None = None) -> str:
         if code in {"subscription_sharing_usage_limit_exceeded"} or status_code == 429:
             return "ChatGPT plan usage is limited. Review ChatGPT Settings → Usage."
         if code in {
@@ -399,6 +502,48 @@ class ChatGPTHTTPAdapter:
             return "ChatGPT did not grant permission for plan use. Sign in again to review access."
         if code == "provider_busy":
             return "Another ChatGPT operation is still running. Try again shortly."
+        if code == "provider_output_too_large":
+            return "ChatGPT's response exceeded the allowed output size."
+        if code == "provider_stream_too_large":
+            return "ChatGPT's response exceeded the allowed transfer size."
+        if code == "provider_stream_line_too_large":
+            return "ChatGPT sent a response line that exceeded the allowed size."
+        if code == "provider_invalid_stream":
+            return "ChatGPT returned a response in an invalid format."
+        if code == "provider_timeout":
+            return "ChatGPT did not finish responding in time."
+        if code in {"notes_request_too_large", "notes_context_budget_exceeded"}:
+            return "This transcript exceeds the safe ChatGPT notes request limit."
+        if code == "notes_token_budget_exceeded":
+            return (
+                "ChatGPT exhausted the token budget before completing notes. "
+                "No new notes were saved."
+            )
+        if code == "notes_content_filtered":
+            return (
+                "ChatGPT stopped notes generation because of a content filter. "
+                "No new notes were saved."
+            )
+        if code == "notes_incomplete":
+            return "ChatGPT did not complete the notes response. No new notes were saved."
+        if code == "notes_invalid_output":
+            reason = diagnostics.get("validation_reason") if isinstance(diagnostics, dict) else None
+            if not isinstance(reason, str) or reason not in NOTES_VALIDATION_REASON_CODES:
+                return "ChatGPT returned invalid notes. No new notes were saved."
+            if reason == "json":
+                return "ChatGPT returned notes with invalid JSON. No new notes were saved."
+            if reason in {"fields", "version", "items", "text", "action_fields"}:
+                return "ChatGPT returned notes with an invalid structure. No new notes were saved."
+            if reason == "source_ids":
+                return (
+                    "ChatGPT returned notes with invalid source references. "
+                    "No new notes were saved."
+                )
+            if reason == "size":
+                return (
+                    "ChatGPT returned notes that exceed the output budget. No new notes were saved."
+                )
+            return "ChatGPT returned invalid notes. No new notes were saved."
         if code == "subscription_sharing_unsupported_capability":
             return "ChatGPT does not support this request for the selected model."
         if status_code in {400, 422}:
@@ -779,6 +924,245 @@ class ChatGPTHTTPAdapter:
                 "ChatGPT returned an invalid verification result.",
             )
 
+    def generate_notes(
+        self,
+        *,
+        access_token: str,
+        model: str,
+        reasoning_effort: str,
+        prompt: str,
+        allowed_source_ids: Sequence[str],
+        max_output_bytes: int | None = None,
+    ) -> str:
+        """Request one strict JSON notes document within its per-stage output budget."""
+        from asr_en_vi.notes_document import (
+            MAX_OUTPUT_BYTES,
+            MAX_PROMPT_BYTES,
+            NotesDocumentError,
+            build_notes_schema,
+        )
+
+        response_limit = MAX_OUTPUT_BYTES if max_output_bytes is None else max_output_bytes
+        if (
+            isinstance(response_limit, bool)
+            or not isinstance(response_limit, int)
+            or not 1 <= response_limit <= MAX_OUTPUT_BYTES
+        ):
+            raise ChatGPTError(
+                413,
+                "notes_request_too_large",
+                "The notes request exceeds the configured size limit.",
+            )
+        try:
+            schema = build_notes_schema(allowed_source_ids)
+            prompt_bytes = prompt.encode("utf-8")
+            schema_bytes = json.dumps(
+                schema, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+            ).encode("utf-8")
+        except (NotesDocumentError, UnicodeEncodeError, TypeError, ValueError):
+            raise ChatGPTError(
+                413,
+                "notes_request_too_large",
+                "The notes request exceeds the configured size limit.",
+            ) from None
+        if len(prompt_bytes) > MAX_PROMPT_BYTES:
+            raise ChatGPTError(
+                413,
+                "notes_request_too_large",
+                "The notes request exceeds the configured size limit.",
+            )
+
+        body: dict[str, Any] = {
+            "model": model,
+            "max_output_tokens": NOTES_MAX_OUTPUT_TOKENS,
+            "input": [
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": prompt}],
+                }
+            ],
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "meeting_notes_v1",
+                    "strict": True,
+                    "schema": schema,
+                }
+            },
+            "store": False,
+            "stream": True,
+        }
+        if reasoning_effort != "default":
+            body["reasoning"] = {"effort": reasoning_effort}
+
+        # UTF-8 bytes conservatively bound prompt/schema tokens. Keep the request
+        # input, completion cap, and reserved reasoning/protocol headroom within 64k.
+        context_bytes = len(prompt_bytes) + len(schema_bytes) + 1024
+        if context_bytes > NOTES_CONTEXT_INPUT_BUDGET_BYTES:
+            raise ChatGPTError(
+                413,
+                "notes_context_budget_exceeded",
+                "The notes request exceeds the safe context budget.",
+            )
+        try:
+            request_body = json.dumps(
+                body, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+            ).encode("utf-8")
+        except (UnicodeEncodeError, TypeError, ValueError):
+            raise ChatGPTError(
+                413,
+                "notes_request_too_large",
+                "The notes request exceeds the configured size limit.",
+            ) from None
+        if len(request_body) > NOTES_MAX_REQUEST_BODY_BYTES:
+            raise ChatGPTError(
+                413,
+                "notes_request_too_large",
+                "The notes request exceeds the configured size limit.",
+            )
+
+        completed = False
+        delta_text: list[str] = []
+        total_text = 0
+        response: httpx.Response | None = None
+
+        def with_observed_output_bytes(error: ChatGPTError) -> ChatGPTError:
+            diagnostics = error.diagnostics if isinstance(error.diagnostics, dict) else {}
+            error.diagnostics = {**diagnostics, "output_bytes": total_text}
+            return error
+
+        with self._client(read_timeout=NOTES_HTTP_READ_TIMEOUT_SECONDS) as client:
+            deadline = time.monotonic() + NOTES_HTTP_TOTAL_TIMEOUT_SECONDS
+            try:
+                with client.stream(
+                    "POST",
+                    f"{API_BASE_URL}/responses",
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Accept": "text/event-stream",
+                        "Content-Type": "application/json",
+                    },
+                    content=request_body,
+                ) as response:
+                    if not 200 <= response.status_code < 300:
+                        error_body = self._read_limited(response, deadline=deadline)
+                        raise self._http_error(response, error_body)
+                    content_type = (
+                        response.headers.get("content-type", "")
+                        .split(";", maxsplit=1)[0]
+                        .strip()
+                        .lower()
+                    )
+                    if "content-type" in response.headers and content_type != "text/event-stream":
+                        raise ChatGPTError(
+                            502,
+                            "provider_invalid_stream",
+                            "ChatGPT returned an invalid notes stream.",
+                        )
+                    for event in self._sse_events(
+                        response,
+                        deadline=deadline,
+                        max_body_bytes=NOTES_MAX_SSE_BODY_BYTES,
+                        max_line_bytes=NOTES_MAX_SSE_LINE_BYTES,
+                    ):
+                        event_type = event.get("type")
+                        if event_type == "response.output_text.delta":
+                            delta = event.get("delta")
+                            if not isinstance(delta, str):
+                                raise ChatGPTError(
+                                    502,
+                                    "provider_invalid_stream",
+                                    "ChatGPT returned an invalid notes stream.",
+                                )
+                            total_text += len(delta.encode("utf-8"))
+                            if total_text > response_limit:
+                                raise with_observed_output_bytes(
+                                    ChatGPTError(
+                                        502,
+                                        "provider_output_too_large",
+                                        "ChatGPT returned an oversized notes document.",
+                                    )
+                                )
+                            delta_text.append(delta)
+                        elif event_type == "response.failed":
+                            error = (
+                                event.get("response", {}).get("error")
+                                if isinstance(event.get("response"), dict)
+                                else None
+                            )
+                            raise self._sse_error(error)
+                        elif event_type == "error":
+                            raise self._sse_error(event.get("error", event))
+                        elif event_type == "response.incomplete":
+                            result = event.get("response")
+                            details = (
+                                result.get("incomplete_details")
+                                if isinstance(result, dict)
+                                else None
+                            )
+                            reason = details.get("reason") if isinstance(details, dict) else None
+                            code = (
+                                {
+                                    "max_output_tokens": "notes_token_budget_exceeded",
+                                    "content_filter": "notes_content_filtered",
+                                }.get(reason, "notes_incomplete")
+                                if isinstance(reason, str)
+                                else "notes_incomplete"
+                            )
+                            raise ChatGPTError(
+                                502,
+                                code,
+                                "ChatGPT did not complete the notes request.",
+                            )
+                        elif event_type == "response.completed":
+                            if completed:
+                                raise ChatGPTError(
+                                    502,
+                                    "provider_invalid_stream",
+                                    "ChatGPT returned an invalid notes stream.",
+                                )
+                            completed = True
+                            if not delta_text:
+                                completed_text = self._completed_output_text(event)
+                                delta_text.extend(completed_text)
+                                total_text = sum(
+                                    len(part.encode("utf-8")) for part in completed_text
+                                )
+                            break
+            except ChatGPTError as error:
+                with_observed_output_bytes(error)
+                if response is not None:
+                    correlation = self._diagnostics(response, None)
+                    correlation.update(error.diagnostics)
+                    error.diagnostics = correlation
+                raise
+            except httpx.TimeoutException:
+                raise with_observed_output_bytes(
+                    ChatGPTError(
+                        503, "provider_timeout", "ChatGPT did not complete the notes request."
+                    )
+                ) from None
+            except httpx.HTTPError:
+                raise with_observed_output_bytes(
+                    ChatGPTError(
+                        503, "provider_unavailable", "ChatGPT could not complete the notes request."
+                    )
+                ) from None
+        if not completed:
+            raise with_observed_output_bytes(
+                ChatGPTError(502, "notes_incomplete", "ChatGPT did not complete the notes request.")
+            )
+        result = "".join(delta_text)
+        if len(result.encode("utf-8")) > response_limit:
+            raise with_observed_output_bytes(
+                ChatGPTError(
+                    502,
+                    "provider_output_too_large",
+                    "ChatGPT returned an oversized notes document.",
+                )
+            )
+        return result
+
     @staticmethod
     def _completed_output_text(event: dict[str, Any]) -> list[str]:
         response = event.get("response")
@@ -829,8 +1213,15 @@ class ChatGPTHTTPAdapter:
 
     @classmethod
     def _sse_events(
-        cls, response: httpx.Response, *, deadline: float | None = None
+        cls,
+        response: httpx.Response,
+        *,
+        deadline: float | None = None,
+        max_body_bytes: int | None = None,
+        max_line_bytes: int | None = None,
     ) -> Iterator[dict[str, Any]]:
+        body_limit = MAX_SSE_BODY_BYTES if max_body_bytes is None else max_body_bytes
+        line_limit = MAX_SSE_LINE_BYTES if max_line_bytes is None else max_line_bytes
         buffer = bytearray()
         data_lines: list[bytes] = []
         total = 0
@@ -863,7 +1254,7 @@ class ChatGPTHTTPAdapter:
             for chunk in response.iter_bytes():
                 cls._check_deadline(deadline)
                 total += len(chunk)
-                if total > MAX_SSE_BODY_BYTES:
+                if total > body_limit:
                     raise ChatGPTError(
                         502,
                         "provider_stream_too_large",
@@ -873,13 +1264,19 @@ class ChatGPTHTTPAdapter:
                 while True:
                     newline = buffer.find(b"\n")
                     if newline < 0:
-                        if len(buffer) > MAX_SSE_LINE_BYTES:
+                        if len(buffer) > line_limit:
                             raise ChatGPTError(
                                 502,
                                 "provider_stream_line_too_large",
                                 "ChatGPT returned an oversized verification stream.",
                             )
                         break
+                    if newline > line_limit:
+                        raise ChatGPTError(
+                            502,
+                            "provider_stream_line_too_large",
+                            "ChatGPT returned an oversized stream line.",
+                        )
                     line = bytes(buffer[:newline]).rstrip(b"\r")
                     del buffer[: newline + 1]
                     if not line:
@@ -949,12 +1346,18 @@ class ChatGPTProvider:
         adapter: ChatGPTAdapter | None = None,
         clock=time.time,
         sleeper=time.sleep,
+        active_task_guard: Callable[[], None] | None = None,
     ) -> None:
         self.store = ProviderStore(directory)
         self.callback_url = callback_url
         self.adapter: ChatGPTAdapter = adapter or ChatGPTHTTPAdapter()
         self._clock = clock
         self._sleep = sleeper
+        self._active_task_guard = active_task_guard
+
+    def _assert_provider_mutation_allowed(self) -> None:
+        if self._active_task_guard is not None:
+            self._active_task_guard()
 
     def ensure(self) -> None:
         self.store.ensure()
@@ -1027,6 +1430,7 @@ class ChatGPTProvider:
 
     def start_login(self) -> dict[str, Any]:
         with self.store.operation():
+            self._assert_provider_mutation_allowed()
             self._revoke_invalid_subscriber()
             return self._start_login()
 
@@ -1286,6 +1690,7 @@ class ChatGPTProvider:
     def handle_callback(self, pairs: Sequence[tuple[str, str]]) -> None:
         # Never consume a one-time OAuth result before acquiring the commit lock.
         with self.store.operation():
+            self._assert_provider_mutation_allowed()
             self._handle_callback(pairs)
 
     def _revoke_rejected_exchange(self, client_id: str, tokens: object) -> None:
@@ -1523,11 +1928,18 @@ class ChatGPTProvider:
             registration.pop(key, None)
 
     def _record_failure(self, error: ChatGPTError) -> None:
+        diagnostics = error.diagnostics
+        if error.code == "notes_invalid_output":
+            diagnostics = _safe_notes_validation_diagnostics(diagnostics)
+        elif isinstance(diagnostics, dict) and diagnostics.get("stage") in _NOTES_VALIDATION_STAGES:
+            diagnostics = _safe_notes_call_diagnostics(diagnostics)
+        elif not isinstance(diagnostics, dict):
+            diagnostics = {}
         with self.store.locked(write=True) as state:
             state["last_diagnostic"] = {
                 "code": error.code,
                 "at": self._iso_timestamp(self._now()),
-                **error.diagnostics,
+                **diagnostics,
             }
 
     def _mark_reconnect_required(self, code: str, *, refresh_token: str | None = None) -> None:
@@ -1545,13 +1957,15 @@ class ChatGPTProvider:
             state["verification"] = None
             state["last_provider_error"] = code
 
-    def _access_token(self) -> str:
+    def _access_token(
+        self, *, minimum_lifetime_seconds: float = ACCESS_REFRESH_MARGIN_SECONDS
+    ) -> str:
         client_id, registration = self._active_registration()
         expires_at = registration.get("expires_at")
         refresh_token = registration.get("refresh_token")
         if not isinstance(expires_at, (float, int)) or not isinstance(refresh_token, str):
             raise ProviderStateError("Provider token state is invalid")
-        if expires_at > self._now() + ACCESS_REFRESH_MARGIN_SECONDS:
+        if expires_at > self._now() + minimum_lifetime_seconds:
             return registration["access_token"]
         try:
             refreshed = self.adapter.refresh(client_id=client_id, refresh_token=refresh_token)
@@ -1632,6 +2046,7 @@ class ChatGPTProvider:
 
     def list_models(self) -> dict[str, Any]:
         with self.store.operation():
+            self._assert_provider_mutation_allowed()
             models = self._models()
             with self.store.locked() as state:
                 return {"models": models, "selected_model": state.get("selected_model")}
@@ -1643,6 +2058,7 @@ class ChatGPTProvider:
             raise ChatGPTError(400, "invalid_preference", "Choose an available ChatGPT model.")
         validate_reasoning_effort(model, reasoning_effort)
         with self.store.operation():
+            self._assert_provider_mutation_allowed()
             models = self._models()
             if not any(item["id"] == model for item in models):
                 raise ChatGPTError(
@@ -1656,6 +2072,523 @@ class ChatGPTProvider:
                 state["selected_reasoning_effort"] = reasoning_effort
         return self.notes_preferences()
 
+    def notes_task_pin(self) -> dict[str, Any]:
+        """Return the connected account and selected inference settings under its lock."""
+        with self.store.locked() as state:
+            if state["connection_status"] != "connected":
+                if state["connection_status"] == "reconnect_required":
+                    raise ChatGPTError(
+                        409, "reconnect_required", "Reconnect ChatGPT before using its plan."
+                    )
+                raise ChatGPTError(
+                    409, "provider_disconnected", "Connect ChatGPT before creating notes."
+                )
+            if state.get("notes_provider") != "chatgpt":
+                raise ChatGPTError(
+                    409, "notes_provider_unselected", "Choose ChatGPT as the notes provider."
+                )
+            model = state.get("selected_model")
+            effort = state.get("selected_reasoning_effort", "default")
+            connection_version = state.get("connection_version")
+            if (
+                not isinstance(model, str)
+                or not model
+                or not isinstance(effort, str)
+                or isinstance(connection_version, bool)
+                or not isinstance(connection_version, int)
+                or connection_version < 0
+            ):
+                raise ProviderStateError("Selected notes settings are invalid")
+            validate_reasoning_effort(model, effort)
+            return {
+                "provider": "chatgpt",
+                "connection_version": connection_version,
+                "model": model,
+                "reasoning_effort": effort,
+            }
+
+    def generate_notes_document(
+        self,
+        *,
+        snapshot: dict[str, Any],
+        connection_version: int,
+        model: str,
+        reasoning_effort: str,
+        output_language: str = "en",
+    ) -> dict[str, Any]:
+        """Generate and validate notes using only the account and model pinned at acceptance."""
+        from asr_en_vi.notes_document import (
+            MAX_CHUNK_OUTPUT_BYTES,
+            MAX_OUTPUT_BYTES,
+            MAX_PROVIDER_CALLS,
+            MAX_REDUCTION_CALLS,
+            MAX_REDUCTION_LEVELS,
+            MAX_REDUCTION_OUTPUT_BYTES,
+            NotesDocumentError,
+            _prompt_citation_scope,
+            build_chunk_prompt,
+            build_prompt,
+            build_reduction_prompt,
+            normalize_duplicate_source_refs,
+            plan_source,
+            project_source_snapshot,
+            restore_source_refs,
+            validate_document,
+            validate_output_language,
+        )
+
+        output_language = validate_output_language(output_language)
+        projection = project_source_snapshot(snapshot)
+        projected_snapshot = projection.snapshot
+        plan = plan_source(
+            snapshot,
+            projected_snapshot=projected_snapshot,
+            output_language=output_language,
+        )
+        pin = {
+            "connection_version": connection_version,
+            "model": model,
+            "provider": "chatgpt",
+            "reasoning_effort": reasoning_effort,
+        }
+        with self.store.operation():
+            if self.notes_task_pin() != pin:
+                raise ChatGPTError(
+                    409,
+                    "connection_changed",
+                    "The ChatGPT connection or selected model changed before notes started.",
+                )
+            call_count = 0
+            repair_used = False
+            last_successful_response: tuple[int, str, str] | None = None
+
+            def request(
+                prompt: str,
+                *,
+                allowed_source_ids: Sequence[str],
+                max_output_bytes: int,
+                stage: str,
+                attempt: str,
+            ) -> str:
+                nonlocal call_count
+                if call_count >= MAX_PROVIDER_CALLS:
+                    raise ChatGPTError(
+                        413,
+                        "notes_synthesis_limit_exceeded",
+                        "This transcript exceeds the bounded notes synthesis request limit.",
+                    )
+                call_count += 1
+                provider_call_index = call_count
+                prompt_bytes = len(prompt.encode("utf-8"))
+                access_token = self._access_token(
+                    minimum_lifetime_seconds=(
+                        NOTES_HTTP_TOTAL_TIMEOUT_SECONDS + ACCESS_REFRESH_MARGIN_SECONDS
+                    )
+                )
+                try:
+                    return self.adapter.generate_notes(
+                        access_token=access_token,
+                        model=model,
+                        reasoning_effort=reasoning_effort,
+                        prompt=prompt,
+                        allowed_source_ids=allowed_source_ids,
+                        max_output_bytes=max_output_bytes,
+                    )
+                except ChatGPTError as error:
+                    diagnostics = (
+                        dict(error.diagnostics) if isinstance(error.diagnostics, dict) else {}
+                    )
+                    diagnostics.update(
+                        {
+                            "stage": stage,
+                            "attempt": attempt,
+                            "provider_call_index": provider_call_index,
+                            "prompt_bytes": prompt_bytes,
+                            "response_limit": max_output_bytes,
+                        }
+                    )
+                    error.diagnostics = _safe_notes_call_diagnostics(diagnostics)
+                    self._record_failure(error)
+                    if error.code in _RECONNECT_ERROR_CODES:
+                        self._mark_reconnect_required(error.code)
+                    raise
+
+            def invalid_output_error(
+                validation_error: Exception,
+                *,
+                stage: str,
+                provider_call_index: int,
+                attempt: str | None,
+                raw_output: object,
+                repair_state: str | None,
+                reported_output_bytes: int | None = None,
+                prompt_bytes: int | None = None,
+                response_limit: int | None = None,
+            ) -> ChatGPTError:
+                error = ChatGPTError(
+                    502,
+                    "notes_invalid_output",
+                    "ChatGPT returned notes that did not match the saved transcript.",
+                )
+                diagnostics: dict[str, Any] = {
+                    "stage": stage,
+                    "provider_call_index": provider_call_index,
+                }
+                if attempt is not None:
+                    diagnostics["attempt"] = attempt
+                if repair_state is not None:
+                    diagnostics["repair_state"] = repair_state
+                if prompt_bytes is not None:
+                    diagnostics["prompt_bytes"] = prompt_bytes
+                if response_limit is not None:
+                    diagnostics["response_limit"] = response_limit
+                reason = getattr(validation_error, "reason_code", None)
+                if isinstance(reason, str) and reason in NOTES_VALIDATION_REASON_CODES:
+                    diagnostics["validation_reason"] = reason
+                detail = getattr(validation_error, "detail_code", None)
+                if (
+                    reason == "source_ids"
+                    and isinstance(detail, str)
+                    and detail in NOTES_VALIDATION_DETAIL_CODES
+                ):
+                    diagnostics["validation_detail"] = detail
+                field_name = getattr(validation_error, "field_name", None)
+                if (
+                    reason == "action_fields"
+                    and isinstance(field_name, str)
+                    and field_name in NOTES_ACTION_FIELD_NAMES
+                ):
+                    diagnostics["validation_field"] = field_name
+                if reported_output_bytes is not None:
+                    diagnostics["output_bytes"] = reported_output_bytes
+                elif isinstance(raw_output, str):
+                    try:
+                        diagnostics["output_bytes"] = len(raw_output.encode("utf-8"))
+                    except UnicodeError:
+                        diagnostics["output_bytes"] = len(
+                            raw_output.encode("utf-8", errors="surrogatepass")
+                        )
+                error.diagnostics = diagnostics
+                self._record_failure(error)
+                return error
+
+            def parse_and_validate(
+                raw_output: object,
+                citation_scope: dict[str, Any],
+                *,
+                max_output_bytes: int,
+            ) -> dict[str, Any]:
+                if not isinstance(raw_output, str):
+                    raise NotesDocumentError("The notes response must be text.", reason_code="json")
+                try:
+                    document = json.loads(raw_output)
+                except (json.JSONDecodeError, RecursionError):
+                    raise NotesDocumentError(
+                        "The notes response must be valid JSON.", reason_code="json"
+                    ) from None
+                try:
+                    document = normalize_duplicate_source_refs(
+                        document,
+                        tuple(segment["id"] for segment in citation_scope["segments"]),
+                    )
+                    return validate_document(
+                        document,
+                        citation_scope,
+                        max_output_bytes=max_output_bytes,
+                    )
+                except RecursionError:
+                    raise NotesDocumentError(
+                        "The notes response must be valid JSON.", reason_code="json"
+                    ) from None
+
+            def request_document(
+                prompt: str,
+                citation_scope: dict[str, Any],
+                *,
+                max_output_bytes: int,
+                stage: str,
+                repair_prompt: Callable[[str], str],
+            ) -> dict[str, Any]:
+                nonlocal last_successful_response, repair_used
+                allowed_source_ids = tuple(segment["id"] for segment in citation_scope["segments"])
+                raw_output = request(
+                    prompt,
+                    allowed_source_ids=allowed_source_ids,
+                    max_output_bytes=max_output_bytes,
+                    stage=stage,
+                    attempt="primary",
+                )
+                provider_call_index = call_count
+                try:
+                    validated = parse_and_validate(
+                        raw_output,
+                        citation_scope,
+                        max_output_bytes=max_output_bytes,
+                    )
+                    last_successful_response = (provider_call_index, "primary", raw_output)
+                    return validated
+                except (NotesDocumentError, TypeError) as validation_error:
+                    if repair_used:
+                        raise invalid_output_error(
+                            validation_error,
+                            stage=stage,
+                            provider_call_index=provider_call_index,
+                            attempt="primary",
+                            raw_output=raw_output,
+                            repair_state="already_consumed",
+                            prompt_bytes=len(prompt.encode("utf-8")),
+                            response_limit=max_output_bytes,
+                        ) from None
+                    repair_used = True
+                    try:
+                        bounded_repair_prompt = repair_prompt(raw_output)
+                    except (NotesDocumentError, TypeError, AttributeError):
+                        raise invalid_output_error(
+                            validation_error,
+                            stage=stage,
+                            provider_call_index=provider_call_index,
+                            attempt="primary",
+                            raw_output=raw_output,
+                            repair_state="unavailable",
+                            prompt_bytes=len(prompt.encode("utf-8")),
+                            response_limit=max_output_bytes,
+                        ) from None
+                    repaired_output = request(
+                        bounded_repair_prompt,
+                        allowed_source_ids=allowed_source_ids,
+                        max_output_bytes=max_output_bytes,
+                        stage=stage,
+                        attempt="repair",
+                    )
+                    repair_call_index = call_count
+                    try:
+                        validated = parse_and_validate(
+                            repaired_output,
+                            citation_scope,
+                            max_output_bytes=max_output_bytes,
+                        )
+                        last_successful_response = (repair_call_index, "repair", repaired_output)
+                        return validated
+                    except (NotesDocumentError, TypeError) as repair_error:
+                        raise invalid_output_error(
+                            repair_error,
+                            stage=stage,
+                            provider_call_index=repair_call_index,
+                            attempt="repair",
+                            raw_output=repaired_output,
+                            repair_state="already_consumed",
+                            prompt_bytes=len(bounded_repair_prompt.encode("utf-8")),
+                            response_limit=max_output_bytes,
+                        ) from None
+
+            def restore_final_document(document: dict[str, Any], *, stage: str) -> dict[str, Any]:
+                restored = restore_source_refs(document, projection.alias_to_original)
+                try:
+                    return validate_document(restored, snapshot, max_output_bytes=MAX_OUTPUT_BYTES)
+                except (NotesDocumentError, TypeError) as validation_error:
+                    response = last_successful_response
+                    call_index = response[0] if response is not None else max(call_count, 1)
+                    try:
+                        expanded_bytes = len(
+                            json.dumps(
+                                restored,
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                                allow_nan=False,
+                            ).encode("utf-8")
+                        )
+                    except (TypeError, ValueError, UnicodeError):
+                        expanded_bytes = None
+                    raise invalid_output_error(
+                        validation_error,
+                        stage=stage,
+                        provider_call_index=call_index,
+                        attempt=None,
+                        raw_output=None,
+                        repair_state=None,
+                        reported_output_bytes=expanded_bytes,
+                    ) from None
+
+            if not plan.chunked:
+                source_ids = tuple(segment["id"] for segment in projected_snapshot["segments"])
+                document = request_document(
+                    build_prompt(
+                        projected_snapshot,
+                        allowed_source_ids=source_ids,
+                        output_language=output_language,
+                    ),
+                    projected_snapshot,
+                    max_output_bytes=MAX_OUTPUT_BYTES,
+                    stage="single",
+                    repair_prompt=lambda raw: build_prompt(
+                        projected_snapshot,
+                        allowed_source_ids=source_ids,
+                        invalid_output=raw,
+                        output_language=output_language,
+                    ),
+                )
+                return restore_final_document(document, stage="single")
+
+            summaries: list[dict[str, Any]] = []
+            for index, chunk in enumerate(plan.chunks, start=1):
+                projected_chunk = projection.project_chunk(chunk)
+                source_ids = tuple(segment["id"] for segment in projected_chunk["segments"])
+                prompt = build_chunk_prompt(
+                    projected_chunk,
+                    chunk_index=index,
+                    chunk_count=len(plan.chunks),
+                    allowed_source_ids=source_ids,
+                    output_language=output_language,
+                )
+
+                def repair_chunk(
+                    raw: str,
+                    *,
+                    source_chunk: dict[str, Any] = projected_chunk,
+                    chunk_index: int = index,
+                    allowed_ids: tuple[str, ...] = source_ids,
+                ) -> str:
+                    return build_chunk_prompt(
+                        source_chunk,
+                        chunk_index=chunk_index,
+                        chunk_count=len(plan.chunks),
+                        allowed_source_ids=allowed_ids,
+                        invalid_output=raw,
+                        output_language=output_language,
+                    )
+
+                summaries.append(
+                    request_document(
+                        prompt,
+                        projected_chunk,
+                        max_output_bytes=MAX_CHUNK_OUTPUT_BYTES,
+                        stage="chunk",
+                        repair_prompt=repair_chunk,
+                    )
+                )
+
+            reduction_calls = 0
+            documents = summaries
+            for _level in range(MAX_REDUCTION_LEVELS):
+                final_prompt = None
+                final_scope = _prompt_citation_scope(projected_snapshot, documents)
+                with suppress(NotesDocumentError):
+                    final_prompt = build_reduction_prompt(
+                        projected_snapshot,
+                        documents,
+                        final=True,
+                        output_language=output_language,
+                    )
+                if final_prompt is not None:
+                    if reduction_calls >= MAX_REDUCTION_CALLS:
+                        raise ChatGPTError(
+                            413,
+                            "notes_synthesis_limit_exceeded",
+                            "This transcript exceeds the bounded notes reduction limit.",
+                        )
+                    reduction_calls += 1
+                    final_document = request_document(
+                        final_prompt,
+                        final_scope,
+                        max_output_bytes=MAX_OUTPUT_BYTES,
+                        stage="final",
+                        repair_prompt=lambda raw, inputs=documents: build_reduction_prompt(
+                            projected_snapshot,
+                            inputs,
+                            final=True,
+                            invalid_output=raw,
+                            output_language=output_language,
+                        ),
+                    )
+                    return restore_final_document(final_document, stage="final")
+
+                groups: list[list[dict[str, Any]]] = []
+                current: list[dict[str, Any]] = []
+                for document in documents:
+                    try:
+                        build_reduction_prompt(
+                            projected_snapshot,
+                            [document],
+                            final=False,
+                            output_language=output_language,
+                        )
+                    except NotesDocumentError:
+                        raise ChatGPTError(
+                            413,
+                            "notes_synthesis_limit_exceeded",
+                            "A notes summary exceeds the bounded synthesis request limit.",
+                        ) from None
+                    if not current:
+                        current = [document]
+                        continue
+                    if len(current) >= 2:
+                        groups.append(current)
+                        current = [document]
+                        continue
+                    candidate = [*current, document]
+                    try:
+                        build_reduction_prompt(
+                            projected_snapshot,
+                            candidate,
+                            final=False,
+                            output_language=output_language,
+                        )
+                    except NotesDocumentError:
+                        groups.append(current)
+                        current = [document]
+                    else:
+                        current = candidate
+                if current:
+                    groups.append(current)
+
+                next_documents: list[dict[str, Any]] = []
+                for group in groups:
+                    if len(group) == 1:
+                        next_documents.extend(group)
+                        continue
+                    if reduction_calls >= MAX_REDUCTION_CALLS:
+                        raise ChatGPTError(
+                            413,
+                            "notes_synthesis_limit_exceeded",
+                            "This transcript exceeds the bounded notes reduction limit.",
+                        )
+                    reduction_calls += 1
+                    group_scope = _prompt_citation_scope(projected_snapshot, group)
+                    intermediate_prompt = build_reduction_prompt(
+                        projected_snapshot,
+                        group,
+                        final=False,
+                        output_language=output_language,
+                    )
+                    next_documents.append(
+                        request_document(
+                            intermediate_prompt,
+                            group_scope,
+                            max_output_bytes=MAX_REDUCTION_OUTPUT_BYTES,
+                            stage="reduce",
+                            repair_prompt=lambda raw, inputs=group: build_reduction_prompt(
+                                projected_snapshot,
+                                inputs,
+                                final=False,
+                                invalid_output=raw,
+                                output_language=output_language,
+                            ),
+                        )
+                    )
+                if len(next_documents) >= len(documents):
+                    raise ChatGPTError(
+                        413,
+                        "notes_synthesis_limit_exceeded",
+                        "Notes synthesis could not reduce the summary count within its limit.",
+                    )
+                documents = next_documents
+
+            raise ChatGPTError(
+                413,
+                "notes_synthesis_limit_exceeded",
+                "This transcript exceeds the bounded notes reduction depth.",
+            )
+
     def verify(self, *, model: str, reasoning_effort: str | None = None) -> dict[str, Any]:
         if not isinstance(model, str) or not 1 <= len(model) <= 200:
             raise ChatGPTError(400, "invalid_model", "Choose an available ChatGPT model to verify.")
@@ -1668,6 +2601,7 @@ class ChatGPTProvider:
                 )
         validate_reasoning_effort(model, reasoning_effort)
         with self.store.operation():
+            self._assert_provider_mutation_allowed()
             models = self._models()
             if not any(item["id"] == model for item in models):
                 raise ChatGPTError(
@@ -1701,7 +2635,9 @@ class ChatGPTProvider:
 
     def disconnect(self) -> dict[str, Any]:
         confirmed = False
+        self._assert_provider_mutation_allowed()
         with self.store.operation():
+            self._assert_provider_mutation_allowed()
             try:
                 with self.store.locked() as state:
                     client_id = state.get("active_client_id")

@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse,
 from asr_en_vi.auth import AuthStateError, AuthStore, session_is_valid
 from asr_en_vi.chatgpt import ChatGPTAdapter, ChatGPTHTTPAdapter, ChatGPTProvider
 from asr_en_vi.config import CHATGPT_CALLBACK_PATH, Settings
+from asr_en_vi.notes import assert_provider_mutation_allowed
 from asr_en_vi.recordings import recover_recordings
 from asr_en_vi.routes import SESSION_COOKIE, install_routes
 from asr_en_vi.storage import initialize
@@ -111,6 +112,7 @@ def create_app(
         provider_dir,
         callback_url=runtime_settings.chatgpt_callback_url or "",
         adapter=(chatgpt_adapter if chatgpt_adapter is not None else ChatGPTHTTPAdapter()),
+        active_task_guard=lambda: assert_provider_mutation_allowed(runtime_settings.data_dir),
     )
 
     @asynccontextmanager
