@@ -136,6 +136,12 @@ hiệu rà soát theo ngưỡng decode của Whisper, không phải xác suất 
 giữ nguyên. Các lý do rà soát từ nhận dạng và diarization được lưu riêng để người dùng nghe lại và
 điều chỉnh speaker assignment khi cần.
 
+Để in lại access link và QR hiện tại mà không đổi token (token nằm sau dấu `#` của link):
+
+```sh
+docker compose exec -T app python -m asr_en_vi.cli access show
+```
+
 Để thay token và vô hiệu link/session cũ:
 
 ```sh
