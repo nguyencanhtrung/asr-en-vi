@@ -56,6 +56,10 @@ def test_provider_volume_is_created_for_runtime_uid_and_default_server_suppresse
         in dockerfile
     )
     assert '"--no-access-log"]' in dockerfile
+    assert "ARG OMP_VERSION=18.5.0" in dockerfile
+    assert "b8413e6e085a423c7a9b1d7bc025c2af794923b6b6c57330a309639b6176c8a1" in dockerfile
+    assert "1244860c58bb68a3a45390d4932e5c7983183ec8c12cb6848c1afd709de38a07" in dockerfile
+    assert "COPY --from=omp-bin /usr/local/bin/omp /usr/local/bin/omp" in dockerfile
 
 
 def test_image_build_context_is_allowlisted_and_excludes_user_owned_files():

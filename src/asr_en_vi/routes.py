@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
+from asr_en_vi.antigravity import AntigravityError, AntigravityProvider
 from asr_en_vi.auth import AuthStateError, create_session_cookie, token_matches
 from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
 from asr_en_vi.config import Settings
@@ -147,13 +148,18 @@ def _parse_byte_range(value: str, size: int) -> _RangeResult:
     return start, min(end, size - 1)
 
 
-def install_routes(app: FastAPI, settings: Settings, chatgpt_provider: ChatGPTProvider) -> None:
+def install_routes(
+    app: FastAPI,
+    settings: Settings,
+    chatgpt_provider: ChatGPTProvider,
+    antigravity_provider: AntigravityProvider,
+) -> None:
     validation_slots = asyncio.Semaphore(_MEDIA_VALIDATION_CONCURRENCY)
 
     async def provider_json(operation):
         try:
             return await run_in_threadpool(operation)
-        except ChatGPTError as error:
+        except (ChatGPTError, AntigravityError) as error:
             raise HTTPException(
                 status_code=error.status_code,
                 detail={"code": error.code, "message": error.public_message},
@@ -219,6 +225,13 @@ def install_routes(app: FastAPI, settings: Settings, chatgpt_provider: ChatGPTPr
             return Response(status_code=404)
         return FileResponse(asset_path, media_type="text/javascript")
 
+    @app.get("/assets/antigravity.js", include_in_schema=False)
+    async def antigravity_js() -> Response:
+        asset_path = WEB_DIR / "antigravity.js"
+        if not asset_path.is_file():
+            return Response(status_code=404)
+        return FileResponse(asset_path, media_type="text/javascript")
+
     @app.get("/assets/history.css", include_in_schema=False)
     async def history_css() -> FileResponse:
         return _asset_response("history.css", "text/css")
@@ -247,7 +260,64 @@ def install_routes(app: FastAPI, settings: Settings, chatgpt_provider: ChatGPTPr
 
     @app.get("/api/providers")
     async def list_providers() -> dict[str, Any]:
-        return await provider_json(chatgpt_provider.get_providers)
+        def load_providers() -> dict[str, Any]:
+            chatgpt = chatgpt_provider.get_providers()
+            return {"providers": [*chatgpt["providers"], antigravity_provider.provider_view()]}
+
+        return await provider_json(load_providers)
+
+    @app.post("/api/providers/antigravity/login-sessions", status_code=201)
+    async def start_antigravity_login(request: Request) -> dict[str, Any]:
+        await _json_object(request, required=set())
+        return await provider_json(antigravity_provider.start_login)
+
+    @app.get("/api/providers/antigravity/login-sessions/{session_id}")
+    async def get_antigravity_login(session_id: str) -> dict[str, Any]:
+        return await provider_json(lambda: antigravity_provider.login_session(session_id))
+
+    @app.post("/api/providers/antigravity/login-sessions/{session_id}/input")
+    async def answer_antigravity_login(session_id: str, request: Request) -> dict[str, Any]:
+        payload = await _json_object(request, required={"value"})
+        if not isinstance(payload["value"], str):
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "invalid_login_input", "message": "Provide a string value."},
+            )
+        return await provider_json(
+            lambda: antigravity_provider.submit_login_input(session_id, payload["value"])
+        )
+
+    @app.delete("/api/providers/antigravity/login-sessions/{session_id}")
+    async def cancel_antigravity_login(session_id: str) -> dict[str, Any]:
+        return await provider_json(lambda: antigravity_provider.cancel_login(session_id))
+
+    @app.get("/api/providers/antigravity/models")
+    async def list_antigravity_models() -> dict[str, Any]:
+        return await provider_json(antigravity_provider.list_models)
+
+    @app.put("/api/providers/antigravity/preference")
+    async def put_antigravity_preference(request: Request) -> dict[str, Any]:
+        payload = await _json_object(request, required={"model"})
+        if not isinstance(payload["model"], str):
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "invalid_model", "message": "Choose an Antigravity model."},
+            )
+        return await provider_json(lambda: antigravity_provider.set_preference(payload["model"]))
+
+    @app.post("/api/providers/antigravity/verify")
+    async def verify_antigravity(request: Request) -> dict[str, Any]:
+        payload = await _json_object(request, required={"model"})
+        if not isinstance(payload["model"], str):
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "invalid_model", "message": "Choose an Antigravity model."},
+            )
+        return await provider_json(lambda: antigravity_provider.verify(payload["model"]))
+
+    @app.delete("/api/providers/antigravity/connection")
+    async def disconnect_antigravity() -> dict[str, Any]:
+        return await provider_json(antigravity_provider.disconnect)
 
     @app.post("/api/providers/chatgpt/login-sessions", status_code=201)
     async def start_chatgpt_login(request: Request) -> dict[str, Any]:

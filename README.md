@@ -182,6 +182,31 @@ Nếu chưa xác nhận được thu hồi từ xa, UI hướng dẫn kiểm tra
 Xem [quy trình kiểm chứng ChatGPT thật](docs/chatgpt-integration-check.md) để ghi nhận quyền tài
 khoản, model và kết quả. Kiểm thử giả lập không xác nhận entitlement hoặc quota của tài khoản thật.
 
+## Kết nối Google Antigravity qua OMP
+
+Mở **AI** trên thanh đầu workspace, tới phần **Google Antigravity**, rồi chọn **Kết nối Google
+Antigravity**. UI hiển thị URL đăng nhập do OMP cung cấp và, khi provider yêu cầu, ô nhập mã hoặc
+URL chuyển hướng. Phiên đăng nhập hết hạn sau 10 phút và có thể hủy rõ ràng. Sau khi kết nối, chọn
+model từ catalog, lưu lựa chọn và chạy yêu cầu kiểm tra tổng hợp để xác nhận model thực sự tạo được
+đầu ra. Catalog không tự chứng minh quyền inference hoặc quota.
+
+Image pin OMP `18.5.0` bằng checksum riêng cho `amd64` và `arm64`. Runner dùng home, agent store,
+XDG directories và working directory riêng dưới volume `provider`; không đọc cấu hình Claude,
+Codex hay OMP cá nhân trên host. Mỗi tiến trình RPC chạy với `--no-session`, `--no-tools`,
+`--no-extensions`, `--no-skills`, `--no-rules`, `--no-lsp`, `--no-pty` và `--no-ui`; cấu hình còn
+tắt MCP, memory, auto-compaction, retry và model fallback. Backend kiểm tra lại rằng RPC không công
+bố tool trước khi gửi yêu cầu. Credential OMP được giữ trong volume riêng để dùng lại qua restart.
+
+Yêu cầu kiểm tra chỉ gửi chỉ dẫn tổng hợp cố định và phải trả đúng JSON `{\"ok\":true}`. Event JSON
+của OMP chỉ là transport; ứng dụng không coi event hay text assistant là Notes đã hợp lệ. Khi tích
+hợp tạo notes, transcript phải tiếp tục được đóng khung là dữ liệu không tin cậy và đi qua cùng
+pipeline kiểm tra schema/source ID trước khi lưu. Lỗi revoke, quota, model access và mạng được báo
+theo nhóm có thể hành động; nội dung lỗi thô và credential không được trả về UI, và inference không
+tự gửi lại.
+
+**Ngắt kết nối Antigravity** yêu cầu OMP vô hiệu hóa credential `google-antigravity` trong store
+riêng. Việc này không ảnh hưởng ChatGPT, token truy cập localhost, transcript hoặc notes đã lưu.
+
 ## Tạo và đối chiếu notes
 
 Mở cuộc họp đã có transcript hoàn chỉnh, lưu lựa chọn ChatGPT/model trong phần kết nối, rồi bấm
