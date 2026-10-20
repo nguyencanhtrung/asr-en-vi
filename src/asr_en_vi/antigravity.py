@@ -1139,7 +1139,7 @@ class AntigravityProvider:
                 state["connection_status"] = "disconnected"
                 state["connection_version"] = int(state.get("connection_version", 0)) + 1
                 state["verification"] = None
-        return {"status": "disconnected", "remote_revocation_confirmed": True}
+        return {"status": "disconnected", "remote_revocation_confirmed": False}
 
 
 def omp_runtime_contract(directory: Path) -> dict[str, Any]:

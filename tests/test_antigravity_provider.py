@@ -112,7 +112,7 @@ def test_login_catalog_preference_verification_restart_and_disconnect(tmp_path):
 
     assert restarted.disconnect() == {
         "status": "disconnected",
-        "remote_revocation_confirmed": True,
+        "remote_revocation_confirmed": False,
     }
     assert adapter.logout_calls == 1
     assert restarted.provider_view()["status"] == "disconnected"

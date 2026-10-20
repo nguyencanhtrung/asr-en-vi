@@ -284,7 +284,7 @@ class MockProviderApi:
             self.antigravity_verification = None
             self.fulfill(
                 route,
-                {"status": "disconnected", "remote_revocation_confirmed": True},
+                {"status": "disconnected", "remote_revocation_confirmed": False},
             )
             return
         if method == "GET" and path == "/api/notes-preferences":
