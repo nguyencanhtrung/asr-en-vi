@@ -303,6 +303,22 @@ Corners are compact and engineered: controls use the small radius, content panel
 - **Behavior:** Sticky to the top edge of the content area, opaque so scrolling content never shows through, in light and dark.
 - **Focus:** The two-pixel accent outline is drawn inside the bar, so the bar edge and the top of the viewport never clip it.
 
+### Transcript Segments
+
+- **Read mode (default):** One bordered row per segment, on the subtle surface with the medium radius. It holds the timestamp button (mono, 12px, accent; seeks and plays), the speaker name (12px, semibold ink), the text (Inter body, 13px) and, when the segment needs review, the amber "Cần kiểm tra" cue with its reasons (11px, bordered, never color alone). No field, select or save button is rendered. The playing segment keeps its accent border and soft fill.
+- **Sửa:** A secondary button, always visible and never hover-only, at the end of the speaker line. A read row has two tab stops: the timestamp and "Sửa". Its accessible name carries the start time and, with an unsaved draft, "(có bản nháp chưa lưu)".
+- **Editor:** "Sửa" swaps only that row for the editor: speaker select, text area (13px), "Lưu đoạn" and "Hủy", and a closed "Chi tiết" disclosure (11px) holding "Gán ban đầu" and the model measures. One editor is open at a time; opening another returns the first row to read mode and keeps its unsaved text. The select saves on change; Esc or "Hủy" closes, Ctrl/⌘+Enter saves from any control in the editor, and focus returns to that row's "Sửa" afterwards. Esc and "Hủy" drop ordinary typed text but keep a conflict-marked draft: the row stays marked, and "Sửa" reopens it with the draft and its review panel.
+- **Draft mark:** A row with an unsaved draft shows "Bản nháp chưa lưu" in warning ink on a dashed warning border, so the mark never relies on color alone. After a version conflict, "Tải lại bản mới nhất" sits in the open editor or rename form, and in the conflict panel above the transcript while that row or chip is closed.
+- **Locked / past:** A locked source disables "Sửa" with the reason from the generation status line attached by `aria-describedby`; in an open editor the fields and "Lưu đoạn" are disabled and "Hủy" stays usable. A past transcript is read-only: no "Sửa", and each row keeps only the closed "Chi tiết".
+- **Feedback:** A row has no live region of its own for save messages. Every "Đã lưu" and error goes to the one shared polite status above the transcript; the in-editor status line is plain text.
+
+### Speaker Chips
+
+- **Shape:** One compact button per speaker (30px minimum height, large radius, strong hairline, surface fill, 12px semibold name) in a wrapping row; hover shifts to the accent border and soft fill.
+- **Marks:** A speaker still carrying the system default name ("Speaker N") shows an outlined "đặt tên" mark in accent. A name typed and left unsaved shows "bản nháp". Marks are words, not color alone.
+- **Rename:** A chip click swaps only that chip for an inline form on its own line (name field, "Lưu tên", "Hủy", "Khôi phục tên mặc định"; the label is 12px). Enter saves, Esc cancels, one rename is open at a time, and focus returns to the chip. "Thêm người nói" stays below the chips.
+- **Disabled / read-only:** A locked source disables chips with muted ink and a plain hairline, tied to the lock reason like "Sửa". In a past transcript chips are plain text.
+
 ### Cards / Containers
 
 - **Corner Style:** Medium radius for panels and compact radius for list rows.

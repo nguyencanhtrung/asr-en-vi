@@ -96,6 +96,8 @@
     transcriptMutationError: null,
     transcriptReloadInFlight: false,
     transcriptDrafts: new Map(),
+    editingSegment: null, // { generationId, segmentId }: the one segment whose editor is open
+    renamingSpeaker: null, // { generationId, speakerId }: the one speaker chip being renamed
     pendingTaskRequestId: null,
     taskRequestError: null,
   };
@@ -768,6 +770,61 @@
   function transcriptDraft(generationId, field, itemId) {
     const bucket = transcriptDraftBucket(generationId);
     return bucket ? bucket[field].get(itemId) || null : null;
+  }
+
+  // The backend names a speaker nobody renamed "Speaker 3"; its chip invites a name.
+  const DEFAULT_SPEAKER_NAME = /^Speaker \d+$/;
+
+  function isEditingSegment(generationId, segmentId) {
+    const editing = state.editingSegment;
+    return Boolean(editing && editing.generationId === generationId && editing.segmentId === segmentId);
+  }
+
+  function isRenamingSpeaker(generationId, speakerId) {
+    const renaming = state.renamingSpeaker;
+    return Boolean(renaming && renaming.generationId === generationId && renaming.speakerId === speakerId);
+  }
+
+  function hasSegmentDraft(generationId, segmentId) {
+    return Boolean(
+      transcriptDraft(generationId, "segmentText", segmentId)
+      || transcriptDraft(generationId, "speakerAssignment", segmentId),
+    );
+  }
+
+  // A conflict-marked draft can be the only copy of what the user typed, so Hủy and Esc keep it.
+  function isConflictedDraft(generationId, field, itemId) {
+    const draft = transcriptDraft(generationId, field, itemId);
+    return Boolean(draft && draft.conflictCode);
+  }
+
+  // A conflict marks the draft while the page still shows the value the draft started from. Once a
+  // reload shows a different one, the review already holds the latest and no reload is due.
+  function awaitsLatestReload(draft, currentValue) {
+    return Boolean(draft && draft.conflictCode && draft.baseValue === currentValue);
+  }
+
+  // A closed row or chip cannot hold the reload (a read row keeps two tab stops), so a conflict still
+  // waiting on it moves to the page's conflict panel when its editor closes, and back beside the
+  // editor's buttons when it reopens.
+  function placeLatestReload(generationId, field, itemId, currentValue, editorOpen) {
+    const draft = transcriptDraft(generationId, field, itemId);
+    if (!awaitsLatestReload(draft, currentValue)) return;
+    if (editorOpen) clearTranscriptMutationError(generationId);
+    else showTranscriptConflictNotice(generationId, draft.conflictCode);
+  }
+
+  // The generation on screen and whether it takes edits, as renderGenerationNavigation decides.
+  function displayedGeneration() {
+    const transcription = state.meeting && state.meeting.transcription;
+    const current = transcription && transcription.generation;
+    const generation = generationsFor(transcription).find((item) => item.id === state.selectedGenerationId);
+    return {
+      generation,
+      editable: Boolean(
+        generation && current && current.id === generation.id && generation.status === "complete",
+      ),
+    };
   }
 
   function speakerAddRecoveryReady(generation, draft) {
@@ -1444,73 +1501,173 @@
     $("#speaker-add-form").hidden = !editable;
     $("#speaker-add-status").textContent = "";
     $("#speaker-add-status").classList.remove("is-error");
-    for (const speaker of speakers) {
-      const item = document.createElement("li");
-      const draft = transcriptDraft(generation.id, "speakerName", speaker.speaker_id);
-      if (!editable) {
-        const name = document.createElement("span");
-        name.className = "speaker-name-readonly";
-        name.textContent = speaker.display_name || speaker.speaker_id;
-        item.append(name);
-        if (draft) {
-          item.append(
-            createTranscriptDraftReview(
-              generation.id,
-              "speakerName",
-              speaker.speaker_id,
-              draft.value,
-            ),
-          );
-        }
-      } else {
-        const form = document.createElement("form");
-        form.className = "speaker-name-form";
-        form.dataset.speakerName = "true";
-        form.dataset.speakerId = speaker.speaker_id;
-        form.dataset.generationId = generation.id;
-        const label = document.createElement("label");
-        label.textContent = `Tên người nói · ${speaker.speaker_id}`;
-        const input = document.createElement("input");
-        input.type = "text";
-        input.maxLength = 80;
-        input.autocomplete = "off";
-        input.value = draft ? draft.value : speaker.display_name || "";
-        input.setAttribute("aria-label", `Tên hiển thị cho ${speaker.speaker_id}`);
-        input.dataset.transcriptMutation = "true";
-        label.append(input);
-        const save = document.createElement("button");
-        save.className = "secondary-button";
-        save.type = "submit";
-        save.dataset.transcriptMutation = "true";
-        save.textContent = "Lưu tên";
-        const clear = document.createElement("button");
-        clear.className = "text-button speaker-clear-name";
-        clear.type = "button";
-        clear.dataset.clearSpeakerName = "true";
-        clear.dataset.speakerId = speaker.speaker_id;
-        clear.dataset.generationId = generation.id;
-        clear.dataset.transcriptMutation = "true";
-        clear.textContent = "Khôi phục tên mặc định";
-        const status = document.createElement("p");
-        status.className = "speaker-form-status";
-        status.dataset.speakerStatus = speaker.speaker_id;
-        status.setAttribute("role", "status");
-        form.append(label, save, clear, status);
-        if (draft && draft.conflictCode) {
-          form.append(
-            createTranscriptDraftReview(
-              generation.id,
-              "speakerName",
-              speaker.speaker_id,
-              draft.value,
-              speaker.display_name || speaker.speaker_id,
-            ),
-          );
-        }
-        item.append(form);
-      }
-      list.append(item);
+    for (const speaker of speakers) list.append(buildSpeakerItem(generation, speaker, editable));
+  }
+
+  function speakerChipMark(text) {
+    const mark = document.createElement("span");
+    mark.className = "speaker-chip-mark";
+    mark.textContent = text;
+    return mark;
+  }
+
+  function buildSpeakerChip(generation, speaker, draft) {
+    const chip = document.createElement("button");
+    chip.className = "speaker-chip";
+    chip.type = "button";
+    chip.title = "Đổi tên người nói";
+    chip.dataset.speakerChip = "true";
+    chip.dataset.speakerId = speaker.speaker_id;
+    chip.dataset.generationId = generation.id;
+    chip.dataset.transcriptMutation = "true";
+    const name = document.createElement("span");
+    name.className = "speaker-chip-name";
+    name.textContent = speaker.display_name || speaker.speaker_id;
+    chip.append(name);
+    if (DEFAULT_SPEAKER_NAME.test(speaker.display_name || "")) chip.append(speakerChipMark("đặt tên"));
+    if (draft) chip.append(speakerChipMark("bản nháp"));
+    return chip;
+  }
+
+  function buildSpeakerRenameForm(generation, speaker, draft) {
+    const form = document.createElement("form");
+    form.className = "speaker-name-form";
+    form.dataset.speakerName = "true";
+    form.dataset.speakerId = speaker.speaker_id;
+    form.dataset.generationId = generation.id;
+    const label = document.createElement("label");
+    label.textContent = `Tên người nói · ${speaker.speaker_id}`;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.maxLength = 80;
+    input.autocomplete = "off";
+    input.value = draft ? draft.value : speaker.display_name || "";
+    input.setAttribute("aria-label", `Tên hiển thị cho ${speaker.speaker_id}`);
+    input.dataset.transcriptMutation = "true";
+    label.append(input);
+    const save = document.createElement("button");
+    save.className = "secondary-button";
+    save.type = "submit";
+    save.dataset.transcriptMutation = "true";
+    save.textContent = "Lưu tên";
+    const cancel = document.createElement("button");
+    cancel.className = "secondary-button";
+    cancel.type = "button";
+    cancel.dataset.editCancel = "true";
+    cancel.dataset.speakerCancel = "true";
+    cancel.setAttribute("aria-keyshortcuts", "Escape");
+    cancel.textContent = "Hủy";
+    const clear = document.createElement("button");
+    clear.className = "text-button speaker-clear-name";
+    clear.type = "button";
+    clear.dataset.clearSpeakerName = "true";
+    clear.dataset.speakerId = speaker.speaker_id;
+    clear.dataset.generationId = generation.id;
+    clear.dataset.transcriptMutation = "true";
+    clear.textContent = "Khôi phục tên mặc định";
+    const status = document.createElement("p");
+    status.className = "speaker-form-status";
+    status.dataset.speakerStatus = speaker.speaker_id;
+    status.setAttribute("role", "status");
+    form.append(label, save, cancel, clear, status);
+    // Reopened after a conflict, the form offers the reload where the conflict first showed it.
+    if (awaitsLatestReload(draft, speaker.display_name)) appendReloadLatestButton(form, generation.id);
+    if (draft && draft.conflictCode) {
+      form.append(
+        createTranscriptDraftReview(
+          generation.id,
+          "speakerName",
+          speaker.speaker_id,
+          draft.value,
+          speaker.display_name || speaker.speaker_id,
+        ),
+      );
     }
+    return form;
+  }
+
+  // A chip in the current transcript opens an inline rename; one in a past transcript only reads.
+  function buildSpeakerItem(generation, speaker, editable) {
+    const item = document.createElement("li");
+    item.className = "speaker-chip-item";
+    item.dataset.speakerId = speaker.speaker_id;
+    const draft = transcriptDraft(generation.id, "speakerName", speaker.speaker_id);
+    if (!editable) {
+      const name = document.createElement("span");
+      name.className = "speaker-chip speaker-name-readonly";
+      name.textContent = speaker.display_name || speaker.speaker_id;
+      item.append(name);
+      if (draft) {
+        item.append(
+          createTranscriptDraftReview(generation.id, "speakerName", speaker.speaker_id, draft.value),
+        );
+      }
+    } else if (isRenamingSpeaker(generation.id, speaker.speaker_id)) {
+      item.classList.add("is-renaming");
+      item.append(buildSpeakerRenameForm(generation, speaker, draft));
+    } else {
+      item.append(buildSpeakerChip(generation, speaker, draft));
+    }
+    return item;
+  }
+
+  function speakerItem(speakerId) {
+    return [...$("#speaker-catalog-list").children].find((item) => item.dataset.speakerId === speakerId) || null;
+  }
+
+  // Swap one speaker between chip and rename form; the other speakers stay untouched.
+  function replaceSpeakerItem(generationId, speakerId) {
+    const { generation, editable } = displayedGeneration();
+    if (!generation || generation.id !== generationId) return null;
+    const speaker = generation.speakers.find((item) => item.speaker_id === speakerId);
+    const current = speakerItem(speakerId);
+    if (!speaker || !current) return null;
+    const item = buildSpeakerItem(generation, speaker, editable);
+    current.replaceWith(item);
+    if (editable) {
+      const renaming = isRenamingSpeaker(generationId, speakerId);
+      placeLatestReload(generationId, "speakerName", speakerId, speaker.display_name, renaming);
+    }
+    syncTranscriptMutationControls();
+    return item;
+  }
+
+  function openSpeakerRename(speakerId) {
+    const { generation, editable } = displayedGeneration();
+    if (!editable || sourceMutationUnavailable() || state.transcriptMutationInFlight) return;
+    const previous = state.renamingSpeaker;
+    state.renamingSpeaker = { generationId: generation.id, speakerId };
+    // One rename at a time: the one it leaves keeps its unsaved name as a draft.
+    if (previous && previous.speakerId !== speakerId) {
+      replaceSpeakerItem(previous.generationId, previous.speakerId);
+    }
+    const input = replaceSpeakerItem(generation.id, speakerId)?.querySelector("input");
+    if (input) {
+      input.focus();
+      input.select();
+    }
+  }
+
+  // Leave the rename and hand back the speaker's chip. `discard` is the Hủy path: it drops the typed
+  // name, unless that name is a conflict-marked draft; the chip then stays marked for review.
+  function closeSpeakerRename(generationId, speakerId, { discard = false } = {}) {
+    if (isRenamingSpeaker(generationId, speakerId)) state.renamingSpeaker = null;
+    if (discard && !isConflictedDraft(generationId, "speakerName", speakerId)) {
+      rememberTranscriptDraft(
+        generationId,
+        "speakerName",
+        speakerId,
+        transcriptFieldValue(generationId, "speakerName", speakerId),
+      );
+    }
+    return replaceSpeakerItem(generationId, speakerId)?.querySelector(".speaker-chip") || null;
+  }
+
+  function cancelSpeakerRename(speakerId) {
+    const renaming = state.renamingSpeaker;
+    if (!renaming || renaming.speakerId !== speakerId || state.transcriptMutationInFlight) return;
+    const chip = closeSpeakerRename(renaming.generationId, speakerId, { discard: true });
+    if (chip && !chip.disabled) chip.focus();
   }
 
   function renderTranscriptGeneration(generation, editable) {
@@ -1556,165 +1713,295 @@
     renderSpeakerCatalog(generation, editable);
 
     const segments = Array.isArray(generation.segments) ? generation.segments : [];
-    const speakers = Array.isArray(generation.speakers) ? generation.speakers : [];
-    const speakerNames = new Map(speakers.map((speaker) => [speaker.speaker_id, speaker.display_name]));
     $("#transcript-empty").hidden = segments.length > 0;
-
-    for (const segment of segments) {
-      const item = document.createElement("li");
-      item.className = "transcript-segment";
-      item.dataset.segmentId = segment.id;
-      item.dataset.startSeconds = String(segment.start_seconds);
-      item.dataset.endSeconds = String(segment.end_seconds);
-
-      const timestamp = document.createElement("button");
-      timestamp.className = "segment-timestamp";
-      timestamp.type = "button";
-      timestamp.dataset.seekSeconds = String(segment.start_seconds);
-      timestamp.textContent = formatTimestamp(segment.start_seconds);
-      timestamp.setAttribute(
-        "aria-label",
-        `Phát bản ghi từ ${formatTimestamp(segment.start_seconds)}`,
-      );
-
-      const speakerControl = document.createElement("div");
-      speakerControl.className = "segment-speaker-control";
-      const speakerLabel = document.createElement("span");
-      speakerLabel.textContent = "Người nói";
-      const assignmentDraft = transcriptDraft(
-        generation.id,
-        "speakerAssignment",
-        segment.id,
-      );
-      if (editable) {
-        const speakerSelect = document.createElement("select");
-        speakerSelect.className = "segment-speaker-select";
-        speakerSelect.dataset.speakerAssignment = "true";
-        speakerSelect.dataset.segmentId = segment.id;
-        speakerSelect.dataset.currentSpeaker = segment.speaker_id || "";
-        speakerSelect.dataset.generationId = generation.id;
-        speakerSelect.dataset.assignmentVersion = String(segment.assignment_version || 1);
-        speakerSelect.dataset.transcriptMutation = "true";
-        speakerSelect.setAttribute(
-          "aria-label",
-          `Người nói cho đoạn bắt đầu tại ${formatTimestamp(segment.start_seconds)}`,
-        );
-        const unidentified = document.createElement("option");
-        unidentified.value = "";
-        unidentified.textContent = "Chưa xác định";
-        speakerSelect.append(unidentified);
-        for (const speaker of speakers) {
-          const option = document.createElement("option");
-          option.value = speaker.speaker_id;
-          option.textContent = speaker.display_name || speaker.speaker_id;
-          speakerSelect.append(option);
-        }
-        speakerSelect.value = assignmentDraft ? assignmentDraft.value : segment.speaker_id || "";
-        speakerControl.append(speakerLabel, speakerSelect);
-      } else {
-        const speakerName = document.createElement("span");
-        speakerName.className = "segment-speaker";
-        speakerName.textContent = segment.speaker_id
-          ? speakerNames.get(segment.speaker_id) || segment.speaker_id
-          : "Chưa xác định";
-        speakerControl.append(speakerLabel, speakerName);
-      }
-
-      item.append(timestamp, speakerControl);
-      if (assignmentDraft) {
-        item.append(createAssignmentDraftReview(generation, segment, assignmentDraft, editable));
-      }
-      if (editable) {
-        const form = document.createElement("form");
-        form.className = "segment-edit-form";
-        form.dataset.segmentText = "true";
-        form.dataset.segmentId = segment.id;
-        form.dataset.generationId = generation.id;
-        const editor = document.createElement("textarea");
-        editor.className = "segment-text-editor";
-        editor.maxLength = 10000;
-        editor.rows = 3;
-        const draft = transcriptDraft(generation.id, "segmentText", segment.id);
-        editor.value = draft ? draft.value : segment.text;
-        editor.setAttribute(
-          "aria-label",
-          `Nội dung transcript cho đoạn bắt đầu tại ${formatTimestamp(segment.start_seconds)}`,
-        );
-        editor.dataset.transcriptMutation = "true";
-        const actions = document.createElement("div");
-        actions.className = "segment-edit-actions";
-        const save = document.createElement("button");
-        save.className = "secondary-button";
-        save.type = "submit";
-        save.dataset.transcriptMutation = "true";
-        save.textContent = "Lưu đoạn";
-        const status = document.createElement("p");
-        status.className = "segment-edit-status";
-        status.setAttribute("role", "status");
-        actions.append(save, status);
-        form.append(editor, actions);
-        item.append(form);
-        if (draft && draft.conflictCode) {
-          item.append(
-            createTranscriptDraftReview(
-              generation.id,
-              "segmentText",
-              segment.id,
-              draft.value,
-              segment.text,
-            ),
-          );
-        }
-      } else {
-        const text = document.createElement("p");
-        text.className = "segment-text";
-        text.textContent = segment.text;
-        item.append(text);
-        const draft = transcriptDraft(generation.id, "segmentText", segment.id);
-        if (draft) {
-          item.append(
-            createTranscriptDraftReview(
-              generation.id,
-              "segmentText",
-              segment.id,
-              draft.value,
-            ),
-          );
-        }
-      }
-
-      const originalSpeaker = document.createElement("span");
-      originalSpeaker.className = "segment-original-speaker";
-      originalSpeaker.dataset.originalSpeakerId = segment.original_speaker_id || "";
-      originalSpeaker.textContent = `Gán ban đầu: ${segment.original_speaker_id
-        ? speakerNames.get(segment.original_speaker_id) || segment.original_speaker_id
-        : "Chưa xác định"}`;
-      item.append(originalSpeaker);
-
-      const reasons = Array.isArray(segment.review_reasons) ? segment.review_reasons : [];
-      if (segment.uncertain || reasons.length > 0) {
-        const reviewCue = document.createElement("span");
-        reviewCue.className = "segment-review-cue";
-        reviewCue.textContent = reasons.length
-          ? `Cần kiểm tra · ${reasons.map((reason) => REVIEW_REASON_LABELS[reason] || reason).join(" · ")}`
-          : "Nên nghe lại";
-        item.append(reviewCue);
-      }
-
-      const measures = [];
-      if (typeof segment.avg_logprob === "number") measures.push(`avg_logprob ${segment.avg_logprob.toFixed(3)}`);
-      if (typeof segment.no_speech_prob === "number") measures.push(`no_speech_prob ${segment.no_speech_prob.toFixed(3)}`);
-      if (typeof segment.compression_ratio === "number") measures.push(`compression_ratio ${segment.compression_ratio.toFixed(3)}`);
-      if (measures.length) {
-        const modelMeasures = document.createElement("span");
-        modelMeasures.className = "segment-model-measures";
-        modelMeasures.textContent = `Chỉ số model, không phải độ chính xác đã hiệu chuẩn: ${measures.join(" · ")}`;
-        item.append(modelMeasures);
-      }
-      list.append(item);
-    }
+    for (const segment of segments) list.append(buildSegmentRow(generation, segment, editable));
     if (state.transcriptMutationInFlight) setTranscriptMutationInFlight(true);
     updateActiveTranscriptIntervals();
+  }
+
+  function buildOriginalSpeaker(segment, speakerNames) {
+    const originalSpeaker = document.createElement("span");
+    originalSpeaker.className = "segment-original-speaker";
+    originalSpeaker.dataset.originalSpeakerId = segment.original_speaker_id || "";
+    originalSpeaker.textContent = `Gán ban đầu: ${segment.original_speaker_id
+      ? speakerNames.get(segment.original_speaker_id) || segment.original_speaker_id
+      : "Chưa xác định"}`;
+    return originalSpeaker;
+  }
+
+  function buildReviewCue(segment) {
+    const reasons = Array.isArray(segment.review_reasons) ? segment.review_reasons : [];
+    if (!segment.uncertain && reasons.length === 0) return null;
+    const reviewCue = document.createElement("span");
+    reviewCue.className = "segment-review-cue";
+    reviewCue.textContent = reasons.length
+      ? `Cần kiểm tra · ${reasons.map((reason) => REVIEW_REASON_LABELS[reason] || reason).join(" · ")}`
+      : "Nên nghe lại";
+    return reviewCue;
+  }
+
+  function buildModelMeasures(segment) {
+    const measures = [];
+    if (typeof segment.avg_logprob === "number") measures.push(`avg_logprob ${segment.avg_logprob.toFixed(3)}`);
+    if (typeof segment.no_speech_prob === "number") measures.push(`no_speech_prob ${segment.no_speech_prob.toFixed(3)}`);
+    if (typeof segment.compression_ratio === "number") measures.push(`compression_ratio ${segment.compression_ratio.toFixed(3)}`);
+    if (!measures.length) return null;
+    const modelMeasures = document.createElement("span");
+    modelMeasures.className = "segment-model-measures";
+    modelMeasures.textContent = `Chỉ số model, không phải độ chính xác đã hiệu chuẩn: ${measures.join(" · ")}`;
+    return modelMeasures;
+  }
+
+  // The origin and the model's own measures sit behind "Chi tiết": in the open editor, or, with no
+  // editor to hold them, in a past transcript's rows.
+  function buildSegmentDetails(segment, speakerNames) {
+    const details = document.createElement("details");
+    details.className = "segment-details";
+    const summary = document.createElement("summary");
+    summary.textContent = "Chi tiết";
+    details.append(summary, buildOriginalSpeaker(segment, speakerNames));
+    const modelMeasures = buildModelMeasures(segment);
+    if (modelMeasures) details.append(modelMeasures);
+    return details;
+  }
+
+  function buildEditButton(segment, hasDraft) {
+    const button = document.createElement("button");
+    button.className = "secondary-button segment-edit-button";
+    button.type = "button";
+    button.dataset.editSegment = "true";
+    button.dataset.transcriptMutation = "true";
+    button.textContent = "Sửa";
+    button.setAttribute(
+      "aria-label",
+      `Sửa đoạn bắt đầu tại ${formatTimestamp(segment.start_seconds)}${hasDraft ? " (có bản nháp chưa lưu)" : ""}`,
+    );
+    return button;
+  }
+
+  function buildSpeakerControl(generation, segment, assignmentDraft) {
+    const speakers = Array.isArray(generation.speakers) ? generation.speakers : [];
+    const speakerControl = document.createElement("div");
+    speakerControl.className = "segment-speaker-control";
+    const speakerLabel = document.createElement("span");
+    speakerLabel.textContent = "Người nói";
+    const speakerSelect = document.createElement("select");
+    speakerSelect.className = "segment-speaker-select";
+    speakerSelect.dataset.speakerAssignment = "true";
+    speakerSelect.dataset.segmentId = segment.id;
+    speakerSelect.dataset.currentSpeaker = segment.speaker_id || "";
+    speakerSelect.dataset.generationId = generation.id;
+    speakerSelect.dataset.assignmentVersion = String(segment.assignment_version || 1);
+    speakerSelect.dataset.transcriptMutation = "true";
+    speakerSelect.setAttribute(
+      "aria-label",
+      `Người nói cho đoạn bắt đầu tại ${formatTimestamp(segment.start_seconds)}`,
+    );
+    const unidentified = document.createElement("option");
+    unidentified.value = "";
+    unidentified.textContent = "Chưa xác định";
+    speakerSelect.append(unidentified);
+    for (const speaker of speakers) {
+      const option = document.createElement("option");
+      option.value = speaker.speaker_id;
+      option.textContent = speaker.display_name || speaker.speaker_id;
+      speakerSelect.append(option);
+    }
+    speakerSelect.value = assignmentDraft ? assignmentDraft.value : segment.speaker_id || "";
+    speakerControl.append(speakerLabel, speakerSelect);
+    return speakerControl;
+  }
+
+  function buildSegmentEditForm(generation, segment, draft) {
+    const form = document.createElement("form");
+    form.className = "segment-edit-form";
+    form.dataset.segmentText = "true";
+    form.dataset.segmentId = segment.id;
+    form.dataset.generationId = generation.id;
+    const editor = document.createElement("textarea");
+    editor.className = "segment-text-editor";
+    editor.maxLength = 10000;
+    editor.rows = 3;
+    editor.value = draft ? draft.value : segment.text;
+    editor.setAttribute(
+      "aria-label",
+      `Nội dung transcript cho đoạn bắt đầu tại ${formatTimestamp(segment.start_seconds)}`,
+    );
+    editor.dataset.transcriptMutation = "true";
+    const actions = document.createElement("div");
+    actions.className = "segment-edit-actions";
+    const save = document.createElement("button");
+    save.className = "secondary-button";
+    save.type = "submit";
+    save.dataset.transcriptMutation = "true";
+    save.setAttribute("aria-keyshortcuts", "Control+Enter Meta+Enter");
+    save.title = "Ctrl/⌘+Enter";
+    save.textContent = "Lưu đoạn";
+    const cancel = document.createElement("button");
+    cancel.className = "secondary-button";
+    cancel.type = "button";
+    cancel.dataset.editCancel = "true";
+    cancel.dataset.segmentCancel = "true";
+    cancel.setAttribute("aria-keyshortcuts", "Escape");
+    cancel.title = "Esc";
+    cancel.textContent = "Hủy";
+    // Plain text, no role: every save is announced once, by the shared #transcript-mutation-status.
+    const status = document.createElement("p");
+    status.className = "segment-edit-status";
+    actions.append(save, cancel, status);
+    // Reopened after a conflict, the editor offers the reload where the conflict first showed it.
+    if (awaitsLatestReload(draft, segment.text)) appendReloadLatestButton(actions, generation.id);
+    form.append(editor, actions);
+    return form;
+  }
+
+  // Read mode shows what a reader needs; the editor and speaker select exist only while a segment
+  // is being edited. A past transcript has no editor: its rows stay read-only.
+  function buildSegmentRow(generation, segment, editable) {
+    const speakerNames = new Map(
+      (Array.isArray(generation.speakers) ? generation.speakers : [])
+        .map((speaker) => [speaker.speaker_id, speaker.display_name]),
+    );
+    const editing = editable && isEditingSegment(generation.id, segment.id);
+    const textDraft = transcriptDraft(generation.id, "segmentText", segment.id);
+    const assignmentDraft = transcriptDraft(generation.id, "speakerAssignment", segment.id);
+    const hasDraft = hasSegmentDraft(generation.id, segment.id);
+
+    const item = document.createElement("li");
+    item.className = editing ? "transcript-segment is-editing" : "transcript-segment";
+    item.dataset.segmentId = segment.id;
+    item.dataset.startSeconds = String(segment.start_seconds);
+    item.dataset.endSeconds = String(segment.end_seconds);
+
+    const timestamp = document.createElement("button");
+    timestamp.className = "segment-timestamp";
+    timestamp.type = "button";
+    timestamp.dataset.seekSeconds = String(segment.start_seconds);
+    timestamp.textContent = formatTimestamp(segment.start_seconds);
+    timestamp.setAttribute(
+      "aria-label",
+      `Phát bản ghi từ ${formatTimestamp(segment.start_seconds)}`,
+    );
+
+    const head = document.createElement("div");
+    head.className = "segment-head";
+    if (editing) {
+      head.append(buildSpeakerControl(generation, segment, assignmentDraft));
+    } else {
+      const speakerName = document.createElement("span");
+      speakerName.className = "segment-speaker";
+      speakerName.dataset.speakerId = segment.speaker_id || "";
+      speakerName.textContent = segment.speaker_id
+        ? speakerNames.get(segment.speaker_id) || segment.speaker_id
+        : "Chưa xác định";
+      head.append(speakerName);
+      if (editable) head.append(buildEditButton(segment, hasDraft));
+    }
+    item.append(timestamp, head);
+    if (assignmentDraft && (editing || !editable)) {
+      item.append(createAssignmentDraftReview(generation, segment, assignmentDraft, editable));
+    }
+
+    if (editing) {
+      item.append(buildSegmentEditForm(generation, segment, textDraft));
+      if (textDraft && textDraft.conflictCode) {
+        item.append(
+          createTranscriptDraftReview(
+            generation.id,
+            "segmentText",
+            segment.id,
+            textDraft.value,
+            segment.text,
+          ),
+        );
+      }
+    } else {
+      const text = document.createElement("p");
+      text.className = "segment-text";
+      text.textContent = segment.text;
+      item.append(text);
+      if (!editable && textDraft) {
+        item.append(
+          createTranscriptDraftReview(generation.id, "segmentText", segment.id, textDraft.value),
+        );
+      }
+    }
+
+    const reviewCue = buildReviewCue(segment);
+    if (reviewCue) item.append(reviewCue);
+    if (editing || !editable) {
+      item.append(buildSegmentDetails(segment, speakerNames));
+    } else if (hasDraft) {
+      const draftMark = document.createElement("span");
+      draftMark.className = "segment-draft-mark";
+      draftMark.textContent = "Bản nháp chưa lưu";
+      item.append(draftMark);
+    }
+    return item;
+  }
+
+  function segmentRow(segmentId) {
+    return [...$("#transcript-segments").children].find((item) => item.dataset.segmentId === segmentId) || null;
+  }
+
+  // Swap one row between read mode and editor; every other row stays as it is.
+  function replaceSegmentRow(generationId, segmentId) {
+    const { generation, editable } = displayedGeneration();
+    if (!generation || generation.id !== generationId) return null;
+    const segment = generation.segments.find((item) => item.id === segmentId);
+    const current = segmentRow(segmentId);
+    if (!segment || !current) return null;
+    const row = buildSegmentRow(generation, segment, editable);
+    current.replaceWith(row);
+    if (editable) {
+      const editing = isEditingSegment(generationId, segmentId);
+      placeLatestReload(generationId, "segmentText", segmentId, segment.text, editing);
+    }
+    syncTranscriptMutationControls();
+    updateActiveTranscriptIntervals();
+    return row;
+  }
+
+  function openSegmentEditor(segmentId) {
+    const { generation, editable } = displayedGeneration();
+    if (!editable || sourceMutationUnavailable() || state.transcriptMutationInFlight) return;
+    const previous = state.editingSegment;
+    state.editingSegment = { generationId: generation.id, segmentId };
+    // One editor at a time: the row it leaves keeps its unsaved text in the draft store.
+    if (previous && previous.segmentId !== segmentId) {
+      replaceSegmentRow(previous.generationId, previous.segmentId);
+    }
+    const editor = replaceSegmentRow(generation.id, segmentId)?.querySelector(".segment-text-editor");
+    if (editor) {
+      editor.focus();
+      editor.setSelectionRange(editor.value.length, editor.value.length);
+    }
+  }
+
+  // Leave the editor and hand back the row's Sửa button. `discard` is the Hủy path: it drops the typed
+  // text, unless that text is a conflict-marked draft; the row then stays marked for review.
+  function closeSegmentEditor(generationId, segmentId, { discard = false } = {}) {
+    if (isEditingSegment(generationId, segmentId)) state.editingSegment = null;
+    if (discard && !isConflictedDraft(generationId, "segmentText", segmentId)) {
+      rememberTranscriptDraft(
+        generationId,
+        "segmentText",
+        segmentId,
+        transcriptFieldValue(generationId, "segmentText", segmentId),
+      );
+    }
+    return replaceSegmentRow(generationId, segmentId)?.querySelector(".segment-edit-button") || null;
+  }
+
+  function cancelSegmentEditor(segmentId) {
+    const editing = state.editingSegment;
+    if (!editing || editing.segmentId !== segmentId || state.transcriptMutationInFlight) return;
+    const button = closeSegmentEditor(editing.generationId, segmentId, { discard: true });
+    // A locked source disables Sửa; keep the keyboard on the row instead of dropping it to the page.
+    const target = button && !button.disabled
+      ? button
+      : button?.closest(".transcript-segment").querySelector(".segment-timestamp");
+    if (target) target.focus();
   }
 
   function createAssignmentDraftReview(generation, segment, draft, editable) {
@@ -1838,6 +2125,10 @@
       appendReloadLatestButton(status.parentElement, generationId);
       return;
     }
+    showTranscriptConflictNotice(generationId, code);
+  }
+
+  function showTranscriptConflictNotice(generationId, code) {
     const message = code === "source_version_changed"
       ? "Transcript đã thay đổi. Bản nháp vẫn được giữ để xem lại."
       : "Phiên bản transcript đã đổi. Bản nháp vẫn được giữ để sao chép.";
@@ -2062,6 +2353,15 @@
         || state.transcriptMutationInFlight
         || (control.matches("[data-reload-latest]") && state.transcriptReloadInFlight)
         || Boolean(assignmentDraft && assignmentDraft.conflictCode);
+      if (control.matches("[data-edit-segment], [data-speaker-chip]")) {
+        // A locked source says why in #generation-mode; tie that reason to the disabled control.
+        if (sourceMutationUnavailable()) control.setAttribute("aria-describedby", "generation-mode");
+        else control.removeAttribute("aria-describedby");
+      }
+    }
+    // Hủy only drops local text, so a locked source leaves it usable; a save in flight does not.
+    for (const cancel of document.querySelectorAll("#transcript-generation [data-edit-cancel]")) {
+      cancel.disabled = state.transcriptMutationInFlight;
     }
     $("#transcript-generation").setAttribute(
       "aria-busy",
@@ -2111,12 +2411,18 @@
     status.classList.remove("is-error");
     const draft = rememberTranscriptDraft(generation.id, "segmentText", segment.id, text);
     if (segment.text === text) {
-      status.textContent = "Không có thay đổi.";
+      const edit = closeSegmentEditor(generation.id, segment.id);
+      reportTranscriptMutation(null, null, "Không có thay đổi.");
+      if (edit) edit.focus();
       return;
     }
     if (draft && draft.conflictCode === "source_version_changed") {
-      status.classList.add("is-error");
-      status.textContent = "Transcript đã thay đổi. Xem bản mới nhất rồi chỉnh bản nháp trước khi lưu.";
+      reportTranscriptMutation(
+        null,
+        status,
+        "Transcript đã thay đổi. Xem bản mới nhất rồi chỉnh bản nháp trước khi lưu.",
+        true,
+      );
       return;
     }
     setTranscriptMutationInFlight(true, form);
@@ -2150,6 +2456,9 @@
         if (feedbackStatus) clearReloadLatestAction(feedbackStatus.parentElement);
         updateTranscriptRenderKey(applied.generation);
       }
+      // The saved text is back in read mode; focus follows to its Sửa button once the save settles.
+      const edit = closeSegmentEditor(generation.id, segment.id);
+      if (edit) state.transcriptMutationFocusAfter = edit;
       reportTranscriptMutation(
         state.transcriptMutationStatusDescriptor,
         status,
@@ -2186,12 +2495,14 @@
         label.textContent = `Gán ban đầu: ${speaker.display_name}`;
       }
     }
-    const item = [...$("#speaker-catalog-list").children].find(
-      (child) => child.querySelector(".speaker-name-form")?.dataset.speakerId === speaker.speaker_id,
-    );
+    for (const name of $("#transcript-segments").querySelectorAll(".segment-speaker")) {
+      if (name.dataset.speakerId === speaker.speaker_id) name.textContent = speaker.display_name;
+    }
+    const item = speakerItem(speaker.speaker_id);
     if (item) {
       const input = item.querySelector("input");
       if (input) input.value = speaker.display_name;
+      else replaceSpeakerItem(generation.id, speaker.speaker_id);
     }
     updateAssignmentDraftReviewLabels(generation);
     updateTranscriptRenderKey(generation);
@@ -2261,6 +2572,9 @@
           updateSpeakerLabelsInTranscript(applied.generation, currentSpeaker);
         }
       }
+      // The new name is back on its chip; focus follows to it once the save settles.
+      const chip = closeSpeakerRename(generation.id, speakerId);
+      if (chip) state.transcriptMutationFocusAfter = chip;
       reportTranscriptMutation(
         state.transcriptMutationStatusDescriptor,
         status,
@@ -2350,10 +2664,8 @@
         );
         renderTranscriptGeneration(targetGeneration, editable);
         if (editable) {
-          const nameForm = [...$("#speaker-catalog-list").querySelectorAll(".speaker-name-form")]
-            .find((item) => item.dataset.speakerId === speaker.speaker_id);
-          const nameInput = nameForm && nameForm.querySelector("input");
-          if (nameInput) state.transcriptMutationFocusAfter = nameInput;
+          const chip = speakerItem(speaker.speaker_id)?.querySelector(".speaker-chip");
+          if (chip) state.transcriptMutationFocusAfter = chip;
         }
       }
       clearSpeakerAddDraft(generation.id);
@@ -2431,10 +2743,8 @@
           currentGeneration.source_version = resultVersion;
           if (state.view === "meeting" && state.selectedGenerationId === currentGeneration.id) {
             renderTranscriptGeneration(currentGeneration, true);
-            const nameForm = [...$("#speaker-catalog-list").querySelectorAll(".speaker-name-form")]
-              .find((item) => item.dataset.speakerId === speaker.speaker_id);
-            const nameInput = nameForm && nameForm.querySelector("input");
-            if (nameInput) state.transcriptMutationFocusAfter = nameInput;
+            const chip = speakerItem(speaker.speaker_id)?.querySelector(".speaker-chip");
+            if (chip) state.transcriptMutationFocusAfter = chip;
           }
         }
       }
@@ -2887,6 +3197,8 @@
       state.selectedGenerationId = null;
       state.currentGenerationId = null;
       state.transcriptMutationError = null;
+      state.editingSegment = null;
+      state.renamingSpeaker = null;
       clearSpeakerAddName();
     }
     if (!sameMeeting) closeEditor(); // drops the draft, which orphans any save still in flight
@@ -3214,6 +3526,16 @@
       void copyTranscriptDraft(copyDraft);
       return;
     }
+    const chip = event.target.closest("button[data-speaker-chip]");
+    if (chip) {
+      openSpeakerRename(chip.dataset.speakerId);
+      return;
+    }
+    const cancelRename = event.target.closest("button[data-speaker-cancel]");
+    if (cancelRename) {
+      cancelSpeakerRename(cancelRename.closest("form").dataset.speakerId);
+      return;
+    }
     const clear = event.target.closest("button[data-clear-speaker-name]");
     if (!clear) return;
     const form = clear.closest("li").querySelector("form[data-speaker-name]");
@@ -3263,7 +3585,36 @@
       );
     }
   });
+  // Esc cancels and Ctrl/⌘+Enter saves, but never mid-composition: a Vietnamese IME uses both keys.
+  // Both work from any control of the open row: textarea, speaker select, Hủy, "Chi tiết".
+  $("#transcript-generation").addEventListener("keydown", (event) => {
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === "Escape") {
+      const row = event.target.closest(".transcript-segment.is-editing");
+      const renaming = event.target.closest(".speaker-name-form");
+      if (row) cancelSegmentEditor(row.dataset.segmentId);
+      else if (renaming) cancelSpeakerRename(renaming.dataset.speakerId);
+      else return;
+      event.preventDefault();
+    } else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      const form = event.target.closest(".transcript-segment.is-editing")
+        ?.querySelector(".segment-edit-form");
+      if (!form) return;
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
   $("#transcript-segments").addEventListener("click", (event) => {
+    const edit = event.target.closest("button[data-edit-segment]");
+    if (edit) {
+      openSegmentEditor(edit.closest(".transcript-segment").dataset.segmentId);
+      return;
+    }
+    const cancelEdit = event.target.closest("button[data-segment-cancel]");
+    if (cancelEdit) {
+      cancelSegmentEditor(cancelEdit.closest(".transcript-segment").dataset.segmentId);
+      return;
+    }
     const timestamp = event.target.closest("button[data-seek-seconds]");
     if (!timestamp) return;
     const audio = $("#meeting-audio");

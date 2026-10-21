@@ -34,7 +34,7 @@ Tài liệu này là chuẩn thiết kế frontend v1 để triển khai. [Đặ
 | --- | --- |
 | Sidebar | Logo và tên phần mềm, chuyển theme, tìm kiếm, danh sách gần đây, lịch nhỏ, footer; cố định cao bằng viewport |
 | Đầu vùng duyệt | Tên cuộc họp, trạng thái kết nối **OpenAI** và **Google** (hai nút riêng), nút **Lịch** ở màn hình hẹp và điểm vào tạo cuộc họp toàn cục; khi mở cuộc họp có thêm ngày, ngôn ngữ chính, thời lượng, trạng thái và thao tác xóa |
-| Transcript | Danh sách đoạn phát biểu có người nói, timestamp, nội dung và thao tác sửa |
+| Transcript | Danh sách đoạn ở chế độ đọc (timestamp, người nói, nội dung, dấu cần kiểm tra), danh sách người nói dạng chip và nút **Sửa** mở ô sửa của từng đoạn |
 | Meeting notes | Notes theo ngôn ngữ đầu ra đã chọn, chọn bản notes, chỉnh sửa, tạo lại, copy và xuất Markdown |
 | Trình phát | Phát/tạm dừng, vị trí hiện tại, tổng thời lượng và thanh tua; dùng chung cho cuộc họp đang mở. Thanh dính ở mép trên vùng nội dung khi cuộn, cao tối đa 72 px, chỉ gồm trình phát; tiêu đề và dòng hướng dẫn của khối bản ghi cuộn đi như bình thường |
 | Lịch lớn | Thay vùng duyệt khi mở lịch; sidebar vẫn giữ nguyên để điều hướng |
@@ -112,27 +112,27 @@ Icon GitHub phải có tên truy cập và tooltip dù không có text hiển th
 
 ### 6.1. Transcript và trình phát
 
-Mỗi đoạn transcript gồm nhãn/tên người nói, timestamp có thể bấm, nội dung và nút sửa. Đoạn chưa rõ được đánh dấu bằng amber và chỉ dẫn nghe lại. Đoạn nguồn đang được đối chiếu phải nổi bật để người dùng định vị được trong danh sách.
+Transcript mặc định ở chế độ đọc để nghe và đọc nhanh. Mỗi đoạn gồm timestamp có thể bấm, tên người nói, nội dung (từ 13 px) và nút **Sửa** luôn hiện, không phụ thuộc hover; chưa có ô nhập, select hay nút lưu nào. Đoạn chưa rõ được đánh dấu bằng amber, nhãn **Cần kiểm tra** kèm lý do và chỉ dẫn nghe lại. Đoạn nguồn đang được đối chiếu phải nổi bật để người dùng định vị được trong danh sách. Mỗi đoạn ở chế độ đọc có tối đa hai điểm dừng Tab: timestamp và **Sửa**.
 
 Bấm timestamp trong transcript tua trình phát tới đoạn đó và phát; mở nguồn từ notes chỉ tua tới mốc nguồn, không tự phát. Trình phát là thanh dính ở mép trên vùng nội dung, có phát/tạm dừng, thanh tua, thời gian hiện tại và tổng thời lượng. Trong sản phẩm, phát âm thanh từ bản sao đã lưu tại backend; dạng sóng và chuyển động trong prototype không chứng minh đã có phát âm thanh thật.
 
 Khi audio đang phát và đoạn đang phát (`aria-current`) đổi, nếu còn thấy một phần danh sách đoạn trong vùng nhìn thấy bên dưới thanh trình phát thì đoạn đó được đưa vào tầm nhìn bằng cuộn gần nhất (`block: "nearest"`), dưới thanh trình phát; khi người dùng bật giảm chuyển động, cuộn tức thì. Không tự cuộn khi audio tạm dừng, trong 2 giây sau khi người dùng cuộn tay (con lăn, chạm, phím cuộn hoặc kéo thanh cuộn), khi focus đang nằm trong một ô sửa của transcript, hay khi cả danh sách đoạn nằm ngoài vùng nhìn thấy đó. Nhờ vậy người đang đọc notes không bị kéo về transcript, và mở nguồn từ notes giữ nguyên chỗ đang đọc: chỉ tua tới mốc nguồn và đánh dấu đoạn tương ứng. Mọi đích cuộn trong cuộc họp (đoạn transcript, tiêu đề nguồn notes) đều dừng dưới thanh trình phát, không nằm dưới nó. Trình duyệt cũng cuộn control nhận focus bàn phím xuống dưới thanh; riêng ô nhập văn bản có thể chỉ lộ dòng chứa con trỏ, nên một phần của ô vẫn có thể nằm dưới thanh trình phát.
 
-Sửa một đoạn transcript bằng ô nhập tại đoạn đó, có lưu/bỏ qua. Sau khi lưu, notes hiện có được đánh dấu cần cập nhật; không tự thay nội dung notes.
+Bấm **Sửa** mở ô sửa tại đoạn đó, gồm ô nội dung, select người nói, **Lưu đoạn** và **Hủy**; chỉ một ô sửa mở tại một lúc. Esc là hủy, Ctrl/⌘+Enter (từ bất kỳ control nào trong ô) là lưu; sau khi lưu hoặc hủy, focus quay lại nút **Sửa** của đoạn đó. Mở đoạn khác đóng ô đang mở nhưng giữ văn bản chưa lưu trong cơ chế bản nháp của transcript; đoạn có bản nháp hiện dấu **Bản nháp chưa lưu** (chữ cùng viền nét đứt, không chỉ màu). Mục **Chi tiết** trong ô sửa chứa **Gán ban đầu** và các chỉ số model (`avg_logprob`, `no_speech_prob`, `compression_ratio`); ở chế độ đọc chúng không hiện (thế hệ cũ chỉ đọc, không có ô sửa, nên giữ mục này đóng sẵn ở mỗi đoạn). Thông báo **Đã lưu** của mọi đoạn đi qua một vùng `aria-live` chung, không có vùng riêng cho từng đoạn. Sau khi lưu, notes hiện có được đánh dấu cần cập nhật; không tự thay nội dung notes.
 
-Q24 bổ sung chọn lại người nói cho từng đoạn và thêm nhãn nếu thiếu; giữ nhãn model gán ban đầu để đối chiếu. Chỉ chỉnh ở thế hệ hiện tại, cùng khóa nguồn/kiểm tra phiên bản như sửa text. Timestamp và ranh giới đoạn giữ nguyên trong v1; đổi người nói một đoạn không đổi tên cả nhóm hoặc các đoạn khác.
+Q24 bổ sung chọn lại người nói cho từng đoạn (select trong ô sửa, lưu ngay khi đổi) và thêm nhãn nếu thiếu; giữ nhãn model gán ban đầu để đối chiếu trong mục **Chi tiết**. Chỉ chỉnh ở thế hệ hiện tại, cùng khóa nguồn/kiểm tra phiên bản như sửa text. Timestamp và ranh giới đoạn giữ nguyên trong v1; đổi người nói một đoạn không đổi tên cả nhóm hoặc các đoạn khác.
 
-Q20 yêu cầu lưu theo phiên bản đã đọc. Khi tab khác đã cập nhật cùng dữ liệu, giữ phần đang soạn và báo xung đột để người dùng đối chiếu với bản mới; không tự ghi đè hoặc trộn. Quy tắc cũng áp dụng cho tên người nói và nội dung cùng một bản notes.
+Q20 yêu cầu lưu theo phiên bản đã đọc. Khi tab khác đã cập nhật cùng dữ liệu, giữ phần đang soạn và báo xung đột để người dùng đối chiếu với bản mới; không tự ghi đè hoặc trộn. Quy tắc cũng áp dụng cho tên người nói và nội dung cùng một bản notes. Esc và **Hủy** vẫn giữ bản nháp đã bị đánh dấu xung đột (nội dung đoạn hoặc tên người nói): ô đóng lại, đoạn (hoặc chip) vẫn mang dấu bản nháp, và mở lại sẽ khôi phục bản nháp cùng khung đối chiếu. Nút **Tải lại bản mới nhất** nằm trong ô sửa khi ô đang mở và chuyển lên khung báo xung đột phía trên transcript khi ô đã đóng, cho đến khi người dùng tải bản mới.
 
 Q21 yêu cầu có cách chọn thế hệ transcript: mặc định thế hệ mới nhất đã hoàn tất và lưu đầy đủ, các thế hệ trước chỉ đọc. Lần chạy mới chưa hoàn tất không thay mặc định; notes lỗi sau khi transcript đã lưu không làm mất bản mới. Cách trình bày bộ chọn này bổ sung sau prototype, chưa có UI được nghiệm thu.
 
-Theo quyết định backend được chốt sau khi duyệt prototype, khi đang tạo notes cho cuộc họp này, UI khóa sửa transcript và tên người nói, giải thích lý do và vẫn cho đọc nguồn. Backend phải thực thi cùng điều kiện ở API; chỉ mở lại chỉnh sửa sau khi tác vụ đã kết thúc, không ngay khi vừa gửi yêu cầu hủy. Các bản notes đã có và các cuộc họp khác vẫn sửa được. Xem [backend design v1](backend-design-v1.md).
+Theo quyết định backend được chốt sau khi duyệt prototype, khi đang tạo notes cho cuộc họp này, UI khóa sửa transcript và tên người nói (nút **Sửa** và chip người nói bị tắt, kèm lý do gắn vào từng nút), vẫn cho đọc nguồn; ở ô sửa đang mở, nội dung, select và **Lưu đoạn** bị tắt, còn **Hủy** vẫn dùng được. Backend phải thực thi cùng điều kiện ở API; chỉ mở lại chỉnh sửa sau khi tác vụ đã kết thúc, không ngay khi vừa gửi yêu cầu hủy. Các bản notes đã có và các cuộc họp khác vẫn sửa được. Xem [backend design v1](backend-design-v1.md).
 
 ### 6.2. Tên người nói
 
 - Mặc định dùng **Speaker 1**, **Speaker 2**, … theo từng cuộc họp.
-- Nút **Tên người nói** ở đầu transcript hoặc bấm nhãn người nói mở hộp thoại nhập tên cho từng nhãn.
-- Cho phép thêm, sửa, xóa tên; để trống thì dùng nhãn mặc định. Giữ nhãn gốc cạnh tên để đối chiếu.
+- Mục **Người nói trong phiên bản này** ở đầu transcript hiện mỗi người nói thành một chip; chip còn tên mặc định do hệ thống đặt (**Speaker N**) có dấu **đặt tên**. Bấm chip mở ô đổi tên ngay tại chỗ, không phải hộp thoại: Enter lưu, Esc hủy. Chỉ một ô đổi tên mở tại một lúc; tên đang gõ ở ô vừa rời đi được giữ làm bản nháp (chip hiện dấu **bản nháp**).
+- Cho phép thêm người nói, sửa tên và **Khôi phục tên mặc định**; để trống thì dùng nhãn mặc định. Ô đổi tên hiện nhãn gốc để đối chiếu. Ở thế hệ cũ, chip chỉ để đọc.
 - Tên chỉ áp dụng cho thế hệ transcript đang sửa của cuộc họp hiện tại. Lưu tên cập nhật transcript và đánh dấu notes cần cập nhật; thế hệ mới sau chạy lại dùng nhãn Speaker để đặt tên lại, không tự ghép tên với thế hệ cũ.
 - Khi chủ động tạo lại notes, bản mới sử dụng tên đã đặt; các bản cũ và chỉnh sửa thủ công giữ nguyên.
 - Tự học/nhận diện và điền tên từ dữ liệu training là **advanced feature ở phase sau**. V1 không có giao diện huấn luyện hoặc tự nhận diện danh tính.

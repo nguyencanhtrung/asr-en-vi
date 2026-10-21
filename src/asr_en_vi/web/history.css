@@ -493,3 +493,129 @@
     flex-direction: column-reverse;
   }
 }
+
+/* ---- transcript: read-mode rows, the one open editor, speaker chips ---- */
+.segment-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.segment-head .segment-speaker {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.segment-edit-button {
+  flex-shrink: 0;
+  min-height: 30px;
+  padding: 0 12px;
+}
+
+/* Dashed as well as amber: an unsaved draft never relies on colour alone. */
+.segment-draft-mark {
+  grid-column: 2;
+  justify-self: start;
+  padding: 3px 7px;
+  border: 1px dashed var(--warning);
+  border-radius: var(--radius-lg);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 11px;
+}
+
+.segment-details {
+  grid-column: 2;
+  color: var(--ink-2);
+  font-size: 11px;
+}
+
+.segment-details summary {
+  width: fit-content;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.segment-details .segment-original-speaker,
+.segment-details .segment-model-measures {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-2);
+  font-size: 11px;
+}
+
+.speaker-chip-item {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.speaker-chip-item.is-renaming {
+  flex: 1 1 100%;
+}
+
+.speaker-chip-item.is-renaming .speaker-name-form {
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+/* The one visible label of an inline rename: control size, not the 9px caption of the add form.
+   The id it names can be 39 characters without a break, so it wraps anywhere. */
+.speaker-chip-item.is-renaming .speaker-name-form label {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.speaker-chip {
+  display: inline-flex;
+  max-width: 100%;
+  min-height: 30px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+button.speaker-chip {
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+button.speaker-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+button.speaker-chip:disabled {
+  border-color: var(--hairline);
+  color: var(--ink-3);
+  cursor: not-allowed;
+}
+
+.speaker-chip-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.speaker-chip-mark {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-lg);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+button.speaker-chip:disabled .speaker-chip-mark {
+  color: var(--ink-3);
+}
