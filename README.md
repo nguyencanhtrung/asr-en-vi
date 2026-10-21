@@ -229,9 +229,18 @@ Mở cuộc họp đã có transcript hoàn chỉnh, lưu lựa chọn ChatGPT/m
 **Tạo notes**. Worker gửi transcript cùng ID, timestamp, tên người nói và ngày họp cần thiết;
 không gửi audio. Nguồn dài được chia tại ranh giới đoạn, tạo các tóm tắt có trích dẫn đã kiểm tra
 riêng theo từng phần, rồi tổng hợp theo thứ tự transcript để xử lý quyết định hoặc đề xuất thay
-đổi về sau. Nguồn vượt giới hạn tổng, số phần hoặc có đoạn đơn lẻ quá lớn sẽ bị từ chối trước khi
-lưu task và snapshot; transcript không bị cắt hoặc âm thầm bỏ đoạn. Tóm tắt trung gian vẫn có thể
-bỏ sót chi tiết, vì vậy hãy đối chiếu nội dung cuối với nguồn.
+đổi về sau. Mỗi phần sau chỉ mở đầu bằng các đoạn cuối nguyên vẹn của phần trước (tối đa 2.000
+byte) làm ngữ cảnh khi chúng vừa; đoạn đầu của phần mới được ưu tiên chỗ, còn phần trước kết thúc
+bằng một mảnh của đoạn bị cắt thì không có. Một đoạn đơn lẻ quá lớn cho một lượt gọi được cắt
+thành các mảnh văn bản; mỗi mảnh giữ ID và thời điểm bắt đầu/kết thúc của đoạn gốc, hai mảnh liền
+nhau lặp lại tối đa 300 ký tự, và transcript đã lưu không đổi. Khi các tóm tắt trung gian quá dài
+để ghép cặp, tóm tắt lớn hơn được rút gọn riêng thay vì bị bỏ hoặc cắt; tác vụ chỉ lỗi khi hết
+giới hạn số lượt gọi hoặc 8 tầng rút gọn, khi một tóm tắt không thể nhỏ thêm hoặc không vừa một
+yêu cầu rút gọn dù đứng riêng. Trước khi gọi provider, backend kiểm tra mọi đoạn đều nằm trong ít
+nhất một lượt gọi; manifest độ phủ ghi mỗi lượt gọi xử lý đoạn nào được lưu cùng bản notes (UI và
+API không hiển thị). Nguồn vượt 1.000.000 byte hoặc cần hơn 24 phần sẽ bị từ chối trước khi lưu
+task và snapshot; transcript không bị cắt hoặc âm thầm bỏ đoạn. Tóm tắt trung gian vẫn có thể bỏ
+sót chi tiết, vì vậy hãy đối chiếu nội dung cuối với nguồn.
 
 Mỗi lượt gọi dành tối đa 25.000 token cho reasoning và đầu ra; phần nguồn được chia nhỏ để vẫn
 giữ ngân sách context an toàn. Toàn tác vụ có giới hạn 60 phút, không tự đổi model/effort hoặc
