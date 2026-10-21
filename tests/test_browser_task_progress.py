@@ -272,6 +272,7 @@ def test_transcription_cancel_names_what_it_cancels(live, signed_in):
     page.goto(f"{live.url}/meetings/{meeting_id}")
 
     cancel = page.locator("#cancel-transcription")
+    expect(cancel).to_be_visible()
     expect(cancel).to_have_text("Hủy chép lời")
     expect(page.get_by_role("button", name="Hủy xử lý")).to_have_count(0)
     cancel.click()
@@ -389,6 +390,30 @@ def test_indeterminate_pulse_stops_under_reduced_motion(live, signed_in, prefere
     assert bar.evaluate("el => getComputedStyle(el).animationName") == animation
 
 
+def test_progress_bar_is_drawn_in_forced_colors(live, signed_in):
+    _context, page = signed_in()
+    meeting_id, task_id, owner_id = running_transcription(live, end=0)
+    page.emulate_media(forced_colors="active")
+    page.goto(f"{live.url}/meetings/{meeting_id}")
+
+    # The palette is the browser's own, so compare paint: an empty track against no bar at all,
+    # then the fill's edge moving with the value (a fill painted in Canvas never shows an edge).
+    bar = page.locator("#task-progress-bar")
+    percent = page.locator("#task-progress-percent")
+    expect(percent).to_have_text("0%")
+    track = bar.screenshot()
+    bar.evaluate("el => { el.style.opacity = '0'; }")
+    assert bar.screenshot() != track
+    bar.evaluate("el => { el.style.opacity = ''; }")
+
+    shots = []
+    for end in (25, 50):
+        report(live, task_id, owner_id, "transcribing", end)
+        expect(percent).to_have_text(f"{end}%", timeout=8_000)
+        shots.append(bar.screenshot())
+    assert shots[0] != shots[1]
+
+
 @pytest.mark.parametrize(
     ("stage", "states"),
     [
@@ -484,6 +509,8 @@ def test_notes_cancel_names_what_it_cancels(live, signed_in):
     page.goto(f"{live.url}/meetings/{meeting_id}")
 
     cancel = page.locator("#notes-cancel")
+    # The button ships hidden with static text; only the first render shows what the script sets.
+    expect(cancel).to_be_visible()
     expect(cancel).to_have_text("Hủy tạo notes")
     expect(page.get_by_role("button", name="Hủy xử lý")).to_have_count(0)
     cancel.click()

@@ -325,6 +325,7 @@ Corners are compact and engineered: controls use the small radius, content panel
 - **Bar:** A native `<progress>` under the transcript heading while a transcription task is active: 6px tall, small radius, `max="1"`, an accent fill over a hairline track. Its accessible name is the visible Vietnamese stage label on the line above, with the percent at the end of that line in mono tabular figures.
 - **Value:** Transcript end divided by recording length, clamped to 1. The percent never shows 100% before the whole recording is transcribed. Later stages (speaker recognition, saving) leave the bar where the transcript ended and change only the label.
 - **Unknown:** Without a usable recording length the bar has no value and no percent: a dashed accent outline that pulses. Reduced motion removes the pulse; the dashed outline remains, so the state never relies on motion or colour alone.
+- **Forced colors:** The track becomes a one-pixel `CanvasText` outline and the fill `Highlight`, so the bar stays visible in the user's own palette; the dashed unknown state is already an outline and is unchanged.
 - **Data:** It is painted from the existing task poll and adds no request.
 
 ### Notes Steps

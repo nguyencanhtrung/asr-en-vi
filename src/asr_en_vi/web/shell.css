@@ -1791,6 +1791,21 @@ textarea:focus-visible {
   }
 }
 
+/* Forced colours paint author backgrounds as Canvas: outline the track, fill with Highlight. */
+@media (forced-colors: active) {
+  .task-progress-bar {
+    border: 1px solid CanvasText;
+  }
+
+  .task-progress-bar::-webkit-progress-value {
+    background: Highlight;
+  }
+
+  .task-progress-bar::-moz-progress-bar {
+    background: Highlight;
+  }
+}
+
 .transcription-status,
 .transcription-error,
 .transcript-empty {
