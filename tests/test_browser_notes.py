@@ -183,7 +183,7 @@ def test_notes_late_asset_still_receives_current_meeting_context(live, signed_in
     assert len(held_assets) == 1
     held_assets.pop().continue_()
     expect(page.locator("#notes-start")).to_be_enabled()
-    expect(page.locator(".segment-text-editor").first).to_be_enabled()
+    expect(page.locator(".segment-edit-button").first).to_be_enabled()
 
 
 @pytest.fixture
@@ -648,11 +648,15 @@ def test_saved_source_stays_frozen_and_seeks_same_audio_after_live_edit(
         "segment": [segment_ids[0]],
     }
 
-    first_segment = page.locator(".segment-edit-form").nth(0)
+    first_segment = page.locator(".transcript-segment").nth(0)
+    first_segment.locator(".segment-edit-button").click()
     editor = first_segment.locator(".segment-text-editor")
     editor.fill("The live transcript was corrected after notes generation.")
     first_segment.locator('button[type="submit"]').click()
-    expect(first_segment.locator(".segment-edit-status")).to_have_text("Đã lưu.", timeout=10_000)
+    expect(first_segment.locator(".segment-text")).to_have_text(
+        "The live transcript was corrected after notes generation.", timeout=10_000
+    )
+    expect(page.locator("#transcript-mutation-status")).to_have_text("Đã lưu.")
     expect(page.locator("#notes-source-text")).to_have_text(original_text)
     expect(audio).to_have_attribute("src", f"/api/meetings/{meeting_id}/audio")
     assert hashlib.sha256(audio_path.read_bytes()).hexdigest() == audio_digest
@@ -710,7 +714,7 @@ def test_failed_notes_read_keeps_old_revision_draft_source_and_other_meeting_nav
     expect(
         page.get_by_text("Tác vụ notes đang dùng nguồn; chỉnh sửa tạm thời bị khóa.", exact=False)
     ).to_be_visible()
-    expect(page.locator(".segment-text-editor").first).to_be_disabled()
+    expect(page.locator(".segment-edit-button").first).to_be_disabled()
     draft = "# Draft while another notes task is running\n\nKeep this across navigation.\n"
     page.locator("#notes-markdown").fill(draft)
 

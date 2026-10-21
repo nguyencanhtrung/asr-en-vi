@@ -137,7 +137,7 @@ def load_meeting(live, page, meeting_id, count):
 def open_meeting(live, signed_in, *, count=SEGMENT_COUNT, **options):
     _context, page = signed_in(**options)
     load_meeting(live, page, seed_long_transcript(live.settings.data_dir, count), count)
-    expect(page.locator(".segment-text-editor").first).to_be_enabled()
+    expect(page.locator(".segment-edit-button").first).to_be_enabled()
     page.evaluate(STUB_AUDIO)
     return page
 
@@ -324,6 +324,7 @@ def test_scroll_targets_stay_clear_of_the_player_bar(live, signed_in, viewport):
 @BOTH_VIEWPORTS
 def test_keyboard_focus_is_not_left_under_the_player_bar(live, signed_in, viewport):
     page = open_meeting(live, signed_in, viewport=viewport)
+    segment(page, 5).locator(".segment-edit-button").click()
     editor = segment(page, 5).locator(".segment-text-editor")
     place(editor, 20)  # the editor sits under the bar, the next control just below it
     bar = rect(page.locator(".player-bar"))
@@ -473,21 +474,23 @@ def test_no_following_for_two_seconds_after_a_manual_scroll(live, signed_in, ges
 
 
 @pytest.mark.parametrize(
-    ("selector", "stops_following"),
+    ("selector", "stops_following", "editing"),
     [
-        (".segment-text-editor", True),
-        (".segment-speaker-select", True),
-        ("#speaker-add-name", True),
-        (".segment-timestamp", False),
+        (".segment-text-editor", True, True),
+        (".segment-speaker-select", True, True),
+        ("#speaker-add-name", True, False),
+        (".segment-timestamp", False, False),
     ],
     ids=["textarea", "select", "input", "button"],
 )
 def test_no_following_while_focus_is_in_a_transcript_edit_field(
-    live, signed_in, selector, stops_following
+    live, signed_in, selector, stops_following, editing
 ):
     page = open_meeting(live, signed_in, reduced_motion="reduce")
     freeze_clock(page)
     show_list(page)
+    if editing:  # the textarea and the select exist only while a segment is being edited
+        segment(page, 0).locator(".segment-edit-button").click()
     play_at(page, 0, paused=True)
     page.locator(selector).first.evaluate("element => element.focus({ preventScroll: true })")
     settle(page)
@@ -557,7 +560,8 @@ def test_following_is_instant_when_motion_is_reduced(live, signed_in):
     play_at(page, 0, paused=True)
     settle(page)
     before = scroll_y(page)
-    assert play_at(page, 10) > before + 500
+    # Segment 20 sits well over 500px below the first: read-mode rows are short.
+    assert play_at(page, 20) > before + 500
 
 
 def test_following_is_smooth_otherwise(live, signed_in):
@@ -567,7 +571,7 @@ def test_following_is_smooth_otherwise(live, signed_in):
     play_at(page, 0, paused=True)
     settle(page)
     before = scroll_y(page)
-    assert play_at(page, 10) == before
+    assert play_at(page, 20) == before
     wait_for(page, "before => window.scrollY > before + 500", before)
 
 

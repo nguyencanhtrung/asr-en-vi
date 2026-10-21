@@ -1883,7 +1883,9 @@ textarea:focus-visible {
 }
 
 .speaker-catalog-list {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 8px;
   margin: 0;
   padding: 0;
@@ -1895,6 +1897,12 @@ textarea:focus-visible {
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: end;
   gap: 7px;
+}
+
+.speaker-name-form .speaker-clear-name,
+.speaker-name-form .speaker-form-status {
+  grid-column: 1 / -1;
+  justify-self: start;
 }
 
 .speaker-name-form label,
@@ -2044,13 +2052,14 @@ textarea:focus-visible {
 
 .segment-timestamp {
   justify-self: start;
+  min-height: 28px;
   padding: 0;
   border: 0;
   background: transparent;
   color: var(--teal);
   cursor: pointer;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   text-underline-offset: 3px;
 }
@@ -2063,8 +2072,8 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   gap: 7px;
-  color: var(--ink-3);
-  font-size: 9px;
+  color: var(--ink-2);
+  font-size: 12px;
 }
 
 .segment-speaker-select {
@@ -2095,15 +2104,16 @@ textarea:focus-visible {
 
 .segment-speaker {
   align-self: center;
-  color: var(--ink-3);
-  font-size: 9px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .segment-text {
   grid-column: 2;
   margin: 0;
   color: var(--ink);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -2125,7 +2135,7 @@ textarea:focus-visible {
   background: var(--surface-subtle);
   color: var(--ink);
   font: inherit;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.65;
   resize: vertical;
   overflow-wrap: anywhere;
@@ -2133,6 +2143,7 @@ textarea:focus-visible {
 
 .segment-edit-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
@@ -2151,7 +2162,7 @@ textarea:focus-visible {
   border-radius: var(--radius-lg);
   background: var(--warning-soft);
   color: var(--amber);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .segment-model-measures {
@@ -2197,14 +2208,6 @@ textarea:focus-visible {
   .generation-navigation {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  .speaker-name-form {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .speaker-name-form .speaker-clear-name {
-    grid-column: 2;
   }
 
   .transcript-segment {
