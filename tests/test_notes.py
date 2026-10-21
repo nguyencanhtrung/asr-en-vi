@@ -445,13 +445,36 @@ def test_provider_mutations_are_denied_until_active_notes_task_is_terminal(tmp_p
         assert state["connection_version"] == 0
 
 
-def test_oversized_source_is_rejected_without_creating_task_or_snapshot(tmp_path):
+def test_segment_over_one_request_budget_is_accepted_and_the_transcript_stays_whole(tmp_path):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, segment_ids = seed_completed_transcript(data_dir)
+    long_text = "x" * 60_000
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        connection.execute(
+            "UPDATE transcript_segments SET text = ? WHERE id = ?", (long_text, segment_ids[0])
+        )
+
+    accepted = _accept(data_dir, meeting_id, generation_id)
+
+    assert accepted["status"] == "accepted"
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        stored = connection.execute(
+            "SELECT text FROM transcript_segments WHERE id = ?", (segment_ids[0],)
+        ).fetchone()
+        snapshot_json = connection.execute("SELECT snapshot_json FROM notes_sources").fetchone()[0]
+    assert stored == (long_text,)
+    frozen = json.loads(snapshot_json)["segments"]
+    assert [item["id"] for item in frozen] == segment_ids
+    assert frozen[0]["text"] == long_text  # parts exist only in requests, never in the snapshot
+
+
+def test_source_needing_more_parts_than_the_chunk_limit_is_rejected_without_a_task(tmp_path):
     data_dir = tmp_path / "data"
     meeting_id, generation_id, segment_ids = seed_completed_transcript(data_dir)
     with sqlite3.connect(database_path(data_dir)) as connection:
         connection.execute(
             "UPDATE transcript_segments SET text = ? WHERE id = ?",
-            ("x" * 60_000, segment_ids[0]),
+            ("x" * 600_000, segment_ids[0]),
         )
 
     with pytest.raises(TaskError) as oversized:
@@ -459,7 +482,7 @@ def test_oversized_source_is_rejected_without_creating_task_or_snapshot(tmp_path
 
     assert oversized.value.status_code == 413
     assert oversized.value.code == "notes_source_too_large"
-    assert "single transcript segment" in oversized.value.message
+    assert "maximum of 24 notes chunks" in oversized.value.message
     with sqlite3.connect(database_path(data_dir)) as connection:
         assert connection.execute("SELECT COUNT(*) FROM tasks WHERE kind = 'notes'").fetchone() == (
             0,
@@ -508,3 +531,136 @@ def test_long_transcript_is_accepted_with_all_source_segments_frozen(tmp_path):
     assert [segment["id"] for segment in snapshot["segments"][2:]] == [
         row[0] for row in additional_segments
     ]
+
+
+_COVERAGE = {
+    "version": 1,
+    "segment_count": 2,
+    "chunks": [
+        {"index": 1, "owned": [0, 2], "overlap": None, "parts": [], "provider_call_index": 1}
+    ],
+}
+
+
+def _stored_coverage(data_dir: Path, revision_id: str) -> str | None:
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        return connection.execute(
+            "SELECT coverage_json FROM notes_revisions WHERE id = ?", (revision_id,)
+        ).fetchone()[0]
+
+
+def test_publication_stores_the_coverage_manifest_with_the_revision(tmp_path):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, _ = seed_completed_transcript(data_dir)
+    accepted = _accept(data_dir, meeting_id, generation_id)
+    claim_next_task(data_dir, owner_id="notes-worker")
+
+    revision = publish_notes_revision(
+        data_dir,
+        accepted["id"],
+        owner_id="notes-worker",
+        markdown=_markdown(),
+        elapsed_seconds=1.0,
+        coverage=_COVERAGE,
+    )
+
+    assert revision is not None
+    assert json.loads(_stored_coverage(data_dir, revision["id"])) == _COVERAGE
+    assert "coverage_json" not in revision  # the proof is stored, not part of the API payload
+
+
+@pytest.mark.parametrize(
+    "coverage",
+    [
+        {},
+        ["chunks"],
+        {"chunks": []},
+        {"chunks": [{"index": 1, "owned": [0, 2]}]},
+        {"chunks": [{"provider_call_index": 0}]},
+        {"chunks": [{"provider_call_index": True}]},
+        {"chunks": [{"provider_call_index": 1}, {"index": 2}]},
+        {"chunks": [{"provider_call_index": 1}], "bad": float("nan")},
+        {"chunks": [{"provider_call_index": 1}], "padding": "x" * 70_000},
+    ],
+)
+def test_publication_refuses_coverage_that_does_not_show_every_request_processed(
+    tmp_path, coverage
+):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, _ = seed_completed_transcript(data_dir)
+    accepted = _accept(data_dir, meeting_id, generation_id)
+    claim_next_task(data_dir, owner_id="notes-worker")
+
+    with pytest.raises(TaskError) as refused:
+        publish_notes_revision(
+            data_dir,
+            accepted["id"],
+            owner_id="notes-worker",
+            markdown=_markdown(),
+            elapsed_seconds=1.0,
+            coverage=coverage,
+        )
+
+    assert refused.value.code in {"invalid_coverage", "coverage_too_large"}
+    state = notes_state(data_dir, meeting_id)
+    assert state["revisions"] == [] and state["task"]["status"] == "running"
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        assert connection.execute(
+            "SELECT active_task_id FROM processing_slot WHERE slot_id = 1"
+        ).fetchone() == (accepted["id"],)
+
+
+class _UntouchedProvider:
+    """Any use means the replay went on to pin a provider, that is, to start another run."""
+
+    store = property(lambda self: pytest.fail("A replay must not touch the provider."))
+
+    def assert_notes_acceptable(self):
+        pytest.fail("A replay must not check whether notes can start.")
+
+    def notes_task_pin(self):
+        pytest.fail("A replay must not pin the provider.")
+
+
+def test_replayed_request_returns_the_finished_task_and_never_starts_another(tmp_path):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, _ = seed_completed_transcript(data_dir)
+    accepted = _accept(data_dir, meeting_id, generation_id)
+    claim_next_task(data_dir, owner_id="notes-worker")
+    assert (
+        publish_notes_revision(
+            data_dir,
+            accepted["id"],
+            owner_id="notes-worker",
+            markdown=_markdown(),
+            elapsed_seconds=1.0,
+            coverage=_COVERAGE,
+        )
+        is not None
+    )
+
+    def replay(**changes):
+        return accept_notes_task(
+            data_dir,
+            provider=_UntouchedProvider(),
+            meeting_id=meeting_id,
+            request_id="notes-req-0001",
+            expected_generation_id=generation_id,
+            expected_source_version=1,
+            expected_metadata_version=1,
+            worker_ready=False,
+            **changes,
+        )
+
+    same = replay()
+    assert same["id"] == accepted["id"] and same["status"] == "succeeded"
+    with pytest.raises(TaskError) as conflict:
+        replay(output_language="vi")
+    assert conflict.value.code == "idempotency_conflict"
+    # Nothing new was queued, so no worker can send another request to the model.
+    assert claim_next_task(data_dir, owner_id="another-worker") is None
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM tasks WHERE kind = 'notes'").fetchone() == (
+            1,
+        )
+        assert connection.execute("SELECT COUNT(*) FROM notes_sources").fetchone() == (1,)

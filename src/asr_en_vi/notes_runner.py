@@ -73,17 +73,19 @@ def run_notes_task(data_dir: Path, task_id: str, owner_id: str) -> int:
             )
             return 1
         _emit({"type": "stage", "stage": "generating_notes"})
+        coverage: dict[str, Any] = {}
         document = provider.generate_notes_document(
             snapshot=snapshot,
             connection_version=task["notes_connection_version"],
             model=task["notes_model"],
             reasoning_effort=task["notes_reasoning_effort"],
             output_language=task["notes_output_language"],
+            on_coverage=coverage.update,
         )
         markdown = render_markdown(
             document, snapshot, output_language=task["notes_output_language"]
         )
-        _emit({"type": "result", "markdown": markdown})
+        _emit({"type": "result", "markdown": markdown, "coverage": coverage})
         return 0
     except (ChatGPTError, AntigravityError) as error:
         _emit({"type": "error", "code": error.code, "message": error.public_message})

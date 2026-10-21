@@ -1335,6 +1335,7 @@ class AntigravityProvider:
         model: str,
         reasoning_effort: str,
         output_language: str = "en",
+        on_coverage: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Generate and validate notes using only the account and model pinned at acceptance."""
         if not isinstance(model, str) or not _SAFE_ID.fullmatch(model):
@@ -1386,6 +1387,7 @@ class AntigravityProvider:
                 limit_error=lambda message: AntigravityError(
                     413, "notes_synthesis_limit_exceeded", message
                 ),
+                on_coverage=on_coverage,
             )
 
     def verify(self, model: str) -> dict[str, Any]:

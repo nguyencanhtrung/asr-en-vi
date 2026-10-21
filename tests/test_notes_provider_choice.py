@@ -8,7 +8,9 @@ import sqlite3
 import subprocess
 import threading
 import time
+import uuid
 from contextlib import asynccontextmanager, suppress
+from itertools import pairwise
 
 import pytest
 from fake_chatgpt import FakeChatGPTAdapter
@@ -682,7 +684,12 @@ def _run_notes(data_dir, capsys, task_id, owner_id):
     revision = None
     if last["type"] == "result":
         revision = publish_notes_revision(
-            data_dir, task_id, owner_id=owner_id, markdown=last["markdown"], elapsed_seconds=0.5
+            data_dir,
+            task_id,
+            owner_id=owner_id,
+            markdown=last["markdown"],
+            elapsed_seconds=0.5,
+            coverage=last["coverage"],
         )
         assert revision is not None
     return last, revision
@@ -1005,7 +1012,19 @@ for line in sys.stdin:
             }
             print(json.dumps(failed), flush=True)
             break
-        text = "not json" if mode == "invalid" else reply(command["message"])
+        if mode == "network":
+            # S-2 again: the connection dropped after the prompt was sent, and the error object
+            # still says retryable. Neither the adapter nor OMP may send the prompt a second time.
+            failed = {
+                "type": "prompt_result", "id": request_id, "status": "error",
+                "error": {"provider": "google-antigravity", "model": model, "retryable": True,
+                          "message": "Network connection lost"},
+            }
+            print(json.dumps(failed), flush=True)
+            break
+        earlier_calls = len((agent / "calls.jsonl").read_text().splitlines()) - 1
+        broken = mode == "invalid" or (mode == "fail_after_first" and earlier_calls > 0)
+        text = "not json" if broken else reply(command["message"])
         message = {"type": "message_end",
                    "message": {"role": "assistant", "content": [{"type": "text", "text": text}]}}
         print(json.dumps(message), flush=True)
@@ -1488,3 +1507,129 @@ async def test_antigravity_confirmed_level_is_compared_after_legacy_default_is_n
         )
         assert legacy.status_code == 202
         assert legacy.json()["reasoning_effort"] == "high"
+
+
+# --- long transcripts, exhausted repair and lost connections, end to end -----------------------
+
+
+def _add_segments(data_dir, generation_id, count, *, first_sequence=2):
+    """Append short, distinct segments after the two seeded ones, in transcript order."""
+    rows = [
+        (
+            uuid.uuid4().hex,
+            generation_id,
+            sequence,
+            5.0 + (sequence - first_sequence) * 0.025,
+            5.01 + (sequence - first_sequence) * 0.025,
+            f"Long-source segment {sequence}: review the proposal and unresolved question.",
+            "SPEAKER_00",
+            "SPEAKER_00",
+            0,
+        )
+        for sequence in range(first_sequence, first_sequence + count)
+    ]
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        connection.executemany(
+            "INSERT INTO transcript_segments(id, generation_id, sequence, start_seconds, "
+            "end_seconds, text, original_speaker_id, speaker_id, uncertain) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+
+
+def _stored_coverage(data_dir, revision_id):
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        stored = connection.execute(
+            "SELECT coverage_json FROM notes_revisions WHERE id = ?", (revision_id,)
+        ).fetchone()[0]
+    return json.loads(stored)
+
+
+@pytest.mark.parametrize("provider_id", ["chatgpt", "antigravity"])
+def test_long_transcript_run_keeps_a_coverage_manifest_with_the_revision(
+    tmp_path, monkeypatch, capsys, provider_id
+):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, _ = seed_completed_transcript(data_dir)
+    _add_segments(data_dir, generation_id, 998)
+    rows_before = _transcript_rows(data_dir)
+    pair = ProviderPair(tmp_path, monkeypatch)
+    task = _accept(
+        data_dir, pair.provider(provider_id), provider_id, "long-1", meeting_id, generation_id
+    )
+    claim_next_task(data_dir, owner_id="owner-long")
+
+    event, revision = _run_notes(data_dir, capsys, task["id"], "owner-long")
+
+    assert event["type"] == "result"
+    calls = pair.calls(provider_id)
+    manifest = _stored_coverage(data_dir, revision["id"])
+    chunks = manifest["chunks"]
+    assert manifest["segment_count"] == 1_000 and len(chunks) > 2
+    # Every planned request has the call that answered it, and the owned ranges tile the source.
+    assert [chunk["provider_call_index"] for chunk in chunks] == list(range(1, len(chunks) + 1))
+    assert len(calls) == len(chunks) + 1
+    assert chunks[0]["owned"][0] == 0 and chunks[-1]["owned"][1] == 1_000
+    assert all(left["owned"][1] == right["owned"][0] for left, right in pairwise(chunks))
+    assert all(chunk["overlap"] is not None for chunk in chunks[1:])
+    assert _transcript_rows(data_dir) == rows_before
+
+
+def _second_notes_task_after_one_revision(tmp_path):
+    """Publish one revision, then run a second chunked task through the real worker path."""
+    settings = Settings(data_dir=tmp_path / "data", auth_dir=tmp_path / "auth")
+    meeting_id, generation_id, _ = seed_completed_transcript(settings.data_dir)
+    _lengthen_transcript(settings.data_dir)
+    provider = _antigravity(tmp_path, FakeOmp())
+    first = _accept(settings.data_dir, provider, "antigravity", "old", meeting_id, generation_id)
+    claim_next_task(settings.data_dir, owner_id="owner-old")
+    old_revision = publish_notes_revision(
+        settings.data_dir,
+        first["id"],
+        owner_id="owner-old",
+        markdown="# Old notes\n\nKeep this saved revision.\n",
+        elapsed_seconds=1.0,
+    )
+    assert old_revision is not None
+    second = _accept(settings.data_dir, provider, "antigravity", "new", meeting_id, generation_id)
+    task = claim_next_task(settings.data_dir, owner_id="owner-new")
+    assert task is not None and task["id"] == second["id"]
+    return settings, meeting_id, task, old_revision
+
+
+def test_exhausted_repair_publishes_no_partial_revision_and_keeps_old_notes_and_transcript(
+    tmp_path, fake_omp_binary
+):
+    settings, meeting_id, task, old_revision = _second_notes_task_after_one_revision(tmp_path)
+    (fake_omp_binary / "mode").write_text("fail_after_first")
+    rows_before = _transcript_rows(settings.data_dir)
+
+    _run_with_worker(settings, task, "owner-new")
+
+    state = notes_state(settings.data_dir, meeting_id)
+    assert state["task"]["status"] == "failed"
+    assert state["task"]["error_code"] == "notes_invalid_output"
+    # Chunk one was valid; chunk two and its single repair were not. Nothing was published.
+    assert len(_omp_calls(fake_omp_binary)) == 3
+    assert [item["id"] for item in state["revisions"]] == [old_revision["id"]]
+    assert get_note(settings.data_dir, old_revision["id"])["markdown"] == (
+        "# Old notes\n\nKeep this saved revision.\n"
+    )
+    assert _transcript_rows(settings.data_dir) == rows_before
+    assert state["source_locked"] is False
+
+
+def test_network_error_after_the_prompt_was_sent_is_not_resent_and_publishes_nothing(
+    tmp_path, fake_omp_binary
+):
+    settings, meeting_id, task, old_revision = _second_notes_task_after_one_revision(tmp_path)
+    (fake_omp_binary / "mode").write_text("network")
+
+    _run_with_worker(settings, task, "owner-new")
+
+    state = notes_state(settings.data_dir, meeting_id)
+    assert state["task"]["status"] == "failed"
+    assert [item["id"] for item in state["revisions"]] == [old_revision["id"]]
+    # One OMP process, one prompt: the app did not resend after the connection dropped. OMP's own
+    # retry is off in its config (test_runner_contract_is_isolated_and_disables_agent_surfaces).
+    assert len(_omp_calls(fake_omp_binary)) == 1

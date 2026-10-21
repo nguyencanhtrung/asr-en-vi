@@ -501,7 +501,12 @@ def _run_notes_task(
     owner_id = str(task["owner_id"])
     started = time.monotonic()
     deadline = started + NOTES_TASK_TIMEOUT_SECONDS
-    state: dict[str, Any] = {"stage": "starting_notes", "markdown": None, "error": None}
+    state: dict[str, Any] = {
+        "stage": "starting_notes",
+        "markdown": None,
+        "coverage": None,
+        "error": None,
+    }
 
     def finish_failure(code: str, message: str) -> None:
         elapsed = time.monotonic() - started
@@ -527,9 +532,16 @@ def _run_notes_task(
             return True
         if event_type == "result" and state["markdown"] is None:
             markdown = event.get("markdown")
-            if not isinstance(markdown, str) or "\x00" in markdown:
+            coverage = event.get("coverage")
+            if (
+                not isinstance(markdown, str)
+                or "\x00" in markdown
+                or not isinstance(coverage, dict)
+                or not coverage
+            ):
                 return False
             state["markdown"] = markdown
+            state["coverage"] = coverage
             return True
         if event_type == "error" and state["error"] is None:
             code = event.get("code")
@@ -612,6 +624,7 @@ def _run_notes_task(
             owner_id=owner_id,
             markdown=state["markdown"],
             elapsed_seconds=elapsed,
+            coverage=state["coverage"],
         )
         if revision is None:
             _finish_after_child_stop(settings, task_id, owner_id, stop_event, elapsed)

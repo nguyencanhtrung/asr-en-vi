@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from collections.abc import Callable, Sequence
 from contextlib import suppress
@@ -34,12 +35,15 @@ def generate_notes_document(
     transport: NotesTransport,
     invalid_output_error: Callable[[dict[str, Any]], Exception],
     limit_error: Callable[[str], Exception],
+    on_coverage: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Run the notes synthesis for one task through a provider transport.
 
     The transport owns credentials, model pinning and provider errors. This function owns
     the call budget, the single repair allowed per task, validation and source-ref restoring,
     so no provider can skip them. `invalid_output_error` receives bounded diagnostics only.
+    `on_coverage` gets the coverage manifest, with the accepted call of every planned request,
+    only after the final document is valid, so it never describes a partial run.
     """
     output_language = nd.validate_output_language(output_language)
     projection = nd.project_source_snapshot(snapshot)
@@ -49,6 +53,8 @@ def generate_notes_document(
         projected_snapshot=projected_snapshot,
         output_language=output_language,
     )
+    nd.verify_coverage(snapshot, plan)  # before any provider call
+    coverage = copy.deepcopy(plan.manifest)
     call_count = 0
     repair_used = False
     last_successful_response: tuple[int, str, str] | None = None
@@ -264,6 +270,11 @@ def generate_notes_document(
                 reported_output_bytes=expanded_bytes,
             ) from None
 
+    def finish(document: dict[str, Any]) -> dict[str, Any]:
+        if on_coverage is not None:
+            on_coverage(coverage)
+        return document
+
     if not plan.chunked:
         source_ids = tuple(segment["id"] for segment in projected_snapshot["segments"])
         document = request_document(
@@ -282,9 +293,11 @@ def generate_notes_document(
                 output_language=output_language,
             ),
         )
-        return restore_final_document(document, stage="single")
+        coverage["chunks"][0]["provider_call_index"] = call_count
+        return finish(restore_final_document(document, stage="single"))
 
     summaries: list[dict[str, Any]] = []
+    previous_document: dict[str, Any] | None = None
     for index, chunk in enumerate(plan.chunks, start=1):
         projected_chunk = projection.project_chunk(chunk)
         source_ids = tuple(segment["id"] for segment in projected_chunk["segments"])
@@ -312,28 +325,74 @@ def generate_notes_document(
                 output_language=output_language,
             )
 
-        summaries.append(
-            request_document(
-                prompt,
-                projected_chunk,
-                max_output_bytes=nd.MAX_CHUNK_OUTPUT_BYTES,
-                stage="chunk",
-                repair_prompt=repair_chunk,
-            )
+        document = request_document(
+            prompt,
+            projected_chunk,
+            max_output_bytes=nd.MAX_CHUNK_OUTPUT_BYTES,
+            stage="chunk",
+            repair_prompt=repair_chunk,
         )
+        coverage["chunks"][index - 1]["provider_call_index"] = call_count
+        if previous_document is not None:
+            # The previous chunk read the overlap in full, so its items win over repeats.
+            overlap_ids = [
+                segment["id"] for segment in projected_chunk["segments"] if segment.get("overlap")
+            ]
+            summaries.append(nd.drop_overlap_duplicates(previous_document, document, overlap_ids))
+        else:
+            summaries.append(document)
+        previous_document = document
 
     reduction_calls = 0
+
+    def reduction_prompt(
+        group: list[dict[str, Any]], *, final: bool, invalid_output: str | None = None
+    ) -> str:
+        return nd.build_reduction_prompt(
+            projected_snapshot,
+            group,
+            final=final,
+            invalid_output=invalid_output,
+            output_language=output_language,
+        )
+
+    def fits(group: list[dict[str, Any]]) -> bool:
+        try:
+            reduction_prompt(group, final=False)
+        except nd.NotesDocumentError:
+            return False
+        return True
+
+    def reduce_group(group: list[dict[str, Any]]) -> dict[str, Any]:
+        nonlocal reduction_calls
+        if reduction_calls >= nd.MAX_REDUCTION_CALLS:
+            raise limit_error("This transcript exceeds the bounded notes reduction limit.")
+        reduction_calls += 1
+        return request_document(
+            reduction_prompt(group, final=False),
+            nd._prompt_citation_scope(projected_snapshot, group),
+            max_output_bytes=nd.MAX_REDUCTION_OUTPUT_BYTES,
+            stage="reduce",
+            repair_prompt=lambda raw, inputs=group: reduction_prompt(
+                inputs, final=False, invalid_output=raw
+            ),
+        )
+
+    def document_bytes(document: dict[str, Any]) -> int:
+        return len(json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+    def compact(document: dict[str, Any]) -> dict[str, Any]:
+        reduced = reduce_group([document])
+        if document_bytes(reduced) >= document_bytes(document):
+            raise limit_error("Notes synthesis could not compact a summary within its limit.")
+        return reduced
+
     documents = summaries
     for _level in range(nd.MAX_REDUCTION_LEVELS):
         final_prompt = None
         final_scope = nd._prompt_citation_scope(projected_snapshot, documents)
         with suppress(nd.NotesDocumentError):
-            final_prompt = nd.build_reduction_prompt(
-                projected_snapshot,
-                documents,
-                final=True,
-                output_language=output_language,
-            )
+            final_prompt = reduction_prompt(documents, final=True)
         if final_prompt is not None:
             if reduction_calls >= nd.MAX_REDUCTION_CALLS:
                 raise limit_error("This transcript exceeds the bounded notes reduction limit.")
@@ -343,87 +402,26 @@ def generate_notes_document(
                 final_scope,
                 max_output_bytes=nd.MAX_OUTPUT_BYTES,
                 stage="final",
-                repair_prompt=lambda raw, inputs=documents: nd.build_reduction_prompt(
-                    projected_snapshot,
-                    inputs,
-                    final=True,
-                    invalid_output=raw,
-                    output_language=output_language,
+                repair_prompt=lambda raw, inputs=documents: reduction_prompt(
+                    inputs, final=True, invalid_output=raw
                 ),
             )
-            return restore_final_document(final_document, stage="final")
+            return finish(restore_final_document(final_document, stage="final"))
 
-        groups: list[list[dict[str, Any]]] = []
-        current: list[dict[str, Any]] = []
-        for document in documents:
-            try:
-                nd.build_reduction_prompt(
-                    projected_snapshot,
-                    [document],
-                    final=False,
-                    output_language=output_language,
-                )
-            except nd.NotesDocumentError:
-                raise limit_error(
-                    "A notes summary exceeds the bounded synthesis request limit."
-                ) from None
-            if not current:
-                current = [document]
-                continue
-            if len(current) >= 2:
-                groups.append(current)
-                current = [document]
-                continue
-            candidate = [*current, document]
-            try:
-                nd.build_reduction_prompt(
-                    projected_snapshot,
-                    candidate,
-                    final=False,
-                    output_language=output_language,
-                )
-            except nd.NotesDocumentError:
-                groups.append(current)
-                current = [document]
-            else:
-                current = candidate
-        if current:
-            groups.append(current)
-
+        # Merge neighbours in source order. When two summaries leave no room for each other, the
+        # larger one is compacted alone and the other moves on, so none is dropped or cut.
         next_documents: list[dict[str, Any]] = []
-        for group in groups:
-            if len(group) == 1:
+        for position in range(0, len(documents), 2):
+            group = documents[position : position + 2]
+            if not all(fits([item]) for item in group):
+                raise limit_error("A notes summary exceeds the bounded synthesis request limit.")
+            if len(group) == 2 and fits(group):
+                next_documents.append(reduce_group(group))
+            elif len(group) == 2:
+                larger = max(group, key=document_bytes)
+                next_documents.extend(compact(item) if item is larger else item for item in group)
+            else:
                 next_documents.extend(group)
-                continue
-            if reduction_calls >= nd.MAX_REDUCTION_CALLS:
-                raise limit_error("This transcript exceeds the bounded notes reduction limit.")
-            reduction_calls += 1
-            group_scope = nd._prompt_citation_scope(projected_snapshot, group)
-            intermediate_prompt = nd.build_reduction_prompt(
-                projected_snapshot,
-                group,
-                final=False,
-                output_language=output_language,
-            )
-            next_documents.append(
-                request_document(
-                    intermediate_prompt,
-                    group_scope,
-                    max_output_bytes=nd.MAX_REDUCTION_OUTPUT_BYTES,
-                    stage="reduce",
-                    repair_prompt=lambda raw, inputs=group: nd.build_reduction_prompt(
-                        projected_snapshot,
-                        inputs,
-                        final=False,
-                        invalid_output=raw,
-                        output_language=output_language,
-                    ),
-                )
-            )
-        if len(next_documents) >= len(documents):
-            raise limit_error(
-                "Notes synthesis could not reduce the summary count within its limit."
-            )
         documents = next_documents
 
     raise limit_error("This transcript exceeds the bounded notes reduction depth.")
