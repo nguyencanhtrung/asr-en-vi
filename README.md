@@ -2,7 +2,8 @@
 
 Ứng dụng web chạy trên máy tự quản để lưu bản ghi cuộc họp và tạo transcript bằng faster-whisper
 cùng speaker diarization Community-1 trên máy local. Bản ghi, transcript và catalog người nói được
-lưu trong workspace; ChatGPT tạo meeting notes tiếng Anh hoặc tiếng Việt theo lựa chọn khi tạo notes.
+lưu trong workspace; ChatGPT hoặc Google Antigravity tạo meeting notes tiếng Anh hoặc tiếng Việt
+theo lựa chọn khi tạo notes.
 
 ## Chạy trên máy local
 
@@ -153,10 +154,14 @@ Lệnh in link và QR mới. Việc này chỉ thay auth state; SQLite và worke
 
 ## Kết nối ChatGPT
 
-Mở **ChatGPT** trong thanh đầu workspace, rồi chọn **Continue with ChatGPT** để đăng nhập
-và cấp quyền dùng gói. Kết nối này độc lập với token truy cập localhost. Ứng dụng lưu phiên trong
-volume `provider` với quyền truy cập hạn chế để dùng lại sau restart; không đọc credential từ
-Codex hoặc công cụ cá nhân khác. Khi phiên mất hiệu lực, UI yêu cầu kết nối ChatGPT lại.
+Thanh đầu workspace có hai nút trạng thái riêng: **OpenAI** (ChatGPT) và **Google**
+(Antigravity). Mỗi nút hiện chấm màu cùng chữ **Đã kết nối**, **Chưa kết nối**, **Cần đăng nhập
+lại** hoặc **Không khả dụng**, và cả hai mở cùng hộp thoại kết nối.
+
+Mở **OpenAI**, rồi chọn **Continue with ChatGPT** để đăng nhập và cấp quyền dùng gói. Kết nối này
+độc lập với token truy cập localhost. Ứng dụng lưu phiên trong volume `provider` với quyền truy
+cập hạn chế để dùng lại sau restart; không đọc credential từ Codex hoặc công cụ cá nhân khác. Khi
+phiên mất hiệu lực, UI yêu cầu kết nối ChatGPT lại.
 
 Sau khi kết nối, chọn và lưu model từ danh sách tài khoản cung cấp. Model đã nhớ không còn khả
 dụng cần được chọn lại; ứng dụng không tự chuyển model. Danh sách model không bảo đảm còn quota
@@ -190,11 +195,11 @@ khoản, model và kết quả. Kiểm thử giả lập không xác nhận enti
 
 ## Kết nối Google Antigravity qua OMP
 
-Mở **AI** trên thanh đầu workspace, tới phần **Google Antigravity**, rồi chọn **Kết nối Google
-Antigravity**. UI hiển thị URL đăng nhập do OMP cung cấp và, khi provider yêu cầu, ô nhập mã hoặc
-URL chuyển hướng. Phiên đăng nhập hết hạn sau 10 phút và có thể hủy rõ ràng. Sau khi kết nối, chọn
-model từ catalog, lưu lựa chọn và chạy yêu cầu kiểm tra tổng hợp để xác nhận model thực sự tạo được
-đầu ra. Catalog không tự chứng minh quyền inference hoặc quota.
+Mở **Google** trên thanh đầu workspace; hộp thoại mở thẳng phần **Google Antigravity**. Chọn
+**Kết nối Google Antigravity**. UI hiển thị URL đăng nhập do OMP cung cấp và, khi provider yêu cầu,
+ô nhập mã hoặc URL chuyển hướng. Phiên đăng nhập hết hạn sau 10 phút và có thể hủy rõ ràng. Sau khi
+kết nối, chọn model từ catalog, lưu lựa chọn và chạy yêu cầu kiểm tra tổng hợp để xác nhận model
+thực sự tạo được đầu ra. Catalog không tự chứng minh quyền inference hoặc quota.
 
 Cùng lúc lưu model, chọn **Mức suy nghĩ**: High (mặc định, đầy đủ hơn nhưng chậm hơn, khoảng 7–10
 phút cho cuộc họp 1 giờ) hoặc Medium (nhanh hơn nhưng có thể bỏ sót việc cần làm). Mỗi tác vụ notes
@@ -246,7 +251,7 @@ Mỗi lượt gọi dành tối đa 25.000 token cho reasoning và đầu ra; ph
 giữ ngân sách context an toàn. Toàn tác vụ có giới hạn 60 phút, không tự đổi model/effort hoặc
 tự gửi lại inference nếu hết ngân sách, lỗi hay bị hủy.
 
-Chọn **Tiếng Anh** hoặc **Tiếng Việt** trước khi bấm tạo notes; mặc định là tiếng Anh.
+Chọn **English** hoặc **Tiếng Việt** trước khi bấm tạo notes; mặc định là English.
 Ngôn ngữ được giữ cố định cho từng tác vụ và bản notes, độc lập với ngôn ngữ transcript.
 Notes gồm tổng quan, chủ đề chính và lập luận, quyết định, câu hỏi còn mở, công việc đã xác nhận
 và các mục cần xác nhận; tiêu đề và nội dung theo ngôn ngữ đã chọn. Backend kiểm tra cấu trúc và

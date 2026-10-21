@@ -23,7 +23,7 @@ refresh token khi hết hạn và ngắt/thu hồi từ xa chưa được quan s
 
 ## Thực hiện
 
-1. Mở **ChatGPT**, chọn **Continue with ChatGPT** và hoàn thành đăng nhập. Ghi loại gói và kết quả
+1. Mở **OpenAI**, chọn **Continue with ChatGPT** và hoàn thành đăng nhập. Ghi loại gói và kết quả
    cấp quyền dùng gói, không ghi email, subject, client ID hay token.
 2. Xác nhận callback trở về HTTP `127.0.0.1` tại `/auth/chatgpt/callback`, UI hiển thị tài khoản
    đã kết nối. URL đăng nhập hoặc callback có thể chứa dữ liệu nhạy cảm; không sao chép vào báo cáo.

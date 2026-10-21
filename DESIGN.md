@@ -258,9 +258,9 @@ The palette pairs warm paper neutrals with charcoal dark surfaces and a reserved
 
 ## Layout
 
-Desktop uses a narrow navigation ledger beside a flexible workspace capped at a readable maximum width. The primary task and status stay above the fold; transcript, calendar, and dialog content remain dense but separated by consistent rhythm. Space follows the 4/8/12/16/24/32 progression, with larger gaps reserved for changes in meaning rather than card decoration.
+Desktop uses a narrow navigation ledger beside a flexible workspace capped at a readable maximum width. The ledger is fixed to the viewport height: it stays in place while the workspace scrolls and scrolls internally, with a thin scrollbar and never sideways, when its content is taller. The primary task and status stay above the fold; transcript, calendar, and dialog content remain dense but separated by consistent rhythm. Space follows the 4/8/12/16/24/32 progression, with larger gaps reserved for changes in meaning rather than card decoration.
 
-At 680px and below, the sidebar becomes a compact top bar, secondary navigation moves into the workspace, and multi-column content stacks. At 520px and below, the create action becomes an accessible icon control and dialogs use nearly the full viewport. The document must never create horizontal overflow at the supported 320px minimum.
+At 980px and below, the provider status buttons drop to their own row under the page title, and a status too long for its button wraps under the provider name instead of being cut. At 680px and below, the sidebar becomes a compact top bar that scrolls with the page, the calendar opener moves into the workspace header, secondary navigation moves into the workspace, and multi-column content stacks. At 520px and below, the create action becomes an accessible icon control and dialogs use nearly the full viewport. The document must never create horizontal overflow at the supported 320px minimum.
 
 ## Elevation & Depth
 
@@ -309,7 +309,7 @@ Navigation is a quiet ledger rail: mono wordmark, uppercase technical section la
 
 ### Operational Status
 
-Runtime profile, task measurements, generations, timestamps, and diagnostic IDs use mono metadata inside flat bordered groups. Loading, saved, warning, and error states pair semantic color with explicit language. Transcript and history layouts belong to this product; preserve their scan order when restyling.
+Provider connection appears as two header buttons, OpenAI and Google; each pairs a status dot with explicit status text and its own accessible name. Runtime profile, task measurements, generations, timestamps, and diagnostic IDs use mono metadata inside flat bordered groups. Loading, saved, warning, and error states pair semantic color with explicit language. Transcript and history layouts belong to this product; preserve their scan order when restyling.
 
 ## Do's and Don'ts
 
