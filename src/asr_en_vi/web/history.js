@@ -1767,9 +1767,37 @@
     $("#transcript-generation").dataset.renderKey = `${generation.id}:${generation.source_version}:true`;
   }
 
+  // The active segment follows playback while the transcript list is on screen, unless the user took
+  // over the scroll in the last two seconds. A wheel, a touch move, a scroll key or any scroll the
+  // app did not start counts as theirs.
+  const MANUAL_SCROLL_QUIET_MS = 2000;
+  const OWN_SCROLL_GAP_MS = 200; // a scroll event this soon after our scroll, or its last event, is ours
+  const SCROLL_KEYS = new Set([" ", "ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"]);
+  let lastManualScroll = -Infinity;
+  let ownScrollUntil = 0;
+  let activeSegmentId = null;
+
+  function followsPlayback(audio) {
+    if (audio.paused || audio.ended) return false;
+    if (performance.now() - lastManualScroll < MANUAL_SCROLL_QUIET_MS) return false;
+    // Reading the notes while audio plays must not pull the page to the transcript: follow only
+    // while some of the list shows below the player bar.
+    const bar = $(".player-bar").getBoundingClientRect();
+    const list = $("#transcript-segments").getBoundingClientRect();
+    if (list.bottom <= bar.bottom || list.top >= window.innerHeight) return false;
+    const focused = document.activeElement;
+    return !(
+      focused
+      && focused.closest("#transcription-panel")
+      && (focused.matches("textarea, input, select") || focused.isContentEditable)
+    );
+  }
+
   function updateActiveTranscriptIntervals() {
-    const seconds = $("#meeting-audio").currentTime;
+    const audio = $("#meeting-audio");
+    const seconds = audio.currentTime;
     const items = [...$("#transcript-segments").querySelectorAll(".transcript-segment")];
+    let current = null;
     for (const [index, item] of items.entries()) {
       const start = Number(item.dataset.startSeconds);
       const end = Number(item.dataset.endSeconds);
@@ -1778,7 +1806,18 @@
       item.classList.toggle("is-playback-active", active);
       if (active) item.setAttribute("aria-current", "true");
       else item.removeAttribute("aria-current");
+      if (active && !current) current = item;
     }
+    // Compare ids, not elements: a re-render of the same transcript is not a new active segment.
+    const currentId = current ? current.dataset.segmentId : null;
+    const changed = currentId !== null && currentId !== activeSegmentId;
+    activeSegmentId = currentId;
+    if (!changed || !followsPlayback(audio)) return;
+    ownScrollUntil = performance.now() + OWN_SCROLL_GAP_MS;
+    current.scrollIntoView({
+      block: "nearest",
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
   }
 
   function transcriptMutationMessage(error, fallback) {
@@ -2755,7 +2794,29 @@
     }
   }
 
-  async function startTranscription() {
+  // Reasons an automatic start was refused; the manual button stays for a deliberate retry.
+  const AUTO_START_REASONS = {
+    system_busy: "Máy đang bận vì một tác vụ khác đang chạy.",
+    processing_unavailable: "Slot xử lý của máy chưa sẵn sàng.",
+    worker_unavailable: "Worker chép lời chưa sẵn sàng.",
+    model_unavailable: "Model chép lời local chưa được chuẩn bị.",
+    diarization_model_unavailable: "Model nhận dạng người nói chưa được chuẩn bị.",
+  };
+
+  // The create dialog leaves a one-shot key for a meeting it saved with "Chép lời ngay" on.
+  // It is removed before anything is sent, so a reload or Back never sends again.
+  function takeAutoStartRequest(meetingId) {
+    const key = `asr-en-vi:auto-transcribe:${meetingId}`;
+    try {
+      if (window.sessionStorage.getItem(key) === null) return false;
+      window.sessionStorage.removeItem(key);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function startTranscription({ auto = false } = {}) {
     const meeting = state.meeting;
     if (!meeting || state.taskRequestInFlight || sourceMutationUnavailable()) return;
     const requestId = getPendingTaskRequestId(meeting.id);
@@ -2781,7 +2842,12 @@
       const retryGuidance = definitiveError
         ? "Bấm lại để gửi một yêu cầu mới."
         : "Bấm lại để xác minh bằng cùng request ID.";
-      state.taskRequestError = `${requestError && requestError.message ? requestError.message : "Không thể xác nhận yêu cầu."} ${retryGuidance}`;
+      const code = requestError && requestError.payload && requestError.payload.detail
+        ? requestError.payload.detail.code
+        : "";
+      state.taskRequestError = auto && Object.hasOwn(AUTO_START_REASONS, code)
+        ? `${AUTO_START_REASONS[code]} Cuộc họp đã được lưu nhưng chưa chép lời. Ứng dụng không tự thử lại; bấm “Bắt đầu chép lời” khi máy sẵn sàng.`
+        : `${requestError && requestError.message ? requestError.message : "Không thể xác nhận yêu cầu."} ${retryGuidance}`;
       $("#transcription-status").textContent = "Chưa xác nhận được việc nhận tác vụ. Yêu cầu chưa được tự gửi lại.";
     } finally {
       state.taskRequestInFlight = false;
@@ -2857,6 +2923,10 @@
       startTaskPolling(meeting.id, meeting.transcription && meeting.transcription.task);
       renderSidebar();
       if (!state.meetings.length) void refreshHistory();
+      const transcription = meeting.transcription || {};
+      if (takeAutoStartRequest(meeting.id) && !transcription.task && !transcription.generation) {
+        void startTranscription({ auto: true });
+      }
       return true;
     } catch (error) {
       if (sequence !== state.loadSeq) return false;
@@ -3211,6 +3281,22 @@
   for (const eventName of ["timeupdate", "seeked", "loadedmetadata", "play"]) {
     $("#meeting-audio").addEventListener(eventName, updateActiveTranscriptIntervals);
   }
+  const noteManualScroll = () => {
+    lastManualScroll = performance.now();
+  };
+  for (const eventName of ["wheel", "touchmove"]) {
+    window.addEventListener(eventName, noteManualScroll, { passive: true });
+  }
+  window.addEventListener("keydown", (event) => {
+    if (SCROLL_KEYS.has(event.key)) noteManualScroll();
+  });
+  // A scrollbar drag sends no wheel or key first. Our own smooth scroll keeps sending scroll events,
+  // each one holding the window open a little longer, however far it travels.
+  window.addEventListener("scroll", () => {
+    const now = performance.now();
+    if (now <= ownScrollUntil) ownScrollUntil = now + OWN_SCROLL_GAP_MS;
+    else lastManualScroll = now;
+  }, { passive: true });
   document.addEventListener("visibilitychange", () => {
     if (!state.taskPollId) return;
     const task = state.meeting && state.meeting.transcription && state.meeting.transcription.task;

@@ -210,7 +210,7 @@ components:
 
 ASR EN VI feels like a precise working ledger: calm enough for long review sessions, editorial enough to belong to the bibo product family, and technical enough to expose provenance, runtime state, and recoverable errors without ceremony. Warm paper and charcoal fields carry the visual world; burgundy signal lines, fine rules, and disciplined typography establish hierarchy.
 
-The brand foundation is portable: palette roles, the Newsreader–Inter–JetBrains Mono relationship, hairlines, compact radii, accessible focus, and restrained motion. The sidebar, calendars, transcript generations, runtime panels, speaker tools, and upload dialog are ASR-specific operational components. Future products may reuse the foundation without copying this application's information architecture.
+The brand foundation is portable: palette roles, the Newsreader–Inter–JetBrains Mono relationship, hairlines, compact radii, accessible focus, and restrained motion. The sidebar, calendars, transcript generations, runtime panels, speaker tools, and one-step create-meeting dialog are ASR-specific operational components. Future products may reuse the foundation without copying this application's information architecture.
 
 **Key Characteristics:**
 
@@ -268,6 +268,8 @@ Desktop uses a narrow navigation ledger beside a flexible workspace capped at a 
 
 At 980px and below, the provider status buttons drop to their own row under the page title, and a status too long for its button wraps under the provider name instead of being cut. At 680px and below, the sidebar becomes a compact top bar that scrolls with the page, the calendar opener moves into the workspace header, secondary navigation moves into the workspace, and multi-column content stacks. At 520px and below, the create action becomes an accessible icon control and dialogs use nearly the full viewport. The document must never create horizontal overflow at the supported 320px minimum.
 
+In a meeting the player is the one sticky element in the content area, at every width: a single bar, at most 72px tall, pinned to the top edge of that area while the notes and the transcript scroll under it. On desktop the navigation ledger stays pinned beside it; at 680px and below, where the navigation bar scrolls away with the page, the player is the only pinned piece. The recording heading and its hint stay in normal flow and scroll away. Anything the page scrolls to stops below the bar: the document scroller reserves the bar's height and each scroll target adds a 12px gap, so a segment or the notes source heading never lands under it. The browser scrolls a keyboard-focused control clear of the bar too, but a text field may only reveal its caret line, so part of the field can stay beneath the bar. While audio plays and some of the transcript list shows below the bar, the active segment follows with a nearest-edge scroll, instant under reduced motion; the page holds still while audio is paused, for two seconds after a manual scroll, while a transcript field has focus, and while the whole list is off screen, so reading the notes is never interrupted.
+
 ## Elevation & Depth
 
 The system is flat by default. Surface contrast and one-pixel hairlines carry most structure; the only ambient elevation belongs to modal dialogs and the small recording signal tile when it must separate from the canvas.
@@ -279,7 +281,7 @@ The system is flat by default. Surface contrast and one-pixel hairlines carry mo
 
 ### Named Rules
 
-**The Flat-by-Default Rule.** A panel earns elevation only when it floats above the current task; ordinary dashboard regions stay on the ledger plane.
+**The Flat-by-Default Rule.** A panel earns elevation only when it floats above the current task; ordinary dashboard regions stay on the ledger plane. The pinned player floats over scrolling content but stays flat: an opaque surface and a hairline separate it, never a shadow.
 
 ## Shapes
 
@@ -294,6 +296,12 @@ Corners are compact and engineered: controls use the small radius, content panel
 - **Hover / Focus:** A one-pixel upward movement is allowed on hover; keyboard focus uses a two-pixel accent outline. Reduced-motion preferences collapse transitions to effectively instant.
 - **Secondary / Text:** Secondary buttons use a neutral surface and strong hairline. Text actions remain transparent and underlined.
 - **Disabled:** Neutral surface and muted ink, plus the native disabled state; never communicate disabled only through opacity.
+
+### Player
+
+- **Shape:** One bar with the small radius, a one-pixel hairline and the surface background, holding only the native audio control and no heading, hint or shadow.
+- **Behavior:** Sticky to the top edge of the content area, opaque so scrolling content never shows through, in light and dark.
+- **Focus:** The two-pixel accent outline is drawn inside the bar, so the bar edge and the top of the viewport never clip it.
 
 ### Cards / Containers
 

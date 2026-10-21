@@ -419,6 +419,7 @@
 .notes-source-view h4 {
   margin: 0;
   font-size: 15px;
+  scroll-margin-top: var(--player-gap);
 }
 
 .notes-source-view header p {
