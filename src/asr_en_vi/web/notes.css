@@ -375,6 +375,7 @@
 
 .notes-source-view h4 {
   margin: 0;
+  scroll-margin-top: var(--player-gap);
 }
 
 .notes-source-view header p {
