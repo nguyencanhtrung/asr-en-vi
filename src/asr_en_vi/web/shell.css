@@ -1146,6 +1146,29 @@ textarea:focus-visible {
   accent-color: var(--teal);
 }
 
+.auto-transcribe-option {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.auto-transcribe-option input {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--teal);
+}
+
+.auto-transcribe .field-help {
+  margin: 2px 0 0 21px;
+}
+
 .upload-state {
   margin-top: 18px;
   padding: 11px 13px 10px;
@@ -1214,11 +1237,12 @@ textarea:focus-visible {
   line-height: 1.45;
 }
 
-.state-code {
-  color: var(--ink-3);
+.state-label {
+  color: var(--ink-2);
   font-family: var(--font-mono);
   font-size: 9px;
   letter-spacing: 0.08em;
+  text-align: right;
 }
 
 .transfer-progress {

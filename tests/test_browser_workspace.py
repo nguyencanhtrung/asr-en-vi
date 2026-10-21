@@ -131,35 +131,49 @@ def test_managed_recording_upload_saves_and_restores_meeting(tmp_path):
             expect(page.locator("#selected-file-name")).to_have_text(recording_path.name)
             page.locator("#meeting-name").fill("Điều phối sản phẩm — tuần 42")
             page.locator("#meeting-date-input").fill("2026-10-15")
-            page.locator('input[name="language_hint"][value="en"]').check()
             create_button = page.get_by_role("button", name="Tạo cuộc họp")
-            expect(create_button).to_be_disabled()
+            expect(create_button).to_be_disabled()  # the language is still missing
+            page.locator('input[name="language_hint"][value="en"]').check()
+            expect(create_button).to_be_enabled()  # the file and the form are valid
+            expect(page.get_by_role("button", name="Tải lên và kiểm tra")).to_have_count(0)
 
             page.route("**/api/uploads/*/content", lambda route: route.abort("connectionfailed"))
-            page.get_by_role("button", name="Tải lên và kiểm tra").click()
+            create_button.click()
             expect(dialog).to_have_attribute("data-state", "error", timeout=10_000)
             expect(page.locator("#form-error")).to_contain_text("Không tạo cuộc họp")
             retry_button = page.get_by_role("button", name="Tải lại từ đầu")
             expect(retry_button).to_be_visible()
             page.unroute("**/api/uploads/*/content")
+
+            def commit_meeting_then_drop_response(route) -> None:
+                response = route.fetch()
+                assert response.status == 201
+                route.abort("connectionfailed")
+
+            # Retry re-runs the whole flow, so the dropped response is met at the create step.
+            page.route("**/api/meetings", commit_meeting_then_drop_response)
             retry_button.click()
-            expect(dialog).to_have_attribute("data-state", "ready", timeout=20_000)
-            expect(create_button).to_be_enabled()
+            retry_create = page.get_by_role("button", name="Xác minh và thử lại")
+            expect(retry_create).to_be_enabled(timeout=20_000)
+            expect(dialog).to_have_attribute("data-state", "error")
+            expect(page.locator("#close-dialog")).to_be_enabled()
+            expect(page.locator("#meeting-name")).to_be_disabled()
 
             state_snapshots = page.evaluate("window.__workspaceStates")
             workspace_states.extend(state_snapshots)
             states = {snapshot["state"] for snapshot in workspace_states}
             assert "uploading" in states
             assert "checking" in states
-            for state_name in ("uploading", "checking"):
+            assert "creating" in states
+            for state_name in ("uploading", "checking", "creating"):
                 assert any(
                     snapshot["state"] == state_name and snapshot["createDisabled"]
                     for snapshot in workspace_states
                 ), f"Create must stay disabled during {state_name}"
             assert any(
-                snapshot["state"] == "ready" and not snapshot["createDisabled"]
+                snapshot["state"] == "selected" and not snapshot["createDisabled"]
                 for snapshot in workspace_states
-            ), "Create should unlock only after the upload is ready and fields are valid"
+            ), "Create should unlock as soon as the file and the form are valid"
             pre_restart_content_paths = [
                 request["url"].removeprefix(public_url)
                 for request in api_requests
@@ -174,18 +188,6 @@ def test_managed_recording_upload_saves_and_restores_meeting(tmp_path):
             assert interrupted_state.json()["status"] == "failed"
             assert not (settings.data_dir / "uploads" / f"{interrupted_upload_id}.part").exists()
 
-            def commit_meeting_then_drop_response(route) -> None:
-                response = route.fetch()
-                assert response.status == 201
-                route.abort("connectionfailed")
-
-            page.route("**/api/meetings", commit_meeting_then_drop_response)
-            create_button.click()
-            expect(dialog).to_have_attribute("data-state", "error", timeout=10_000)
-            retry_create = page.get_by_role("button", name="Xác minh và thử lại")
-            expect(retry_create).to_be_enabled()
-            expect(page.locator("#close-dialog")).to_be_enabled()
-            expect(page.locator("#meeting-name")).to_be_disabled()
             page.unroute("**/api/meetings")
             retry_create.click()
             page.wait_for_url(f"{public_url}/meetings/*", timeout=10_000)

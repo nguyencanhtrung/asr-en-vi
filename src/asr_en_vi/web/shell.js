@@ -11,23 +11,39 @@ const selectedFileName = document.querySelector("#selected-file-name");
 const selectedFileSize = document.querySelector("#selected-file-size");
 const titleInput = document.querySelector("#meeting-name");
 const dateInput = document.querySelector("#meeting-date-input");
+const autoTranscribeInput = document.querySelector("#auto-transcribe");
 const createButton = document.querySelector("#create-meeting");
-const uploadButton = document.querySelector("#start-upload");
 const retryUploadButton = document.querySelector("#retry-upload");
 const cancelUploadButton = document.querySelector("#cancel-upload");
 const closeDialogButton = document.querySelector("#close-dialog");
 const workflowState = document.querySelector("#workflow-state");
-const stateCode = document.querySelector("#state-code");
+const stateLabel = document.querySelector("#state-label");
 const validationState = document.querySelector("#validation-state");
 const createGuidance = document.querySelector("#create-guidance");
 const formError = document.querySelector("#form-error");
 const transferProgress = document.querySelector("#transfer-progress");
 const uploadProgress = document.querySelector("#upload-progress");
 const uploadProgressValue = document.querySelector("#upload-progress-value");
+const STATE_LABELS = {
+  idle: "Chưa chọn file",
+  selected: "Đã chọn file",
+  uploading: "Đang tải lên",
+  checking: "Đang kiểm tra",
+  ready: "Sẵn sàng tạo",
+  creating: "Đang tạo",
+  saved: "Đã tạo",
+  error: "Có lỗi",
+  aborted: "Đã hủy",
+};
+const LAST_LANGUAGE_KEY = "asr-en-vi:last-language-hint";
+const AUTO_TRANSCRIBE_KEY = "asr-en-vi:auto-transcribe";
+// history.js removes this one-shot key before it sends the transcription request.
+const AUTO_TRANSCRIBE_HANDOFF_PREFIX = "asr-en-vi:auto-transcribe:";
 const appState = {
   state: "idle",
   policy: null,
   file: null,
+  autoTitle: "",
   uploadId: null,
   uploadRequest: null,
   completeController: null,
@@ -35,6 +51,7 @@ const appState = {
   runId: 0,
   policyRunId: 0,
   retryableUpload: false,
+  fileRefused: false,
   serverReady: false,
   createAttemptFailed: false,
   createUncertain: false,
@@ -164,9 +181,34 @@ function showFormError(message) {
 function setState(state, message) {
   appState.state = state;
   dialog.dataset.state = state;
-  stateCode.textContent = state.toUpperCase();
+  stateLabel.textContent = STATE_LABELS[state];
   workflowState.textContent = message;
   updateActions();
+}
+
+function readLocal(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeLocal(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // The choice is simply not remembered.
+  }
+}
+
+// The last language and the auto-transcribe choice are the dialog's defaults.
+function applyRememberedChoices() {
+  const language = readLocal(LAST_LANGUAGE_KEY);
+  if (["en", "vi"].includes(language)) {
+    form.querySelector(`input[name="language_hint"][value="${language}"]`).checked = true;
+  }
+  autoTranscribeInput.checked = readLocal(AUTO_TRANSCRIBE_KEY) !== "0";
 }
 
 function currentLanguage() {
@@ -185,17 +227,17 @@ function formValuesAreValid() {
 
 function updateActions() {
   const active = appState.startingUpload || ["uploading", "checking", "creating"].includes(appState.state);
-  const validFile = Boolean(appState.policy && appState.file && !fileError.textContent);
-  const selected = appState.state === "selected";
+  const validFile = Boolean(appState.policy && appState.file && !fileError.textContent && !appState.fileRefused);
   const retryingUncertainCreate = appState.createUncertain && Boolean(appState.createRetryPayload);
-  const canSubmit = appState.serverReady && (retryingUncertainCreate || formValuesAreValid()) && !active;
+  // A valid file and form are enough: the one button uploads and checks first when needed.
+  const canSubmit = !active && appState.state !== "saved"
+    && (retryingUncertainCreate || (validFile && formValuesAreValid()));
 
   fileInput.disabled = active || retryingUncertainCreate || !appState.policy;
   fileDrop.setAttribute("aria-disabled", String(fileInput.disabled));
   document.querySelector("#change-file").disabled = active || retryingUncertainCreate;
-  uploadButton.disabled = !validFile || !selected || appState.startingUpload;
-  uploadButton.hidden = !selected && appState.state !== "idle";
   retryUploadButton.hidden = !appState.retryableUpload || !appState.file || active;
+  retryUploadButton.disabled = !canSubmit;
   cancelUploadButton.hidden = !["uploading", "checking"].includes(appState.state);
   createButton.disabled = !canSubmit;
   createButton.textContent = retryingUncertainCreate
@@ -206,6 +248,7 @@ function updateActions() {
   closeDialogButton.disabled = appState.state === "creating" || appState.startingUpload;
   titleInput.disabled = active || retryingUncertainCreate;
   dateInput.disabled = active || retryingUncertainCreate;
+  autoTranscribeInput.disabled = active || retryingUncertainCreate;
   for (const languageInput of form.querySelectorAll('input[name="language_hint"]')) {
     languageInput.disabled = active || retryingUncertainCreate;
   }
@@ -214,16 +257,20 @@ function updateActions() {
     createGuidance.textContent = "Đang tải giới hạn file của ứng dụng…";
   } else if (!appState.file) {
     createGuidance.textContent = "Chọn file, nhập tên và chọn ngôn ngữ để tiếp tục.";
-  } else if (!appState.serverReady) {
-    createGuidance.textContent = "Tạo cuộc họp sẽ mở sau khi máy chủ xác nhận file đã sẵn sàng.";
+  } else if (!validFile) {
+    createGuidance.textContent = "Chọn một file hợp lệ để tiếp tục.";
   } else if (!titleInput.value.trim()) {
     createGuidance.textContent = "Nhập tên cuộc họp để tiếp tục.";
   } else if (!currentLanguage()) {
     createGuidance.textContent = "Chọn English hoặc Tiếng Việt để tiếp tục.";
   } else if (appState.createUncertain) {
     createGuidance.textContent = "Gửi lại đúng yêu cầu để xác minh kết quả; máy chủ sẽ không tạo bản trùng.";
-  } else {
+  } else if (active) {
+    createGuidance.textContent = "Cuộc họp sẽ được tạo ngay khi máy chủ xác nhận file đã sẵn sàng.";
+  } else if (appState.serverReady) {
     createGuidance.textContent = "File đã sẵn sàng và thông tin cuộc họp đã đầy đủ.";
+  } else {
+    createGuidance.textContent = "Thông tin đã đầy đủ. Bấm “Tạo cuộc họp” để tải lên, kiểm tra và tạo cuộc họp.";
   }
 }
 
@@ -256,6 +303,16 @@ function showSelectedFile(file) {
 function fileExtension(filename) {
   const finalDot = filename.lastIndexOf(".");
   return finalDot >= 0 ? filename.slice(finalDot).toLowerCase() : "";
+}
+
+// The name is only a suggestion: it never replaces a title the user typed.
+function prefillTitle(filename) {
+  const finalDot = filename.lastIndexOf(".");
+  const stem = finalDot >= 0 ? filename.slice(0, finalDot) : filename;
+  const suggestion = Array.from(stem.trim()).slice(0, 200).join("").trim();
+  if (titleInput.value.trim() && titleInput.value !== appState.autoTitle) return;
+  titleInput.value = suggestion;
+  appState.autoTitle = suggestion;
 }
 
 async function cleanupUpload(uploadId) {
@@ -298,6 +355,7 @@ async function selectFile(file) {
   clearProgress();
   appState.serverReady = false;
   appState.retryableUpload = false;
+  appState.fileRefused = false;
   appState.createAttemptFailed = false;
   appState.createUncertain = false;
   appState.createRetryPayload = null;
@@ -306,6 +364,7 @@ async function selectFile(file) {
   void cleanupPendingUploads();
   appState.file = file;
   showSelectedFile(file);
+  prefillTitle(file.name);
 
   if (!appState.policy) {
     fileError.textContent = "Không thể chọn file trước khi tải được chính sách định dạng và giới hạn.";
@@ -326,7 +385,7 @@ async function selectFile(file) {
     updateActions();
     return;
   }
-  setState("selected", "Đã chọn file. Nhập thông tin rồi tải lên để kiểm tra.");
+  setState("selected", "Đã chọn file. Nhập thông tin rồi bấm “Tạo cuộc họp”.");
 }
 
 function uploadWithProgress(uploadId, file, runId) {
@@ -391,7 +450,7 @@ function uploadFailureCopy(error, cleanupSucceeded) {
 }
 
 async function startUpload() {
-  if (!appState.policy || !appState.file || fileError.textContent || appState.startingUpload || ["uploading", "checking", "creating"].includes(appState.state)) return;
+  if (!appState.policy || !appState.file || fileError.textContent || appState.startingUpload || ["uploading", "checking", "creating"].includes(appState.state)) return false;
   const runId = ++appState.runId;
   const file = appState.file;
   appState.startingUpload = true;
@@ -411,7 +470,7 @@ async function startUpload() {
   if (runId !== appState.runId) {
     appState.startingUpload = false;
     updateActions();
-    return;
+    return false;
   }
 
   setState("selected", "File đã chọn. Đang chuẩn bị lượt upload mới từ byte đầu tiên.");
@@ -427,7 +486,7 @@ async function startUpload() {
     setState("uploading", "Đang tải file lên bằng byte progress thực tế.");
     transferProgress.hidden = false;
     await uploadWithProgress(uploadId, file, runId);
-    if (runId !== appState.runId) return;
+    if (runId !== appState.runId) return false;
 
     appState.uploadRequest = null;
     setState("checking", "Đã truyền xong byte. Máy chủ đang kiểm tra định dạng, thời lượng và nội dung file.");
@@ -439,7 +498,7 @@ async function startUpload() {
       signal: appState.completeController.signal,
     });
     appState.completeController = null;
-    if (runId !== appState.runId) return;
+    if (runId !== appState.runId) return false;
     if (!completed || completed.status !== "ready") {
       throw new Error("Máy chủ chưa xác nhận file ở trạng thái ready. Không thể tạo cuộc họp lúc này.");
     }
@@ -449,20 +508,23 @@ async function startUpload() {
     uploadProgressValue.textContent = "100%";
     validationState.textContent = "File đã qua kiểm tra và sẵn sàng tạo cuộc họp.";
     setState("ready", "File đã sẵn sàng. Bạn có thể tạo cuộc họp.");
+    return true;
   } catch (error) {
     appState.startingUpload = false;
     appState.completeController = null;
-    if (runId !== appState.runId) return;
+    if (runId !== appState.runId) return false;
     appState.uploadRequest = null;
     appState.serverReady = false;
     const cleanupSucceeded = await cleanupCurrentUpload();
-    if (runId !== appState.runId) return;
+    if (runId !== appState.runId) return false;
     const retryable = !(error instanceof ApiError) || error.status >= 500 || error.status === 401 || error.status === 403;
     appState.retryableUpload = retryable && Boolean(appState.file);
+    appState.fileRefused = !retryable;
     const message = uploadFailureCopy(error, cleanupSucceeded);
     showFormError(message);
     validationState.textContent = "File chưa sẵn sàng; không có cuộc họp nào được tạo.";
     setState(error && error.kind === "aborted" ? "aborted" : "error", "Upload chưa hoàn tất.");
+    return false;
   }
 }
 
@@ -534,16 +596,19 @@ function resetDialog() {
   appState.state = "idle";
   appState.policy = null;
   appState.file = null;
+  appState.autoTitle = "";
   appState.uploadId = null;
   appState.uploadRequest = null;
   appState.completeController = null;
   appState.startingUpload = false;
   appState.retryableUpload = false;
+  appState.fileRefused = false;
   appState.serverReady = false;
   appState.createAttemptFailed = false;
   appState.createUncertain = false;
   appState.createRetryPayload = null;
   form.reset();
+  applyRememberedChoices();
   fileInput.value = "";
   fileInput.accept = "";
   fileInput.disabled = true;
@@ -555,7 +620,7 @@ function resetDialog() {
   clearProgress();
   validationState.textContent = "";
   dialog.dataset.state = "idle";
-  stateCode.textContent = "IDLE";
+  stateLabel.textContent = STATE_LABELS.idle;
   workflowState.textContent = "Chưa chọn file.";
   updateActions();
 }
@@ -592,8 +657,7 @@ async function openDialog() {
   }
 }
 
-async function createMeeting(event) {
-  event.preventDefault();
+async function createMeeting() {
   if (!appState.serverReady || !appState.uploadId) return;
   if (!appState.createRetryPayload && !formValuesAreValid()) return;
   const payload = appState.createRetryPayload || {
@@ -618,6 +682,14 @@ async function createMeeting(event) {
     setState("saved", "Cuộc họp đã được lưu.");
     appState.serverReady = false;
     appState.createRetryPayload = null;
+    writeLocal(LAST_LANGUAGE_KEY, payload.language_hint);
+    if (autoTranscribeInput.checked) {
+      try {
+        window.sessionStorage.setItem(`${AUTO_TRANSCRIBE_HANDOFF_PREFIX}${meeting.id}`, "1");
+      } catch {
+        // Without the handoff the meeting opens with the manual start button.
+      }
+    }
     window.location.assign(`/meetings/${encodeURIComponent(meeting.id)}`);
   } catch (error) {
     const definiteResponse = error instanceof ApiError && error.status >= 400 && error.status < 500;
@@ -645,6 +717,13 @@ async function createMeeting(event) {
     }
     setState("error", appState.createUncertain ? "Chưa thể xác nhận kết quả lưu." : "Máy chủ từ chối tạo cuộc họp.");
   }
+}
+
+// One button: upload and check first when the file is not ready yet, then create the meeting.
+async function createMeetingFlow() {
+  if (createButton.disabled) return;
+  if (!appState.serverReady && !(await startUpload())) return;
+  await createMeeting();
 }
 
 for (const button of document.querySelectorAll("[data-open-meeting-dialog]")) {
@@ -682,10 +761,15 @@ fileDrop.addEventListener("drop", (event) => {
   void selectFile(files[0]);
 });
 
-uploadButton.addEventListener("click", () => void startUpload());
-retryUploadButton.addEventListener("click", () => void startUpload());
+retryUploadButton.addEventListener("click", () => void createMeetingFlow());
 cancelUploadButton.addEventListener("click", () => void abortUpload());
-form.addEventListener("submit", createMeeting);
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  void createMeetingFlow();
+});
+autoTranscribeInput.addEventListener("change", () => {
+  writeLocal(AUTO_TRANSCRIBE_KEY, autoTranscribeInput.checked ? "1" : "0");
+});
 
 function onFormChange() {
   if (appState.createAttemptFailed && appState.serverReady) {
