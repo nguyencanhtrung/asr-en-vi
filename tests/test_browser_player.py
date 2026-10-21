@@ -63,6 +63,15 @@ ROOM_AFTER_LIST = """() => {
 }"""
 
 
+# No notes are seeded, so only the page's own spacing separates the source view from the list.
+# Real notes fill that gap with a screen or more; this keeps the list off screen at the source.
+NOTES_BELOW_SOURCE = """() => {
+  const notes = document.createElement("div");
+  notes.style.height = "800px";
+  document.querySelector("#notes-source-view").after(notes);
+}"""
+
+
 def seed_long_transcript(data_dir: Path, count: int = SEGMENT_COUNT) -> str:
     """A completed transcript of back-to-back two-second segments, tall enough to scroll."""
     meeting_id, generation_id, _segments = seed_completed_transcript(data_dir, title="Long review")
@@ -607,6 +616,7 @@ def test_opening_a_notes_source_while_playing_leaves_the_page_on_the_source(live
     # The reader opened a source from the notes: its view sits under the player bar and the
     # transcript list is far below the viewport.
     page.evaluate("document.querySelector('#notes-source-view').hidden = false")
+    page.evaluate(NOTES_BELOW_SOURCE)
     heading = page.locator("#notes-source-heading")
     place(heading, clearance(heading))
     settle(page)

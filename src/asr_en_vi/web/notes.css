@@ -139,7 +139,6 @@
   margin-top: 9px;
 }
 
-.notes-task-details,
 .notes-source-metadata {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -151,14 +150,12 @@
   background: var(--hairline);
 }
 
-.notes-task-details > div,
 .notes-source-metadata > div {
   min-width: 0;
   padding: 9px 11px;
   background: var(--surface-subtle);
 }
 
-.notes-task-details dt,
 .notes-source-metadata dt {
   margin-bottom: 4px;
   color: var(--ink-3);
@@ -166,7 +163,6 @@
   font-size: 9px;
 }
 
-.notes-task-details dd,
 .notes-source-metadata dd {
   overflow-wrap: anywhere;
   margin: 0;
@@ -174,6 +170,110 @@
   font-family: var(--font-mono);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
+}
+
+.notes-task-details {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+}
+
+.notes-steps {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notes-steps > li {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 9px;
+  color: var(--ink-2);
+  font-size: 11px;
+}
+
+/* The mark only repeats the state text beside it, so it never carries the state alone. */
+.notes-steps > li::before {
+  align-self: center;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--ink-3);
+  border-radius: 50%;
+  content: "";
+}
+
+.notes-steps > li[data-step-state="unknown"]::before {
+  border-style: dashed;
+}
+
+.notes-steps > li[data-step-state="done"]::before {
+  border-color: var(--success);
+  background: var(--success);
+}
+
+.notes-steps > li[data-step-state="current"] {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.notes-steps > li[data-step-state="current"]::before {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.notes-steps > li[data-step-state="failed"] {
+  color: var(--danger);
+  font-weight: 650;
+}
+
+.notes-steps > li[data-step-state="failed"]::before {
+  border-color: var(--danger);
+  background: var(--danger);
+}
+
+.notes-steps > li[data-step-state="canceled"],
+.notes-steps > li[data-step-state="interrupted"] {
+  color: var(--warning);
+  font-weight: 650;
+}
+
+.notes-steps > li[data-step-state="canceled"]::before,
+.notes-steps > li[data-step-state="interrupted"]::before {
+  border-color: var(--warning);
+  background: var(--warning);
+}
+
+.notes-step-state {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.notes-task-meta {
+  display: grid;
+  gap: 3px;
+  margin: 10px 0 0;
+  padding-top: 9px;
+  border-top: 1px solid var(--hairline);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.notes-task-meta > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.notes-task-meta > span:first-child {
+  color: var(--ink);
 }
 
 .notes-saved-work {
@@ -460,7 +560,6 @@
     width: 100%;
   }
 
-  .notes-task-details,
   .notes-source-metadata {
     grid-template-columns: minmax(0, 1fr);
   }

@@ -12,23 +12,27 @@
     canceled: "Đã hủy",
     interrupted: "Bị gián đoạn",
   };
-  const TASK_STAGE_LABELS = {
-    accepted: "Đã nhận yêu cầu",
-    starting: "Đang bắt đầu",
-    starting_notes: "Đang khởi chạy runner notes",
-    starting_provider: "Đang kết nối ChatGPT",
-    preparing_source: "Đang chuẩn bị transcript nguồn",
-    generating: "Đang tạo notes",
-    generating_notes: "Đang tạo notes",
-    repairing: "Đang sửa dữ liệu trả về",
-    saving: "Đang lưu notes",
-    publishing: "Đang lưu notes",
-    complete: "Hoàn tất",
-    succeeded: "Đã lưu",
-    stopping: "Đang dừng",
-    canceled: "Đã hủy",
-    failed: "Thất bại",
-    interrupted: "Bị gián đoạn",
+  // Position of each backend stage among the steps listed in #notes-steps (shell.html).
+  const TASK_STEP_OF_STAGE = {
+    accepted: 0,
+    starting: 1,
+    starting_notes: 1,
+    starting_provider: 1,
+    preparing_source: 1,
+    generating: 2,
+    generating_notes: 2,
+    repairing: 2,
+    publishing: 3,
+    saving: 3,
+  };
+  const STEP_STATE_LABELS = {
+    done: "Đã xong",
+    current: "Đang chạy",
+    upcoming: "Chưa tới",
+    unknown: "",
+    failed: TASK_STATE_LABELS.failed,
+    canceled: TASK_STATE_LABELS.canceled,
+    interrupted: TASK_STATE_LABELS.interrupted,
   };
   const SOURCE_STATE_LABELS = {
     current: "Nguồn hiện tại",
@@ -88,6 +92,9 @@
       loading: false,
       message: "",
     },
+    // The step each notes task was last seen running, by task id: the backend overwrites
+    // the stage when a run fails, is canceled or is interrupted.
+    taskSteps: new Map(),
     currentMeetingId: null,
     currentMeeting: null,
     transcriptionRequestInFlight: false,
@@ -540,14 +547,39 @@
     );
   }
 
+  function renderTaskSteps(task) {
+    const items = [...$("#notes-steps").children];
+    const end = items.pop();
+    const ended = ["failed", "canceled", "interrupted"].includes(task.status);
+    if (ACTIVE_TASK_STATES.has(task.status) && Object.hasOwn(TASK_STEP_OF_STAGE, task.stage)) {
+      state.taskSteps.set(task.id, TASK_STEP_OF_STAGE[task.stage]);
+    }
+    const reached = state.taskSteps.get(task.id);
+    items.forEach((item, index) => {
+      let stepState = "unknown";
+      if (task.status === "succeeded") stepState = "done";
+      else if (reached !== undefined) {
+        if (index < reached) stepState = "done";
+        else if (index > reached) stepState = "upcoming";
+        else stepState = ended ? task.status : "current";
+      }
+      item.dataset.stepState = stepState;
+      item.querySelector(".notes-step-state").textContent = STEP_STATE_LABELS[stepState];
+      if (stepState === "current") item.setAttribute("aria-current", "step");
+      else item.removeAttribute("aria-current");
+    });
+    // A run first seen after it ended has no known step, so say only how it ended.
+    end.hidden = !ended || reached !== undefined;
+    end.dataset.stepState = end.hidden ? "" : task.status;
+    end.firstElementChild.textContent = end.hidden ? "" : TASK_STATE_LABELS[task.status];
+  }
+
   function renderTask(data) {
     const details = $("#notes-task-details");
     const status = $("#notes-status");
     const task = data && data.task;
     details.hidden = !task;
     if (!task) {
-      $("#notes-task-state").textContent = "";
-      $("#notes-task-stage").textContent = "";
       if (data && data.readError) status.textContent = "Chưa đọc được trạng thái notes đã lưu.";
       else if (!state.currentMeeting) status.textContent = "Mở một cuộc họp để xem hoặc tạo notes.";
       else if (!currentGeneration(state.currentMeeting)) status.textContent = "Cần transcript hoàn chỉnh trước khi tạo notes.";
@@ -555,23 +587,16 @@
       $("#notes-cancel").hidden = true;
       return;
     }
-    const stateLabel = TASK_STATE_LABELS[task.status] || task.status || "Chưa xác định";
-    $("#notes-task-state").textContent = stateLabel;
     const taskProvider = PROVIDER_IDS.includes(task.provider) ? task.provider : "chatgpt";
     const taskProviderName = providerLabel(taskProvider);
-    const stage = task.stage
-      ? (task.stage === "starting_provider"
-        ? `Đang kết nối ${taskProviderName}`
-        : (TASK_STAGE_LABELS[task.stage] || task.stage))
-      : "Chưa bắt đầu";
-    $("#notes-task-stage").textContent = stage;
-    $("#notes-task-provider").textContent = taskProviderName;
+    renderTaskSteps(task);
     const taskEffort = taskProvider === "antigravity"
       ? `mức suy nghĩ ${effortLabel(task.reasoning_effort === "medium" ? "medium" : "high")}`
       : (taskProvider === "chatgpt" && task.reasoning_effort
         && task.reasoning_effort !== "default" ? `effort ${task.reasoning_effort}` : "");
-    $("#notes-task-model").textContent = [task.model, taskEffort]
-      .filter(Boolean).join(" · ") || "Chưa ghi nhận";
+    $("#notes-task-elapsed").textContent = `Đã chạy ${Math.max(0, Number(task.elapsed_seconds) || 0).toFixed(1)} giây`;
+    $("#notes-task-provider-model").textContent = [taskProviderName, task.model, taskEffort]
+      .filter(Boolean).join(" · ");
     const active = ACTIVE_TASK_STATES.has(task.status);
     if (task.status === "accepted") status.textContent = "Tác vụ đã được nhận. Worker sẽ bắt đầu xử lý notes.";
     else if (task.status === "running") status.textContent = `${taskProviderName} đang tạo notes. Tác vụ tiếp tục ở worker nếu bạn mở cuộc họp khác.`;
@@ -591,7 +616,7 @@
     const cancel = $("#notes-cancel");
     cancel.hidden = !active;
     cancel.disabled = !active || task.status === "stopping" || data.cancelInFlight;
-    cancel.textContent = task.status === "stopping" || data.cancelInFlight ? "Đang dừng…" : "Hủy xử lý";
+    cancel.textContent = task.status === "stopping" || data.cancelInFlight ? "Đang dừng…" : "Hủy tạo notes";
   }
 
   function renderError(data) {

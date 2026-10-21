@@ -65,7 +65,7 @@ V1 không bao gồm tự ghi âm, bot tham gia Meet, chép lời thời gian th�
 
 - Chỉ nhận một tác vụ xử lý tại một thời điểm trong v1, gồm cả xử lý bản ghi và tạo lại notes. Khi đang bận, báo rõ và từ chối yêu cầu xử lý mới; chưa có hàng đợi nhiều tác vụ. Vẫn xem và sửa được các cuộc họp đã hoàn tất.
 - Khi ô **Chép lời ngay sau khi tạo** đang bật, trang cuộc họp gửi yêu cầu chép lời đúng một lần ngay sau khi tạo; tải lại trang hoặc Back không gửi lại. Nếu máy đang bận hoặc worker/model chưa sẵn sàng, cuộc họp vẫn được lưu; UI nêu lý do, hiện nút **Bắt đầu chép lời** và không tự thử lại.
-- GUI hiển thị giai đoạn đang chạy, trạng thái hoàn tất hoặc lỗi và cung cấp nút hủy.
+- GUI hiển thị giai đoạn đang chạy (thanh tiến độ khi chép lời, danh sách bước khi tạo notes), trạng thái hoàn tất hoặc lỗi và cung cấp nút hủy nói rõ đang hủy gì (**Hủy chép lời**, **Hủy tạo notes**).
 - Sau khi upload hoàn tất và backend nhận tác vụ, đóng tab hoặc mất kết nối trình duyệt không hủy xử lý trên backend. Mở lại UI phải xem được trạng thái, tiến độ hoặc kết quả đã lưu.
 - Khi tiến trình xử lý hoặc máy chủ bị ngắt, sau khi hệ thống hoạt động lại phải đánh dấu tác vụ đang dở là bị gián đoạn và cho người dùng chủ động chạy lại từ đầu bằng bản ghi đã lưu. Không yêu cầu tự chạy lại hoặc phục hồi từ checkpoint; giữ các kết quả hoàn tất và bản notes đã sửa.
 - Tác vụ bị lỗi hoặc bị hủy không được hiển thị là đã hoàn thành đầy đủ.

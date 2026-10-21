@@ -2943,6 +2943,29 @@
       : "Chưa xác định";
   }
 
+  function taskStageLabel(task) {
+    return TASK_STAGES[task.stage] || task.stage || "Chưa bắt đầu";
+  }
+
+  // The bar is the share of the recording already transcribed; without a usable duration it is
+  // indeterminate (no value attribute, no percent) rather than a guess.
+  function renderTaskProgress(task) {
+    $("#task-progress").hidden = !task;
+    if (!task) return;
+    const duration = Number(task.audio_duration_seconds);
+    const known = Number.isFinite(duration) && duration > 0;
+    const fraction = known
+      ? Math.min(1, Math.max(0, Number(task.transcript_end_seconds) || 0) / duration)
+      : 0;
+    const bar = $("#task-progress-bar");
+    if (known) bar.value = fraction;
+    else bar.removeAttribute("value");
+    // Rounding must not announce 100% before the last second is transcribed.
+    const percent = fraction >= 1 ? 100 : Math.min(99, Math.round(fraction * 100));
+    $("#task-progress-percent").textContent = known ? `${percent}%` : "";
+    $("#task-progress-stage").textContent = taskStageLabel(task);
+  }
+
   function renderTranscription(transcription) {
     const task = transcription && transcription.task;
     const generation = transcription && transcription.generation;
@@ -2957,9 +2980,13 @@
     startButton.hidden = active;
     startButton.disabled = state.taskRequestInFlight || sourceMutationUnavailable();
     startButton.textContent = generation ? "Chạy lại bản ghi" : "Bắt đầu chép lời";
+    // The first run is the decisive action; running again over a transcript is not.
+    startButton.classList.toggle("primary-button", !generation);
+    startButton.classList.toggle("secondary-button", Boolean(generation));
     cancelButton.hidden = !active;
     cancelButton.disabled = !task || task.status === "stopping";
-    cancelButton.textContent = task && task.status === "stopping" ? "Đang dừng…" : "Hủy xử lý";
+    cancelButton.textContent = task && task.status === "stopping" ? "Đang dừng…" : "Hủy chép lời";
+    renderTaskProgress(active ? task : null);
     measurements.hidden = !task;
     renderTaskError(task);
 
@@ -2982,7 +3009,7 @@
           ? "Đang kiểm tra worker trước khi bắt đầu xử lý."
           : "Đang kiểm tra worker vì heartbeat tác vụ đã cũ."
         : statusText[task.status] || "Đang tải trạng thái tác vụ.";
-      $("#task-stage").textContent = TASK_STAGES[task.stage] || task.stage || "Chưa bắt đầu";
+      $("#task-stage").textContent = taskStageLabel(task);
       $("#task-elapsed").textContent = formatElapsedSeconds(task.elapsed_seconds);
       $("#task-segment-count").textContent = String(task.segment_count || 0);
       $("#task-transcript-end").textContent = formatTimestamp(task.transcript_end_seconds || 0);

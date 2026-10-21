@@ -268,7 +268,7 @@
                   </select>
                 </div>
                 <button class="primary-button" id="notes-start" type="button" aria-describedby="notes-status" disabled>Tạo notes bằng ChatGPT</button>
-                <button class="secondary-button" id="notes-cancel" type="button" hidden>Hủy xử lý</button>
+                <button class="secondary-button" id="notes-cancel" type="button" hidden>Hủy tạo notes</button>
               </div>
             </header>
             <p class="notes-run-plan" id="notes-run-plan" role="status" aria-live="polite"></p>
@@ -279,12 +279,19 @@
             </p>
             <p class="notes-lock-status" id="notes-lock-status" role="status" aria-live="polite" hidden></p>
             <p class="notes-status" id="notes-status" role="status" aria-live="polite">Đang kiểm tra trạng thái notes…</p>
-            <dl class="notes-task-details" id="notes-task-details" hidden>
-              <div><dt>Trạng thái</dt><dd id="notes-task-state"></dd></div>
-              <div><dt>Giai đoạn</dt><dd id="notes-task-stage"></dd></div>
-              <div><dt>Nhà cung cấp</dt><dd id="notes-task-provider"></dd></div>
-              <div><dt>Model</dt><dd id="notes-task-model"></dd></div>
-            </dl>
+            <div class="notes-task-details" id="notes-task-details" hidden>
+              <ol class="notes-steps" id="notes-steps">
+                <li data-step-state="upcoming"><span>Nhận yêu cầu</span><span class="notes-step-state"></span></li>
+                <li data-step-state="upcoming"><span>Khởi chạy</span><span class="notes-step-state"></span></li>
+                <li data-step-state="upcoming"><span>Tạo notes</span><span class="notes-step-state"></span></li>
+                <li data-step-state="upcoming"><span>Lưu notes</span><span class="notes-step-state"></span></li>
+                <li id="notes-step-end" hidden><span></span></li>
+              </ol>
+              <p class="notes-task-meta">
+                <span id="notes-task-elapsed"></span>
+                <span id="notes-task-provider-model"></span>
+              </p>
+            </div>
             <div class="notes-error" id="notes-error" role="alert" hidden>
               <p id="notes-error-message"></p>
             </div>
@@ -344,19 +351,16 @@
               <h3 id="transcription-heading">Transcript</h3>
               <div class="transcription-actions">
                 <button class="primary-button" id="start-transcription" type="button">Bắt đầu chép lời</button>
-                <button class="secondary-button" id="cancel-transcription" type="button" hidden>Hủy xử lý</button>
+                <button class="secondary-button" id="cancel-transcription" type="button" hidden>Hủy chép lời</button>
               </div>
             </header>
-            <dl class="runtime-profile" id="runtime-profile" aria-live="polite">
-              <div>
-                <dt>Compute backend</dt>
-                <dd id="runtime-backend">Đang chờ worker</dd>
-              </div>
-              <div>
-                <dt>Model tự chọn</dt>
-                <dd id="runtime-model">Chưa xác định</dd>
-              </div>
-            </dl>
+            <div class="task-progress" id="task-progress" hidden>
+              <p class="task-progress-line">
+                <span class="task-progress-stage" id="task-progress-stage"></span>
+                <span class="task-progress-percent" id="task-progress-percent"></span>
+              </p>
+              <progress class="task-progress-bar" id="task-progress-bar" max="1" aria-labelledby="task-progress-stage"></progress>
+            </div>
             <p class="transcription-status" id="transcription-status" role="status" aria-live="polite">
               Bản ghi đã lưu. Bấm “Bắt đầu chép lời” khi bạn muốn chạy nhận dạng local.
             </p>
@@ -366,6 +370,19 @@
               <div><dt>Số đoạn</dt><dd id="task-segment-count"></dd></div>
               <div><dt>Mốc transcript</dt><dd id="task-transcript-end"></dd></div>
             </dl>
+            <details class="processing-details">
+              <summary>Chi tiết xử lý</summary>
+              <dl class="runtime-profile" id="runtime-profile" aria-live="polite">
+                <div>
+                  <dt>Compute backend</dt>
+                  <dd id="runtime-backend">Đang chờ worker</dd>
+                </div>
+                <div>
+                  <dt>Model tự chọn</dt>
+                  <dd id="runtime-model">Chưa xác định</dd>
+                </div>
+              </dl>
+            </details>
             <div class="transcription-error" id="transcription-error" role="alert" hidden>
               <p id="transcription-error-message"></p>
               <dl class="task-diagnostic-details" id="task-diagnostic-details" hidden>

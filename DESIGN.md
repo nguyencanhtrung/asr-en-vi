@@ -288,7 +288,8 @@ Corners are compact and engineered: controls use the small radius, content panel
 - **Shape:** Compact rectangular control with the small radius and a 40px default height.
 - **Primary:** Solid accent fill with theme-specific contrast text; reserve it for the next decisive action.
 - **Hover / Focus:** A one-pixel upward movement is allowed on hover; keyboard focus uses a two-pixel accent outline. Reduced-motion preferences collapse transitions to effectively instant.
-- **Secondary / Text:** Secondary buttons use a neutral surface and strong hairline. Text actions remain transparent and underlined.
+- **Secondary / Text:** Secondary buttons use a neutral surface and strong hairline. Text actions remain transparent and underlined. Running work again over an existing result (**Chạy lại bản ghi**) is secondary; only the first run (**Bắt đầu chép lời**) is primary.
+- **Cancel:** The cancel control names what it stops (**Hủy chép lời**, **Hủy tạo notes**) and reads **Đang dừng…** once the request is sent.
 - **Disabled:** Neutral surface and muted ink, plus the native disabled state; never communicate disabled only through opacity.
 
 ### Player
@@ -313,6 +314,24 @@ Corners are compact and engineered: controls use the small radius, content panel
 - **Rename:** A chip click swaps only that chip for an inline form on its own line (name field, "Lưu tên", "Hủy", "Khôi phục tên mặc định"; the label is 12px). Enter saves, Esc cancels, one rename is open at a time, and focus returns to the chip. "Thêm người nói" stays below the chips.
 - **Disabled / read-only:** A locked source disables chips with muted ink and a plain hairline, tied to the lock reason like "Sửa". In a past transcript chips are plain text.
 
+### Task Progress
+
+- **Bar:** A native `<progress>` under the transcript heading while a transcription task is active: 6px tall, small radius, `max="1"`, an accent fill over a hairline track. Its accessible name is the visible Vietnamese stage label on the line above, with the percent at the end of that line in mono tabular figures.
+- **Value:** Transcript end divided by recording length, clamped to 1. The percent never shows 100% before the whole recording is transcribed. Later stages (speaker recognition, saving) leave the bar where the transcript ended and change only the label.
+- **Unknown:** Without a usable recording length the bar has no value and no percent: a dashed accent outline that pulses. Reduced motion removes the pulse; the dashed outline remains, so the state never relies on motion or colour alone.
+- **Data:** It is painted from the existing task poll and adds no request.
+
+### Notes Steps
+
+- **Shape:** One flat ordered list on the subtle surface with a hairline and the small radius: Nhận yêu cầu, Khởi chạy, Tạo notes, Lưu notes. Each row has a small round mark, the step name (11px) and its state word in mono at the end.
+- **States:** done (success mark, "Đã xong"), current (accent mark, semibold, "Đang chạy", `aria-current="step"`), upcoming (hollow mark, "Chưa tới"). The step that ended a run reads "Thất bại" in danger ink, or "Đã hủy" / "Bị gián đoạn" in warning ink. The word carries the state; the mark only repeats it.
+- **Unknown step:** The backend overwrites the stage when a run ends, so the page remembers the last step it saw running. A run first seen after it ended shows dashed marks without state words and one closing row naming how it ended; it never claims "Đã xong" for steps it cannot vouch for.
+- **Meta:** Below a hairline, the elapsed time (ink, mono) and one sub-line of provider · model · effort (secondary ink).
+
+### Processing Details
+
+- A closed `<details>` with the summary "Chi tiết xử lý" (11px, secondary ink, standard two-pixel accent focus outline) holds the compute backend and model profile. Opening it shows the same flat bordered group; nothing is removed, only collapsed.
+
 ### Cards / Containers
 
 - **Corner Style:** Medium radius for panels and compact radius for list rows.
@@ -333,7 +352,7 @@ Navigation is a quiet ledger rail: mono wordmark, uppercase technical section la
 
 ### Operational Status
 
-Provider connection appears as two header buttons, OpenAI and Google; each pairs a status dot with explicit status text and its own accessible name. Runtime profile, task measurements, generations, timestamps, and diagnostic IDs use mono metadata inside flat bordered groups. Loading, saved, warning, and error states pair semantic color with explicit language. Transcript and history layouts belong to this product; preserve their scan order when restyling.
+Provider connection appears as two header buttons, OpenAI and Google; each pairs a status dot with explicit status text and its own accessible name. The runtime profile sits in the closed Processing Details disclosure; it, task measurements, generations, timestamps, and diagnostic IDs use mono metadata inside flat bordered groups. Loading, saved, warning, and error states pair semantic color with explicit language. Transcript and history layouts belong to this product; preserve their scan order when restyling.
 
 ## Do's and Don'ts
 
