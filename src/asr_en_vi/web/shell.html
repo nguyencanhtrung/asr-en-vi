@@ -230,13 +230,15 @@
               <dd><span class="saved-badge"><span aria-hidden="true"></span><span id="meeting-status-text">Đã lưu, chưa xử lý</span></span></dd>
             </div>
           </dl>
-          <section class="audio-panel" aria-labelledby="audio-heading">
+          <div class="audio-panel">
             <header class="audio-heading">
               <h3 id="audio-heading">Bản ghi âm</h3>
               <span class="source-label"><span aria-hidden="true"></span>Nguồn cuộc họp</span>
             </header>
-            <audio id="meeting-audio" controls preload="metadata" aria-label="Trình phát bản ghi cuộc họp"></audio>
             <p class="audio-hint">Dùng thanh điều khiển để phát, tạm dừng hoặc tua tới đoạn cần nghe lại.</p>
+          </div>
+          <section class="player-bar" aria-labelledby="audio-heading">
+            <audio id="meeting-audio" controls preload="metadata" aria-label="Trình phát bản ghi cuộc họp"></audio>
           </section>
           <section class="notes-panel" id="notes-panel" aria-labelledby="notes-heading">
             <header class="notes-heading-row">

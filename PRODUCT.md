@@ -23,6 +23,7 @@ ASR EN VI biến bản ghi cuộc họp tiếng Anh hoặc tiếng Việt thành
 - Ứng dụng chạy bằng Docker Compose trên localhost và được mở bằng link token từ terminal.
 - Người vận hành nhập audio/video, đặt tên và ngày, chọn gợi ý ngôn ngữ rồi tạo cuộc họp bằng một nút; chép lời tự bắt đầu trừ khi tắt. Sau đó họ theo dõi tác vụ rồi duyệt transcript trong cùng workspace.
 - Lịch tháng, danh sách gần đây và màn hình chi tiết cuộc họp là các đường truy cập chính tới dữ liệu đã lưu.
+- Khi đối chiếu transcript với audio, trình phát dính ở mép trên màn hình chi tiết cuộc họp và đoạn đang phát tự cuộn vào tầm nhìn; người vận hành không phải cuộn tìm trình phát hay đoạn đang nghe.
 - Trạng thái worker, model, tác vụ, lỗi và dữ liệu cần nghe lại phải quét nhanh được trong phiên làm việc dài.
 
 ## Capabilities and Constraints
@@ -59,3 +60,4 @@ ASR EN VI biến bản ghi cuộc họp tiếng Anh hoặc tiếng Việt thành
 - Hỗ trợ đầy đủ tiếng Việt và tiếng Anh bằng font đóng gói local.
 - Tất cả control phải dùng được bằng bàn phím, có focus indicator rõ và không truyền trạng thái chỉ bằng màu.
 - Light/dark theme, contrast và reduced motion phải theo semantic state và sở thích hệ điều hành/người dùng.
+- Tự cuộn theo đoạn đang phát chỉ chạy khi còn thấy một phần danh sách đoạn bên dưới thanh trình phát, nên người đang đọc notes không bị kéo về transcript; nó cũng dừng khi audio tạm dừng, khi người dùng vừa cuộn tay hoặc đang sửa, và dùng cuộn tức thì khi người dùng chọn giảm chuyển động; thanh trình phát dính không che đoạn được cuộn tới, còn control nhận focus bàn phím được cuộn xuống dưới thanh (ô nhập văn bản có thể chỉ lộ dòng chứa con trỏ).

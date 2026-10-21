@@ -8,7 +8,7 @@ Tài liệu này là chuẩn thiết kế frontend v1 để triển khai. [Đặ
 
 - Ứng dụng web dùng trên trình duyệt laptop/desktop; v1 truy cập qua localhost bằng token.
 - Giao diện điều khiển bằng tiếng Việt, giữ các nhãn quen thuộc như **Transcript**, **Meeting notes**, **Speaker 1** và **English**. Nội dung notes viết bằng ngôn ngữ đầu ra đã chọn (English hoặc Tiếng Việt); transcript giữ ngôn ngữ đã nói.
-- Bố cục chính gồm sidebar bên trái, transcript và notes cạnh nhau, trình phát bên dưới vùng duyệt.
+- Bố cục chính gồm sidebar bên trái, transcript và notes cạnh nhau; trình phát là thanh dính ở mép trên vùng nội dung, luôn trong tầm nhìn khi cuộn.
 - Light/dark theme áp dụng thống nhất cho màn hình duyệt, lịch, trang truy cập, các hộp thoại và thông báo. Mặc định theo hệ điều hành; lựa chọn thủ công được ghi nhớ trên trình duyệt.
 - Phương án B/C chỉ là các phương án so sánh trong prototype. Frontend v1 triển khai phương án A; không có bộ chuyển bố cục A/B/C.
 - Chưa chọn framework frontend, thư viện component hoặc cách tổ chức API trong tài liệu này.
@@ -36,10 +36,10 @@ Tài liệu này là chuẩn thiết kế frontend v1 để triển khai. [Đặ
 | Đầu vùng duyệt | Tên cuộc họp, trạng thái kết nối **OpenAI** và **Google** (hai nút riêng), nút **Lịch** ở màn hình hẹp và điểm vào tạo cuộc họp toàn cục; khi mở cuộc họp có thêm ngày, ngôn ngữ chính, thời lượng, trạng thái và thao tác xóa |
 | Transcript | Danh sách đoạn phát biểu có người nói, timestamp, nội dung và thao tác sửa |
 | Meeting notes | Notes theo ngôn ngữ đầu ra đã chọn, chọn bản notes, chỉnh sửa, tạo lại, copy và xuất Markdown |
-| Trình phát | Phát/tạm dừng, vị trí hiện tại, tổng thời lượng và thanh tua; dùng chung cho cuộc họp đang mở |
+| Trình phát | Phát/tạm dừng, vị trí hiện tại, tổng thời lượng và thanh tua; dùng chung cho cuộc họp đang mở. Thanh dính ở mép trên vùng nội dung khi cuộn, cao tối đa 72 px, chỉ gồm trình phát; tiêu đề và dòng hướng dẫn của khối bản ghi cuộn đi như bình thường |
 | Lịch lớn | Thay vùng duyệt khi mở lịch; sidebar vẫn giữ nguyên để điều hướng |
 
-Ở desktop, sidebar có chiều rộng tham chiếu **228 px** và cố định: cao đúng bằng viewport, đứng yên khi trang cuộn dù transcript dài, tự cuộn bên trong khi nội dung cao hơn viewport, với thanh cuộn mảnh và không bao giờ cuộn ngang; khi quá hẹp, lịch nhỏ đưa **Hôm nay** xuống hàng riêng để tên tháng luôn đọc đủ. Từ 680 px trở xuống nó là thanh trên cùng và cuộn cùng trang. Phần còn lại là vùng làm việc co giãn; trong màn hình duyệt, transcript chiếm khoảng **43%**, notes khoảng **57%** của vùng nội dung. Hai vùng nội dung dài có thể cuộn riêng, giữ đường truy cập tới tiêu đề, công cụ và trình phát.
+Ở desktop, sidebar có chiều rộng tham chiếu **228 px** và cố định: cao đúng bằng viewport, đứng yên khi trang cuộn dù transcript dài, tự cuộn bên trong khi nội dung cao hơn viewport, với thanh cuộn mảnh và không bao giờ cuộn ngang; khi quá hẹp, lịch nhỏ đưa **Hôm nay** xuống hàng riêng để tên tháng luôn đọc đủ. Từ 680 px trở xuống nó là thanh trên cùng và cuộn cùng trang. Phần còn lại là vùng làm việc co giãn; trong màn hình duyệt, transcript chiếm khoảng **43%**, notes khoảng **57%** của vùng nội dung. Notes và transcript cuộn cùng trang; trình phát dính ở mép trên vùng nội dung (cao tối đa **72 px**, kể cả từ 680 px trở xuống) nên luôn nằm trong tầm nhìn và dùng được.
 
 Ở màn hình lịch, phần tháng chiếm diện tích chính, danh sách ngày được chọn nằm bên phải với chiều rộng tham chiếu **240 px**. Với viewport từ 1150 px trở xuống, danh sách ngày chuyển xuống dưới lịch. Đây là bố cục đã có trong prototype, không phải một màn hình mới.
 
@@ -114,7 +114,9 @@ Icon GitHub phải có tên truy cập và tooltip dù không có text hiển th
 
 Mỗi đoạn transcript gồm nhãn/tên người nói, timestamp có thể bấm, nội dung và nút sửa. Đoạn chưa rõ được đánh dấu bằng amber và chỉ dẫn nghe lại. Đoạn nguồn đang được đối chiếu phải nổi bật để người dùng định vị được trong danh sách.
 
-Bấm timestamp trong transcript hoặc notes đưa trình phát tới đoạn nguồn tương ứng và đưa đoạn transcript vào tầm nhìn. Trình phát nằm dưới vùng duyệt, có phát/tạm dừng, thanh tua, thời gian hiện tại và tổng thời lượng. Trong sản phẩm, phát âm thanh từ bản sao đã lưu tại backend; dạng sóng và chuyển động trong prototype không chứng minh đã có phát âm thanh thật.
+Bấm timestamp trong transcript tua trình phát tới đoạn đó và phát; mở nguồn từ notes chỉ tua tới mốc nguồn, không tự phát. Trình phát là thanh dính ở mép trên vùng nội dung, có phát/tạm dừng, thanh tua, thời gian hiện tại và tổng thời lượng. Trong sản phẩm, phát âm thanh từ bản sao đã lưu tại backend; dạng sóng và chuyển động trong prototype không chứng minh đã có phát âm thanh thật.
+
+Khi audio đang phát và đoạn đang phát (`aria-current`) đổi, nếu còn thấy một phần danh sách đoạn trong vùng nhìn thấy bên dưới thanh trình phát thì đoạn đó được đưa vào tầm nhìn bằng cuộn gần nhất (`block: "nearest"`), dưới thanh trình phát; khi người dùng bật giảm chuyển động, cuộn tức thì. Không tự cuộn khi audio tạm dừng, trong 2 giây sau khi người dùng cuộn tay (con lăn, chạm, phím cuộn hoặc kéo thanh cuộn), khi focus đang nằm trong một ô sửa của transcript, hay khi cả danh sách đoạn nằm ngoài vùng nhìn thấy đó. Nhờ vậy người đang đọc notes không bị kéo về transcript, và mở nguồn từ notes giữ nguyên chỗ đang đọc: chỉ tua tới mốc nguồn và đánh dấu đoạn tương ứng. Mọi đích cuộn trong cuộc họp (đoạn transcript, tiêu đề nguồn notes) đều dừng dưới thanh trình phát, không nằm dưới nó. Trình duyệt cũng cuộn control nhận focus bàn phím xuống dưới thanh; riêng ô nhập văn bản có thể chỉ lộ dòng chứa con trỏ, nên một phần của ô vẫn có thể nằm dưới thanh trình phát.
 
 Sửa một đoạn transcript bằng ô nhập tại đoạn đó, có lưu/bỏ qua. Sau khi lưu, notes hiện có được đánh dấu cần cập nhật; không tự thay nội dung notes.
 
@@ -198,7 +200,7 @@ Vị trí/nội dung hộp thoại kết nối chưa có trong prototype đã du
 ## 8. Khả năng sử dụng và kích thước màn hình
 
 - Nghiệm thu trên Chrome và Firefox bản ổn định ở laptop/desktop. Các mốc tham chiếu đã xem trong prototype là **1440 × 1000**, **1280 × 800** và **1024 × 768**.
-- Ở các kích thước đó, không tràn ngang toàn trang; sidebar và công cụ chính vẫn truy cập được. Nội dung dài được cuộn trong vùng phù hợp, không bị trình phát hoặc thanh cố định che mất.
+- Ở các kích thước đó, không tràn ngang toàn trang; sidebar và công cụ chính vẫn truy cập được. Nội dung dài cuộn cùng trang và không bị trình phát hoặc thanh cố định che mất: đoạn được cuộn tới luôn nằm dưới thanh trình phát, còn control nhận focus bàn phím được cuộn xuống dưới thanh (ô nhập văn bản có thể chỉ lộ dòng chứa con trỏ).
 - Giữ hai cột transcript/notes khi đủ chỗ. Với chiều rộng nhỏ hơn, xếp dọc và giữ đầy đủ control/trạng thái; mobile là viewport được nghiệm thu, không được tạo tràn ngang.
 - Nút chỉ có icon phải có tên truy cập. Ô nhập/select có label. Focus bàn phím rõ; thứ tự Tab hợp lý, hộp thoại giữ focus và có cách đóng bằng bàn phím.
 - Dùng chữ hoặc biểu tượng đi cùng màu để phân biệt ngày có cuộc họp, ngày được chọn, trạng thái tác vụ và cảnh báo.
@@ -229,7 +231,7 @@ Prototype hiện có không chứng minh các trạng thái backend trong mục 
 | FE-06 | Đặt/sửa/xóa tên người nói riêng từng cuộc họp; giữ nhãn gốc và không ghi đè notes cũ; đối chiếu AC-28 |
 | FE-07 | Timestamp dẫn tới nguồn, chỉnh sửa làm notes cần cập nhật, tạo lại có bản mới, copy/xuất đúng bản chọn; đối chiếu AC-05/07/11 |
 | FE-08 | Upload, xử lý, bận, hủy, lỗi và gián đoạn được thể hiện đúng; đóng tab không làm frontend suy diễn tác vụ đã hủy; đối chiếu AC-12/16/19/20/21 |
-| FE-09 | Dùng được bằng bàn phím và ở ba viewport tham chiếu; không để nội dung/công cụ bị che hoặc tràn ngang |
+| FE-09 | Dùng được bằng bàn phím và ở ba viewport tham chiếu; không để nội dung/công cụ bị che hoặc tràn ngang, kể cả khi trình phát dính ở mép trên |
 | FE-10 | Không có UI dành riêng cho demo; hoạt động với backend và lưu trữ thật, kiểm soát token và đóng gói sẵn tài nguyên UI; kết nối provider notes theo lựa chọn của người dùng, đối chiếu AC-10/15/22/23 |
 | FE-11 | Chọn và kết nối riêng ChatGPT hoặc Google Antigravity qua OMP từ UI, không buộc đăng nhập cả hai; phân biệt kết nối provider với token localhost, đối chiếu AC-35 |
 | FE-12 | Dùng lại phiên provider; thể hiện đúng đã có transcript/chưa có notes và lỗi/quota; đổi bên rồi chạy lại là thao tác chủ động, đối chiếu AC-36/37/38 |

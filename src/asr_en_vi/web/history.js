@@ -1767,9 +1767,37 @@
     $("#transcript-generation").dataset.renderKey = `${generation.id}:${generation.source_version}:true`;
   }
 
+  // The active segment follows playback while the transcript list is on screen, unless the user took
+  // over the scroll in the last two seconds. A wheel, a touch move, a scroll key or any scroll the
+  // app did not start counts as theirs.
+  const MANUAL_SCROLL_QUIET_MS = 2000;
+  const OWN_SCROLL_GAP_MS = 200; // a scroll event this soon after our scroll, or its last event, is ours
+  const SCROLL_KEYS = new Set([" ", "ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"]);
+  let lastManualScroll = -Infinity;
+  let ownScrollUntil = 0;
+  let activeSegmentId = null;
+
+  function followsPlayback(audio) {
+    if (audio.paused || audio.ended) return false;
+    if (performance.now() - lastManualScroll < MANUAL_SCROLL_QUIET_MS) return false;
+    // Reading the notes while audio plays must not pull the page to the transcript: follow only
+    // while some of the list shows below the player bar.
+    const bar = $(".player-bar").getBoundingClientRect();
+    const list = $("#transcript-segments").getBoundingClientRect();
+    if (list.bottom <= bar.bottom || list.top >= window.innerHeight) return false;
+    const focused = document.activeElement;
+    return !(
+      focused
+      && focused.closest("#transcription-panel")
+      && (focused.matches("textarea, input, select") || focused.isContentEditable)
+    );
+  }
+
   function updateActiveTranscriptIntervals() {
-    const seconds = $("#meeting-audio").currentTime;
+    const audio = $("#meeting-audio");
+    const seconds = audio.currentTime;
     const items = [...$("#transcript-segments").querySelectorAll(".transcript-segment")];
+    let current = null;
     for (const [index, item] of items.entries()) {
       const start = Number(item.dataset.startSeconds);
       const end = Number(item.dataset.endSeconds);
@@ -1778,7 +1806,18 @@
       item.classList.toggle("is-playback-active", active);
       if (active) item.setAttribute("aria-current", "true");
       else item.removeAttribute("aria-current");
+      if (active && !current) current = item;
     }
+    // Compare ids, not elements: a re-render of the same transcript is not a new active segment.
+    const currentId = current ? current.dataset.segmentId : null;
+    const changed = currentId !== null && currentId !== activeSegmentId;
+    activeSegmentId = currentId;
+    if (!changed || !followsPlayback(audio)) return;
+    ownScrollUntil = performance.now() + OWN_SCROLL_GAP_MS;
+    current.scrollIntoView({
+      block: "nearest",
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
   }
 
   function transcriptMutationMessage(error, fallback) {
@@ -3239,6 +3278,22 @@
   for (const eventName of ["timeupdate", "seeked", "loadedmetadata", "play"]) {
     $("#meeting-audio").addEventListener(eventName, updateActiveTranscriptIntervals);
   }
+  const noteManualScroll = () => {
+    lastManualScroll = performance.now();
+  };
+  for (const eventName of ["wheel", "touchmove"]) {
+    window.addEventListener(eventName, noteManualScroll, { passive: true });
+  }
+  window.addEventListener("keydown", (event) => {
+    if (SCROLL_KEYS.has(event.key)) noteManualScroll();
+  });
+  // A scrollbar drag sends no wheel or key first. Our own smooth scroll keeps sending scroll events,
+  // each one holding the window open a little longer, however far it travels.
+  window.addEventListener("scroll", () => {
+    const now = performance.now();
+    if (now <= ownScrollUntil) ownScrollUntil = now + OWN_SCROLL_GAP_MS;
+    else lastManualScroll = now;
+  }, { passive: true });
   document.addEventListener("visibilitychange", () => {
     if (!state.taskPollId) return;
     const task = state.meeting && state.meeting.transcription && state.meeting.transcription.task;

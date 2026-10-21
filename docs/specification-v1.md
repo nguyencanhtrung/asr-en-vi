@@ -158,7 +158,8 @@ Nếu đã đặt tên cho `Speaker 2`, bản notes được tạo sau đó dùn
 
 ## 5. Duyệt, sửa và tạo lại notes
 
-- GUI dùng bố cục A đã chọn: lịch sử cuộc họp bên trái, transcript và notes ở hai vùng cạnh nhau, trình phát bên dưới; dark theme cho màn hình chính và các hộp thoại.
+- GUI dùng bố cục A đã chọn: lịch sử cuộc họp bên trái, transcript và notes ở hai vùng cạnh nhau, trình phát dính ở mép trên vùng nội dung khi cuộn; dark theme cho màn hình chính và các hộp thoại.
+- Khi audio đang phát và còn thấy một phần danh sách đoạn bên dưới thanh trình phát, đoạn transcript đang phát tự cuộn vào tầm nhìn dưới thanh trình phát. Không tự cuộn khi audio tạm dừng, ngay sau khi người dùng cuộn tay, khi focus đang ở một ô sửa của transcript, hay khi cả danh sách đoạn nằm ngoài tầm nhìn (đang đọc notes).
 - Người dùng sửa trực tiếp được cả transcript và notes.
 - Khi ghi transcript, gán/đặt tên người nói, metadata cuộc họp hoặc một bản notes, backend kiểm tra phiên bản đã đọc. Nếu tab khác đã thay đổi cùng dữ liệu, từ chối ghi đè, giữ phần chưa lưu ở UI để người dùng đối chiếu với bản mới; không tự trộn nội dung.
 - Sau khi transcript, gán/tên người nói hoặc ngày họp thay đổi, ứng dụng báo rằng notes hiện tại chưa phản ánh thay đổi đó.
