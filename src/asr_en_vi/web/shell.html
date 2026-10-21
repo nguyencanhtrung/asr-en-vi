@@ -287,38 +287,37 @@
               <p id="notes-error-message"></p>
             </div>
             <section class="notes-saved-work" id="notes-saved-work" aria-label="Meeting notes đã lưu" hidden>
-              <div class="notes-revision-controls">
+              <div class="notes-toolbar" id="notes-toolbar" role="group" aria-label="Công cụ notes">
                 <div class="notes-revision-select-wrap">
                   <label for="notes-revision-selector">Phiên bản notes đã lưu</label>
                   <select id="notes-revision-selector" aria-label="Chọn phiên bản notes đã lưu"></select>
                 </div>
-                <p class="notes-revision-meta" id="notes-revision-meta"></p>
+                <div class="notes-mode-toggle" role="group" aria-label="Chế độ notes">
+                  <button class="notes-mode-button" id="notes-mode-view" type="button" aria-pressed="true">Xem</button>
+                  <button class="notes-mode-button" id="notes-mode-write" type="button" aria-pressed="false"><span class="notes-mode-label">Viết<span class="notes-unsaved-dot" id="notes-unsaved-dot" title="Có thay đổi chưa lưu" aria-hidden="true" hidden></span></span></button>
+                </div>
+                <div class="notes-toolbar-actions">
+                  <button class="secondary-button" id="notes-save" type="button">Lưu bản nháp</button>
+                  <button class="secondary-button" id="notes-copy" type="button">Sao chép bản đã lưu</button>
+                  <button class="secondary-button" id="notes-export" type="button">Tải Markdown đã lưu</button>
+                </div>
               </div>
-              <div class="notes-document-grid">
-                <section class="notes-editor-section" aria-labelledby="notes-editor-heading">
-                  <h4 id="notes-editor-heading">Markdown đã lưu</h4>
-                  <label class="visually-hidden" for="notes-markdown">Chỉnh sửa Markdown của phiên bản notes đã chọn</label>
-                  <textarea id="notes-markdown" rows="20" spellcheck="true" aria-describedby="notes-draft-status"></textarea>
-                  <p class="notes-draft-status" id="notes-draft-status" role="status" aria-live="polite"></p>
-                  <div class="notes-conflict" id="notes-conflict" role="alert" hidden>
-                    <p id="notes-conflict-message"></p>
-                    <div class="notes-conflict-actions">
-                      <button class="secondary-button" id="notes-keep-draft" type="button">Giữ bản nháp và lưu lên bản mới nhất</button>
-                      <button class="text-button" id="notes-use-latest" type="button">Tải bản đã lưu mới nhất</button>
-                    </div>
-                  </div>
-                  <button class="secondary-button notes-save-button" id="notes-save" type="button">Lưu bản nháp</button>
-                </section>
-                <section class="notes-preview-section" aria-labelledby="notes-preview-heading">
-                  <h4 id="notes-preview-heading">Xem trước Markdown</h4>
-                  <div class="notes-markdown-preview" id="notes-preview" aria-label="Bản xem trước notes đã chọn"></div>
-                </section>
+              <div class="notes-conflict" id="notes-conflict" role="alert" hidden>
+                <p id="notes-conflict-message"></p>
+                <div class="notes-conflict-actions">
+                  <button class="secondary-button" id="notes-keep-draft" type="button">Giữ bản nháp và lưu lên bản mới nhất</button>
+                  <button class="text-button" id="notes-use-latest" type="button">Tải bản đã lưu mới nhất</button>
+                </div>
               </div>
-              <div class="notes-saved-actions">
-                <button class="secondary-button" id="notes-copy" type="button">Sao chép bản đã lưu</button>
-                <button class="secondary-button" id="notes-export" type="button">Tải Markdown đã lưu</button>
-                <p id="notes-copy-export-status" role="status" aria-live="polite"></p>
+              <p class="notes-revision-meta" id="notes-revision-meta"></p>
+              <div class="notes-frame">
+                <p class="notes-draft-banner" id="notes-view-draft" hidden>Đang xem bản nháp chưa lưu</p>
+                <div class="notes-markdown-preview" id="notes-preview" aria-label="Bản xem trước notes đã chọn"></div>
+                <label class="visually-hidden" for="notes-markdown">Chỉnh sửa Markdown của phiên bản notes đã chọn</label>
+                <textarea id="notes-markdown" rows="20" spellcheck="true" aria-describedby="notes-draft-status" hidden></textarea>
               </div>
+              <p class="notes-draft-status" id="notes-draft-status" role="status" aria-live="polite"></p>
+              <p class="notes-action-status" id="notes-copy-export-status" role="status" aria-live="polite"></p>
             </section>
             <section class="notes-source-view" id="notes-source-view" aria-labelledby="notes-source-heading" hidden>
               <header>
