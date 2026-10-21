@@ -85,7 +85,14 @@ tường minh cho kiểm thử chuyên biệt. Image chứa CUDA 12.8 và cuDNN 
 chỉ mở model từ đường dẫn local, bật chế độ offline và tắt telemetry; audio không được gửi ra
 ngoài. UI hiển thị compute backend, compute type và model worker đang dùng.
 
-Import cuộc họp chỉ lưu bản ghi. Mở cuộc họp rồi bấm **Bắt đầu chép lời** để chiếm slot xử lý.
+Hộp thoại **Cuộc họp mới** có một nút chính **Tạo cuộc họp**: nút này tải file lên, chờ máy chủ
+kiểm tra rồi tạo cuộc họp. Tên cuộc họp được điền sẵn từ tên file (bỏ phần mở rộng) cho tới khi
+bạn tự gõ, và gợi ý ngôn ngữ mặc định là lựa chọn lần trước. Ô **Chép lời ngay sau khi tạo** được
+bật sẵn và nhớ lựa chọn cuối trong trình duyệt này. Khi bật, trang cuộc họp tự gửi yêu cầu chép
+lời đúng một lần để chiếm slot xử lý; tải lại trang hoặc Back không gửi lại. Nếu máy đang bận hoặc
+worker/model chưa sẵn sàng, trang hiện lý do cùng nút **Bắt đầu chép lời** và không tự thử lại.
+Khi tắt ô này, cuộc họp chỉ lưu bản ghi; mở cuộc họp rồi bấm **Bắt đầu chép lời** để chiếm slot.
+
 Sau khi có transcript, nút **Chạy lại bản ghi** tạo một thế hệ transcript riêng; thế hệ cũ còn
 được giữ nếu lần chạy mới lỗi hoặc bị hủy. Chỉ thế hệ hoàn chỉnh được công bố. Giao diện hiển thị
 giai đoạn, thời gian đã chạy, số đoạn và mốc timestamp cuối cùng nhận được, không tạo phần trăm

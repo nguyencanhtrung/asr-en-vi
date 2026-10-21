@@ -21,7 +21,7 @@ ASR EN VI biến bản ghi cuộc họp tiếng Anh hoặc tiếng Việt thành
 ## Operating Context
 
 - Ứng dụng chạy bằng Docker Compose trên localhost và được mở bằng link token từ terminal.
-- Người vận hành nhập audio/video, đặt tên và ngày, chọn gợi ý ngôn ngữ, theo dõi tác vụ rồi duyệt transcript trong cùng workspace.
+- Người vận hành nhập audio/video, đặt tên và ngày, chọn gợi ý ngôn ngữ rồi tạo cuộc họp bằng một nút; chép lời tự bắt đầu trừ khi tắt. Sau đó họ theo dõi tác vụ rồi duyệt transcript trong cùng workspace.
 - Lịch tháng, danh sách gần đây và màn hình chi tiết cuộc họp là các đường truy cập chính tới dữ liệu đã lưu.
 - Trạng thái worker, model, tác vụ, lỗi và dữ liệu cần nghe lại phải quét nhanh được trong phiên làm việc dài.
 
