@@ -3038,7 +3038,7 @@ def test_transcription_requires_explicit_start_and_renders_poll_cancel_and_rerun
     rerun.click()
     expect(page.locator("#transcription-error")).to_be_visible(timeout=5_000)
     rerun.click()
-    expect(page.get_by_role("button", name="Hủy xử lý")).to_be_visible()
+    expect(page.get_by_role("button", name="Hủy chép lời")).to_be_visible()
     assert post_bodies[3]["request_id"] != post_bodies[2]["request_id"]
     assert post_bodies[4]["request_id"] != post_bodies[3]["request_id"]
 
@@ -3090,7 +3090,7 @@ def test_transcription_requires_explicit_start_and_renders_poll_cancel_and_rerun
     )
     assert page.evaluate("window.getSelection().toString()") == selected_recovery_text
 
-    page.get_by_role("button", name="Hủy xử lý").click()
+    page.get_by_role("button", name="Hủy chép lời").click()
     expect(page.locator("#transcription-status")).to_contain_text("Đã hủy", timeout=5_000)
     expect(page.locator("#generation-title")).to_have_text("Transcript #2")
     assert len(post_bodies) == 5

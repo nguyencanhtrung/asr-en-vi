@@ -1701,6 +1701,111 @@ textarea:focus-visible {
   color: var(--warning);
 }
 
+.processing-details {
+  margin-top: 8px;
+}
+
+.processing-details > summary {
+  width: fit-content;
+  padding: 6px 0;
+  color: var(--ink-2);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.processing-details > .runtime-profile {
+  margin-top: 6px;
+}
+
+.task-progress {
+  margin-top: 14px;
+}
+
+.task-progress-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 6px;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.task-progress-stage {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.task-progress-percent {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-progress-bar {
+  display: block;
+  width: 100%;
+  height: 6px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-sm);
+  appearance: none;
+  background: var(--hairline);
+  color: var(--accent);
+}
+
+.task-progress-bar::-webkit-progress-bar {
+  background: var(--hairline);
+}
+
+/* Separate rules: a browser that drops one vendor pseudo-element would drop the whole list. */
+.task-progress-bar::-webkit-progress-value {
+  background: currentColor;
+}
+
+.task-progress-bar::-moz-progress-bar {
+  background: currentColor;
+}
+
+/* Dashed as well as pulsing: an unknown amount never relies on motion or colour alone. */
+.task-progress-bar:indeterminate {
+  border: 1px dashed var(--accent);
+  background: transparent;
+  animation: task-progress-pulse 1.4s ease-in-out infinite;
+}
+
+.task-progress-bar:indeterminate::-webkit-progress-bar {
+  background: transparent;
+}
+
+@keyframes task-progress-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-progress-bar:indeterminate {
+    animation: none;
+  }
+}
+
+/* Forced colours paint author backgrounds as Canvas: outline the track, fill with Highlight. */
+@media (forced-colors: active) {
+  .task-progress-bar {
+    border: 1px solid CanvasText;
+  }
+
+  .task-progress-bar::-webkit-progress-value {
+    background: Highlight;
+  }
+
+  .task-progress-bar::-moz-progress-bar {
+    background: Highlight;
+  }
+}
+
 .transcription-status,
 .transcription-error,
 .transcript-empty {

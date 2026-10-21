@@ -475,8 +475,8 @@ def test_notes_browser_generation_revisions_conflicts_copy_export_and_markdown_s
     )
     expect(page.locator("#notes-saved-work")).to_be_visible(timeout=10_000)
     expect(page.locator("#notes-revision-meta")).to_contain_text("Ngôn ngữ: English")
-    expect(page.locator("#notes-task-state")).to_have_text("Đã lưu")
-    expect(page.locator("#notes-task-stage")).to_have_text("Đã lưu")
+    expect(page.locator("#notes-steps > li:not([hidden])")).to_have_count(4)
+    expect(page.locator('#notes-steps > li[data-step-state="done"]')).to_have_count(4)
     expect(page.locator("#meeting-status-text")).to_have_text("Đã có transcript và notes")
     assert page.locator("#notes-preview h4").all_text_contents() == [
         "Overview",

@@ -66,7 +66,7 @@ Worker quản lý các runtime bằng tiến trình/request riêng có deadline 
 
 ## 4. API và cập nhật UI
 
-Chọn HTTP JSON cho thao tác và polling trạng thái khi có tác vụ; chu kỳ ban đầu khoảng một giây, có điều chỉnh khi tab ẩn/mất mạng. Polling chỉ đọc DB, không gọi model để hỏi tiến độ. UI hiển thị giai đoạn, lượng audio/đoạn đã xử lý khi có số đo và trạng thái hủy; không tạo phần trăm tổng hoặc ETA giả. Sau reconnect lấy trạng thái hiện tại, không phát lại lệnh tạo tác vụ. Có thể thay transport tiến độ sau mà không đổi vòng đời tác vụ.
+Chọn HTTP JSON cho thao tác và polling trạng thái khi có tác vụ; chu kỳ ban đầu khoảng một giây, có điều chỉnh khi tab ẩn/mất mạng. Polling chỉ đọc DB, không gọi model để hỏi tiến độ. UI hiển thị giai đoạn, lượng audio/đoạn đã xử lý khi có số đo và trạng thái hủy. Thanh tiến độ chép lời chỉ lấy `transcript_end_seconds` chia cho `audio_duration_seconds` từ lần poll tác vụ hiện có, giới hạn ở 100 % và không xác định khi thiếu thời lượng; các giai đoạn sau chép lời không có phần trăm riêng và UI không tạo ETA giả. Danh sách bước tạo notes chỉ ánh xạ các `stage` hiện có (`accepted`, `starting`/`starting_notes`, `generating_notes`, `publishing`); vì backend ghi đè `stage` khi tác vụ lỗi, bị hủy hoặc gián đoạn, trình duyệt nhớ bước cuối đã thấy trong phiên để đánh dấu bước đó. Sau reconnect lấy trạng thái hiện tại, không phát lại lệnh tạo tác vụ. Có thể thay transport tiến độ sau mà không đổi vòng đời tác vụ.
 
 | Endpoint dự kiến | Hành vi |
 | --- | --- |

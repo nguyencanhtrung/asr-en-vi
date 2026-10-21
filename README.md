@@ -83,7 +83,8 @@ lệ. `ASR_MODEL_HOST_PATH` chọn thư mục model trên host; `ASR_GPU_MODEL_P
 `cpu` hoặc `cuda` để chủ động khóa backend. `ASR_MODEL_PATH` và `ASR_COMPUTE_TYPE` vẫn là override
 tường minh cho kiểm thử chuyên biệt. Image chứa CUDA 12.8 và cuDNN 9. Sau bước tải model, runtime
 chỉ mở model từ đường dẫn local, bật chế độ offline và tắt telemetry; audio không được gửi ra
-ngoài. UI hiển thị compute backend, compute type và model worker đang dùng.
+ngoài. UI hiển thị compute backend, compute type và model worker đang dùng trong phần
+**Chi tiết xử lý** của khối Transcript; phần này thu gọn mặc định.
 
 Hộp thoại **Cuộc họp mới** có một nút chính **Tạo cuộc họp**: nút này tải file lên, chờ máy chủ
 kiểm tra rồi tạo cuộc họp. Tên cuộc họp được điền sẵn từ tên file (bỏ phần mở rộng) cho tới khi
@@ -93,10 +94,13 @@ lời đúng một lần để chiếm slot xử lý; tải lại trang hoặc B
 worker/model chưa sẵn sàng, trang hiện lý do cùng nút **Bắt đầu chép lời** và không tự thử lại.
 Khi tắt ô này, cuộc họp chỉ lưu bản ghi; mở cuộc họp rồi bấm **Bắt đầu chép lời** để chiếm slot.
 
-Sau khi có transcript, nút **Chạy lại bản ghi** tạo một thế hệ transcript riêng; thế hệ cũ còn
-được giữ nếu lần chạy mới lỗi hoặc bị hủy. Chỉ thế hệ hoàn chỉnh được công bố. Giao diện hiển thị
-giai đoạn, thời gian đã chạy, số đoạn và mốc timestamp cuối cùng nhận được, không tạo phần trăm
-hoặc ETA.
+Sau khi có transcript, nút phụ **Chạy lại bản ghi** tạo một thế hệ transcript riêng; thế hệ cũ
+còn được giữ nếu lần chạy mới lỗi hoặc bị hủy. Chỉ thế hệ hoàn chỉnh được công bố. Khi chép lời
+đang chạy, thanh tiến độ hiện giai đoạn bằng tiếng Việt và phần trăm bằng mốc transcript chia cho
+thời lượng bản ghi (không vượt 100 %); thiếu thời lượng thì thanh không xác định và không có phần
+trăm. Nút hủy ghi **Hủy chép lời**. Giao diện còn hiển thị thời gian đã chạy, số đoạn và mốc
+timestamp cuối cùng nhận được, không có ETA. Tiến độ đọc từ lần poll tác vụ hiện có, không thêm
+request.
 
 Lựa chọn English hoặc Tiếng Việt khi import chỉ là gợi ý metadata. Runner luôn dùng tác vụ
 `transcribe`, tự phát hiện ngôn ngữ theo từng đoạn và không ép transcript sang ngôn ngữ đã chọn.
@@ -305,7 +309,11 @@ cách nói gốc để rà soát. Kiểm tra schema không thay thế việc ng�
 
 Khi nhận tác vụ, ứng dụng chụp nguồn bất biến và khóa transcript, người nói cùng ngày họp của
 cuộc họp đó. Tài khoản/model ChatGPT được giữ cố định; không đổi hoặc ngắt kết nối khi tác vụ còn
-hoạt động. Vẫn xem nguồn, sửa notes cũ và làm việc với cuộc họp khác được. Bấm hủy chuyển tác vụ
+hoạt động. Vẫn xem nguồn, sửa notes cũ và làm việc với cuộc họp khác được. Một danh sách bước
+**Nhận yêu cầu**, **Khởi chạy**, **Tạo notes**, **Lưu notes** đánh dấu từng bước là đã xong, đang
+chạy hoặc chưa tới bằng chữ, kèm thời gian đã chạy và dòng phụ nhà cung cấp · model. Bước làm tác
+vụ thất bại, bị hủy hoặc gián đoạn được ghi đúng như vậy; mở trang sau khi tác vụ đã kết thúc thì
+không bước nào bị coi là đã xong, chỉ ghi cách tác vụ kết thúc. Bấm **Hủy tạo notes** chuyển tác vụ
 sang đang dừng; chỉ khi tiến trình gọi provider đã kết thúc mới mở khóa và nhường slot. Lỗi,
 hủy hoặc restart giữ transcript và các notes đã lưu; không công bố đầu ra dở hoặc tự gửi lại
 inference. Đầu ra đã nhận đầy đủ nhưng không hợp lệ được phép sửa tối đa một lượt.

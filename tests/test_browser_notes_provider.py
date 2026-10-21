@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from pathlib import Path
 
@@ -258,9 +259,8 @@ def test_antigravity_run_produces_labelled_revision_and_regeneration_keeps_edits
     accepted = accepted_response.value.json()
     assert runs[0]["provider"] == "antigravity"
     assert accepted["provider"] == "antigravity" and accepted["model"] == ANTIGRAVITY_MODEL
-    expect(page.locator("#notes-task-provider")).to_have_text("Google Antigravity")
-    expect(page.locator("#notes-task-model")).to_have_text(
-        f"{ANTIGRAVITY_MODEL} · mức suy nghĩ High"
+    expect(page.locator("#notes-task-provider-model")).to_have_text(
+        f"Google Antigravity · {ANTIGRAVITY_MODEL} · mức suy nghĩ High"
     )
 
     first = complete(live.settings.data_dir, accepted["id"], "# First\n\nAntigravity notes.\n")
@@ -310,9 +310,8 @@ def test_preference_change_during_active_run_applies_to_next_run(
     owner_id = claim(live.settings.data_dir, active["id"])
     mock_providers(page, live)
     page.goto(f"{live.url}/meetings/{meeting_id}")
-    expect(page.locator("#notes-task-provider")).to_have_text("Google Antigravity")
-    expect(page.locator("#notes-task-model")).to_have_text(
-        f"{ANTIGRAVITY_MODEL} · mức suy nghĩ High"
+    expect(page.locator("#notes-task-provider-model")).to_have_text(
+        f"Google Antigravity · {ANTIGRAVITY_MODEL} · mức suy nghĩ High"
     )
     expect(page.locator("#notes-start")).to_be_disabled()
     expect(page.locator("#notes-provider")).to_be_enabled()
@@ -323,14 +322,13 @@ def test_preference_change_during_active_run_applies_to_next_run(
     expect(page.locator("#notes-preference-status")).to_contain_text(
         f"Google Antigravity · {ANTIGRAVITY_MODEL}"
     )
-    expect(page.locator("#notes-task-provider")).to_have_text("Google Antigravity")
-    expect(page.locator("#notes-task-model")).to_have_text(
-        f"{ANTIGRAVITY_MODEL} · mức suy nghĩ High"
+    expect(page.locator("#notes-task-provider-model")).to_have_text(
+        f"Google Antigravity · {ANTIGRAVITY_MODEL} · mức suy nghĩ High"
     )
     expect(page.locator("#notes-status")).to_contain_text("Google Antigravity đang tạo notes")
     page.locator("#notes-model").select_option("gpt-6-luna")
-    expect(page.locator("#notes-task-model")).to_have_text(
-        f"{ANTIGRAVITY_MODEL} · mức suy nghĩ High"
+    expect(page.locator("#notes-task-provider-model")).to_have_text(
+        f"Google Antigravity · {ANTIGRAVITY_MODEL} · mức suy nghĩ High"
     )
     assert active["model"] == ANTIGRAVITY_MODEL
     assert fail_task(
@@ -341,7 +339,9 @@ def test_preference_change_during_active_run_applies_to_next_run(
         message="Provider text from the server.",
         elapsed_seconds=0.1,
     )
-    expect(page.locator("#notes-task-state")).to_have_text("Thất bại", timeout=10_000)
+    expect(
+        page.locator('#notes-steps > li[data-step-state="failed"]:not([hidden])')
+    ).to_contain_text("Thất bại", timeout=10_000)
     expect(page.locator("#notes-preference-status")).not_to_contain_text("đang chạy giữ")
 
 
@@ -383,7 +383,9 @@ def test_failed_run_is_reported_and_new_run_can_use_other_provider(
     runs = capture_runs(page)
     page.goto(f"{live.url}/meetings/{meeting_id}")
     fail(live.settings.data_dir, failed["id"], code)
-    expect(page.locator("#notes-task-state")).to_have_text("Thất bại", timeout=10_000)
+    expect(
+        page.locator('#notes-steps > li[data-step-state="failed"]:not([hidden])')
+    ).to_contain_text("Thất bại", timeout=10_000)
     expect(page.locator("#notes-status")).to_contain_text(message)
     expect(page.locator("#notes-status")).to_contain_text("không tự đổi")
     expect(page.locator("#notes-status")).to_contain_text("lần chạy mới")
@@ -400,8 +402,9 @@ def test_failed_run_is_reported_and_new_run_can_use_other_provider(
     new_task = next_response.value.json()
     assert runs[-1]["provider"] == other and new_task["provider"] == other
     assert new_task["id"] != failed["id"]
-    expect(page.locator("#notes-task-provider")).to_have_text(
-        "ChatGPT" if other == "chatgpt" else "Google Antigravity"
+    provider_name = "ChatGPT" if other == "chatgpt" else "Google Antigravity"
+    expect(page.locator("#notes-task-provider-model")).to_have_text(
+        re.compile(rf"^{provider_name} · {re.escape(new_task['model'])}")
     )
     assert task_status(live.settings.data_dir, failed["id"]) == "failed"
     expect(page.locator("#notes-saved-work")).to_be_hidden()
@@ -529,7 +532,7 @@ def test_antigravity_run_confirms_model_and_thinking_level(live, signed_in, fake
         page.locator("#notes-start").click()
     assert runs[0]["expected_model"] == ANTIGRAVITY_MODEL
     assert runs[0]["expected_reasoning_effort"] == "medium"
-    expect(page.locator("#notes-task-model")).to_contain_text("mức suy nghĩ Medium")
+    expect(page.locator("#notes-task-provider-model")).to_contain_text("mức suy nghĩ Medium")
 
 
 def test_preference_changed_conflict_reloads_the_choice_without_retry(live, signed_in):
