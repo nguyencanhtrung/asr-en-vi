@@ -304,6 +304,8 @@
                   <button class="secondary-button" id="notes-export" type="button">Tải Markdown đã lưu</button>
                 </div>
               </div>
+              <p class="notes-draft-status" id="notes-draft-status" role="status" aria-live="polite"></p>
+              <p class="notes-action-status" id="notes-copy-export-status" role="status" aria-live="polite"></p>
               <div class="notes-conflict" id="notes-conflict" role="alert" hidden>
                 <p id="notes-conflict-message"></p>
                 <div class="notes-conflict-actions">
@@ -318,8 +320,6 @@
                 <label class="visually-hidden" for="notes-markdown">Chỉnh sửa Markdown của phiên bản notes đã chọn</label>
                 <textarea id="notes-markdown" rows="20" spellcheck="true" aria-describedby="notes-draft-status" hidden></textarea>
               </div>
-              <p class="notes-draft-status" id="notes-draft-status" role="status" aria-live="polite"></p>
-              <p class="notes-action-status" id="notes-copy-export-status" role="status" aria-live="polite"></p>
             </section>
             <section class="notes-source-view" id="notes-source-view" aria-labelledby="notes-source-heading" hidden>
               <header>

@@ -1033,6 +1033,17 @@ def test_one_toolbar_serves_both_modes_and_keeps_the_enable_rules(live, signed_i
         expect(copy).to_be_enabled()
         expect(export).to_be_enabled()
     assert layouts[0] == layouts[1]
+    # The status lines sit right under the toolbar, next to the buttons that cause them.
+    assert page.evaluate(
+        """() => {
+          const toolbar = document.querySelector("#notes-toolbar").getBoundingClientRect();
+          const frame = document.querySelector(".notes-frame").getBoundingClientRect();
+          return ["#notes-draft-status", "#notes-copy-export-status"].map(selector => {
+            const box = document.querySelector(selector).getBoundingClientRect();
+            return box.top >= toolbar.bottom && box.bottom <= frame.top;
+          });
+        }"""
+    ) == [True, True]
     expect(save).to_have_text("Lưu bản nháp")
     expect(copy).to_have_text("Sao chép bản đã lưu")
     expect(export).to_have_text("Tải Markdown đã lưu")
@@ -1143,7 +1154,9 @@ def test_beforeunload_warns_only_while_a_notes_or_transcript_draft_is_unsaved(li
     )
     assert page.evaluate(warns) is False
 
-    editor = page.locator(".segment-text-editor").first
+    first_segment = page.locator(".transcript-segment").nth(0)
+    first_segment.locator(".segment-edit-button").click()
+    editor = first_segment.locator(".segment-text-editor")
     saved_text = editor.input_value()
     editor.fill(f"{saved_text} and an unsaved edit")
     assert page.evaluate(warns) is True
