@@ -1,8 +1,12 @@
 "use strict";
 
+// Header status buttons: OpenAI is the chatgpt provider, Google is antigravity.
+const launcherElements = {
+  chatgpt: { button: document.querySelector("#launcher-chatgpt"), name: "OpenAI" },
+  antigravity: { button: document.querySelector("#launcher-antigravity"), name: "Google" },
+};
+
 const connectionElements = {
-  launcher: document.querySelector("#connections-launcher"),
-  launcherStatus: document.querySelector("#connection-launcher-status"),
   dialog: document.querySelector("#connections-dialog"),
   close: document.querySelector("#connections-close"),
   badge: document.querySelector("#connection-state-badge"),
@@ -238,10 +242,22 @@ function providerStatusCopy(status) {
   return "Chưa rõ trạng thái";
 }
 
-function setLauncherState(status, label, accessibleLabel) {
-  connectionElements.launcher.dataset.state = status;
-  connectionElements.launcherStatus.textContent = label;
-  connectionElements.launcher.setAttribute("aria-label", accessibleLabel);
+// Visible status text and the spoken equivalent for each launcher state.
+const launcherCopy = {
+  loading: ["Đang kiểm tra", "đang kiểm tra trạng thái"],
+  connected: ["Đã kết nối", "đã kết nối"],
+  reconnect_required: ["Cần đăng nhập lại", "cần đăng nhập lại"],
+  disconnected: ["Chưa kết nối", "chưa kết nối"],
+  error: ["Không khả dụng", "không đọc được trạng thái"],
+};
+
+function setLauncherState(provider, status, accountLabel = "") {
+  const { button, name } = launcherElements[provider];
+  const [label, spoken] = launcherCopy[status] || launcherCopy.error;
+  const account = status === "connected" ? ` với ${accountLabel || "tài khoản"}` : "";
+  button.dataset.state = status;
+  button.querySelector(".connection-launcher-status").textContent = label;
+  button.setAttribute("aria-label", `Kết nối ${name}: ${spoken}${account}`);
 }
 
 function modelIsAvailable(modelId) {
@@ -323,15 +339,7 @@ function renderProvider() {
     connectionElements.verificationRow.hidden = true;
   }
 
-  if (status === "connected") {
-    setLauncherState("connected", "Đã kết nối", `Kết nối ChatGPT: đã kết nối với ${provider.account?.label || "tài khoản"}`);
-  } else if (status === "reconnect_required") {
-    setLauncherState("reconnect_required", "Cần đăng nhập lại", "Kết nối ChatGPT: cần đăng nhập lại");
-  } else if (status === "disconnected") {
-    setLauncherState("disconnected", "Chưa kết nối", "Kết nối ChatGPT: chưa kết nối");
-  } else {
-    setLauncherState("error", "Không khả dụng", "Kết nối ChatGPT: không đọc được trạng thái");
-  }
+  setLauncherState("chatgpt", badgeState, provider.account?.label);
 
   connectionElements.modelSection.hidden = status !== "connected";
   updateConnectionActions();
@@ -628,7 +636,7 @@ async function loadAccountData() {
   clearConnectionError();
   connectionElements.badge.dataset.state = "loading";
   connectionElements.badge.textContent = "Đang kiểm tra";
-  setLauncherState("loading", "Đang kiểm tra", "Kết nối ChatGPT: đang kiểm tra trạng thái");
+  setLauncherState("chatgpt", "loading");
 
   try {
     const payload = await connectionRequest("/api/providers");
@@ -672,29 +680,46 @@ async function loadAccountData() {
     if (generation !== connectionState.loadGeneration) return;
     await refreshProviderAfterAuthFailure(error);
     if (!connectionState.provider) {
-      setLauncherState("error", "Không khả dụng", "Kết nối ChatGPT: không đọc được trạng thái");
+      setLauncherState("chatgpt", "error");
       connectionElements.badge.dataset.state = "error";
       connectionElements.badge.textContent = "Không khả dụng";
       connectionElements.status.textContent = "Không đọc được trạng thái";
+    } else {
+      renderProvider(); // the last known status stands; drop the "loading" state
     }
     showConnectionError(error);
   }
 }
 
+// One /api/providers read on page load sets both header buttons.
 async function refreshHeaderStatus() {
+  const generation = connectionState.loadGeneration;
+  let providers = [];
   try {
     const payload = await connectionRequest("/api/providers");
-    const provider = Array.isArray(payload.providers)
-      ? payload.providers.find((item) => item && item.id === "chatgpt")
-      : null;
-    if (!provider || !["connected", "disconnected", "reconnect_required"].includes(provider.status)) {
-      throw new ConnectionApiError("Máy chủ chưa công bố trạng thái kết nối ChatGPT hợp lệ.", "INVALID_PROVIDER_STATUS");
-    }
-    connectionState.provider = provider;
-    renderProvider();
+    if (Array.isArray(payload.providers)) providers = payload.providers;
   } catch {
-    setLauncherState("error", "Không khả dụng", "Kết nối ChatGPT: không đọc được trạng thái");
+    // Neither status is known; both buttons fall through to the error state.
   }
+  const known = ["connected", "disconnected", "reconnect_required"];
+  // A dialog or login read that started meanwhile is newer than this slower page-load answer.
+  if (generation === connectionState.loadGeneration) {
+    const chatgpt = providers.find((item) => item && item.id === "chatgpt");
+    if (chatgpt && known.includes(chatgpt.status)) {
+      connectionState.provider = chatgpt;
+      renderProvider();
+    } else {
+      setLauncherState("chatgpt", "error");
+    }
+  }
+  // loadAntigravity sets Google without moving the generation; a status already shown there is newer.
+  if (launcherElements.antigravity.button.dataset.state) return;
+  const antigravity = providers.find((item) => item && item.id === "antigravity");
+  setLauncherState(
+    "antigravity",
+    antigravity && known.includes(antigravity.status) ? antigravity.status : "error",
+    antigravity?.account?.label,
+  );
 }
 
 async function saveModel(event) {
@@ -826,11 +851,22 @@ async function disconnectConnection() {
   }
 }
 
-connectionElements.launcher.addEventListener("click", () => {
-  if (!connectionElements.dialog.open) connectionElements.dialog.showModal();
-  setConnectionMessage("");
-  void loadAccountData();
-});
+for (const [provider, { button }] of Object.entries(launcherElements)) {
+  button.addEventListener("click", async () => {
+    if (!connectionElements.dialog.open) connectionElements.dialog.showModal();
+    connectionElements.dialog.querySelector(".connections-body").scrollTop = 0; // a closed dialog keeps its scroll
+    setConnectionMessage("");
+    const loads = Promise.allSettled([loadAccountData(), loadAntigravity()]);
+    if (provider !== "antigravity") return;
+    const generation = connectionState.loadGeneration;
+    document.querySelector("#antigravity-title").focus({ preventScroll: true });
+    // The ChatGPT sections above and the Antigravity sections below change height as they load.
+    await loads;
+    if (generation === connectionState.loadGeneration) {
+      document.querySelector("#antigravity-section").scrollIntoView({ block: "start" });
+    }
+  });
+}
 connectionElements.close.addEventListener("click", () => connectionElements.dialog.close());
 connectionElements.dialog.addEventListener("click", (event) => {
   if (event.target === connectionElements.dialog) connectionElements.dialog.close();

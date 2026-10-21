@@ -156,6 +156,23 @@ def test_notes_action_precedes_long_transcript(live, signed_in, width):
     assert action["y"] + action["height"] < transcript["y"]
 
 
+def test_output_language_options_use_short_labels(live, signed_in):
+    _context, page = signed_in()
+    meeting_id, _generation_id, _segments = seed_completed_transcript(live.settings.data_dir)
+    page.goto(f"{live.url}/meetings/{meeting_id}")
+    options = page.locator("#notes-output-language option")
+    expect(options).to_have_text(["English", "Tiếng Việt"])
+    assert options.evaluate_all("items => items.map(item => item.value)") == ["en", "vi"]
+    expect(page.locator("#notes-output-language")).to_have_value("en")
+
+
+def test_language_copy_says_notes_follow_the_chosen_output_language(live, signed_in):
+    _context, page = signed_in()
+    page.goto(f"{live.url}/", wait_until="domcontentloaded")
+    for place in (".notes-principle", ".meeting-language-reminder", ".dialog-promise"):
+        expect(page.locator(place)).to_contain_text("ngôn ngữ đầu ra đã chọn")
+
+
 def test_notes_late_asset_still_receives_current_meeting_context(live, signed_in):
     _context, page = signed_in()
     meeting_id, _generation_id, _segments = seed_completed_transcript(live.settings.data_dir)
@@ -391,12 +408,12 @@ def test_notes_language_pending_request_survives_reload_and_saved_language_is_re
     )
     page.evaluate(f"window.ASRMeetingHistory.refreshMeeting('{meeting_id}')")
     expect(page.locator("#notes-revision-meta")).to_contain_text(
-        "Vietnamese / Tiếng Việt", timeout=10_000
+        "Ngôn ngữ: Tiếng Việt", timeout=10_000
     )
     expect(page.locator("#notes-output-language")).to_be_enabled()
     page.locator("#notes-output-language").select_option("en")
-    expect(page.locator("#notes-revision-meta")).to_contain_text("Vietnamese / Tiếng Việt")
-    expect(page.locator("#notes-revision-meta")).not_to_contain_text("English / Tiếng Anh")
+    expect(page.locator("#notes-revision-meta")).to_contain_text("Ngôn ngữ: Tiếng Việt")
+    expect(page.locator("#notes-revision-meta")).not_to_contain_text("Ngôn ngữ: English")
 
 
 def test_notes_browser_generation_revisions_conflicts_copy_export_and_markdown_safety(
@@ -456,7 +473,7 @@ def test_notes_browser_generation_revisions_conflicts_copy_export_and_markdown_s
         first_markdown,
     )
     expect(page.locator("#notes-saved-work")).to_be_visible(timeout=10_000)
-    expect(page.locator("#notes-revision-meta")).to_contain_text("English / Tiếng Anh")
+    expect(page.locator("#notes-revision-meta")).to_contain_text("Ngôn ngữ: English")
     expect(page.locator("#notes-task-state")).to_have_text("Đã lưu")
     expect(page.locator("#notes-task-stage")).to_have_text("Đã lưu")
     expect(page.locator("#meeting-status-text")).to_have_text("Đã có transcript và notes")

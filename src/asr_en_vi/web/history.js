@@ -3075,7 +3075,6 @@
     navigateToMeeting(link.dataset.meetingLink);
   });
   $("#open-calendar").addEventListener("click", openCalendar);
-  $("#mini-open-calendar").addEventListener("click", openCalendar);
   $("#calendar-back").addEventListener("click", leaveCalendar);
   $("#edit-meeting").addEventListener("click", openEditor);
   $("#edit-cancel").addEventListener("click", () => {

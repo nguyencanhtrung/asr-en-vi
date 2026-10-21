@@ -102,8 +102,10 @@ function renderAntigravityProvider() {
   const provider = antigravityState.provider;
   if (!provider) return;
   const status = provider.status;
-  antigravityElements.badge.dataset.state = ["connected", "disconnected", "reconnect_required"]
-    .includes(status) ? status : "error";
+  const state = ["connected", "disconnected", "reconnect_required"].includes(status)
+    ? status : "error";
+  antigravityElements.badge.dataset.state = state;
+  setLauncherState("antigravity", state, provider.account?.label);
   antigravityElements.badge.textContent = antigravityStatusCopy(status);
   antigravityElements.status.textContent = antigravityStatusCopy(status);
   antigravityElements.account.textContent = provider.account?.label || "Chưa có thông tin";
@@ -213,6 +215,7 @@ async function loadAntigravity() {
     if (!["reconnect_required", "provider_disconnected"].includes(error.code)) {
       antigravityElements.badge.dataset.state = "error";
       antigravityElements.badge.textContent = "Không khả dụng";
+      setLauncherState("antigravity", "error");
     }
   }
 }
@@ -427,7 +430,6 @@ function markAntigravityChoiceEdited() {
   updateAntigravityActions();
 }
 
-document.querySelector("#connections-launcher").addEventListener("click", () => void loadAntigravity());
 antigravityElements.signIn.addEventListener("click", () => void startAntigravityLogin());
 antigravityElements.cancel.addEventListener("click", () => void cancelAntigravityLogin());
 antigravityElements.inputForm.addEventListener("submit", submitAntigravityInput);

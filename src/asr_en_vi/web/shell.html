@@ -77,7 +77,6 @@
           <div class="section-heading">
             <h2 id="mini-calendar-heading">Lịch</h2>
             <span class="section-rule" aria-hidden="true"></span>
-            <button class="text-button" id="mini-open-calendar" type="button">Mở lịch</button>
           </div>
           <div class="calendar" id="mini-calendar" data-calendar="mini"></div>
         </section>
@@ -101,23 +100,33 @@
       <main class="workspace" id="workspace">
         <header class="workspace-header">
           <h1 id="page-title" tabindex="-1">Cuộc họp</h1>
-          <div class="header-actions">
-            <div class="local-status">
-              <span class="status-dot" aria-hidden="true"></span>
-              <span>Không gian riêng</span>
-            </div>
+          <div class="connection-launchers">
             <button
               class="secondary-button connection-launcher"
-              id="connections-launcher"
+              id="launcher-chatgpt"
               type="button"
               aria-haspopup="dialog"
               aria-controls="connections-dialog"
-              aria-label="Kết nối ChatGPT: đang kiểm tra trạng thái"
+              aria-label="Kết nối OpenAI: đang kiểm tra trạng thái"
             >
               <span class="connection-launcher-dot" aria-hidden="true"></span>
-              <span class="connection-launcher-name">AI</span>
-              <span class="connection-launcher-status" id="connection-launcher-status">Đang kiểm tra</span>
+              <span class="connection-launcher-name">OpenAI</span>
+              <span class="connection-launcher-status">Đang kiểm tra</span>
             </button>
+            <button
+              class="secondary-button connection-launcher"
+              id="launcher-antigravity"
+              type="button"
+              aria-haspopup="dialog"
+              aria-controls="connections-dialog"
+              aria-label="Kết nối Google: đang kiểm tra trạng thái"
+            >
+              <span class="connection-launcher-dot" aria-hidden="true"></span>
+              <span class="connection-launcher-name">Google</span>
+              <span class="connection-launcher-status">Đang kiểm tra</span>
+            </button>
+          </div>
+          <div class="header-actions">
             <button class="secondary-button header-calendar" id="open-calendar" type="button">Lịch</button>
             <button class="primary-button header-create" type="button" data-open-meeting-dialog>
               <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -164,7 +173,7 @@
             <span class="principle-divider" aria-hidden="true"></span>
             <article class="principle-card notes-principle">
               <span class="principle-mark" aria-hidden="true">N</span>
-              <div><h3>Meeting notes</h3><p>Luôn được viết bằng tiếng Anh.</p></div>
+              <div><h3>Meeting notes</h3><p>Viết bằng ngôn ngữ đầu ra đã chọn.</p></div>
             </article>
           </section>
         </section>
@@ -239,8 +248,8 @@
                 <div class="notes-output-language-control">
                   <label for="notes-output-language">Ngôn ngữ đầu ra</label>
                   <select id="notes-output-language">
-                    <option value="en">English / Tiếng Anh</option>
-                    <option value="vi">Vietnamese / Tiếng Việt</option>
+                    <option value="en">English</option>
+                    <option value="vi">Tiếng Việt</option>
                   </select>
                 </div>
                 <div class="notes-output-language-control">
@@ -401,7 +410,7 @@
               <ol class="transcript-segments" id="transcript-segments"></ol>
             </div>
           </section>
-          <p class="meeting-language-reminder">Transcript giữ nguyên ngôn ngữ đã nói. Meeting notes luôn bằng tiếng Anh.</p>
+          <p class="meeting-language-reminder">Transcript giữ nguyên ngôn ngữ đã nói. Meeting notes viết bằng ngôn ngữ đầu ra đã chọn (English hoặc Tiếng Việt).</p>
         </section>
 
         <section class="calendar-view" id="calendar-view" aria-labelledby="calendar-title" hidden>
@@ -440,7 +449,7 @@
             <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
           </button>
         </header>
-        <p class="dialog-promise">Transcript giữ nguyên ngôn ngữ đã nói. Meeting notes luôn bằng tiếng Anh.</p>
+        <p class="dialog-promise">Transcript giữ nguyên ngôn ngữ đã nói. Meeting notes viết bằng ngôn ngữ đầu ra đã chọn (English hoặc Tiếng Việt).</p>
 
         <form id="meeting-form" novalidate>
           <div class="dialog-content">
@@ -620,10 +629,10 @@
             <a class="connection-usage-link" href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">Xem mức sử dụng ChatGPT</a>
           </section>
 
-          <section class="connection-provider-divider" aria-labelledby="antigravity-title">
+          <section class="connection-provider-divider" id="antigravity-section" aria-labelledby="antigravity-title">
             <p class="connection-provider-kicker">OMP · GOOGLE</p>
             <div class="connection-section-heading">
-              <h3 id="antigravity-title">Google Antigravity</h3>
+              <h3 id="antigravity-title" tabindex="-1">Google Antigravity</h3>
               <span class="connection-state-badge" id="antigravity-badge" data-state="loading">Đang kiểm tra</span>
             </div>
             <p>

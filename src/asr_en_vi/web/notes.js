@@ -36,8 +36,8 @@
     historical: "Nguồn lịch sử",
   };
   const OUTPUT_LANGUAGE_LABELS = {
-    en: "English / Tiếng Anh",
-    vi: "Vietnamese / Tiếng Việt",
+    en: "English",
+    vi: "Tiếng Việt",
   };
 
   const PROVIDER_LABELS = { chatgpt: "ChatGPT", antigravity: "Google Antigravity" };
