@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 import wave
 from pathlib import Path
@@ -477,7 +478,7 @@ def test_notes_browser_generation_revisions_conflicts_copy_export_and_markdown_s
     expect(page.locator("#notes-steps > li:not([hidden])")).to_have_count(4)
     expect(page.locator('#notes-steps > li[data-step-state="done"]')).to_have_count(4)
     expect(page.locator("#meeting-status-text")).to_have_text("Đã có transcript và notes")
-    assert page.locator("#notes-preview h3").all_text_contents() == [
+    assert page.locator("#notes-preview h4").all_text_contents() == [
         "Overview",
         "Key Topics and Rationale",
         "Decisions",
@@ -511,6 +512,7 @@ def test_notes_browser_generation_revisions_conflicts_copy_export_and_markdown_s
     assert narrow_overflow == 0
 
     draft = "# Local draft\n\nMy unsaved change is still here.\n"
+    page.locator("#notes-mode-write").click()
     page.locator("#notes-markdown").fill(draft)
     second_task = _accept(
         live.settings.data_dir,
@@ -716,6 +718,7 @@ def test_failed_notes_read_keeps_old_revision_draft_source_and_other_meeting_nav
     ).to_be_visible()
     expect(page.locator(".segment-edit-button").first).to_be_disabled()
     draft = "# Draft while another notes task is running\n\nKeep this across navigation.\n"
+    page.locator("#notes-mode-write").click()
     page.locator("#notes-markdown").fill(draft)
 
     page.locator("#recent-list a").filter(has_text="Other meeting remains usable").click()
@@ -764,3 +767,530 @@ def test_failed_notes_read_keeps_old_revision_draft_source_and_other_meeting_nav
     expect(page.locator("#meeting-title")).to_have_text("Other meeting remains usable")
     assert other_generation_id
     context.close()
+
+
+def _seed_saved_notes(data_dir: Path, *, title: str = "Notes frame"):
+    """Seed a meeting with one saved notes revision, as the worker publishes it."""
+    meeting_id, generation_id, segment_ids = seed_completed_transcript(data_dir, title=title)
+    suffix = meeting_id[:8]
+    task = _accept(data_dir, meeting_id, generation_id, request_id=f"seed-notes-{suffix}")
+    snapshot = get_notes_source(data_dir, _task_source_id(data_dir, task["id"]))
+    revision = _complete_fake_task(data_dir, task["id"], f"seed-{suffix}", _markdown(snapshot))
+    return meeting_id, revision, snapshot, segment_ids
+
+
+def _open_saved_notes(live, page, meeting_id: str) -> None:
+    page.goto(f"{live.url}/meetings/{meeting_id}")
+    expect(page.locator("#notes-saved-work")).to_be_visible(timeout=10_000)
+
+
+def _contrast(foreground: str, background: str) -> float:
+    def luminance(color: str) -> float:
+        channels = [int(value) / 255 for value in re.findall(r"\d+", color)[:3]]
+        linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    high, low = sorted((luminance(foreground), luminance(background)), reverse=True)
+    return (high + 0.05) / (low + 0.05)
+
+
+@pytest.mark.parametrize("width", [1440, 390])
+def test_saved_notes_are_one_full_width_frame_with_a_view_write_group(live, signed_in, width):
+    _context, page = signed_in(viewport={"width": width, "height": 900})
+    meeting_id, *_ = _seed_saved_notes(live.settings.data_dir)
+    _open_saved_notes(live, page, meeting_id)
+
+    expect(page.locator(".notes-frame")).to_have_count(1)
+    expect(page.get_by_role("heading", name="Xem trước Markdown")).to_have_count(0)
+    expect(page.get_by_role("heading", name="Markdown đã lưu")).to_have_count(0)
+    group = page.get_by_role("group", name="Chế độ notes")
+    expect(group).to_have_count(1)
+    buttons = group.get_by_role("button")
+    expect(buttons).to_have_text(["Xem", "Viết"])
+    for index in range(2):
+        expect(buttons.nth(index)).to_have_attribute("aria-pressed", re.compile("^(true|false)$"))
+
+    inner_width = page.evaluate(
+        """() => {
+          const panel = document.querySelector("#notes-panel");
+          const style = getComputedStyle(panel);
+          return panel.getBoundingClientRect().width
+            - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+            - parseFloat(style.borderLeftWidth) - parseFloat(style.borderRightWidth);
+        }"""
+    )
+    frame = page.locator(".notes-frame").bounding_box()
+    assert frame is not None and abs(frame["width"] - inner_width) <= 1
+    for mode, shown, hidden in (
+        ("view", "#notes-preview", "#notes-markdown"),
+        ("write", "#notes-markdown", "#notes-preview"),
+    ):
+        page.locator(f"#notes-mode-{mode}").click()
+        expect(page.locator(shown)).to_be_visible()
+        expect(page.locator(hidden)).to_be_hidden()
+        box = page.locator(shown).bounding_box()
+        assert box is not None and abs(box["width"] - (frame["width"] - 2)) <= 1
+
+
+def test_notes_open_in_view_mode_and_remember_the_last_choice(live, signed_in):
+    _context, page = signed_in()
+    meeting_id, *_ = _seed_saved_notes(live.settings.data_dir)
+    _open_saved_notes(live, page, meeting_id)
+    view, write = page.locator("#notes-mode-view"), page.locator("#notes-mode-write")
+    stored = "localStorage.getItem('asr-en-vi:notes-view-mode')"
+
+    expect(view).to_have_attribute("aria-pressed", "true")
+    expect(write).to_have_attribute("aria-pressed", "false")
+    expect(page.locator("#notes-preview")).to_be_visible()
+    expect(page.locator("#notes-markdown")).to_be_hidden()
+
+    write.click()
+    expect(write).to_have_attribute("aria-pressed", "true")
+    assert page.evaluate(stored) == "write"
+    page.reload()
+    expect(page.locator("#notes-saved-work")).to_be_visible(timeout=10_000)
+    expect(write).to_have_attribute("aria-pressed", "true")
+    expect(view).to_have_attribute("aria-pressed", "false")
+    expect(page.locator("#notes-markdown")).to_be_visible()
+    expect(page.locator("#notes-preview")).to_be_hidden()
+
+    view.click()
+    assert page.evaluate(stored) == "view"
+    page.reload()
+    expect(page.locator("#notes-saved-work")).to_be_visible(timeout=10_000)
+    expect(view).to_have_attribute("aria-pressed", "true")
+    expect(page.locator("#notes-preview")).to_be_visible()
+
+
+@pytest.mark.parametrize("storage", ["blocked", "corrupt"])
+def test_notes_view_mode_falls_back_to_view_when_storage_fails(live, signed_in, storage):
+    _context, page = signed_in()
+    page_errors: list[str] = []
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
+    if storage == "blocked":
+        page.add_init_script(
+            "Object.defineProperty(window, 'localStorage', { configurable: true, "
+            "get() { throw new Error('local storage unavailable'); } });"
+        )
+    else:
+        page.evaluate("localStorage.setItem('asr-en-vi:notes-view-mode', 'sideways')")
+    meeting_id, *_ = _seed_saved_notes(live.settings.data_dir)
+    _open_saved_notes(live, page, meeting_id)
+
+    expect(page.locator("#notes-mode-view")).to_have_attribute("aria-pressed", "true")
+    expect(page.locator("#notes-preview")).to_be_visible()
+    page.locator("#notes-mode-write").click()
+    expect(page.locator("#notes-markdown")).to_be_visible()
+    page.locator("#notes-markdown").fill("# Draft")
+    page.locator("#notes-mode-view").click()
+    expect(page.locator("#notes-preview")).to_be_visible()
+    expect(page.get_by_text("Đang xem bản nháp chưa lưu", exact=True)).to_be_visible()
+    assert page_errors == []
+
+
+def test_view_mode_renders_the_current_draft_in_readable_type_below_the_panel_heading(
+    live, signed_in
+):
+    _context, page = signed_in(viewport={"width": 1440, "height": 1000})
+    meeting_id, revision, *_ = _seed_saved_notes(live.settings.data_dir)
+    markdown = (
+        "# Weekly sync\n\nA plain paragraph.\n\n## Decisions\n\n- Ship **now**\n\n"
+        "### Detail\n\n- Check `logs`\n"
+    )
+    update_note(live.settings.data_dir, revision["id"], expected_edit_version=1, markdown=markdown)
+    _open_saved_notes(live, page, meeting_id)
+    preview = page.locator("#notes-preview")
+    headings = (
+        "root => [...root.querySelectorAll('h1, h2, h3, h4, h5, h6')].map(item => item.tagName)"
+    )
+
+    assert page.locator("#notes-heading").evaluate("element => element.tagName") == "H3"
+    expect(preview).to_contain_text("A plain paragraph.")
+    assert preview.evaluate(headings) == ["H4", "H5", "H6"]
+    sizes = preview.evaluate(
+        "root => [...root.querySelectorAll('p, li')].map(item => "
+        "parseFloat(getComputedStyle(item).fontSize))"
+    )
+    assert sizes and min(sizes) >= 14
+
+    # Xem shows the current draft, saved or not; the shallowest heading is always an h4.
+    page.locator("#notes-mode-write").click()
+    page.locator("#notes-markdown").fill("## Only a draft\n\n### Nested\n\nUnsaved words.\n")
+    page.locator("#notes-mode-view").click()
+    expect(preview).to_contain_text("Unsaved words.")
+    assert preview.evaluate(headings) == ["H4", "H5"]
+    assert get_note(live.settings.data_dir, revision["id"])["markdown"] == markdown
+
+
+def test_write_mode_shows_a_full_width_readable_textarea(live, signed_in):
+    _context, page = signed_in(viewport={"width": 1440, "height": 1000})
+    meeting_id, *_ = _seed_saved_notes(live.settings.data_dir)
+    _open_saved_notes(live, page, meeting_id)
+    page.locator("#notes-mode-write").click()
+
+    textarea = page.locator("#notes-markdown")
+    expect(textarea).to_be_visible()
+    expect(page.locator("#notes-preview")).to_be_hidden()
+    box, frame = textarea.bounding_box(), page.locator(".notes-frame").bounding_box()
+    assert box is not None and frame is not None
+    assert box["height"] >= 420
+    assert abs(box["width"] - (frame["width"] - 2)) <= 1
+    # The height comes from min-height, not from the number of rows.
+    assert textarea.evaluate("area => { area.rows = 2; return area.offsetHeight; }") >= 420
+    assert float(textarea.evaluate("element => getComputedStyle(element).fontSize")[:-2]) >= 13
+
+
+def test_switching_modes_keeps_the_draft_and_the_caret_and_calls_no_api(live, signed_in):
+    _context, page = signed_in(viewport={"width": 1440, "height": 1000})
+    meeting_id, revision, *_ = _seed_saved_notes(live.settings.data_dir)
+    _open_saved_notes(live, page, meeting_id)
+    textarea = page.locator("#notes-markdown")
+    draft = "# Kept draft\n\nThe caret stays inside this sentence.\n"
+    page.locator("#notes-mode-write").click()
+    textarea.fill(draft)
+    page.evaluate(
+        "() => { const area = document.querySelector('#notes-markdown'); "
+        "area.setSelectionRange(14, 22, 'backward'); }"
+    )
+    calls: list[str] = []
+    page.on(
+        "request", lambda request: calls.append(request.url) if "/api/" in request.url else None
+    )
+
+    for _ in range(3):
+        page.locator("#notes-mode-view").click()
+        expect(page.locator("#notes-preview")).to_contain_text("The caret stays inside")
+        page.locator("#notes-mode-write").click()
+        state = textarea.evaluate(
+            "area => ({ value: area.value, start: area.selectionStart, end: area.selectionEnd, "
+            "direction: area.selectionDirection, focused: document.activeElement === area })"
+        )
+        assert state == {
+            "value": draft,
+            "start": 14,
+            "end": 22,
+            "direction": "backward",
+            "focused": True,
+        }
+    assert calls == []
+    assert get_note(live.settings.data_dir, revision["id"])["markdown"] == revision["markdown"]
+
+
+def test_unsaved_changes_mark_the_write_button_and_the_view(live, signed_in):
+    _context, page = signed_in()
+    meeting_id, *_ = _seed_saved_notes(live.settings.data_dir)
+    _open_saved_notes(live, page, meeting_id)
+    write, dot = page.locator("#notes-mode-write"), page.locator("#notes-unsaved-dot")
+    line = page.get_by_text("Đang xem bản nháp chưa lưu", exact=True)
+
+    expect(write).not_to_have_attribute("aria-label", re.compile("."))
+    expect(dot).to_be_hidden()
+    expect(line).to_be_hidden()
+
+    write.click()
+    page.locator("#notes-markdown").fill("# Changed\n\nNot saved yet.\n")
+    expect(dot).to_be_visible()
+    expect(write).to_have_attribute("aria-label", re.compile("chưa lưu"))
+    expect(page.get_by_role("button", name=re.compile("Viết.*chưa lưu"))).to_have_count(1)
+    expect(line).to_be_hidden()
+
+    page.locator("#notes-mode-view").click()
+    expect(line).to_be_visible()
+    expect(page.locator("#notes-preview")).to_contain_text("Not saved yet.")
+    expect(dot).to_be_visible()
+
+    page.locator("#notes-save").click()
+    expect(page.locator("#notes-copy-export-status")).to_contain_text(
+        "Markdown đã được lưu", timeout=10_000
+    )
+    expect(line).to_be_hidden()
+    expect(dot).to_be_hidden()
+    expect(write).not_to_have_attribute("aria-label", re.compile("."))
+
+
+def test_one_toolbar_serves_both_modes_and_keeps_the_enable_rules(live, signed_in):
+    _context, page = signed_in(viewport={"width": 1440, "height": 1000})
+    meeting_id, *_ = _seed_saved_notes(live.settings.data_dir)
+    _open_saved_notes(live, page, meeting_id)
+    toolbar = page.locator("#notes-toolbar")
+    controls = ["#notes-revision-selector", "#notes-save", "#notes-copy", "#notes-export"]
+    layout = """controls => {
+      const toolbar = document.querySelector("#notes-toolbar").getBoundingClientRect();
+      return controls.map(selector => {
+        const box = document.querySelector(selector).getBoundingClientRect();
+        return [box.x - toolbar.x, box.y - toolbar.y, box.width, box.height].map(Math.round);
+      });
+    }"""
+    save, copy, export = (page.locator(f"#notes-{name}") for name in ("save", "copy", "export"))
+
+    layouts = []
+    for mode in ("view", "write"):
+        page.locator(f"#notes-mode-{mode}").click()
+        for selector in controls:
+            expect(toolbar.locator(selector)).to_be_visible()
+        layouts.append(page.evaluate(layout, controls))
+        expect(save).to_be_disabled()
+        expect(copy).to_be_enabled()
+        expect(export).to_be_enabled()
+    assert layouts[0] == layouts[1]
+    # The status lines sit right under the toolbar, next to the buttons that cause them.
+    assert page.evaluate(
+        """() => {
+          const toolbar = document.querySelector("#notes-toolbar").getBoundingClientRect();
+          const frame = document.querySelector(".notes-frame").getBoundingClientRect();
+          return ["#notes-draft-status", "#notes-copy-export-status"].map(selector => {
+            const box = document.querySelector(selector).getBoundingClientRect();
+            return box.top >= toolbar.bottom && box.bottom <= frame.top;
+          });
+        }"""
+    ) == [True, True]
+    expect(save).to_have_text("Lưu bản nháp")
+    expect(copy).to_have_text("Sao chép bản đã lưu")
+    expect(export).to_have_text("Tải Markdown đã lưu")
+
+    page.locator("#notes-markdown").fill("# Draft")
+    for mode in ("write", "view"):
+        page.locator(f"#notes-mode-{mode}").click()
+        expect(save).to_be_enabled()
+        expect(copy).to_be_disabled()
+        expect(export).to_be_disabled()
+
+
+def test_conflict_block_and_its_two_actions_show_in_both_modes(live, signed_in):
+    _context, page = signed_in(viewport={"width": 1440, "height": 1000})
+    meeting_id, revision, *_ = _seed_saved_notes(live.settings.data_dir)
+    _open_saved_notes(live, page, meeting_id)
+    draft = "# Local draft\n\nKept through the conflict.\n"
+    remote = "# Remote edit\n\nSaved elsewhere first.\n"
+    page.locator("#notes-mode-write").click()
+    page.locator("#notes-markdown").fill(draft)
+    update_note(live.settings.data_dir, revision["id"], expected_edit_version=1, markdown=remote)
+    with page.expect_response(lambda response: response.status == 409):
+        page.locator("#notes-save").click()
+
+    for mode in ("write", "view", "write", "view"):
+        page.locator(f"#notes-mode-{mode}").click()
+        expect(page.locator("#notes-conflict")).to_be_visible(timeout=10_000)
+        expect(page.locator("#notes-conflict-message")).to_contain_text(
+            "Bản nháp của bạn vẫn được giữ"
+        )
+        expect(page.locator("#notes-keep-draft")).to_be_visible()
+        expect(page.locator("#notes-use-latest")).to_be_visible()
+        expect(page.locator("#notes-copy")).to_be_disabled()
+        expect(page.locator("#notes-export")).to_be_disabled()
+        expect(page.locator("#notes-markdown")).to_have_value(draft)
+
+    page.locator("#notes-use-latest").click()
+    expect(page.locator("#notes-conflict")).to_be_hidden()
+    expect(page.locator("#notes-preview")).to_contain_text("Saved elsewhere first.")
+    expect(page.locator("#notes-markdown")).to_have_value(remote)
+
+
+def test_ctrl_or_cmd_enter_saves_the_draft_like_the_save_button(live, signed_in):
+    _context, page = signed_in()
+    meeting_id, revision, *_ = _seed_saved_notes(live.settings.data_dir)
+    _open_saved_notes(live, page, meeting_id)
+    saves: list[dict[str, object]] = []
+    page.on(
+        "request",
+        lambda request: (
+            saves.append(json.loads(request.post_data or "{}"))
+            if request.method == "PATCH" and "/api/notes/" in request.url
+            else None
+        ),
+    )
+    status = page.locator("#notes-copy-export-status")
+    textarea = page.locator("#notes-markdown")
+    page.locator("#notes-mode-write").click()
+
+    textarea.fill("# Saved by Control\n")
+    textarea.press("Control+Enter")
+    expect(status).to_contain_text("Markdown đã được lưu", timeout=10_000)
+    assert saves == [{"expected_edit_version": 1, "markdown": "# Saved by Control\n"}]
+    assert get_note(live.settings.data_dir, revision["id"])["markdown"] == "# Saved by Control\n"
+    expect(textarea).to_have_value("# Saved by Control\n")
+    expect(textarea).to_be_focused()
+
+    textarea.press("Control+Enter")
+    page.wait_for_timeout(200)
+    assert len(saves) == 1
+
+    textarea.fill("# Saved by Command\n")
+    textarea.press("Meta+Enter")
+    expect(page.locator("#notes-revision-meta")).to_contain_text("Edit 3", timeout=10_000)
+    assert saves[1] == {"expected_edit_version": 2, "markdown": "# Saved by Command\n"}
+
+    textarea.fill("# Saved by the button\n")
+    page.locator("#notes-save").click()
+    expect(page.locator("#notes-revision-meta")).to_contain_text("Edit 4", timeout=10_000)
+    assert saves[2] == {"expected_edit_version": 3, "markdown": "# Saved by the button\n"}
+
+    textarea.fill("one")
+    textarea.press("Enter")
+    expect(textarea).to_have_value("one\n")
+    page.wait_for_timeout(200)
+    assert len(saves) == 3
+
+
+def test_beforeunload_warns_only_while_a_notes_or_transcript_draft_is_unsaved(live, signed_in):
+    _context, page = signed_in()
+    meeting_id, *_ = _seed_saved_notes(live.settings.data_dir)
+    _open_saved_notes(live, page, meeting_id)
+    warns = """() => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    }"""
+    assert page.evaluate(warns) is False
+
+    page.locator("#notes-mode-write").click()
+    page.locator("#notes-markdown").fill("# Unsaved notes draft\n")
+    assert page.evaluate(warns) is True
+    page.locator("#notes-mode-view").click()
+    assert page.evaluate(warns) is True
+    page.locator("#notes-save").click()
+    expect(page.locator("#notes-copy-export-status")).to_contain_text(
+        "Markdown đã được lưu", timeout=10_000
+    )
+    assert page.evaluate(warns) is False
+
+    first_segment = page.locator(".transcript-segment").nth(0)
+    first_segment.locator(".segment-edit-button").click()
+    editor = first_segment.locator(".segment-text-editor")
+    saved_text = editor.input_value()
+    editor.fill(f"{saved_text} and an unsaved edit")
+    assert page.evaluate(warns) is True
+    editor.fill(saved_text)
+    assert page.evaluate(warns) is False
+
+
+def test_closing_the_page_with_an_unsaved_draft_opens_the_browser_warning(live, signed_in):
+    _context, page = signed_in()
+    meeting_id, *_ = _seed_saved_notes(live.settings.data_dir)
+    _open_saved_notes(live, page, meeting_id)
+    dialogs: list[str] = []
+
+    def stay(dialog) -> None:
+        dialogs.append(dialog.type)
+        dialog.dismiss()
+
+    page.on("dialog", stay)
+    page.locator("#notes-mode-write").click()
+    page.locator("#notes-markdown").fill("# Unsaved notes draft\n")
+    with page.expect_event("dialog"):
+        page.close(run_before_unload=True)
+    assert dialogs == ["beforeunload"]
+    assert not page.is_closed()
+
+    page.locator("#notes-save").click()
+    expect(page.locator("#notes-copy-export-status")).to_contain_text(
+        "Markdown đã được lưu", timeout=10_000
+    )
+    with page.expect_event("close", timeout=10_000):
+        page.close(run_before_unload=True)
+    assert dialogs == ["beforeunload"]
+
+
+def test_source_links_in_the_rendered_view_still_open_the_source_card(live, signed_in):
+    _context, page = signed_in(viewport={"width": 1280, "height": 900})
+    meeting_id, _revision, snapshot, segment_ids = _seed_saved_notes(live.settings.data_dir)
+    source = f"/meetings/{meeting_id}?notes_source={snapshot['id']}&segment={segment_ids[0]}"
+    _open_saved_notes(live, page, meeting_id)
+
+    # Saved notes hide generated timestamp links, so a valid link reaches Xem through the draft.
+    page.locator("#notes-mode-write").click()
+    page.locator("#notes-markdown").fill(
+        f"## Decisions\n\n- Keep the scope [00:00:01]({source})\n"
+        "- A foreign link [elsewhere](https://attacker.invalid/x)\n"
+    )
+    page.locator("#notes-mode-view").click()
+    links = page.locator("#notes-preview a")
+    expect(links).to_have_count(1)
+    expect(page.locator("#notes-source-view")).to_be_hidden()
+    links.click()
+    expect(page.locator("#notes-source-view")).to_be_visible()
+    expect(page.locator("#notes-source-text")).to_have_text(snapshot["segments"][0]["text"])
+    expect(page.locator("#notes-source-time")).to_have_text("00:00:01")
+    assert parse_qs(urlsplit(page.url).query) == {
+        "notes_source": [snapshot["id"]],
+        "segment": [segment_ids[0]],
+    }
+    expect(page.locator("#notes-preview")).to_contain_text(
+        "[elsewhere](https://attacker.invalid/x)"
+    )
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_notes_frame_fits_360px_with_visible_focus_and_readable_colors(live, signed_in, scheme):
+    _context, page = signed_in(viewport={"width": 360, "height": 800}, color_scheme=scheme)
+    meeting_id, revision, *_ = _seed_saved_notes(live.settings.data_dir)
+    unbroken = "x" * 400
+    update_note(
+        live.settings.data_dir,
+        revision["id"],
+        expected_edit_version=1,
+        markdown=f"## Long\n\n- {unbroken}\n\n`{unbroken}`\n\n[{unbroken}](https://x.invalid/)\n",
+    )
+    _open_saved_notes(live, page, meeting_id)
+    assert page.evaluate("document.documentElement.dataset.theme") == scheme
+    overflow = "document.documentElement.scrollWidth - document.documentElement.clientWidth"
+    frame_overflow = (
+        "() => { const frame = document.querySelector('.notes-frame'); "
+        "return frame.scrollWidth - frame.clientWidth; }"
+    )
+
+    page.locator("#notes-mode-write").click()
+    page.locator("#notes-markdown").fill(f"## Draft\n\n- {unbroken}\n")
+    for mode in ("write", "view"):
+        page.locator(f"#notes-mode-{mode}").click()
+        assert page.evaluate(overflow) == 0
+        assert page.evaluate(frame_overflow) == 0
+
+    pairs = page.evaluate(
+        """() => {
+          const read = selector => {
+            const style = getComputedStyle(document.querySelector(selector));
+            return [style.color, style.backgroundColor];
+          };
+          return {
+            pressed: read("#notes-mode-view"),
+            idle: [getComputedStyle(document.querySelector("#notes-mode-write")).color,
+                   getComputedStyle(document.querySelector(".notes-mode-toggle")).backgroundColor],
+            banner: read("#notes-view-draft"),
+            text: [getComputedStyle(document.querySelector("#notes-preview li")).color,
+                   getComputedStyle(document.querySelector(".notes-frame")).backgroundColor],
+          };
+        }"""
+    )
+    for name, (foreground, background) in pairs.items():
+        assert _contrast(foreground, background) >= 4.5, (name, foreground, background)
+
+    page.locator("#notes-revision-selector").focus()
+    for button in ("view", "write"):
+        page.keyboard.press("Tab")
+        focused = page.locator(f"#notes-mode-{button}")
+        expect(focused).to_be_focused()
+        ring = focused.evaluate(
+            "element => [getComputedStyle(element).outlineStyle, "
+            "parseFloat(getComputedStyle(element).outlineWidth)]"
+        )
+        assert ring[0] == "solid" and ring[1] >= 2
+    page.locator("#notes-mode-write").click()
+    expect(page.locator("#notes-markdown")).to_be_focused()
+    ring = page.locator("#notes-markdown").evaluate(
+        "element => [getComputedStyle(element).outlineStyle, "
+        "parseFloat(getComputedStyle(element).outlineWidth)]"
+    )
+    assert ring[0] == "solid" and ring[1] >= 2
+
+    durations = (
+        "() => ['#notes-mode-view', '#notes-mode-write', '#notes-save', '#notes-copy', "
+        "'#notes-export'].map(selector => "
+        "parseFloat(getComputedStyle(document.querySelector(selector)).transitionDuration))"
+    )
+    page.emulate_media(color_scheme=scheme, reduced_motion="reduce")
+    assert max(page.evaluate(durations)) <= 0.001
+    page.emulate_media(color_scheme=scheme, reduced_motion="no-preference")
+    normal = page.evaluate(durations)
+    assert normal[:2] == [0, 0]  # Xem and Viết switch instantly whatever the preference
+    assert min(normal[2:]) > 0.001  # the toolbar buttons do animate, so the check above is real

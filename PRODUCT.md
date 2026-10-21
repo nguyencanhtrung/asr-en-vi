@@ -28,6 +28,7 @@ ASR EN VI biến bản ghi cuộc họp tiếng Anh hoặc tiếng Việt thành
 - Người nói hiện thành chip; chip còn tên mặc định do hệ thống đặt (Speaker N) có dấu **đặt tên** và đổi tên ngay tại chỗ.
 - Trạng thái worker, model, tác vụ, lỗi và dữ liệu cần nghe lại phải quét nhanh được trong phiên làm việc dài.
 - Khi chép lời, thanh tiến độ cho biết đã chép tới đâu so với độ dài bản ghi và đang ở giai đoạn nào; khi tạo notes, danh sách bước cho biết đang ở bước nào, đã chạy bao lâu và bằng nhà cung cấp · model nào. Nút hủy nói rõ đang hủy chép lời hay tạo notes. Chi tiết kỹ thuật như compute backend nằm trong phần **Chi tiết xử lý** thu gọn.
+- Meeting notes mở ở chế độ **Xem** theo mặc định để đọc toàn bề rộng và trình duyệt nhớ lựa chọn cuối cùng; **Viết** dùng để sửa Markdown. Bản nháp chưa lưu luôn được báo rõ và trình duyệt cảnh báo trước khi đóng hoặc tải lại trang.
 
 ## Capabilities and Constraints
 

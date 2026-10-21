@@ -43,6 +43,7 @@
     en: "English",
     vi: "Tiếng Việt",
   };
+  const VIEW_MODE_KEY = "asr-en-vi:notes-view-mode";
 
   const PROVIDER_LABELS = { chatgpt: "ChatGPT", antigravity: "Google Antigravity" };
   const PROVIDER_IDS = ["chatgpt", "antigravity"];
@@ -76,7 +77,17 @@
     return build ? `${build(providerLabel(provider))} ${NEXT_STEP}` : "";
   }
 
+  // The last "view" or "write" choice survives reloads; blocked or bad storage keeps the default.
+  function storedViewMode() {
+    try {
+      return window.localStorage.getItem(VIEW_MODE_KEY) === "write" ? "write" : "view";
+    } catch {
+      return "view";
+    }
+  }
+
   const state = {
+    mode: storedViewMode(),
     // Provider choice for the next run; catalogs[provider] is null until a catalog loads.
     choice: {
       loaded: false,
@@ -739,6 +750,10 @@
     const root = $("#notes-preview");
     root.replaceChildren();
     const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+    // The panel's own heading is an h3, so the shallowest heading in the notes becomes an h4.
+    const shallowest = Math.min(
+      ...lines.map((line) => line.match(/^(#{1,6})\s+(.+)$/)).filter(Boolean).map((match) => match[1].length),
+    );
     let list = null;
     let paragraph = null;
     const closeParagraph = () => { paragraph = null; };
@@ -753,7 +768,7 @@
       if (heading) {
         closeParagraph();
         closeList();
-        const level = Math.min(4, heading[1].length + 1);
+        const level = Math.min(6, heading[1].length - shallowest + 4);
         const element = document.createElement(`h${level}`);
         appendInline(element, heading[2], revision);
         root.append(element);
@@ -780,6 +795,43 @@
       }
       appendInline(paragraph, line, revision);
     }
+  }
+
+  function applyViewMode() {
+    const write = state.mode === "write";
+    $("#notes-mode-view").setAttribute("aria-pressed", String(!write));
+    $("#notes-mode-write").setAttribute("aria-pressed", String(write));
+    $("#notes-preview").hidden = write;
+    $("#notes-markdown").hidden = !write;
+  }
+
+  // Everything that depends on whether the draft differs from the saved Markdown.
+  function renderDraftState(data, revision, draft) {
+    const dirty = draftIsDirty(draft);
+    const busy = data.saveInFlight.has(revision.id);
+    $("#notes-save").disabled = !dirty || busy;
+    $("#notes-copy").disabled = dirty || Boolean(draft.conflict) || busy;
+    $("#notes-export").disabled = dirty || Boolean(draft.conflict) || busy;
+    $("#notes-draft-status").textContent = dirty
+      ? "Có thay đổi chưa lưu. Sao chép và tải xuống chỉ dùng Markdown đã lưu."
+      : "Đang xem đúng Markdown đã lưu cho revision này.";
+    $("#notes-unsaved-dot").hidden = !dirty;
+    $("#notes-view-draft").hidden = !dirty || state.mode !== "view";
+    const write = $("#notes-mode-write");
+    if (dirty) write.setAttribute("aria-label", "Viết, có thay đổi chưa lưu");
+    else write.removeAttribute("aria-label");
+  }
+
+  function setViewMode(mode) {
+    if (mode === state.mode) return;
+    state.mode = mode;
+    try {
+      window.localStorage.setItem(VIEW_MODE_KEY, mode);
+    } catch {
+      // The choice still holds for this page session.
+    }
+    renderSelectedRevision(currentNotes());
+    if (mode === "write") $("#notes-markdown").focus({ preventScroll: true });
   }
 
   function renderSelectedRevision(data) {
@@ -809,6 +861,7 @@
     }
     selector.value = data && data.selectedNoteId ? data.selectedNoteId : "";
     wrapper.hidden = !revision;
+    applyViewMode();
     if (!revision) {
       $("#notes-revision-meta").textContent = data && data.selectedNoteId
         ? "Phiên bản đã chọn chưa có trong danh sách notes mới nhất. Bản nháp được giữ trong phiên này."
@@ -829,10 +882,7 @@
       `Edit ${revision.edit_version}`,
     ].filter(Boolean).join(" · ");
     renderMarkdown(draft.value, revision);
-    const dirty = draftIsDirty(draft);
-    $("#notes-save").disabled = !dirty || data.saveInFlight.has(revision.id);
-    $("#notes-copy").disabled = dirty || Boolean(draft.conflict) || data.saveInFlight.has(revision.id);
-    $("#notes-export").disabled = dirty || Boolean(draft.conflict) || data.saveInFlight.has(revision.id);
+    renderDraftState(data, revision, draft);
     if (draft.conflict) {
       $("#notes-conflict").hidden = false;
       $("#notes-conflict-message").textContent = `Bản đã lưu đã đổi thành edit ${draft.conflict.editVersion}. Bản nháp của bạn vẫn được giữ; chọn cách xử lý trước khi lưu.`;
@@ -842,9 +892,6 @@
       $("#notes-conflict").hidden = true;
       $("#notes-conflict-message").textContent = "";
     }
-    const draftStatus = $("#notes-draft-status");
-    if (dirty) draftStatus.textContent = "Có thay đổi chưa lưu. Sao chép và tải xuống chỉ dùng Markdown đã lưu.";
-    else draftStatus.textContent = "Đang xem đúng Markdown đã lưu cho revision này.";
   }
 
   function render() {
@@ -1694,14 +1741,20 @@
       : { markdown: revision.markdown, editVersion: revision.edit_version };
     data.actionMessage = "";
     renderMarkdown(draft.value, revision);
-    const dirty = draftIsDirty(draft);
-    $("#notes-save").disabled = !dirty || data.saveInFlight.has(revision.id);
-    $("#notes-copy").disabled = dirty || Boolean(draft.conflict) || data.saveInFlight.has(revision.id);
-    $("#notes-export").disabled = dirty || Boolean(draft.conflict) || data.saveInFlight.has(revision.id);
-    $("#notes-draft-status").textContent = dirty
-      ? "Có thay đổi chưa lưu. Sao chép và tải xuống chỉ dùng Markdown đã lưu."
-      : "Đang xem đúng Markdown đã lưu cho revision này.";
+    renderDraftState(data, revision, draft);
   });
+  // Same path as the save button. The textarea is disabled while the request runs, which drops its focus.
+  $("#notes-markdown").addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey)) return;
+    event.preventDefault();
+    const textarea = event.currentTarget;
+    await saveSelectedNote();
+    if (document.activeElement === document.body && !textarea.hidden && !textarea.disabled) {
+      textarea.focus({ preventScroll: true });
+    }
+  });
+  $("#notes-mode-view").addEventListener("click", () => setViewMode("view"));
+  $("#notes-mode-write").addEventListener("click", () => setViewMode("write"));
   $("#notes-save").addEventListener("click", () => void saveSelectedNote());
   $("#notes-keep-draft").addEventListener("click", () => void keepDraftAndSaveLatest());
   $("#notes-use-latest").addEventListener("click", useLatestSavedNote);
@@ -1736,6 +1789,15 @@
     handleMeetingContext({ detail: window.ASRMeetingHistory.currentContext() });
   }
   window.addEventListener("popstate", handleLocation);
+  // A reload or close drops every in-memory draft, so warn while a notes or transcript draft is unsaved.
+  window.addEventListener("beforeunload", (event) => {
+    const meetings = window.ASRMeetingHistory;
+    const unsaved = [...state.drafts.values()].some(draftIsDirty)
+      || Boolean(meetings && meetings.hasUnsavedTranscriptDrafts());
+    if (!unsaved) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
   document.addEventListener("visibilitychange", () => {
     const data = currentNotes();
     if (state.currentMeetingId && activeTask(data)) {

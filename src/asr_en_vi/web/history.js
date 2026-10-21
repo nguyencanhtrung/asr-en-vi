@@ -3432,6 +3432,9 @@
         transcriptionRequestInFlight: state.taskRequestInFlight,
       };
     },
+    hasUnsavedTranscriptDrafts() {
+      return [...state.transcriptDrafts.values()].some((bucket) => !transcriptDraftBucketIsEmpty(bucket));
+    },
     setNotesSourceLock,
     seekNotesSource,
     refreshMeeting(meetingId) {

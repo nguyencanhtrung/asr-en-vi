@@ -318,12 +318,18 @@ sang đang dừng; chỉ khi tiến trình gọi provider đã kết thúc mới
 hủy hoặc restart giữ transcript và các notes đã lưu; không công bố đầu ra dở hoặc tự gửi lại
 inference. Đầu ra đã nhận đầy đủ nhưng không hợp lệ được phép sửa tối đa một lượt.
 
-Chọn phiên bản notes để xem hoặc sửa Markdown. Lưu dùng kiểm tra phiên bản; xung đột giữ bản
-nháp để đối chiếu. Sao chép và tải Markdown lấy cùng nội dung đã lưu của phiên bản đang chọn;
-cần lưu hoặc giải quyết bản nháp trước. Notes hiển thị, copy và export chỉ chứa nội dung tóm tắt,
-không kèm liên kết timestamp. Bản chụp nguồn vẫn được giữ để kiểm tra nội bộ và lưu lịch sử.
-Notes cũ hiển thị nguồn lịch sử hoặc cần cập nhật khi nguồn thay đổi; đổi riêng tên cuộc họp
-không làm notes cần cập nhật.
+Notes đã lưu nằm trong một khung toàn bề rộng với thanh công cụ chung: chọn phiên bản, nút chuyển
+**Xem | Viết**, **Lưu bản nháp**, **Sao chép bản đã lưu** và **Tải Markdown đã lưu**. **Xem** là
+mặc định và hiển thị bản render của bản nháp hiện tại; **Viết** là ô soạn thảo Markdown. Trình
+duyệt nhớ chế độ cuối cùng; đổi chế độ không đổi bản nháp hay gọi API. Lưu dùng kiểm tra phiên bản
+(Ctrl/⌘+Enter trong ô soạn thảo cũng lưu); xung đột giữ bản nháp để đối chiếu và hiện ở cả hai
+chế độ. Khi còn thay đổi chưa lưu, nút **Viết** có chấm báo, **Xem** ghi “Đang xem bản nháp chưa
+lưu”, và trình duyệt cảnh báo trước khi đóng hoặc tải lại trang còn bản nháp notes hoặc transcript
+chưa lưu. Sao chép và tải Markdown lấy cùng nội dung đã lưu của phiên bản đang chọn; cần lưu hoặc
+giải quyết bản nháp trước. Notes hiển thị, copy và export chỉ chứa nội dung tóm tắt, không kèm
+liên kết timestamp. Bản chụp nguồn vẫn được giữ để kiểm tra nội bộ và lưu lịch sử. Notes cũ hiển
+thị nguồn lịch sử hoặc cần cập nhật khi nguồn thay đổi; đổi riêng tên cuộc họp không làm notes cần
+cập nhật.
 
 ## Phát triển và kiểm tra
 
