@@ -131,8 +131,33 @@ người nói có thời lượng giao nhau lớn nhất. Văn bản và timesta
 Đoạn có nhiều người nói, overlap, speaker dominance thấp, không có speaker match hoặc tín hiệu ASR
 không chắc được giữ và đánh dấu để rà soát. Khi phát lại, mọi đoạn transcript chứa thời gian phát
 được tô sáng; nút timestamp tua và phát cùng nguồn audio đã lưu, còn mở nguồn từ notes chỉ tua tới
-mốc nguồn. Có thể đổi người nói hiển thị trong catalog của thế hệ hiện tại; gán ban đầu của model
-và timestamp vẫn được lưu riêng.
+mốc nguồn. Người nói do model gán ban đầu và timestamp được lưu riêng, nên sửa người nói không làm
+mất chúng.
+
+Transcript mở ở chế độ đọc: mỗi đoạn chỉ hiện nút timestamp, tên người nói, nội dung (13 px) và,
+nếu có, dấu rà soát (**Cần kiểm tra** kèm lý do, hoặc **Nên nghe lại**); chưa có ô nhập, select hay
+nút lưu nào. Nút **Sửa** luôn hiện ở mỗi đoạn của thế hệ hiện tại và mở ô sửa của đoạn đó, gồm nội
+dung, select người nói, **Lưu đoạn** và **Hủy**. Chỉ một ô sửa mở tại một lúc. Select lưu ngay khi đổi
+người nói; **Lưu đoạn** hoặc Ctrl/⌘+Enter (từ bất kỳ control nào trong ô đang mở) lưu nội dung;
+**Hủy** hoặc Esc đóng ô và bỏ phần đã gõ. Sau khi lưu hoặc hủy, focus quay lại nút **Sửa** của đoạn
+đó. Mở đoạn khác cũng đóng ô đang mở nhưng giữ văn bản chưa lưu làm bản nháp trong trang này: đoạn có
+bản nháp hiện dấu **Bản nháp chưa lưu**, và mở lại sẽ khôi phục văn bản. Bản nháp đã bị đánh dấu xung
+đột (transcript đã đổi ở tab khác) còn được giữ cả khi **Hủy** hoặc Esc, để đối chiếu với bản mới.
+
+Mục **Chi tiết** trong ô sửa chứa **Gán ban đầu** (người nói do model gán) và các chỉ số model của
+đoạn; ở chế độ đọc chúng không hiện. Thế hệ cũ chỉ đọc: không có **Sửa**, nhưng mỗi đoạn giữ một mục
+**Chi tiết** đóng sẵn cho hai thông tin này. Khi nguồn đang bị khóa (đang tạo notes, hoặc đang kiểm
+tra trạng thái khóa), **Sửa** và chip người nói bị tắt, lý do hiện ở dòng trạng thái phía trên danh
+sách người nói; nếu khóa đến khi ô sửa đang mở, nội dung, select và **Lưu đoạn** bị tắt, còn **Hủy**
+vẫn dùng được. Mỗi đoạn ở chế độ đọc có tối đa hai điểm dừng Tab (timestamp và **Sửa**), và thông
+báo **Đã lưu** của mọi đoạn dùng chung một vùng trạng thái `aria-live` ở đầu khối transcript.
+
+Mục **Người nói trong phiên bản này** hiện mỗi người nói thành một chip; người nói còn tên mặc định
+do hệ thống đặt (**Speaker N**) có dấu **đặt tên**. Bấm chip mở ô đổi tên ngay tại chỗ: Enter lưu,
+Esc hoặc **Hủy** đóng, **Khôi phục tên mặc định** xóa tên đã đặt. Chỉ một ô đổi tên mở tại một lúc;
+tên đang gõ ở ô vừa rời đi được giữ làm bản nháp (chip hiện dấu **bản nháp**), và bản nháp đã bị
+đánh dấu xung đột còn được giữ cả khi Esc hoặc **Hủy**. **Thêm người nói** vẫn nằm dưới danh sách
+chip. Ở thế hệ cũ, chip chỉ để đọc.
 
 Trình phát dính ở mép trên vùng nội dung khi cuộn xuống notes hoặc transcript, ở cả desktop và màn
 hình từ 680 px trở xuống; thanh dính chỉ gồm trình phát (cao tối đa 72 px), còn tiêu đề và dòng
@@ -153,7 +178,8 @@ Mỗi segment lưu ID ổn định, timestamp bắt đầu/kết thúc, văn b�
 nếu `avg_logprob < -1.0`, `no_speech_prob >= 0.6` hoặc `compression_ratio > 2.4`. Đây là các dấu
 hiệu rà soát theo ngưỡng decode của Whisper, không phải xác suất transcript đúng; văn bản vẫn được
 giữ nguyên. Các lý do rà soát từ nhận dạng và diarization được lưu riêng để người dùng nghe lại và
-điều chỉnh speaker assignment khi cần.
+điều chỉnh speaker assignment khi cần. Giao diện chỉ hiện các chỉ số model trong mục **Chi tiết**
+của đoạn, không hiện ở chế độ đọc.
 
 Để in lại access link và QR hiện tại mà không đổi token (token nằm sau dấu `#` của link):
 
