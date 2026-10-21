@@ -51,6 +51,7 @@
     provider_quota: (name) => `${name} đã hết hạn mức sử dụng.`,
     model_unavailable: (name) => `Model đã chọn không dùng được với ${name}.`,
     provider_unavailable: (name) => `${name} tạm thời không khả dụng.`,
+    provider_invalid_response: (name) => `${name} dừng mà không trả về kết quả dùng được nên không có notes mới nào được lưu.`,
     provider_timeout: (name) => `${name} không phản hồi kịp thời gian.`,
     notes_invalid_output: (name) => `${name} trả về notes không hợp lệ, kể cả sau một lần sửa tự động.`,
     provider_in_use: (name) => `${name} đang được một tác vụ notes khác sử dụng.`,

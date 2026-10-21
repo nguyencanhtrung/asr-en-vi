@@ -333,6 +333,12 @@ def test_preference_change_during_active_run_applies_to_next_run(
     [
         ("antigravity", "provider_quota", "chatgpt", "Google Antigravity đã hết hạn mức"),
         ("chatgpt", "provider_disconnected", "antigravity", "ChatGPT chưa được kết nối"),
+        (
+            "antigravity",
+            "provider_invalid_response",
+            "chatgpt",
+            "Google Antigravity dừng mà không trả về kết quả dùng được",
+        ),
     ],
 )
 def test_failed_run_is_reported_and_new_run_can_use_other_provider(

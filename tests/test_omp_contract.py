@@ -13,6 +13,7 @@ from asr_en_vi.antigravity import (
     _CONTEXT_AUTOLOAD_MARKERS,
     ANTIGRAVITY_PROVIDER_ID,
     OMP_VERSION,
+    RPC_SYSTEM_PROMPT,
     AntigravityError,
     AntigravityProvider,
     OmpRpcAdapter,
@@ -83,6 +84,8 @@ def test_clean_startup_state_is_pinned(tmp_path):
     assert isinstance(system_prompt, list)
     assert len(system_prompt) == 2
     assert all(isinstance(item, str) for item in system_prompt)
+    assert system_prompt[0] == RPC_SYSTEM_PROMPT
+    assert "coding assistant" not in _prompt_text(system_prompt)
 
 
 def test_context_files_above_adapter_directory_are_not_loaded(tmp_path):
