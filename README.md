@@ -136,6 +136,12 @@ hiệu rà soát theo ngưỡng decode của Whisper, không phải xác suất 
 giữ nguyên. Các lý do rà soát từ nhận dạng và diarization được lưu riêng để người dùng nghe lại và
 điều chỉnh speaker assignment khi cần.
 
+Để in lại access link và QR hiện tại mà không đổi token (token nằm sau dấu `#` của link):
+
+```sh
+docker compose exec -T app python -m asr_en_vi.cli access show
+```
+
 Để thay token và vô hiệu link/session cũ:
 
 ```sh
@@ -190,10 +196,16 @@ URL chuyển hướng. Phiên đăng nhập hết hạn sau 10 phút và có th�
 model từ catalog, lưu lựa chọn và chạy yêu cầu kiểm tra tổng hợp để xác nhận model thực sự tạo được
 đầu ra. Catalog không tự chứng minh quyền inference hoặc quota.
 
+Cùng lúc lưu model, chọn **Mức suy nghĩ**: High (mặc định, đầy đủ hơn nhưng chậm hơn, khoảng 7–10
+phút cho cuộc họp 1 giờ) hoặc Medium (nhanh hơn nhưng có thể bỏ sót việc cần làm). Mỗi tác vụ notes
+ghim mức này lúc được nhận; đổi sau đó chỉ áp dụng cho lần chạy tiếp theo.
+
 Image pin OMP `18.5.0` bằng checksum riêng cho `amd64` và `arm64`. Runner dùng home, agent store,
 XDG directories và working directory riêng dưới volume `provider`; không đọc cấu hình Claude,
 Codex hay OMP cá nhân trên host. Mỗi tiến trình RPC chạy với `--no-session`, `--no-tools`,
-`--no-extensions`, `--no-skills`, `--no-rules`, `--no-lsp`, `--no-pty` và `--no-ui`; cấu hình còn
+`--no-extensions`, `--no-skills`, `--no-rules`, `--no-lsp`, `--no-pty` và `--no-ui`, cùng
+`--system-prompt` trung tính chỉ cho phép trả lời văn bản (thay prompt trợ lý lập trình mặc định của
+OMP, không có tool); cấu hình còn
 tắt MCP, memory, auto-compaction, retry và model fallback. Backend kiểm tra lại rằng RPC không công
 bố tool trước khi gửi yêu cầu. Credential OMP được giữ trong volume riêng để dùng lại qua restart.
 
@@ -202,7 +214,9 @@ của OMP chỉ là transport; ứng dụng không coi event hay text assistant 
 hợp tạo notes, transcript phải tiếp tục được đóng khung là dữ liệu không tin cậy và đi qua cùng
 pipeline kiểm tra schema/source ID trước khi lưu. Lỗi revoke, quota, model access và mạng được báo
 theo nhóm có thể hành động; nội dung lỗi thô và credential không được trả về UI, và inference không
-tự gửi lại.
+tự gửi lại. Mỗi lệnh gọi tạo notes có thể chạy tối đa 15 phút trong giới hạn 60 phút của tác vụ;
+provider dừng với finish reason lỗi (ví dụ `MALFORMED_FUNCTION_CALL`) được báo là phản hồi không
+dùng được.
 
 **Ngắt kết nối Antigravity** yêu cầu OMP vô hiệu hóa credential `google-antigravity` trong store
 riêng. OMP không xác nhận thu hồi quyền truy cập ở phía Google; nếu cần thu hồi quyền từ xa, hãy

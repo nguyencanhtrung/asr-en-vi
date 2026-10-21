@@ -64,6 +64,7 @@ async def test_provider_routes_obey_auth_contract_and_never_expose_credentials(p
                 "account": None,
                 "connection_version": 0,
                 "verification": None,
+                "reasoning_effort": "high",
             },
         ]
     }
@@ -71,6 +72,7 @@ async def test_provider_routes_obey_auth_contract_and_never_expose_credentials(p
         "provider": None,
         "models": {},
         "reasoning_effort": "default",
+        "reasoning_efforts": {"chatgpt": "default", "antigravity": "high"},
     }
 
     started = await client.post(
@@ -143,13 +145,13 @@ async def test_provider_routes_obey_auth_contract_and_never_expose_credentials(p
         ],
         "selected_model": None,
     }
-    unavailable = await client.put(
+    unknown_provider = await client.put(
         "/api/notes-preferences",
         headers={"Origin": settings.public_url},
-        json={"provider": "chatgpt", "model": "not-in-account-catalog"},
+        json={"provider": "other", "model": "gpt-6.1-sol"},
     )
-    assert unavailable.status_code == 422
-    assert unavailable.json()["detail"]["code"] == "model_unavailable"
+    assert unknown_provider.status_code == 400
+    assert unknown_provider.json()["detail"]["code"] == "invalid_provider"
     selected = await client.put(
         "/api/notes-preferences",
         headers={"Origin": settings.public_url},
@@ -160,6 +162,7 @@ async def test_provider_routes_obey_auth_contract_and_never_expose_credentials(p
         "provider": "chatgpt",
         "models": {"chatgpt": "gpt-6.1-sol"},
         "reasoning_effort": "default",
+        "reasoning_efforts": {"chatgpt": "default", "antigravity": "high"},
     }
 
     verification = await client.post(
@@ -196,6 +199,7 @@ async def test_provider_routes_obey_auth_contract_and_never_expose_credentials(p
         "provider": "chatgpt",
         "models": {"chatgpt": "gpt-5.6-luna"},
         "reasoning_effort": "high",
+        "reasoning_efforts": {"chatgpt": "high", "antigravity": "high"},
     }
     verified_effort = await client.post(
         "/api/providers/chatgpt/verify",
@@ -224,9 +228,10 @@ async def test_provider_routes_obey_auth_contract_and_never_expose_credentials(p
     }
     assert (await client.get("/api/providers")).json()["providers"][0]["verification"] is None
     assert (await client.get("/api/notes-preferences")).json() == {
-        "provider": None,
+        "provider": "chatgpt",
         "models": {"chatgpt": "gpt-5.6-luna"},
         "reasoning_effort": "high",
+        "reasoning_efforts": {"chatgpt": "high", "antigravity": "high"},
     }
 
 

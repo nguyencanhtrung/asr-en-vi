@@ -13,6 +13,7 @@ from asr_en_vi.antigravity import (
     _CONTEXT_AUTOLOAD_MARKERS,
     ANTIGRAVITY_PROVIDER_ID,
     OMP_VERSION,
+    RPC_SYSTEM_PROMPT,
     AntigravityError,
     AntigravityProvider,
     OmpRpcAdapter,
@@ -83,6 +84,8 @@ def test_clean_startup_state_is_pinned(tmp_path):
     assert isinstance(system_prompt, list)
     assert len(system_prompt) == 2
     assert all(isinstance(item, str) for item in system_prompt)
+    assert system_prompt[0] == RPC_SYSTEM_PROMPT
+    assert "coding assistant" not in _prompt_text(system_prompt)
 
 
 def test_context_files_above_adapter_directory_are_not_loaded(tmp_path):
@@ -145,6 +148,15 @@ def test_unknown_model_frame_maps_to_model_unavailable(tmp_path):
     assert frame["success"] is False
     assert isinstance(frame["error"], str)
     assert failure.value.code == "model_unavailable"
+
+
+@pytest.mark.parametrize("level", ("high", "medium"))
+def test_set_thinking_level_is_confirmed_by_get_state(tmp_path, level):
+    with _RpcClient(_adapter(tmp_path / f"thinking-{level}")) as client:
+        client.request({"type": "set_thinking_level", "level": level})
+        state = client.request({"type": "get_state"})
+
+    assert state["thinkingLevel"] == level
 
 
 def test_logout_without_credential_and_disconnect_report_contract(tmp_path):

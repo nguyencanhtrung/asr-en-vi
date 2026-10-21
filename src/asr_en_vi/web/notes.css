@@ -80,6 +80,24 @@
   font-size: 11px;
 }
 
+.notes-run-plan,
+.notes-preference-status {
+  margin: 10px 0 0;
+  color: var(--ink-2);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.notes-run-plan {
+  color: var(--ink);
+  font-weight: 620;
+}
+
+.notes-run-plan:empty,
+.notes-preference-status:empty {
+  display: none;
+}
+
 .notes-content-policy {
   margin: 14px 0 0;
   padding-top: 11px;

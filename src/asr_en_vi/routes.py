@@ -297,13 +297,17 @@ def install_routes(
 
     @app.put("/api/providers/antigravity/preference")
     async def put_antigravity_preference(request: Request) -> dict[str, Any]:
-        payload = await _json_object(request, required={"model"})
+        payload = await _json_object(request, required={"model"}, optional={"reasoning_effort"})
         if not isinstance(payload["model"], str):
             raise HTTPException(
                 status_code=400,
                 detail={"code": "invalid_model", "message": "Choose an Antigravity model."},
             )
-        return await provider_json(lambda: antigravity_provider.set_preference(payload["model"]))
+        return await provider_json(
+            lambda: antigravity_provider.set_preference(
+                payload["model"], payload.get("reasoning_effort")
+            )
+        )
 
     @app.post("/api/providers/antigravity/verify")
     async def verify_antigravity(request: Request) -> dict[str, Any]:
@@ -335,35 +339,6 @@ def install_routes(
     @app.get("/api/providers/chatgpt/models")
     async def list_chatgpt_models() -> dict[str, Any]:
         return await provider_json(chatgpt_provider.list_models)
-
-    @app.get("/api/notes-preferences")
-    async def get_notes_preferences() -> dict[str, Any]:
-        return await provider_json(chatgpt_provider.notes_preferences)
-
-    @app.put("/api/notes-preferences")
-    async def put_notes_preferences(request: Request) -> dict[str, Any]:
-        payload = await _json_object(
-            request, required={"provider", "model"}, optional={"reasoning_effort"}
-        )
-        if (
-            not isinstance(payload["provider"], str)
-            or not isinstance(payload["model"], str)
-            or not isinstance(payload.get("reasoning_effort", "default"), str)
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "code": "invalid_preference",
-                    "message": "Choose an available ChatGPT model.",
-                },
-            )
-        return await provider_json(
-            lambda: chatgpt_provider.set_notes_preference(
-                provider=payload["provider"],
-                model=payload["model"],
-                reasoning_effort=payload.get("reasoning_effort", "default"),
-            )
-        )
 
     @app.post("/api/providers/chatgpt/verify")
     async def verify_chatgpt(request: Request) -> dict[str, Any]:
@@ -815,4 +790,4 @@ def install_routes(
         response.status_code = 204
         return response
 
-    install_notes_routes(app, settings, chatgpt_provider)
+    install_notes_routes(app, settings, chatgpt_provider, antigravity_provider)

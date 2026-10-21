@@ -11,7 +11,7 @@ import pytest
 from notes_helpers import StubNotesProvider, seed_completed_transcript
 from playwright.sync_api import expect
 from test_browser_history import live as live
-from test_browser_history import signed_in as signed_in
+from test_browser_history import signed_in as browser_signed_in  # noqa: F401
 
 from asr_en_vi import notes_routes
 from asr_en_vi.media import normalize_media
@@ -27,6 +27,28 @@ from asr_en_vi.storage import database_path
 from asr_en_vi.tasks import claim_next_task, transcription_state
 
 pytestmark = pytest.mark.browser
+
+
+@pytest.fixture
+def signed_in(browser_signed_in):  # noqa: F811
+    """Signed-in pages with a saved ChatGPT model, which a new Notes run requires."""
+
+    def make(*args, **kwargs):
+        context, page = browser_signed_in(*args, **kwargs)
+        # The preference API checks the model statically, without a network call.
+        status = page.evaluate(
+            """async () => (await fetch("/api/notes-preferences", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                provider: "chatgpt", model: "gpt-6.1-sol", reasoning_effort: "high",
+              }),
+            })).status"""
+        )
+        assert status == 200
+        return context, page
+
+    return make
 
 
 def test_notes_recovers_when_transcription_submission_finishes_after_navigation(live, signed_in):
@@ -417,6 +439,9 @@ def test_notes_browser_generation_revisions_conflicts_copy_export_and_markdown_s
             "expected_source_version": 1,
             "expected_metadata_version": 1,
             "output_language": "en",
+            "provider": "chatgpt",
+            "expected_model": "gpt-6.1-sol",
+            "expected_reasoning_effort": "high",
         }
     ]
     assert note_requests[0]["request_id"]

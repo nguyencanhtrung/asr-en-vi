@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
+from asr_en_vi.antigravity import AntigravityError, AntigravityProvider
 from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
 from asr_en_vi.notes_document import (
     MAX_OUTPUT_BYTES,
@@ -27,6 +28,7 @@ from asr_en_vi.tasks import TaskError, _request_id, _task_summary
 _MAX_MARKDOWN_BYTES = MAX_OUTPUT_BYTES * 4
 _ACTIVE_STATES = ("accepted", "running", "stopping")
 _SEGMENT_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
+NOTES_PROVIDERS = ("chatgpt", "antigravity")
 
 
 @contextmanager
@@ -70,6 +72,45 @@ def _output_language(value: object) -> str:
     return value
 
 
+def _notes_provider(value: object) -> str:
+    if not isinstance(value, str) or value not in NOTES_PROVIDERS:
+        raise TaskError(
+            400,
+            "invalid_provider",
+            "Choose either ChatGPT (chatgpt) or Google Antigravity (antigravity) for notes.",
+        )
+    return value
+
+
+ABSENT: Any = object()
+
+
+def _expected_choice(
+    chosen_provider: str, expected_model: object, expected_reasoning_effort: object
+) -> tuple[str | None, str | None]:
+    """Validate the optional model choice the operator saw; None means not supplied."""
+    model = effort = None
+    if expected_model is not ABSENT:
+        if not isinstance(expected_model, str) or not 1 <= len(expected_model) <= 200:
+            raise TaskError(400, "invalid_expected_model", "Provide the model you confirmed.")
+        model = expected_model
+    if expected_reasoning_effort is not ABSENT:
+        if not isinstance(expected_reasoning_effort, str) or not expected_reasoning_effort:
+            raise TaskError(
+                400, "invalid_reasoning_effort", "Provide the reasoning effort you confirmed."
+            )
+        if chosen_provider == "antigravity" and expected_reasoning_effort not in (
+            "high",
+            "medium",
+            "default",
+        ):
+            raise TaskError(
+                400, "invalid_reasoning_effort", "Choose High or Medium as the thinking level."
+            )
+        effort = expected_reasoning_effort
+    return model, effort
+
+
 def _request_hash(
     *,
     meeting_id: str,
@@ -77,6 +118,9 @@ def _request_hash(
     expected_source_version: int,
     expected_metadata_version: int,
     output_language: str = "en",
+    provider: str = "chatgpt",
+    expected_model: str | None = None,
+    expected_reasoning_effort: str | None = None,
 ) -> str:
     value = {
         "expected_generation_id": expected_generation_id,
@@ -86,6 +130,13 @@ def _request_hash(
     }
     if output_language == "vi":
         value["output_language"] = "vi"
+    if provider != "chatgpt":
+        # Requests accepted before provider choice existed stay idempotent.
+        value["provider"] = provider
+    if expected_model is not None:
+        value["expected_model"] = expected_model
+    if expected_reasoning_effort is not None:
+        value["expected_reasoning_effort"] = expected_reasoning_effort
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -106,26 +157,99 @@ def _existing_task(data_dir: Path, request_id: str, request_hash: str) -> dict[s
     return _task_summary(row)
 
 
-def has_active_notes_task(data_dir: Path, *, meeting_id: str | None = None) -> bool:
+def has_active_notes_task(
+    data_dir: Path, *, meeting_id: str | None = None, provider: str | None = None
+) -> bool:
     sql = (
         "SELECT 1 FROM tasks WHERE kind = 'notes' AND status IN ('accepted', 'running', 'stopping')"
     )
     parameters: tuple[object, ...] = ()
     if meeting_id is not None:
         sql += " AND meeting_id = ?"
-        parameters = (meeting_id,)
+        parameters += (meeting_id,)
+    if provider is not None:
+        sql += " AND notes_provider = ?"
+        parameters += (provider,)
     sql += " LIMIT 1"
     with _connect_read_only(data_dir) as connection:
         return connection.execute(sql, parameters).fetchone() is not None
 
 
-def assert_provider_mutation_allowed(data_dir: Path) -> None:
-    if has_active_notes_task(data_dir):
-        raise ChatGPTError(
+def assert_provider_mutation_allowed(data_dir: Path, provider: str) -> None:
+    """Block account or model changes only for the provider an active notes task pinned."""
+    if not has_active_notes_task(data_dir, provider=provider):
+        return
+    if provider == "antigravity":
+        raise AntigravityError(
             409,
             "provider_in_use",
-            "Wait for notes generation to finish before changing the ChatGPT connection or model.",
+            "Wait for notes generation to finish before changing the "
+            "Antigravity connection or model.",
         )
+    raise ChatGPTError(
+        409,
+        "provider_in_use",
+        "Wait for notes generation to finish before changing the ChatGPT connection or model.",
+    )
+
+
+def last_notes_provider(data_dir: Path) -> str | None:
+    with _connect_read_only(data_dir) as connection:
+        row = connection.execute("SELECT provider FROM notes_preferences WHERE id = 1").fetchone()
+    return row["provider"] if row is not None else None
+
+
+def _record_last_provider(connection: sqlite3.Connection, provider: str) -> None:
+    connection.execute("UPDATE notes_preferences SET provider = ? WHERE id = 1", (provider,))
+
+
+def notes_preferences(
+    data_dir: Path,
+    *,
+    chatgpt_provider: ChatGPTProvider,
+    antigravity_provider: AntigravityProvider,
+) -> dict[str, object]:
+    """Preselection for the next run; each provider keeps its own saved model."""
+    chatgpt_model, chatgpt_effort = chatgpt_provider.saved_notes_settings()
+    antigravity_model = antigravity_provider.saved_notes_model()
+    models: dict[str, str] = {}
+    if chatgpt_model is not None:
+        models["chatgpt"] = chatgpt_model
+    if antigravity_model is not None:
+        models["antigravity"] = antigravity_model
+    return {
+        "provider": last_notes_provider(data_dir),
+        "models": models,
+        "reasoning_effort": chatgpt_effort,
+        "reasoning_efforts": {
+            "chatgpt": chatgpt_effort,
+            "antigravity": antigravity_provider.saved_notes_effort(),
+        },
+    }
+
+
+def save_notes_preference(
+    data_dir: Path,
+    *,
+    chatgpt_provider: ChatGPTProvider,
+    antigravity_provider: AntigravityProvider,
+    provider: object,
+    model: object,
+    reasoning_effort: object = "default",
+) -> dict[str, object]:
+    """Save the next-run choice after static validation; accepted tasks keep their own pin."""
+    chosen = _notes_provider(provider)
+    if not isinstance(model, str) or not isinstance(reasoning_effort, str):
+        raise TaskError(400, "invalid_preference", "Choose a notes provider and model.")
+    if chosen == "chatgpt":
+        chatgpt_provider.save_notes_preference(model=model, reasoning_effort=reasoning_effort)
+    else:
+        antigravity_provider.save_notes_preference(model, reasoning_effort)
+    with _connect(data_dir) as connection, connection:
+        _record_last_provider(connection, chosen)
+    return notes_preferences(
+        data_dir, chatgpt_provider=chatgpt_provider, antigravity_provider=antigravity_provider
+    )
 
 
 def _source_snapshot(
@@ -183,7 +307,7 @@ def _source_snapshot(
 def accept_notes_task(
     data_dir: Path,
     *,
-    provider: ChatGPTProvider,
+    provider: ChatGPTProvider | AntigravityProvider,
     meeting_id: object,
     request_id: object,
     expected_generation_id: object,
@@ -191,12 +315,22 @@ def accept_notes_task(
     expected_metadata_version: object,
     worker_ready: bool,
     output_language: object = "en",
+    provider_id: object = "chatgpt",
+    expected_model: object = ABSENT,
+    expected_reasoning_effort: object = ABSENT,
 ) -> dict[str, object]:
-    """Pin provider state, freeze the source and claim the shared slot atomically."""
+    """Pin the chosen provider's state, freeze the source and claim the shared slot atomically.
+
+    `provider` is the provider object for `provider_id`; the pin never reads another provider.
+    """
     if not isinstance(meeting_id, str) or not meeting_id:
         raise TaskError(400, "invalid_meeting_id", "Provide a meeting_id.")
+    chosen_provider = _notes_provider(provider_id)
     normalized_output_language = _output_language(output_language)
     normalized_request_id = _request_id(request_id)
+    confirmed_model, confirmed_effort = _expected_choice(
+        chosen_provider, expected_model, expected_reasoning_effort
+    )
     if not isinstance(expected_generation_id, str) or not expected_generation_id:
         raise TaskError(400, "invalid_generation_id", "Provide the expected generation id.")
     source_version = _positive_version(expected_source_version, field="source_version")
@@ -207,6 +341,9 @@ def accept_notes_task(
         expected_source_version=source_version,
         expected_metadata_version=metadata_version,
         output_language=normalized_output_language,
+        provider=chosen_provider,
+        expected_model=confirmed_model,
+        expected_reasoning_effort=confirmed_effort,
     )
     existing = _existing_task(data_dir, normalized_request_id, request_hash)
     if existing is not None:
@@ -214,11 +351,26 @@ def accept_notes_task(
     if not worker_ready:
         raise TaskError(503, "worker_unavailable", "The processing worker is unavailable.")
 
+    provider.assert_notes_acceptable()
     # Acceptance and account changes share this cross-process lock. Lock order is
     # provider operation lock, then SQLite. No inference or filesystem work occurs
     # after the SQLite transaction begins.
     with provider.store.operation():
         pin = provider.notes_task_pin()
+        if pin["provider"] != chosen_provider:
+            raise TaskError(500, "provider_mismatch", "The notes provider could not be selected.")
+        if chosen_provider == "antigravity" and confirmed_effort == "default":
+            confirmed_effort = (
+                "high"  # legacy pending requests; the hash above keeps the sent value
+            )
+        if (confirmed_model is not None and confirmed_model != pin["model"]) or (
+            confirmed_effort is not None and confirmed_effort != pin["reasoning_effort"]
+        ):
+            raise TaskError(
+                409,
+                "notes_preference_changed",
+                "The saved model changed. Reload and confirm the choice before starting.",
+            )
         with _connect(data_dir) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
             existing_row = connection.execute(
@@ -357,6 +509,7 @@ def accept_notes_task(
             )
             if cursor.rowcount != 1:
                 raise TaskError(409, "system_busy", "Another task owns the processing slot.")
+            _record_last_provider(connection, chosen_provider)
             row = connection.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
             assert row is not None
             return _task_summary(row)

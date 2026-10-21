@@ -40,7 +40,54 @@
     vi: "Vietnamese / Tiếng Việt",
   };
 
+  const PROVIDER_LABELS = { chatgpt: "ChatGPT", antigravity: "Google Antigravity" };
+  const PROVIDER_IDS = ["chatgpt", "antigravity"];
+  const NEXT_STEP = "Hệ thống không tự đổi nhà cung cấp, tài khoản hay model. Bạn có thể chọn nhà cung cấp hoặc model khác rồi bắt đầu một lần chạy mới.";
+  // Each entry names the pinned provider; the operator decides what to do next.
+  const FAILURE_MESSAGES = {
+    provider_disconnected: (name) => `${name} chưa được kết nối. Hãy kết nối lại trong phần Kết nối.`,
+    reconnect_required: (name) => `${name} cần được kết nối lại trước khi tạo notes.`,
+    connection_changed: (name) => `Kết nối ${name} đã đổi trong lúc chạy nên tác vụ dừng lại.`,
+    provider_quota: (name) => `${name} đã hết hạn mức sử dụng.`,
+    model_unavailable: (name) => `Model đã chọn không dùng được với ${name}; gói hiện tại có thể không bao gồm model này.`,
+    thinking_level_unavailable: (name) => `${name} không áp dụng được mức suy nghĩ đã chọn; tác vụ đã dừng trước khi gửi yêu cầu tiếp theo.`,
+    provider_unavailable: (name) => `${name} tạm thời không khả dụng.`,
+    provider_invalid_response: (name) => `${name} dừng mà không trả về kết quả dùng được nên không có notes mới nào được lưu.`,
+    provider_timeout: (name) => `${name} không phản hồi kịp thời gian.`,
+    notes_invalid_output: (name) => `${name} trả về notes không hợp lệ, kể cả sau một lần sửa tự động.`,
+    provider_in_use: (name) => `${name} đang được một tác vụ notes khác sử dụng.`,
+    notes_model_unselected: (name) => `Chưa chọn model cho ${name}.`,
+    notes_preference_changed: () => "Lựa chọn nhà cung cấp hoặc model đã đổi ở nơi khác nên yêu cầu chưa được gửi. Hãy xác nhận lại nhà cung cấp và model đang hiển thị rồi bấm tạo notes lần nữa.",
+    login_in_progress: (name) => `Phiên đăng nhập ${name} đang chờ. Hãy hoàn tất hoặc hủy đăng nhập trước khi tạo notes; hệ thống chưa đổi gì.`,
+    provider_busy: (name) => `${name} đang bận với một thao tác kết nối hoặc đăng nhập. Hãy hoàn tất hoặc hủy đăng nhập rồi thử lại; hệ thống chưa đổi gì.`,
+  };
+
+  function providerLabel(provider) {
+    return PROVIDER_LABELS[provider] || PROVIDER_LABELS.chatgpt;
+  }
+
+  // Returns "" when the code has no dedicated copy, so callers fall back to the server text.
+  function failureMessage(code, provider) {
+    const build = FAILURE_MESSAGES[code];
+    return build ? `${build(providerLabel(provider))} ${NEXT_STEP}` : "";
+  }
+
   const state = {
+    // Provider choice for the next run; catalogs[provider] is null until a catalog loads.
+    choice: {
+      loaded: false,
+      loadSeq: 0,
+      loadedFor: "",
+      provider: null,
+      localProvider: null,
+      preferences: { provider: null, models: {}, reasoning_effort: "default", reasoning_efforts: {} },
+      status: { chatgpt: "disconnected", antigravity: "disconnected" },
+      catalogs: { chatgpt: null, antigravity: null },
+      catalogErrors: { chatgpt: "", antigravity: "" },
+      saving: false,
+      loading: false,
+      message: "",
+    },
     currentMeetingId: null,
     currentMeeting: null,
     transcriptionRequestInFlight: false,
@@ -167,8 +214,15 @@
       .map((revision) => normalizeRevision(revision, meetingId))
       .filter(Boolean);
     const data = meetingNotes(meetingId);
+    const wasActive = activeTask(data);
     data.revisions = revisions;
     data.task = isNotesTask(notes.task) ? notes.task || null : null;
+    // A finished run frees its provider, so catalogs that were blocked can load again.
+    if (wasActive && !activeTask(data)) {
+      state.choice.message = "";
+      void loadProviderChoice(meetingId);
+    }
+    if (!state.choice.loaded && !state.choice.loading) void loadProviderChoice(meetingId);
     data.sourceLocked = notes.source_locked;
     data.sourceLockKnown = true;
     data.readError = "";
@@ -200,11 +254,18 @@
     return OUTPUT_LANGUAGE_LABELS[language] || OUTPUT_LANGUAGE_LABELS.en;
   }
 
-  function revisionOptionLabel(revision, index, count) {
-    const number = count - index;
-    const provenance = [revision.provider, revision.model, revision.reasoning_effort].filter(
+  function revisionProvenance(revision) {
+    const provider = typeof revision.provider === "string" && revision.provider.trim()
+      ? providerLabel(revision.provider.trim())
+      : "";
+    return [provider, revision.model, revision.reasoning_effort].filter(
       (value) => typeof value === "string" && value.trim(),
     );
+  }
+
+  function revisionOptionLabel(revision, index, count) {
+    const number = count - index;
+    const provenance = revisionProvenance(revision);
     return `Bản ${number} · ${sourceStateLabel(revision.source_state)}`
       + (provenance.length ? ` · ${provenance.join(" / ")}` : "");
   }
@@ -233,6 +294,234 @@
     );
   }
 
+  function savedModel(provider) {
+    const model = state.choice.preferences.models[provider];
+    return typeof model === "string" ? model : "";
+  }
+
+  function catalogModels(provider) {
+    const catalog = state.choice.catalogs[provider];
+    return catalog ? catalog.models : null;
+  }
+
+  function modelName(provider, modelId) {
+    const models = catalogModels(provider);
+    const model = models && models.find((item) => item.id === modelId);
+    return model ? model.display_name : modelId;
+  }
+
+  function effortLabel(effort) {
+    return effort === "medium" ? "Medium" : "High";
+  }
+
+  function effortFor(provider, modelId) {
+    if (provider === "antigravity") {
+      const saved = state.choice.preferences.reasoning_efforts.antigravity;
+      return saved === "medium" ? "medium" : "high";
+    }
+    if (provider !== "chatgpt") return "default";
+    const effort = state.choice.preferences.reasoning_effort;
+    const models = catalogModels(provider);
+    const model = models && models.find((item) => item.id === modelId);
+    if (model && Array.isArray(model.reasoning_efforts) && !model.reasoning_efforts.includes(effort)) {
+      return "default";
+    }
+    return typeof effort === "string" ? effort : "default";
+  }
+
+  // The provider for the next run: a pending retry keeps its provider, then the operator's choice,
+  // the last saved provider, the only connected provider, and finally ChatGPT.
+  function selectedProvider(pending) {
+    const choice = state.choice;
+    if (pending && PROVIDER_IDS.includes(pending.provider)) return pending.provider;
+    if (PROVIDER_IDS.includes(choice.localProvider)) return choice.localProvider;
+    if (PROVIDER_IDS.includes(choice.preferences.provider)) return choice.preferences.provider;
+    const connected = PROVIDER_IDS.filter((id) => choice.status[id] === "connected");
+    return connected.length === 1 ? connected[0] : "chatgpt";
+  }
+
+  // "ok" when the saved model is usable, otherwise why the operator must act first.
+  function modelReadiness(provider) {
+    const model = savedModel(provider);
+    const models = catalogModels(provider);
+    if (models === null) return { ready: true, model, missing: false };
+    if (!model) return { ready: false, model, missing: false };
+    return { ready: models.some((item) => item.id === model), model, missing: true };
+  }
+
+  function normalizeCatalog(payload) {
+    const models = payload && Array.isArray(payload.models) ? payload.models : [];
+    return {
+      models: models
+        .filter((item) => item && typeof item.id === "string" && item.id)
+        .map((item) => ({
+          id: item.id,
+          display_name: typeof item.display_name === "string" && item.display_name ? item.display_name : item.id,
+          reasoning_efforts: Array.isArray(item.reasoning_efforts) ? item.reasoning_efforts : null,
+        })),
+    };
+  }
+
+  function catalogUnavailableReason(provider, status) {
+    const name = providerLabel(provider);
+    if (status === "disconnected") return `${name} chưa được kết nối nên chưa tải được danh sách model.`;
+    if (status === "reconnect_required") return `${name} cần được kết nối lại nên chưa tải được danh sách model.`;
+    return "";
+  }
+
+  async function loadProviderChoice(meetingId) {
+    const choice = state.choice;
+    const seq = ++choice.loadSeq;
+    // A run cannot start while the saved choice and catalogs are still loading.
+    choice.loading = true;
+    choice.loaded = false;
+    render();
+    try {
+      const [providers, preferences] = await Promise.all([
+        apiJson("/api/providers"),
+        apiJson("/api/notes-preferences"),
+      ]);
+      if (seq !== choice.loadSeq) return;
+      const list = providers && Array.isArray(providers.providers) ? providers.providers : [];
+      for (const id of PROVIDER_IDS) {
+        const found = list.find((item) => item && item.id === id);
+        choice.status[id] = found && typeof found.status === "string" ? found.status : "disconnected";
+      }
+      choice.preferences = {
+        provider: preferences && PROVIDER_IDS.includes(preferences.provider) ? preferences.provider : null,
+        models: preferences && preferences.models && typeof preferences.models === "object"
+          ? preferences.models : {},
+        reasoning_effort: preferences && typeof preferences.reasoning_effort === "string"
+          ? preferences.reasoning_effort : "default",
+        reasoning_efforts: preferences && preferences.reasoning_efforts
+          && typeof preferences.reasoning_efforts === "object" ? preferences.reasoning_efforts : {},
+      };
+      choice.loaded = true;
+      choice.loadedFor = meetingId;
+      render();
+      await Promise.all(PROVIDER_IDS.map(async (id) => {
+        if (choice.status[id] !== "connected") {
+          choice.catalogs[id] = null;
+          choice.catalogErrors[id] = catalogUnavailableReason(id, choice.status[id]);
+          return;
+        }
+        try {
+          const catalog = normalizeCatalog(await apiJson(`/api/providers/${id}/models`));
+          if (seq !== choice.loadSeq) return;
+          choice.catalogs[id] = catalog;
+          choice.catalogErrors[id] = "";
+        } catch (error) {
+          if (seq !== choice.loadSeq) return;
+          choice.catalogs[id] = null;
+          const detail = error && error.payload && error.payload.detail;
+          choice.catalogErrors[id] = detail && detail.code === "provider_in_use"
+            ? `${providerLabel(id)} đang chạy notes nên chưa tải lại được danh sách model. Model đã lưu vẫn được giữ.`
+            : `Chưa tải được danh sách model của ${providerLabel(id)}. Model đã lưu vẫn được giữ.`;
+        }
+      }));
+      if (seq !== choice.loadSeq) return;
+      choice.loading = false;
+      render();
+    } catch (error) {
+      if (seq !== choice.loadSeq) return;
+      choice.loaded = false;
+      choice.loading = false;
+      choice.message = "Chưa đọc được lựa chọn nhà cung cấp và model đã lưu. Chưa thể tạo notes mới cho tới khi tải lại được.";
+      render();
+    }
+  }
+
+  async function savePreference(provider, model) {
+    const choice = state.choice;
+    const data = currentNotes();
+    // The selects show the new choice at once; a run cannot start until it is saved.
+    choice.localProvider = provider;
+    choice.saving = true;
+    render();
+    const body = { provider, model, reasoning_effort: effortFor(provider, model) };
+    try {
+      const saved = await apiJson("/api/notes-preferences", { method: "PUT", body: JSON.stringify(body) });
+      choice.preferences = {
+        provider: PROVIDER_IDS.includes(saved && saved.provider) ? saved.provider : provider,
+        models: saved && saved.models && typeof saved.models === "object" ? saved.models : { [provider]: model },
+        reasoning_effort: provider === "chatgpt" && saved && typeof saved.reasoning_effort === "string"
+          ? saved.reasoning_effort : choice.preferences.reasoning_effort,
+        reasoning_efforts: saved && saved.reasoning_efforts && typeof saved.reasoning_efforts === "object"
+          ? saved.reasoning_efforts : choice.preferences.reasoning_efforts,
+      };
+      const next = `${providerLabel(provider)} · ${modelName(provider, model)}`;
+      choice.message = data && activeTask(data)
+        ? `Đã lưu lựa chọn ${next}. Lựa chọn này chỉ áp dụng cho lần chạy tiếp theo; tác vụ đang chạy giữ ${providerLabel(data.task.provider)} · ${data.task.model || "model đã ghim"}.`
+        : `Đã lưu lựa chọn ${next} cho lần chạy tiếp theo.`;
+    } catch (error) {
+      choice.message = `Chưa lưu được lựa chọn: ${error && error.message ? error.message : "lỗi không xác định"} Lựa chọn đã lưu trước đó vẫn được giữ.`;
+    }
+    choice.localProvider = null;
+    choice.saving = false;
+    render();
+  }
+
+  function renderChoice(data, pending) {
+    const choice = state.choice;
+    const provider = selectedProvider(pending);
+    const providerSelect = $("#notes-provider");
+    const modelSelect = $("#notes-model");
+    const locked = Boolean(pending) || Boolean(data && data.requestInFlight) || choice.saving;
+    providerSelect.value = provider;
+    providerSelect.disabled = locked;
+    const readiness = modelReadiness(provider);
+    const models = catalogModels(provider);
+    const key = `${provider}\u0000${readiness.model}\u0000${models ? models.map((item) => item.id).join("\u0001") : "-"}`;
+    if (modelSelect.dataset.optionsKey !== key) {
+      modelSelect.replaceChildren();
+      const add = (value, text) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = text;
+        modelSelect.append(option);
+      };
+      if (models === null) add(readiness.model, readiness.model || "Chưa có model");
+      else {
+        if (!readiness.ready) add("", readiness.model ? "Chọn model khác" : "Chọn model");
+        for (const item of models) add(item.id, item.display_name);
+      }
+      modelSelect.dataset.optionsKey = key;
+    }
+    modelSelect.value = readiness.ready || models === null ? readiness.model : "";
+    modelSelect.disabled = locked || models === null || models.length === 0;
+    const name = providerLabel(provider);
+    let effort = provider === "chatgpt" && choice.preferences.reasoning_effort !== "default"
+      ? ` · effort ${choice.preferences.reasoning_effort}` : "";
+    if (provider === "antigravity") effort = ` · mức suy nghĩ ${effortLabel(effortFor("antigravity"))}`;
+    const plan = $("#notes-run-plan");
+    const reload = $("#notes-choice-reload");
+    reload.hidden = choice.loaded || !state.currentMeetingId;
+    reload.disabled = choice.loading;
+    if (!choice.loaded && !choice.loading && !pending) {
+      plan.textContent = "Chưa đọc được lựa chọn đã lưu nên chưa thể tạo notes mới. Hãy bấm “Tải lại lựa chọn”.";
+    } else if (readiness.ready && readiness.model && models !== null) {
+      plan.textContent = `Lần chạy tiếp theo dùng ${name} · ${modelName(provider, readiness.model)}${effort}.`;
+    } else if (readiness.missing) {
+      plan.textContent = `Model đã lưu “${readiness.model}” không còn trong danh sách của ${name}. Hãy chọn model khác; hệ thống không tự chọn thay.`;
+    } else if (models !== null) {
+      plan.textContent = `Chưa chọn model cho ${name}. Hãy chọn một model trước khi tạo notes.`;
+    } else {
+      plan.textContent = `Lần chạy tiếp theo dùng ${name}${readiness.model ? ` · ${readiness.model}${effort}` : ""}. ${choice.catalogErrors[provider]}`.trim();
+    }
+    const preferenceStatus = $("#notes-preference-status");
+    preferenceStatus.textContent = choice.message;
+    $("#notes-content-policy").textContent = `Ngày họp, lời thoại, mốc thời gian và tên người nói được gửi tới ${name} bằng model đã chọn. Với nguồn dài, các bản tóm tắt trung gian cũng được gửi để tổng hợp notes. File audio/video, tên cuộc họp và thông tin tài khoản không được gửi.`;
+    return { provider, readiness };
+  }
+
+  // A new run needs the saved choice loaded for this meeting and a model to show for the provider.
+  function newRunChoiceReady(meeting) {
+    const choice = state.choice;
+    if (!choice.loaded || choice.loadedFor !== meeting.id) return false;
+    const readiness = modelReadiness(selectedProvider(null));
+    return readiness.ready && Boolean(readiness.model);
+  }
+
   function canStartNotes(meeting, data) {
     const generation = currentGeneration(meeting);
     return Boolean(
@@ -244,7 +533,10 @@
       && data.sourceLockKnown
       && !data.sourceLocked
       && !activeTask(data)
-      && !data.requestInFlight,
+      && !data.requestInFlight
+      && !state.choice.saving
+      && !state.choice.loading
+      && (getPendingRequest(meeting.id, false) || newRunChoiceReady(meeting)),
     );
   }
 
@@ -259,20 +551,37 @@
       if (data && data.readError) status.textContent = "Chưa đọc được trạng thái notes đã lưu.";
       else if (!state.currentMeeting) status.textContent = "Mở một cuộc họp để xem hoặc tạo notes.";
       else if (!currentGeneration(state.currentMeeting)) status.textContent = "Cần transcript hoàn chỉnh trước khi tạo notes.";
-      else status.textContent = "Transcript hoàn chỉnh đã sẵn sàng. Notes dùng model và effort ChatGPT đã lưu.";
+      else status.textContent = "Transcript hoàn chỉnh đã sẵn sàng. Notes dùng nhà cung cấp và model đang chọn.";
       $("#notes-cancel").hidden = true;
       return;
     }
     const stateLabel = TASK_STATE_LABELS[task.status] || task.status || "Chưa xác định";
     $("#notes-task-state").textContent = stateLabel;
-    const stage = task.stage ? (TASK_STAGE_LABELS[task.stage] || task.stage) : "Chưa bắt đầu";
+    const taskProvider = PROVIDER_IDS.includes(task.provider) ? task.provider : "chatgpt";
+    const taskProviderName = providerLabel(taskProvider);
+    const stage = task.stage
+      ? (task.stage === "starting_provider"
+        ? `Đang kết nối ${taskProviderName}`
+        : (TASK_STAGE_LABELS[task.stage] || task.stage))
+      : "Chưa bắt đầu";
     $("#notes-task-stage").textContent = stage;
+    $("#notes-task-provider").textContent = taskProviderName;
+    const taskEffort = taskProvider === "antigravity"
+      ? `mức suy nghĩ ${effortLabel(task.reasoning_effort === "medium" ? "medium" : "high")}`
+      : (taskProvider === "chatgpt" && task.reasoning_effort
+        && task.reasoning_effort !== "default" ? `effort ${task.reasoning_effort}` : "");
+    $("#notes-task-model").textContent = [task.model, taskEffort]
+      .filter(Boolean).join(" · ") || "Chưa ghi nhận";
     const active = ACTIVE_TASK_STATES.has(task.status);
     if (task.status === "accepted") status.textContent = "Tác vụ đã được nhận. Worker sẽ bắt đầu xử lý notes.";
-    else if (task.status === "running") status.textContent = "ChatGPT đang tạo notes. Tác vụ tiếp tục ở worker nếu bạn mở cuộc họp khác.";
+    else if (task.status === "running") status.textContent = `${taskProviderName} đang tạo notes. Tác vụ tiếp tục ở worker nếu bạn mở cuộc họp khác.`;
     else if (task.status === "stopping") status.textContent = "Đã gửi yêu cầu hủy. Tác vụ vẫn giữ slot cho đến khi worker xác nhận dừng.";
     else if (task.status === "succeeded") status.textContent = "Notes đã được lưu. Chọn revision bên dưới để xem hoặc sửa.";
-    else if (task.status === "failed") status.textContent = task.error_message || "Tác vụ notes thất bại. Không tự chạy lại.";
+    else if (task.status === "failed") {
+      status.textContent = failureMessage(task.error_code, taskProvider)
+        || task.error_message
+        || `Tác vụ notes bằng ${taskProviderName} thất bại. ${NEXT_STEP}`;
+    }
     else if (task.status === "canceled") status.textContent = "Worker đã xác nhận hủy tác vụ notes.";
     else if (task.status === "interrupted") status.textContent = "Worker đã dừng giữa tác vụ notes. Không tự chạy lại.";
     else status.textContent = "Đang đọc trạng thái tác vụ notes.";
@@ -452,7 +761,9 @@
     const wrapper = $("#notes-saved-work");
     const revision = data && data.revisions.find((item) => item.id === data.selectedNoteId);
     const selector = $("#notes-revision-selector");
-    const optionsKey = data ? data.revisions.map((item) => item.id).join("\u0000") : "";
+    const optionsKey = data
+      ? data.revisions.map((item) => `${item.id}\u0001${item.provider || ""}\u0001${item.model || ""}`).join("\u0000")
+      : "";
     if (selector.dataset.optionsKey !== optionsKey) {
       selector.replaceChildren();
       if (data && data.selectedNoteId && !data.revisions.some((item) => item.id === data.selectedNoteId)) {
@@ -485,9 +796,7 @@
     const textarea = $("#notes-markdown");
     textarea.disabled = data.saveInFlight.has(revision.id);
     if (textarea.value !== draft.value || document.activeElement !== textarea) textarea.value = draft.value;
-    const provenance = [revision.provider, revision.model, revision.reasoning_effort].filter(
-      (value) => typeof value === "string" && value.trim(),
-    ).join(" · ");
+    const provenance = revisionProvenance(revision).join(" · ");
     $("#notes-revision-meta").textContent = [
       sourceStateLabel(revision.source_state),
       `Ngôn ngữ: ${outputLanguageLabel(revision.output_language)}`,
@@ -542,13 +851,14 @@
       || activeTask(data)
       || pending,
     );
+    const { provider } = renderChoice(data, pending);
     runButton.disabled = !canStartNotes(meeting, data);
     runButton.title = waitForTranscript ? waitMessage : "";
     runButton.textContent = data && data.requestInFlight
       ? "Đang gửi yêu cầu…"
       : pending
         ? "Xác minh yêu cầu notes"
-        : "Tạo notes bằng ChatGPT";
+        : `${data && data.revisions.length ? "Tạo lại notes bằng" : "Tạo notes bằng"} ${providerLabel(provider)}`;
     renderTask(data);
     renderError(data);
     renderSelectedRevision(data);
@@ -698,9 +1008,12 @@
         !validRequestId(parsed.request_id)
         || !["en", "vi"].includes(parsed.output_language)
       ) return null;
+      if (parsed.provider !== undefined && !PROVIDER_IDS.includes(parsed.provider)) return null;
+      // Stored requests from before provider choice were always ChatGPT requests.
       const result = {
         request_id: parsed.request_id,
         output_language: parsed.output_language,
+        provider: parsed.provider || "chatgpt",
       };
       const hasExpectedFields = [
         "expected_generation_id",
@@ -724,6 +1037,9 @@
         result.expected_generation_id = parsed.expected_generation_id;
         result.expected_source_version = parsed.expected_source_version;
         result.expected_metadata_version = parsed.expected_metadata_version;
+        for (const key of ["expected_model", "expected_reasoning_effort"]) {
+          if (typeof parsed[key] === "string" && parsed[key]) result[key] = parsed[key];
+        }
       } else if (!hasNoExpectedFields && !legacy) {
         return null;
       }
@@ -731,7 +1047,7 @@
     }
     const requestId = isJson && typeof parsed === "string" ? parsed : value;
     if (!validRequestId(requestId)) return null;
-    return { request_id: requestId, output_language: "en" };
+    return { request_id: requestId, output_language: "en", provider: "chatgpt" };
   }
 
   function newRequestId() {
@@ -765,6 +1081,7 @@
     const pending = {
       request_id: newRequestId(),
       output_language: getOutputLanguage(meetingId),
+      provider: selectedProvider(null),
     };
     savePendingRequest(meetingId, pending);
     return pending;
@@ -805,10 +1122,19 @@
     const complete = {
       request_id: pending.request_id,
       output_language: pending.output_language,
+      provider: pending.provider,
       expected_generation_id: generation.id,
       expected_source_version: generation.source_version,
       expected_metadata_version: meeting.metadata_version,
     };
+    // The confirmed choice is stored with the request so an HTTP retry resends the same body.
+    const confirmed = savedModel(pending.provider);
+    if (state.choice.loaded && confirmed) {
+      complete.expected_model = confirmed;
+      if (pending.provider === "chatgpt" || pending.provider === "antigravity") {
+        complete.expected_reasoning_effort = effortFor(pending.provider, confirmed);
+      }
+    }
     savePendingRequest(meeting.id, complete);
     return complete;
   }
@@ -856,8 +1182,13 @@
         && error.status >= 400
         && error.status < 500;
       if (definitive) clearPendingRequest(meetingId);
-      data.runError = error && error.message ? error.message : "Không thể xác nhận yêu cầu notes.";
+      const detail = error && error.payload && error.payload.detail;
+      const mapped = definitive && detail && typeof detail === "object"
+        ? failureMessage(detail.code, body.provider)
+        : "";
+      data.runError = mapped || (error && error.message ? error.message : "Không thể xác nhận yêu cầu notes.");
       data.runErrorUncertain = !definitive;
+      if (mapped) void loadProviderChoice(meetingId);
       data.actionMessage = "";
       if (definitive && error.status === 409) {
         if (window.ASRMeetingHistory) void window.ASRMeetingHistory.refreshMeeting(meetingId);
@@ -1282,15 +1613,41 @@
     }
     render();
     void readNotes(meetingId);
+    if (changed || !state.choice.loaded) void loadProviderChoice(meetingId);
     handleLocation();
   }
 
   $("#notes-start").addEventListener("click", () => void startNotes());
+  $("#notes-choice-reload").addEventListener("click", () => {
+    if (state.currentMeetingId) void loadProviderChoice(state.currentMeetingId);
+  });
+  // Connections saved a model or changed a provider status: reload before a new run can start.
+  window.addEventListener("asr:provider-choice-changed", () => {
+    if (state.currentMeetingId) void loadProviderChoice(state.currentMeetingId);
+  });
   $("#notes-output-language").addEventListener("change", (event) => {
     const meetingId = state.currentMeetingId;
     if (!meetingId) return;
     setOutputLanguage(meetingId, event.currentTarget.value);
     render();
+  });
+  $("#notes-provider").addEventListener("change", (event) => {
+    const provider = event.currentTarget.value;
+    if (!PROVIDER_IDS.includes(provider)) return;
+    const model = savedModel(provider);
+    state.choice.message = "";
+    if (model) {
+      void savePreference(provider, model);
+    } else {
+      // No saved model for this provider: the operator must pick one before anything is saved.
+      state.choice.localProvider = provider;
+      render();
+    }
+  });
+  $("#notes-model").addEventListener("change", (event) => {
+    const model = event.currentTarget.value;
+    if (!model) return;
+    void savePreference(selectedProvider(null), model);
   });
   $("#notes-cancel").addEventListener("click", () => void cancelNotes());
   $("#notes-revision-selector").addEventListener("change", (event) => {

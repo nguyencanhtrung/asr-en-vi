@@ -425,7 +425,7 @@ def test_provider_mutations_are_denied_until_active_notes_task_is_terminal(tmp_p
     provider = ChatGPTProvider(
         tmp_path / "provider",
         callback_url="",
-        active_task_guard=lambda: assert_provider_mutation_allowed(data_dir),
+        active_task_guard=lambda: assert_provider_mutation_allowed(data_dir, "chatgpt"),
     )
     provider.ensure()
 
@@ -433,11 +433,13 @@ def test_provider_mutations_are_denied_until_active_notes_task_is_terminal(tmp_p
         provider.start_login()
     assert guarded.value.code == "provider_in_use"
     with pytest.raises(ChatGPTError) as checked:
-        assert_provider_mutation_allowed(data_dir)
+        assert_provider_mutation_allowed(data_dir, "chatgpt")
     assert checked.value.code == "provider_in_use"
+    # Only the provider pinned by the active task is blocked.
+    assert_provider_mutation_allowed(data_dir, "antigravity")
 
     assert cancel_task(data_dir, task["id"])["status"] == "canceled"
-    assert_provider_mutation_allowed(data_dir)
+    assert_provider_mutation_allowed(data_dir, "chatgpt")
     with provider.store.locked() as state:
         assert state["connection_status"] == "disconnected"
         assert state["connection_version"] == 0

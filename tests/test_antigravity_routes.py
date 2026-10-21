@@ -38,7 +38,7 @@ class RouteAntigravityAdapter:
             }
         ]
 
-    def verify(self, model: str):
+    def verify(self, model: str, thinking_level: str = "high"):
         self.verify_calls.append(model)
         return {"ok": True}
 
@@ -102,7 +102,27 @@ async def test_antigravity_connection_routes_cover_login_catalog_verify_and_disc
         assert preference.json() == {
             "provider": "antigravity",
             "model": "gemini-3-pro-high",
+            "reasoning_effort": "high",
         }
+        medium = await client.put(
+            "/api/providers/antigravity/preference",
+            headers={"Origin": settings.public_url},
+            json={"model": "gemini-3-pro-high", "reasoning_effort": "medium"},
+        )
+        assert medium.json()["reasoning_effort"] == "medium"
+        kept = await client.put(
+            "/api/providers/antigravity/preference",
+            headers={"Origin": settings.public_url},
+            json={"model": "gemini-3-pro-high"},
+        )
+        assert kept.json()["reasoning_effort"] == "medium"
+        bad = await client.put(
+            "/api/providers/antigravity/preference",
+            headers={"Origin": settings.public_url},
+            json={"model": "gemini-3-pro-high", "reasoning_effort": "low"},
+        )
+        assert bad.status_code == 400
+        assert bad.json()["detail"]["code"] == "invalid_reasoning_effort"
         verified = await client.post(
             "/api/providers/antigravity/verify",
             headers={"Origin": settings.public_url},
