@@ -94,6 +94,11 @@ typography:
     fontSize: "0.9375rem"
     fontWeight: 400
     lineHeight: 1.7
+  reading:
+    fontFamily: "Inter Variable, system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: 1.7
   panel-title:
     fontFamily: "Newsreader Variable, Georgia, Times New Roman, serif"
     fontSize: "15px"
@@ -250,6 +255,7 @@ The palette pairs warm paper neutrals with charcoal dark surfaces and a reserved
 - **Headline:** Medium-weight Newsreader with tight tracking for access, empty-state, and meeting titles.
 - **Title:** Medium-weight Newsreader for workspace and calendar headings.
 - **Body:** Inter at compact dashboard sizes with generous line height for explanations and transcript prose.
+- **Reading:** Inter at 14px with a 1.7 line height for rendered meeting notes; the Markdown editor stays in JetBrains Mono at 13px.
 - **Label:** JetBrains Mono, usually uppercase with tracking, for operational metadata rather than long content.
 
 ### Named Rules
@@ -302,6 +308,10 @@ Corners are compact and engineered: controls use the small radius, content panel
 - **Style:** Neutral surface, one-pixel border, compact radius, and Inter for ordinary values; tokens, commands, and technical values may use JetBrains Mono.
 - **Focus:** Accent outline and/or border shift with sufficient contrast in both themes.
 - **Error / Disabled:** Danger copy accompanies invalid state; disabled fields retain readable value text.
+
+### Notes Frame
+
+Saved notes sit in one full-width frame: a hairline box on the subtle surface with the small radius. One toolbar above it serves both modes and holds the version select, the **Xem | Viết** group, and the save, copy, and download actions, so no control moves when the mode changes. The group is two toggle buttons with `aria-pressed`; the pressed button takes the accent-soft fill and accent ink, the switch is instant, and keyboard focus is the usual two-pixel accent outline drawn inside the group. Xem renders the draft at the reading size with headings starting at h4, below the panel's h3; Viết shows a full-width mono textarea at least 420px tall on desktop. Unsaved work is marked twice: a warning dot hangs off the **Viết** label while its accessible name says there are unsaved changes, and Xem opens with a thin warning-soft line, "Đang xem bản nháp chưa lưu", so a draft is never mistaken for the saved version. The conflict block sits between the toolbar and the frame in both modes. At 760px and below the toolbar stacks into full-width rows; at 520px and below its actions stack too.
 
 ### Navigation
 

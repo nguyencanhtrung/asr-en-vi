@@ -24,6 +24,7 @@ ASR EN VI biến bản ghi cuộc họp tiếng Anh hoặc tiếng Việt thành
 - Người vận hành nhập audio/video, đặt tên và ngày, chọn gợi ý ngôn ngữ, theo dõi tác vụ rồi duyệt transcript trong cùng workspace.
 - Lịch tháng, danh sách gần đây và màn hình chi tiết cuộc họp là các đường truy cập chính tới dữ liệu đã lưu.
 - Trạng thái worker, model, tác vụ, lỗi và dữ liệu cần nghe lại phải quét nhanh được trong phiên làm việc dài.
+- Meeting notes mở ở chế độ **Xem** để đọc toàn bề rộng; **Viết** dùng để sửa Markdown. Bản nháp chưa lưu luôn được báo rõ và trình duyệt cảnh báo trước khi đóng hoặc tải lại trang.
 
 ## Capabilities and Constraints
 
