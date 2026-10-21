@@ -13,6 +13,9 @@
   --teal: var(--accent);
   --teal-wash: var(--accent-soft);
   --amber: var(--warning);
+  /* The sticky player, and the gap a scrolled-to target keeps below it. */
+  --player-height: 64px;
+  --player-gap: 12px;
 }
 
 * {
@@ -678,7 +681,7 @@ textarea:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 19px;
+  margin-bottom: 12px;
 }
 
 .audio-heading h3 {
@@ -700,6 +703,27 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 
+/* The only part of the recording block that sticks: the notes and the transcript scroll under it. */
+.player-bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  height: var(--player-height);
+  flex: none;
+  align-items: center;
+  margin-top: 12px;
+  padding: 0 4px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+/* Scrolling to a target or a focused control stops below the player instead of under it. */
+:root:has(#meeting-view:not([hidden])) {
+  scroll-padding-top: var(--player-height);
+}
+
 #meeting-audio {
   display: block;
   width: 100%;
@@ -707,8 +731,12 @@ textarea:focus-visible {
   accent-color: var(--teal);
 }
 
+#meeting-audio:focus-visible {
+  outline-offset: 1px;
+}
+
 .audio-hint {
-  margin: 12px 0 0;
+  margin: 0;
   color: var(--ink-3);
   font-size: 10px;
   line-height: 1.5;
@@ -2004,6 +2032,7 @@ textarea:focus-visible {
   border: 1px solid var(--hairline);
   border-radius: var(--radius-md);
   background: var(--surface-subtle);
+  scroll-margin-top: var(--player-gap);
 }
 
 .transcript-segment.is-playback-active,
