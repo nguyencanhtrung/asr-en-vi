@@ -21,6 +21,7 @@ const antigravityElements = {
   modelSection: document.querySelector("#antigravity-model-section"),
   modelForm: document.querySelector("#antigravity-model-form"),
   modelSelect: document.querySelector("#antigravity-model"),
+  effortSelect: document.querySelector("#antigravity-effort"),
   modelStatus: document.querySelector("#antigravity-model-status"),
   modelSave: document.querySelector("#antigravity-model-save"),
   verificationSection: document.querySelector("#antigravity-verification-section"),
@@ -33,6 +34,7 @@ const antigravityState = {
   models: [],
   selectedModel: "",
   savedModel: "",
+  savedEffort: "high",
   activeLogin: null,
   pollTimer: null,
   busy: false,
@@ -89,8 +91,10 @@ function updateAntigravityActions() {
   antigravityElements.modelSection.hidden = !connected;
   antigravityElements.verificationSection.hidden = !connected;
   antigravityElements.modelSelect.disabled = !connected || antigravityState.busy;
+  antigravityElements.effortSelect.disabled = !connected || antigravityState.busy;
   antigravityElements.modelSave.disabled = !available || antigravityState.busy
-    || antigravityElements.modelSelect.value === antigravityState.savedModel;
+    || (antigravityElements.modelSelect.value === antigravityState.savedModel
+      && antigravityElements.effortSelect.value === antigravityState.savedEffort);
   antigravityElements.verify.disabled = !available || antigravityState.busy;
 }
 
@@ -121,6 +125,8 @@ function renderAntigravityModels(catalog) {
   antigravityState.savedModel = typeof catalog.selected_model === "string"
     ? catalog.selected_model : "";
   antigravityState.selectedModel = antigravityState.savedModel;
+  antigravityState.savedEffort = catalog.reasoning_effort === "medium" ? "medium" : "high";
+  antigravityElements.effortSelect.value = antigravityState.savedEffort;
   antigravityElements.modelSelect.replaceChildren();
   if (!antigravityState.savedModel) {
     const placeholder = document.createElement("option");
@@ -345,16 +351,18 @@ async function submitAntigravityInput(event) {
 async function saveAntigravityModel(event) {
   event.preventDefault();
   const model = antigravityElements.modelSelect.value;
+  const reasoningEffort = antigravityElements.effortSelect.value;
   if (!model || antigravityState.busy) return;
   antigravityState.busy = true;
   updateAntigravityActions();
   try {
     await connectionRequest("/api/providers/antigravity/preference", {
-      method: "PUT", body: { model },
+      method: "PUT", body: { model, reasoning_effort: reasoningEffort },
     });
     antigravityState.savedModel = model;
+    antigravityState.savedEffort = reasoningEffort;
     antigravityElements.modelStatus.dataset.state = "saved";
-    antigravityElements.modelStatus.textContent = `Đã lưu ${antigravityModelName(model)} cho Antigravity.`;
+    antigravityElements.modelStatus.textContent = `Đã lưu ${antigravityModelName(model)} · mức suy nghĩ ${reasoningEffort === "medium" ? "Medium" : "High"} cho Antigravity.`;
     window.dispatchEvent(new CustomEvent("asr:provider-choice-changed"));
   } catch (error) {
     await handleAntigravityReconnect(error);
@@ -410,17 +418,23 @@ async function disconnectAntigravity() {
   }
 }
 
+function markAntigravityChoiceEdited() {
+  antigravityState.selectedModel = antigravityElements.modelSelect.value;
+  antigravityElements.modelStatus.dataset.state = "";
+  antigravityElements.modelStatus.textContent = antigravityState.selectedModel === antigravityState.savedModel
+    && antigravityElements.effortSelect.value === antigravityState.savedEffort
+    ? "" : "Lựa chọn mới chưa được lưu.";
+  updateAntigravityActions();
+}
+
 document.querySelector("#connections-launcher").addEventListener("click", () => void loadAntigravity());
 antigravityElements.signIn.addEventListener("click", () => void startAntigravityLogin());
 antigravityElements.cancel.addEventListener("click", () => void cancelAntigravityLogin());
 antigravityElements.inputForm.addEventListener("submit", submitAntigravityInput);
 antigravityElements.modelSelect.addEventListener("change", () => {
-  antigravityState.selectedModel = antigravityElements.modelSelect.value;
-  antigravityElements.modelStatus.dataset.state = "";
-  antigravityElements.modelStatus.textContent = antigravityState.selectedModel === antigravityState.savedModel
-    ? "" : "Lựa chọn mới chưa được lưu.";
-  updateAntigravityActions();
+  markAntigravityChoiceEdited();
 });
+antigravityElements.effortSelect.addEventListener("change", markAntigravityChoiceEdited);
 antigravityElements.modelForm.addEventListener("submit", saveAntigravityModel);
 antigravityElements.verify.addEventListener("click", () => void verifyAntigravity());
 antigravityElements.disconnect.addEventListener("click", () => void disconnectAntigravity());

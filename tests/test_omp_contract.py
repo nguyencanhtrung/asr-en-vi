@@ -150,6 +150,15 @@ def test_unknown_model_frame_maps_to_model_unavailable(tmp_path):
     assert failure.value.code == "model_unavailable"
 
 
+@pytest.mark.parametrize("level", ("high", "medium"))
+def test_set_thinking_level_is_confirmed_by_get_state(tmp_path, level):
+    with _RpcClient(_adapter(tmp_path / f"thinking-{level}")) as client:
+        client.request({"type": "set_thinking_level", "level": level})
+        state = client.request({"type": "get_state"})
+
+    assert state["thinkingLevel"] == level
+
+
 def test_logout_without_credential_and_disconnect_report_contract(tmp_path):
     assert _adapter(tmp_path / "logout").logout() is True
 

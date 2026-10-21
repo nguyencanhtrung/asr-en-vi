@@ -57,7 +57,7 @@ class FakeAntigravityAdapter:
     def list_models(self):
         return self.models
 
-    def verify(self, model: str):
+    def verify(self, model: str, thinking_level: str = "high"):
         self.verify_calls.append(model)
         return {"ok": True}
 
@@ -94,16 +94,19 @@ def test_login_catalog_preference_verification_restart_and_disconnect(tmp_path):
         "account": {"label": "Google Antigravity"},
         "connection_version": 1,
         "verification": None,
+        "reasoning_effort": "high",
     }
 
     catalog = provider.list_models()
     assert catalog == {
         "models": [{"id": "gemini-3-pro-high", "display_name": "Gemini 3 Pro High"}],
         "selected_model": None,
+        "reasoning_effort": "high",
     }
     assert provider.set_preference("gemini-3-pro-high") == {
         "provider": "antigravity",
         "model": "gemini-3-pro-high",
+        "reasoning_effort": "high",
     }
     verified = provider.verify("gemini-3-pro-high")
     assert verified["output"] == {"ok": True}
@@ -261,6 +264,7 @@ if sys.argv[1:4] == ["auth-broker", "logout", "google-antigravity"]:
 if not authenticated.exists():
     print("No models available. Use /login.", file=sys.stderr, flush=True)
     raise SystemExit(1)
+level = "high"
 required = {
     "--mode", "rpc", "--no-ui", "--no-session", "--no-tools", "--no-lsp",
     "--no-pty", "--no-extensions", "--no-skills", "--no-rules",
@@ -273,8 +277,10 @@ for line in sys.stdin:
     request_id = command.get("id")
     command_type = command.get("type")
     data = None
+    if command_type == "set_thinking_level":
+        level = command["level"]
     if command_type == "get_state":
-        data = {"dumpTools": [], "autoCompactionEnabled": False}
+        data = {"dumpTools": [], "autoCompactionEnabled": False, "thinkingLevel": level}
     elif command_type == "get_available_models":
         data = {"models": [{"provider": "google-antigravity", "id": "gemini-test", "name": "Gemini Test"}]}
     elif command_type == "set_model":
@@ -515,6 +521,17 @@ raise SystemExit(1)
         ),
         (
             {
+                "httpStatus": 404,
+                "provider": "google-antigravity",
+                "model": "gemini-3.1-pro",
+                "message": 'Cloud Code Assist API error (404): {"error": {"code": 404, '
+                '"message": "Requested entity was not found.", "status": "NOT_FOUND"}}',
+            },
+            "model_unavailable",
+            "connected",
+        ),
+        (
+            {
                 "httpStatus": 403,
                 "code": "permission_denied",
                 "provider": "google-antigravity",
@@ -548,13 +565,17 @@ import json
 import sys
 
 error = __ERROR__
+level = "high"
 print(json.dumps({"type": "ready"}), flush=True)
 for line in sys.stdin:
     command = json.loads(line)
     request_id = command.get("id")
     command_type = command.get("type")
-    if command_type == "get_state":
-        data = {"dumpTools": []}
+    if command_type == "set_thinking_level":
+        level = command["level"]
+        data = {}
+    elif command_type == "get_state":
+        data = {"dumpTools": [], "thinkingLevel": level}
     elif command_type in {"set_auto_compaction", "set_auto_retry", "set_model"}:
         data = {}
     elif command_type == "prompt":
@@ -646,8 +667,12 @@ def test_generate_and_verify_use_their_own_inference_deadlines(monkeypatch):
         def __exit__(self, *exc):
             return False
 
+        level = "high"
+
         def request(self, payload):
-            return {}
+            if payload["type"] == "set_thinking_level":
+                self.level = payload["level"]
+            return {"thinkingLevel": self.level}
 
     def fake_prompt(client, message, timeout=RPC_INFERENCE_TIMEOUT_SECONDS):
         timeouts.append(timeout)
@@ -662,3 +687,114 @@ def test_generate_and_verify_use_their_own_inference_deadlines(monkeypatch):
 
     assert timeouts == [RPC_NOTES_INFERENCE_TIMEOUT_SECONDS, RPC_INFERENCE_TIMEOUT_SECONDS]
     assert (RPC_NOTES_INFERENCE_TIMEOUT_SECONDS, RPC_INFERENCE_TIMEOUT_SECONDS) == (900.0, 300.0)
+
+
+def _thinking_omp(tmp_path, *, confirm_level: bool = True):
+    """Fake OMP shaped like S-4 / test_omp_contract; logs every command it receives."""
+    executable = tmp_path / "fake-omp-thinking"
+    log = tmp_path / "commands.log"
+    executable.write_text(
+        """#!/usr/bin/env python3
+import json
+import sys
+
+level = "high"
+confirm = __CONFIRM__
+print(json.dumps({"type": "ready"}), flush=True)
+for line in sys.stdin:
+    command = json.loads(line)
+    request_id = command.get("id")
+    kind = command.get("type")
+    with open("__LOG__", "a") as handle:
+        handle.write(kind + ":" + str(command.get("level", "")) + "\\n")
+    data = {}
+    if kind == "set_thinking_level":
+        level = command["level"] if confirm else "high"
+    elif kind == "get_state":
+        data = {"dumpTools": [], "thinkingLevel": level}
+    elif kind == "prompt":
+        print(json.dumps({"type": "response", "id": request_id, "command": "prompt",
+                          "success": True, "data": {"agentInvoked": True}}), flush=True)
+        print(json.dumps({"type": "message_end", "message": {"role": "assistant",
+                          "content": [{"type": "text", "text": "{}"}]}}), flush=True)
+        print(json.dumps({"type": "prompt_result", "id": request_id, "status": "completed"}),
+              flush=True)
+        continue
+    print(json.dumps({"type": "response", "id": request_id, "command": kind,
+                      "success": True, "data": data}), flush=True)
+""".replace("__LOG__", str(log)).replace("__CONFIRM__", repr(confirm_level)),
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
+    return OmpRpcAdapter(tmp_path / "omp", executable=str(executable)), log
+
+
+def test_generate_sets_and_confirms_thinking_level_before_the_prompt(tmp_path):
+    adapter, log = _thinking_omp(tmp_path)
+
+    assert adapter.generate("gemini-test", "hi", "medium") == "{}"
+
+    commands = log.read_text().split()
+    start = commands.index("set_model:")
+    assert commands[start : start + 4] == [
+        "set_model:",
+        "set_thinking_level:medium",
+        "get_state:",
+        "prompt:",
+    ]
+
+
+def test_unconfirmed_thinking_level_fails_closed_without_a_prompt(tmp_path):
+    adapter, log = _thinking_omp(tmp_path, confirm_level=False)
+
+    with pytest.raises(AntigravityError) as failure:
+        adapter.generate("gemini-test", "hi", "medium")
+
+    assert failure.value.code == "thinking_level_unavailable"
+    assert failure.value.status_code == 422
+    assert "prompt:" not in log.read_text().split()
+
+
+def test_antigravity_effort_is_saved_with_the_model_and_legacy_default_reads_high(tmp_path):
+    provider = AntigravityProvider(tmp_path / "provider", adapter=FakeAntigravityAdapter())
+    provider.ensure()
+    with provider.store.locked(write=True) as state:
+        state["connection_status"] = "connected"
+        state["selected_model"] = "gemini-test"
+        state["reasoning_effort"] = "default"  # legacy value
+    assert provider.notes_task_pin()["reasoning_effort"] == "high"
+
+    provider.save_notes_preference("gemini-test", "medium")
+    assert provider.notes_task_pin()["reasoning_effort"] == "medium"
+    assert provider.provider_view()["reasoning_effort"] == "medium"
+    provider.save_notes_preference("gemini-test", "default")
+    assert provider.saved_notes_effort() == "high"
+
+    for bad in ("low", "xhigh", ""):
+        with pytest.raises(AntigravityError) as failure:
+            provider.save_notes_preference("gemini-test", bad)
+        assert failure.value.code == "invalid_reasoning_effort"
+    assert provider.saved_notes_effort() == "high"
+
+
+def test_generate_notes_document_runs_with_the_pinned_level(tmp_path):
+    class Recorder(FakeAntigravityAdapter):
+        levels: list[str] = []
+
+        def generate(self, model, prompt, thinking_level="high"):
+            self.levels.append(thinking_level)
+            raise AntigravityError(502, "provider_invalid_response", "stop")
+
+    adapter = Recorder()
+    provider = AntigravityProvider(tmp_path / "provider", adapter=adapter)
+    provider.ensure()
+    with provider.store.locked(write=True) as state:
+        state["connection_status"] = "connected"
+    with pytest.raises(AntigravityError):
+        provider.generate_notes_document(
+            snapshot={"segments": []},
+            connection_version=0,
+            model="gemini-test",
+            reasoning_effort="medium",
+        )
+    assert adapter.levels[:1] == ["medium"]

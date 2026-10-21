@@ -35,9 +35,10 @@ ANTIGRAVITY_CATALOG = [
 
 
 class PinnedStub(StubNotesProvider):
-    def __init__(self, provider: str) -> None:
+    def __init__(self, provider: str, effort: str = "high") -> None:
         super().__init__()
         self.provider = provider
+        self.effort = effort
 
     def notes_task_pin(self) -> dict[str, object]:
         if self.provider == "antigravity":
@@ -45,7 +46,7 @@ class PinnedStub(StubNotesProvider):
                 "provider": "antigravity",
                 "connection_version": 3,
                 "model": ANTIGRAVITY_MODEL,
-                "reasoning_effort": "default",
+                "reasoning_effort": self.effort,
             }
         return super().notes_task_pin()
 
@@ -56,7 +57,13 @@ def fake_notes_provider(monkeypatch):
 
     def accept_with_stub(data_dir, *, provider, provider_id="chatgpt", **kwargs):
         return original_accept(
-            data_dir, provider=PinnedStub(provider_id), provider_id=provider_id, **kwargs
+            data_dir,
+            provider=PinnedStub(
+                provider_id,
+                provider.saved_notes_effort() if provider_id == "antigravity" else "high",
+            ),
+            provider_id=provider_id,
+            **kwargs,
         )
 
     monkeypatch.setattr(notes_routes, "accept_notes_task", accept_with_stub)
@@ -180,7 +187,7 @@ def test_saved_provider_and_model_are_preselected(
     meeting_id, _generation, _ = seed_completed_transcript(live.settings.data_dir)
     save_preference(page, live, "chatgpt", CHATGPT_MODEL, "high")
     save_preference(page, live, "antigravity", ANTIGRAVITY_MODEL)
-    save_preference(page, live, provider, model, "high" if provider == "chatgpt" else "default")
+    save_preference(page, live, provider, model, "high" if provider == "chatgpt" else "medium")
     mock_providers(page, live)
     page.goto(f"{live.url}/meetings/{meeting_id}")
     expect(page.locator("#notes-provider")).to_have_value(provider)
@@ -192,7 +199,9 @@ def test_saved_provider_and_model_are_preselected(
     if provider == "chatgpt":
         expect(page.locator("#notes-run-plan")).to_contain_text("effort high")
     else:
-        expect(page.locator("#notes-run-plan")).not_to_contain_text("effort")
+        expect(page.locator("#notes-run-plan")).to_contain_text(
+            f"{label} · {model_label} · mức suy nghĩ Medium."
+        )
 
 
 def test_missing_saved_model_requires_an_explicit_choice(live, signed_in):
@@ -250,7 +259,9 @@ def test_antigravity_run_produces_labelled_revision_and_regeneration_keeps_edits
     assert runs[0]["provider"] == "antigravity"
     assert accepted["provider"] == "antigravity" and accepted["model"] == ANTIGRAVITY_MODEL
     expect(page.locator("#notes-task-provider")).to_have_text("Google Antigravity")
-    expect(page.locator("#notes-task-model")).to_have_text(ANTIGRAVITY_MODEL)
+    expect(page.locator("#notes-task-model")).to_have_text(
+        f"{ANTIGRAVITY_MODEL} · mức suy nghĩ High"
+    )
 
     first = complete(live.settings.data_dir, accepted["id"], "# First\n\nAntigravity notes.\n")
     expect(page.locator("#notes-saved-work")).to_be_visible(timeout=10_000)
@@ -300,7 +311,9 @@ def test_preference_change_during_active_run_applies_to_next_run(
     mock_providers(page, live)
     page.goto(f"{live.url}/meetings/{meeting_id}")
     expect(page.locator("#notes-task-provider")).to_have_text("Google Antigravity")
-    expect(page.locator("#notes-task-model")).to_have_text(ANTIGRAVITY_MODEL)
+    expect(page.locator("#notes-task-model")).to_have_text(
+        f"{ANTIGRAVITY_MODEL} · mức suy nghĩ High"
+    )
     expect(page.locator("#notes-start")).to_be_disabled()
     expect(page.locator("#notes-provider")).to_be_enabled()
     page.locator("#notes-provider").select_option("chatgpt")
@@ -311,10 +324,14 @@ def test_preference_change_during_active_run_applies_to_next_run(
         f"Google Antigravity · {ANTIGRAVITY_MODEL}"
     )
     expect(page.locator("#notes-task-provider")).to_have_text("Google Antigravity")
-    expect(page.locator("#notes-task-model")).to_have_text(ANTIGRAVITY_MODEL)
+    expect(page.locator("#notes-task-model")).to_have_text(
+        f"{ANTIGRAVITY_MODEL} · mức suy nghĩ High"
+    )
     expect(page.locator("#notes-status")).to_contain_text("Google Antigravity đang tạo notes")
     page.locator("#notes-model").select_option("gpt-6-luna")
-    expect(page.locator("#notes-task-model")).to_have_text(ANTIGRAVITY_MODEL)
+    expect(page.locator("#notes-task-model")).to_have_text(
+        f"{ANTIGRAVITY_MODEL} · mức suy nghĩ High"
+    )
     assert active["model"] == ANTIGRAVITY_MODEL
     assert fail_task(
         live.settings.data_dir,
@@ -501,17 +518,18 @@ def test_model_saved_elsewhere_refreshes_the_open_notes_panel(live, signed_in, f
     assert runs[0]["expected_reasoning_effort"] == "low"
 
 
-def test_antigravity_run_confirms_model_without_effort(live, signed_in, fake_notes_provider):
+def test_antigravity_run_confirms_model_and_thinking_level(live, signed_in, fake_notes_provider):
     _context, page = signed_in()
     meeting_id, _generation, _ = seed_completed_transcript(live.settings.data_dir)
-    save_preference(page, live, "antigravity", ANTIGRAVITY_MODEL)
+    save_preference(page, live, "antigravity", ANTIGRAVITY_MODEL, "medium")
     mock_providers(page, live)
     runs = capture_runs(page)
     page.goto(f"{live.url}/meetings/{meeting_id}")
     with page.expect_response(lambda r: r.url.endswith("/notes-runs")):
         page.locator("#notes-start").click()
     assert runs[0]["expected_model"] == ANTIGRAVITY_MODEL
-    assert "expected_reasoning_effort" not in runs[0]
+    assert runs[0]["expected_reasoning_effort"] == "medium"
+    expect(page.locator("#notes-task-model")).to_contain_text("mức suy nghĩ Medium")
 
 
 def test_preference_changed_conflict_reloads_the_choice_without_retry(live, signed_in):

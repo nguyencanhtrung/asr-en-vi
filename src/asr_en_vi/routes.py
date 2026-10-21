@@ -297,13 +297,17 @@ def install_routes(
 
     @app.put("/api/providers/antigravity/preference")
     async def put_antigravity_preference(request: Request) -> dict[str, Any]:
-        payload = await _json_object(request, required={"model"})
+        payload = await _json_object(request, required={"model"}, optional={"reasoning_effort"})
         if not isinstance(payload["model"], str):
             raise HTTPException(
                 status_code=400,
                 detail={"code": "invalid_model", "message": "Choose an Antigravity model."},
             )
-        return await provider_json(lambda: antigravity_provider.set_preference(payload["model"]))
+        return await provider_json(
+            lambda: antigravity_provider.set_preference(
+                payload["model"], payload.get("reasoning_effort")
+            )
+        )
 
     @app.post("/api/providers/antigravity/verify")
     async def verify_antigravity(request: Request) -> dict[str, Any]:
