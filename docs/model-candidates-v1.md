@@ -4,13 +4,13 @@
 
 ## Bộ model đã chốt để thử trước
 
-Chọn **Whisper large-v3 để chuyển âm thanh thành transcript** và **pyannote Community-1 để phân biệt người nói** chạy local. Tạo notes tiếng Anh qua **ChatGPT** hoặc **OMP + Google Antigravity**, ưu tiên khảo sát Gemini ở nhánh Antigravity; Q27 cho người dùng chọn model phù hợp từ catalog của kết nối. Model ID cụ thể còn cần kiểm chứng. Qwen3-14B Q4_K_M từng được chọn thử nhưng không còn thuộc pipeline v1 đã chọn, nhằm dành VRAM cho xử lý âm thanh. Kết quả trên bản ghi của nhóm mới quyết định cấu hình phát hành.
+Chọn **Whisper large-v3 để chuyển âm thanh thành transcript** và **pyannote Community-1 để phân biệt người nói** chạy local. Tạo notes (English hoặc Tiếng Việt) qua **ChatGPT** hoặc **OMP + Google Antigravity**, ưu tiên khảo sát Gemini ở nhánh Antigravity; Q27 cho người dùng chọn model phù hợp từ catalog của kết nối. Model ID cụ thể còn cần kiểm chứng. Qwen3-14B Q4_K_M từng được chọn thử nhưng không còn thuộc pipeline v1 đã chọn, nhằm dành VRAM cho xử lý âm thanh. Kết quả trên bản ghi của nhóm mới quyết định cấu hình phát hành.
 
 | Vai trò | Model / tài nguyên | Runtime đề xuất và căn cứ |
 | --- | --- | --- |
 | Âm thanh → văn bản | `openai/whisper-large-v3` | `faster-whisper` dùng CTranslate2; hỗ trợ FP16, INT8 và timestamp theo đoạn. Model đa ngôn ngữ, có chế độ chép lời giữ ngôn ngữ nguồn. [Model card](https://huggingface.co/openai/whisper-large-v3), [runtime](https://github.com/SYSTRAN/faster-whisper) |
 | Ai nói, lúc nào | `pyannote/speaker-diarization-community-1` | `pyannote.audio`; trả đoạn thời gian theo nhãn người nói, có đầu ra exclusive giúp ghép với transcript. Chạy local được sau tải model. [Model card](https://huggingface.co/pyannote/speaker-diarization-community-1) |
-| Transcript → notes tiếng Anh | Model được tài khoản ChatGPT hoặc Antigravity cho phép dùng; nhánh Antigravity ưu tiên khảo sát Gemini | Cloud qua adapter đã chọn; không nạp LLM local. Xem [subscription](subscription-notes-options-v1.md), [harness](harness-notes-v1.md) và ràng buộc provider tại [ADR 0007](adr/0007-cloud-notes-providers.md) |
+| Transcript → notes | Model được tài khoản ChatGPT hoặc Antigravity cho phép dùng; nhánh Antigravity ưu tiên khảo sát Gemini | Cloud qua adapter đã chọn; không nạp LLM local. Xem [subscription](subscription-notes-options-v1.md), [harness](harness-notes-v1.md) và ràng buộc provider tại [ADR 0007](adr/0007-cloud-notes-providers.md) |
 
 `faster-whisper`, `llama.cpp` và `vLLM` là phần mềm chạy model. WhisperX là bộ ghép ASR, căn chỉnh thời gian và diarization; không phải một model thay thế Whisper. V1 chỉ cần timestamp theo đoạn, nên chưa cần buộc thêm model căn chỉnh từng từ. [WhisperX](https://github.com/m-bain/whisperX)
 

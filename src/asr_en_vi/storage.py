@@ -6,7 +6,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 def _migrate_v2(connection: sqlite3.Connection) -> None:
@@ -483,6 +483,14 @@ def _migrate_v8(connection: sqlite3.Connection) -> None:
     connection.execute("INSERT INTO notes_preferences(id, provider) VALUES (1, NULL)")
 
 
+def _migrate_v9(connection: sqlite3.Connection) -> None:
+    """Keep the coverage manifest that shows which source parts a notes revision processed."""
+    connection.execute(
+        "ALTER TABLE notes_revisions ADD COLUMN coverage_json TEXT "
+        "CHECK(coverage_json IS NULL OR json_valid(coverage_json))"
+    )
+
+
 def database_path(data_dir: Path) -> Path:
     return Path(data_dir) / "app.sqlite3"
 
@@ -582,6 +590,14 @@ def initialize(data_dir: Path) -> Path:
                 raise
             finally:
                 connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("BEGIN IMMEDIATE")
+        current_version = connection.execute(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_migrations"
+        ).fetchone()[0]
+        if current_version < 9:
+            _migrate_v9(connection)
+            connection.execute("INSERT INTO schema_migrations(version) VALUES (9)")
+        connection.commit()
     finally:
         connection.close()
     os.chmod(path, 0o600)

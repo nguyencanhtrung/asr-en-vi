@@ -481,13 +481,47 @@ def signed_in_page(browser, live, *, color_scheme="light", viewport=None, api=No
     page = context.new_page()
     page.goto(live.access_link, wait_until="domcontentloaded")
     page.wait_for_url(live.url + "/")
-    expect(page.locator("#connections-launcher")).to_be_visible()
+    expect(page.locator("#launcher-chatgpt")).to_be_visible()
+    expect(page.locator("#launcher-antigravity")).to_be_visible()
     return context, page, api
 
 
-def open_connection_dialog(page):
-    page.locator("#connections-launcher").click()
+def open_connection_dialog(page, launcher="#launcher-chatgpt"):
+    page.locator(launcher).click()
     expect(page.locator("#connections-dialog")).to_be_visible()
+
+
+def assert_landed_on_antigravity(page):
+    """The heading sits near the top of the dialog body and holds focus."""
+    # The section divider and kicker above the heading take about 56px; stuck mid-dialog is 400px+.
+    page.wait_for_function(
+        """() => {
+          const offset = document.querySelector("#antigravity-title").getBoundingClientRect().top
+            - document.querySelector(".connections-body").getBoundingClientRect().top;
+          return offset >= 0 && offset <= 100;
+        }""",
+        timeout=5000,
+    )
+    expect(page.locator("#antigravity-title")).to_be_focused()
+
+
+def reload_holding_status_read(page):
+    """Reload with the page-load /api/providers read held back; returns its route to answer."""
+    held = []
+
+    def hold_first_read(route):
+        if held or route.request.method != "GET":
+            route.fallback()
+        else:
+            held.append(route)
+
+    page.context.route("**/api/providers", hold_first_read)
+    page.reload(wait_until="domcontentloaded")
+    deadline = time.monotonic() + 10
+    while not held and time.monotonic() < deadline:
+        page.wait_for_timeout(50)  # route handlers only run while we are inside Playwright
+    assert held, "the page never read the provider status"
+    return held[0]
 
 
 def test_chatgpt_login_model_verification_and_disconnect(browser_runtime):
@@ -500,7 +534,7 @@ def test_chatgpt_login_model_verification_and_disconnect(browser_runtime):
     )
     api.preferences = {"provider": None, "models": {"chatgpt": "gpt-6.1-sol"}}
     api.poll_statuses = ["pending", "connected"]
-    expect(page.locator("#connections-launcher")).to_have_attribute("data-state", "disconnected")
+    expect(page.locator("#launcher-chatgpt")).to_have_attribute("data-state", "disconnected")
     assert page.evaluate("document.documentElement.dataset.theme") == "light"
 
     open_connection_dialog(page)
@@ -509,6 +543,8 @@ def test_chatgpt_login_model_verification_and_disconnect(browser_runtime):
     expect(page.get_by_role("button", name="Hủy đăng nhập")).to_be_visible()
     expect(page.locator("#connection-status")).to_have_text("Đã kết nối", timeout=8000)
     expect(page.locator("#connection-account")).to_have_text("Tài khoản kiểm thử")
+    expect(page.locator("#launcher-chatgpt")).to_have_attribute("data-state", "connected")
+    expect(page.locator("#launcher-antigravity")).to_have_attribute("data-state", "disconnected")
     authorization_urls = page.evaluate("window.__openedAuthorizationUrls")
     assert len(authorization_urls) == 1
     assert "auth.openai.com" in authorization_urls[0]
@@ -566,13 +602,238 @@ def test_chatgpt_login_model_verification_and_disconnect(browser_runtime):
     page.get_by_role("button", name="Ngắt kết nối", exact=True).click()
     expect(page.locator("#connection-status")).to_have_text("Chưa kết nối")
     expect(page.locator("#connection-message")).to_contain_text("chưa xác nhận thu hồi quyền từ xa")
-    expect(page.locator("#connections-launcher")).to_have_attribute(
-        "aria-label", "Kết nối ChatGPT: chưa kết nối"
+    expect(page.locator("#launcher-chatgpt")).to_have_attribute(
+        "aria-label", "Kết nối OpenAI: chưa kết nối"
     )
     assert any(
         method == "DELETE" and path == "/api/providers/chatgpt/connection"
         for method, path, _ in api.calls
     )
+    context.close()
+
+
+def assert_launcher_statuses_whole(page, width):
+    """At this phone width both status texts show in full inside their buttons, with no overflow."""
+    page.set_viewport_size({"width": width, "height": 780})
+    for launcher in ("#launcher-chatgpt", "#launcher-antigravity"):
+        button = page.locator(launcher)
+        status = button.locator(".connection-launcher-status")
+        expect(status).to_be_visible()
+        assert status.evaluate("element => element.scrollWidth <= element.clientWidth")
+        box, text = button.bounding_box(), status.bounding_box()
+        assert box and box["x"] >= 0 and box["x"] + box["width"] <= width
+        assert text
+        assert box["x"] <= text["x"] and text["x"] + text["width"] <= box["x"] + box["width"]
+        assert box["y"] <= text["y"] and text["y"] + text["height"] <= box["y"] + box["height"]
+    assert (
+        page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
+        == 0
+    )
+
+
+def test_header_shows_openai_and_google_status_separately(browser_runtime):
+    live, browser = browser_runtime
+    api = MockProviderApi()
+    api.antigravity_status = "connected"
+    context, page, _ = signed_in_page(
+        browser, live, api=api, viewport={"width": 1280, "height": 900}
+    )
+    openai = page.locator("#launcher-chatgpt")
+    google = page.locator("#launcher-antigravity")
+
+    # The page-load read sets both buttons; nothing is opened or clicked.
+    expect(google).to_have_attribute("data-state", "connected")
+    expect(google).to_contain_text("Google")
+    expect(google).to_contain_text("Đã kết nối")
+    expect(google).to_have_attribute(
+        "aria-label", "Kết nối Google: đã kết nối với Google Antigravity"
+    )
+    expect(openai).to_have_attribute("data-state", "disconnected")
+    expect(openai).to_contain_text("OpenAI")
+    expect(openai).to_contain_text("Chưa kết nối")
+    expect(openai).to_have_attribute("aria-label", "Kết nối OpenAI: chưa kết nối")
+
+    # Names and status text stay readable beside "Lịch" without overflowing a phone screen.
+    for width in (360, 320):
+        assert_launcher_statuses_whole(page, width)
+        expect(page.locator("#open-calendar")).to_be_visible()
+    context.close()
+
+
+def test_launcher_status_wraps_instead_of_being_cut_when_both_providers_need_reconnecting(
+    browser_runtime,
+):
+    live, browser = browser_runtime
+    api = MockProviderApi()
+    api.status = "reconnect_required"
+    api.antigravity_status = "reconnect_required"
+    context, page, _ = signed_in_page(
+        browser, live, api=api, viewport={"width": 360, "height": 780}
+    )
+    for launcher in ("#launcher-chatgpt", "#launcher-antigravity"):
+        expect(page.locator(launcher)).to_have_attribute("data-state", "reconnect_required")
+        status = page.locator(launcher).locator(".connection-launcher-status")
+        expect(status).to_have_text("Cần đăng nhập lại")
+    for width in (360, 320):
+        assert_launcher_statuses_whole(page, width)
+    context.close()
+
+
+def test_google_button_opens_dialog_at_antigravity_and_tracks_its_status(browser_runtime):
+    live, browser = browser_runtime
+    api = MockProviderApi()
+    api.antigravity_status = "connected"
+    api.antigravity_selected_model = "gemini-3-pro-high"
+    context, page, _ = signed_in_page(
+        browser, live, api=api, viewport={"width": 1280, "height": 800}
+    )
+    openai = page.locator("#launcher-chatgpt")
+    google = page.locator("#launcher-antigravity")
+    body = page.locator(".connections-body")
+
+    open_connection_dialog(page)
+    assert body.evaluate("element => element.scrollTop") == 0
+    page.locator("#connections-close").click()
+    expect(openai).to_be_focused()
+
+    # A fresh page: the model sections are still hidden when Google is clicked, as on first use.
+    page.reload()
+    open_connection_dialog(page, "#launcher-antigravity")
+    expect(page.locator("#antigravity-model")).to_have_value("gemini-3-pro-high")
+    assert_landed_on_antigravity(page)
+    expect(page.locator("#antigravity-status")).to_have_text("Đã kết nối")
+
+    page.get_by_role("button", name="Ngắt kết nối Antigravity").click()
+    expect(google).to_have_attribute("data-state", "disconnected")
+    expect(google).to_have_attribute("aria-label", "Kết nối Google: chưa kết nối")
+    expect(openai).to_have_attribute("data-state", "disconnected")
+
+    page.keyboard.press("Escape")
+    expect(page.locator("#connections-dialog")).to_be_hidden()
+    expect(google).to_be_focused()
+    context.close()
+
+
+def test_google_button_lands_on_antigravity_when_chatgpt_sections_render_above(browser_runtime):
+    live, browser = browser_runtime
+    api = MockProviderApi()
+    api.status = "connected"
+    api.preferences = {
+        "provider": "chatgpt",
+        "models": {"chatgpt": "gpt-6.1-sol"},
+        "reasoning_effort": "default",
+    }
+    api.antigravity_status = "connected"
+    api.antigravity_selected_model = "gemini-3-pro-high"
+    context, page, _ = signed_in_page(
+        browser, live, api=api, viewport={"width": 1280, "height": 800}
+    )
+    openai = page.locator("#launcher-chatgpt")
+    google = page.locator("#launcher-antigravity")
+
+    # First use: the ChatGPT sections render above the heading while the loads are in flight.
+    open_connection_dialog(page, "#launcher-antigravity")
+    expect(page.locator("#connection-model")).to_have_value("gpt-6.1-sol")
+    expect(page.locator("#antigravity-model")).to_have_value("gemini-3-pro-high")
+    assert_landed_on_antigravity(page)
+    page.keyboard.press("Tab")
+    expect(page.locator("#antigravity-disconnect")).to_be_focused()
+    page.keyboard.press("Escape")
+    expect(page.locator("#connections-dialog")).to_be_hidden()
+    expect(google).to_be_focused()
+
+    # The OpenAI opener still starts at the top, ChatGPT sections shown, focus outside Antigravity.
+    open_connection_dialog(page)
+    assert page.locator(".connections-body").evaluate("element => element.scrollTop") == 0
+    expect(page.locator("#antigravity-title")).not_to_be_focused()
+    page.locator("#connections-close").click()
+    expect(openai).to_be_focused()
+    context.close()
+
+
+def test_slow_page_load_status_cannot_overwrite_state_read_through_the_dialog(browser_runtime):
+    live, browser = browser_runtime
+    api = MockProviderApi()
+    api.status = "connected"
+    api.antigravity_status = "connected"
+    api.antigravity_selected_model = "gemini-3-pro-high"
+    context, page, _ = signed_in_page(
+        browser, live, api=api, viewport={"width": 1280, "height": 800}
+    )
+    openai = page.locator("#launcher-chatgpt")
+    google = page.locator("#launcher-antigravity")
+    stale = api.provider_payload()  # both connected: what the slow page-load read will answer
+    slow_read = reload_holding_status_read(page)
+    expect(google.locator(".connection-launcher-status")).to_have_text("Đang kiểm tra")
+
+    # The user opens the dialog and disconnects both providers while that read is pending.
+    open_connection_dialog(page, "#launcher-antigravity")
+    page.get_by_role("button", name="Ngắt kết nối Antigravity").click()
+    expect(google).to_have_attribute("data-state", "disconnected")
+    page.get_by_role("button", name="Ngắt kết nối ChatGPT").click()
+    page.get_by_role("button", name="Ngắt kết nối", exact=True).click()
+    expect(openai).to_have_attribute("data-state", "disconnected")
+
+    # The slow answer finally arrives with the old "connected" status and must not revert them.
+    api.fulfill(slow_read, stale)
+    page.wait_for_timeout(300)
+    expect(openai).to_have_attribute("data-state", "disconnected")
+    expect(google).to_have_attribute("data-state", "disconnected")
+    expect(page.locator("#connection-status")).to_have_text("Chưa kết nối")
+    context.close()
+
+
+def test_slow_page_load_status_still_sets_google_after_a_restored_chatgpt_login_finishes(
+    browser_runtime,
+):
+    live, browser = browser_runtime
+    api = MockProviderApi()
+    api.antigravity_status = "connected"
+    context, page, _ = signed_in_page(browser, live, api=api)
+    openai = page.locator("#launcher-chatgpt")
+    google = page.locator("#launcher-antigravity")
+
+    # A ChatGPT login left pending before the reload completes on its first poll.
+    future = (datetime.now(UTC) + timedelta(minutes=10)).isoformat()
+    api.sessions["restored"] = {"status": "pending", "expires_at": future}
+    api.poll_statuses = ["connected"]
+    page.evaluate(
+        "([id, expiresAt]) => sessionStorage.setItem("
+        "'asr.chatgpt.pendingLogin', JSON.stringify({id, expiresAt}))",
+        ["restored", future],
+    )
+    stale = api.provider_payload()  # ChatGPT not connected yet: what the slow read will answer
+    slow_read = reload_holding_status_read(page)
+    expect(openai).to_have_attribute("data-state", "connected")
+    expect(google).not_to_have_attribute("data-state", "connected")
+
+    # The slow answer must not revert OpenAI, and it is still the first status Google gets.
+    api.fulfill(slow_read, stale)
+    expect(google).to_have_attribute("data-state", "connected")
+    expect(openai).to_have_attribute("data-state", "connected")
+    context.close()
+
+
+def test_google_button_shows_an_error_when_its_status_cannot_be_read(browser_runtime):
+    live, browser = browser_runtime
+    api = MockProviderApi()
+    api.antigravity_status = "connected"
+    context, page, _ = signed_in_page(browser, live, api=api)
+    google = page.locator("#launcher-antigravity")
+    expect(google).to_have_attribute("data-state", "connected")
+
+    context.route(
+        "**/api/providers",
+        lambda route: route.fulfill(
+            status=500, content_type="application/json", body=json.dumps({"detail": "unavailable"})
+        ),
+    )
+    open_connection_dialog(page, "#launcher-antigravity")
+
+    expect(google).to_have_attribute("data-state", "error")
+    expect(google).to_have_attribute("aria-label", "Kết nối Google: không đọc được trạng thái")
+    expect(google.locator(".connection-launcher-status")).to_have_text("Không khả dụng")
+    expect(page.locator("#launcher-chatgpt")).to_have_attribute("data-state", "disconnected")
     context.close()
 
 
@@ -589,6 +850,8 @@ def test_antigravity_login_catalog_verification_and_disconnect(browser_runtime):
     )
     expect(page.locator("#antigravity-status")).to_have_text("Đã kết nối", timeout=8000)
     expect(page.locator("#antigravity-account")).to_have_text("Google Antigravity")
+    expect(page.locator("#launcher-antigravity")).to_have_attribute("data-state", "connected")
+    expect(page.locator("#launcher-chatgpt")).to_have_attribute("data-state", "disconnected")
 
     page.locator("#antigravity-model").select_option("gemini-3-pro-high")
     expect(page.locator("#antigravity-effort")).to_have_value("high")
@@ -675,6 +938,10 @@ def test_antigravity_reconnect_error_refreshes_status_and_hides_stale_controls(
     expect(page.locator("#antigravity-model-section")).to_be_hidden()
     expect(page.locator("#antigravity-verification-section")).to_be_hidden()
     expect(page.locator("#antigravity-error-message")).to_have_text(expected_error)
+    expect(page.locator("#launcher-antigravity")).to_have_attribute(
+        "data-state",
+        "reconnect_required" if expected_status == "Cần kết nối lại" else "disconnected",
+    )
     assert sum(method == "GET" and path == "/api/providers" for method, path, _ in api.calls) >= 2
     context.close()
 
@@ -861,7 +1128,7 @@ def test_unavailable_model_is_preserved_and_dialog_is_accessible_on_mobile(brows
 
     page.keyboard.press("Escape")
     expect(page.locator("#connections-dialog")).to_be_hidden()
-    expect(page.locator("#connections-launcher")).to_be_focused()
+    expect(page.locator("#launcher-chatgpt")).to_be_focused()
     assert (
         page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
         == 0
@@ -901,6 +1168,8 @@ def test_provider_reconnect_error_refreshes_status_without_replaying_verify(
         page.get_by_role("button", name="Chạy kiểm tra bằng dữ liệu tổng hợp").click()
 
     expect(page.locator("#connection-status")).to_have_text("Cần đăng nhập lại")
+    expect(page.locator("#launcher-chatgpt")).to_have_attribute("data-state", "reconnect_required")
+    expect(page.locator("#launcher-antigravity")).to_have_attribute("data-state", "disconnected")
     expect(page.get_by_role("button", name="Continue with ChatGPT")).to_be_visible()
     expect(page.get_by_role("button", name="Continue with ChatGPT")).to_be_enabled()
     expect(page.locator("#connection-error-message")).to_have_text(

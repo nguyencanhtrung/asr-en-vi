@@ -6,7 +6,7 @@ Thiết kế giao diện A dark theme đã được duyệt theo prototype và g
 
 Các quyết định backend Q1–Q27 đã thống nhất tại [Backend design v1](backend-design-v1.md), được cụ thể hóa thành schema/API và vòng đời tác vụ trong [Backend contract v1](backend-contract-v1.md). Đã chọn Python/FastAPI, hai service `app`/`worker` giao việc qua SQLite và file âm thanh local. ASR/phân biệt người nói chạy local; tạo notes dùng ChatGPT hoặc OMP + Google Antigravity theo [ADR 0007](adr/0007-cloud-notes-providers.md). Triển khai, benchmark và cấu hình phát hành chưa hoàn tất.
 
-Ứng dụng dùng qua trình duyệt, với backend ASR và logic được đóng gói trong Docker Compose trên máy do người dùng quản lý, để biến bản ghi cuộc họp của một nhóm nội bộ cố định thành meeting notes tiếng Anh. Người dùng nhập bản ghi, chọn ngôn ngữ chính và nhà cung cấp tạo notes, xử lý, nghe lại và sửa bản nháp, sau đó copy hoặc xuất notes.
+Ứng dụng dùng qua trình duyệt, với backend ASR và logic được đóng gói trong Docker Compose trên máy do người dùng quản lý, để biến bản ghi cuộc họp của một nhóm nội bộ cố định thành meeting notes bằng tiếng Anh hoặc tiếng Việt theo lựa chọn. Người dùng nhập bản ghi, chọn ngôn ngữ chính và nhà cung cấp tạo notes, xử lý, nghe lại và sửa bản nháp, sau đó copy hoặc xuất notes.
 
 Các yêu cầu sản phẩm dưới đây tổng hợp những quyết định đã được người dùng đồng ý trong phiên làm rõ specification. Mục tiêu hiệu năng và chất lượng cần được kiểm chứng bằng bản ghi thực tế trước khi nghiệm thu.
 
@@ -21,7 +21,7 @@ Các yêu cầu sản phẩm dưới đây tổng hợp những quyết định 
 | Buổi họp điển hình | Dài 1–2 giờ, có 2–3 người nói; người dùng và boss có thể cùng xuất hiện |
 | Ngôn ngữ đầu vào | Toàn tiếng Anh; tiếng Việt xen thuật ngữ Anh; hoặc cả hai ngôn ngữ trong một bản ghi |
 | Transcript | Giữ ngôn ngữ đã nói, gồm thuật ngữ Anh trong câu Việt |
-| Meeting notes | Tiếng Anh |
+| Meeting notes | Ngôn ngữ đầu ra do người dùng chọn: English hoặc Tiếng Việt |
 | Thiết bị | Máy hiện có với Ryzen 9 và RTX 5080; không mua thêm phần cứng |
 | Máy chạy backend | Nghiệm thu trên Ubuntu 24.04 hiện tại; hỗ trợ cài mới trên Linux có NVIDIA GPU và cấu hình tương thích |
 | Hình thức ứng dụng | UI trên trình duyệt; backend đóng gói thành một bộ Docker Compose |
@@ -44,7 +44,7 @@ V1 không bao gồm tự ghi âm, bot tham gia Meet, chép lời thời gian th�
 2. Kéo thả hoặc chọn file audio/video có sẵn để upload lên backend.
 3. Đặt tên cuộc họp, chọn ngôn ngữ chính và tùy chọn nhập ngày họp.
 4. Chọn provider ChatGPT hoặc Google Antigravity qua OMP và model cho bước notes; UI chọn sẵn lựa chọn gần nhất để xem/đổi. Dùng phiên đã lưu hoặc kết nối bên được chọn. Nếu provider chưa dùng được, vẫn cho bắt đầu chép lời local và tạo notes sau. Xem tiến độ hoặc hủy tác vụ.
-5. Xem transcript, nhãn người nói và notes tiếng Anh nếu đã tạo; tùy chọn đặt tên người nói cho cuộc họp. Khi mới có transcript, hiển thị rõ chưa có notes.
+5. Xem transcript, nhãn người nói và notes nếu đã tạo; tùy chọn đặt tên người nói cho cuộc họp. Khi mới có transcript, hiển thị rõ chưa có notes.
 6. Bấm mốc thời gian để nghe lại đoạn nguồn; sửa transcript hoặc notes.
 7. Khi cần, chọn provider/model và chủ động tạo lại notes từ transcript đã sửa; không bắt buộc sử dụng cùng lựa chọn với bản notes trước.
 8. Copy notes hoặc xuất Markdown; mở lại cuộc họp từ lịch sử khi cần.
@@ -55,7 +55,7 @@ V1 không bao gồm tự ghi âm, bot tham gia Meet, chép lời thời gian th�
 - Hiển thị tiến độ upload riêng với tiến độ xử lý. Nếu upload bị ngắt, báo chưa hoàn tất và cho chọn file để tải lại từ đầu; dọn phần file tải dở và không xử lý file chưa nhận đủ. V1 không yêu cầu tiếp tục upload từ vị trí bị ngắt.
 - Lựa chọn ngôn ngữ chính gồm **English** và **Vietnamese**.
 - Ngôn ngữ chính là gợi ý nhận dạng. Chọn Vietnamese vẫn phải giữ thuật ngữ Anh; chọn English vẫn phải xử lý được đoạn tiếng Việt trong cùng bản ghi.
-- Lựa chọn ngôn ngữ chính không thay đổi ngôn ngữ đầu ra của notes, vốn luôn là tiếng Anh, và không yêu cầu dịch transcript.
+- Lựa chọn ngôn ngữ chính không thay đổi ngôn ngữ đầu ra của notes, vốn do người dùng chọn riêng (English hoặc Tiếng Việt) khi tạo notes, và không yêu cầu dịch transcript.
 - Ngày họp có thể để trống. Không coi ngày xử lý hoặc thời gian sửa file là ngày họp đã được xác nhận.
 - Sau import, cho sửa tên và ngày họp với kiểm tra phiên bản để tránh ghi đè từ tab cũ. Thay đổi ngày, kể cả thêm/xóa ngày, làm notes cần cập nhật và bị khóa trong lúc tạo notes; ngày trong bản chụp nguồn cũ giữ nguyên. Đổi riêng tên cuộc họp không thay nguồn tạo notes.
 - Khi chạy lại âm thanh, có thể chọn ngôn ngữ gợi ý cho lần xử lý mới; lựa chọn được lưu cùng thế hệ transcript mới, không thay lịch sử ngôn ngữ của thế hệ cũ.
@@ -109,7 +109,7 @@ Phần phục vụ UI/API và phần chạy model được tách thành hai serv
 
 Đánh dấu không chắc chắn là hỗ trợ cho bước duyệt, không phải bảo đảm rằng hệ thống phát hiện được mọi lỗi nhận dạng. WhisperX công bố các hạn chế với nói chồng và phân biệt người nói; vì vậy chất lượng phải được đo trên dữ liệu của nhóm. [Nguồn WhisperX](https://github.com/m-bain/whisperX#limitations-)
 
-## 4. Meeting notes tiếng Anh
+## 4. Meeting notes
 
 Notes là bản nháp để người dùng duyệt. Cấu trúc nội dung gồm:
 
@@ -122,7 +122,7 @@ Notes là bản nháp để người dùng duyệt. Cấu trúc nội dung gồm
 | Confirmed Action Items | Các công việc đã được thống nhất |
 | Items Requiring Confirmation | Đề xuất chưa thống nhất, nội dung mơ hồ hoặc cần người dùng kiểm tra |
 
-Notes phải giữ được ý nghĩa của phát biểu tiếng Anh lẫn tiếng Việt. Việc diễn đạt lại bằng tiếng Anh không được làm tăng mức chắc chắn của phát biểu hoặc biến một ý tưởng thành quyết định.
+Notes phải giữ được ý nghĩa của phát biểu tiếng Anh lẫn tiếng Việt. Việc diễn đạt lại không được làm tăng mức chắc chắn của phát biểu hoặc biến một ý tưởng thành quyết định.
 
 Model sinh dữ liệu có cấu trúc trung gian với ID đoạn nguồn; backend kiểm tra cấu trúc và tham chiếu nguồn trước khi chuyển thành Markdown cho người dùng duyệt/sửa. Kiểm tra ID và cấu trúc không thay thế việc kiểm chứng ý nghĩa; schema cụ thể tiếp tục được thiết kế.
 
@@ -178,7 +178,7 @@ Mục tiêu là khoảng **5–10 phút duyệt và sửa cho mỗi giờ họp*
 
 - Hiển thị danh sách cuộc họp đã nhập/xử lý để mở lại.
 - Trong sidebar, giữ danh sách cuộc họp gần đây ngắn gọn và đặt lịch tháng nhỏ ngay bên dưới. Đánh dấu các ngày có cuộc họp trong dữ liệu đã lưu; số cuộc họp và dấu ngày cập nhật khi nhập hoặc xóa cuộc họp.
-- Cho phép chuyển tháng trước/sau, chọn trực tiếp tháng/năm trong quá khứ và quay về hôm nay. Bấm một ngày hoặc nút mở lịch sẽ chuyển vùng làm việc chính sang lịch tháng lớn, giữ sidebar để điều hướng.
+- Cho phép chuyển tháng trước/sau, chọn trực tiếp tháng/năm trong quá khứ và quay về hôm nay. Bấm một ngày hoặc mục **Chưa đặt ngày** trong lịch nhỏ sẽ chuyển vùng làm việc chính sang lịch tháng lớn, giữ sidebar để điều hướng; ở màn hình hẹp (từ 680 px trở xuống) lịch nhỏ ẩn đi và nút **Lịch** ở đầu vùng làm việc là lối vào.
 - Lịch lớn hiển thị các cuộc họp theo ngày và có danh sách đầy đủ cho ngày được chọn, kể cả khi nhiều cuộc họp cùng ngày. Chọn một cuộc họp để mở transcript/notes; có đường quay lại màn hình duyệt. Lịch nhỏ và lịch lớn dùng chung tháng/ngày đang chọn.
 - Dùng ngày họp đã nhập để xếp lịch. Cuộc họp thiếu ngày nằm trong mục **Chưa đặt ngày**, không tự xếp vào ngày upload/xử lý. Không hiển thị giờ bắt đầu giả khi chỉ có ngày họp và thời lượng; chuyển tháng/ngày trong lịch không sửa metadata cuộc họp.
 - Lưu trên máy chạy backend bản sao âm thanh, metadata, transcript, tên người nói được đặt riêng cho cuộc họp, notes và các bản notes trước đó cần để quay lại.
@@ -287,7 +287,7 @@ Người dùng đánh dấu trước các ý quan trọng, quyết định và c
 | Mã | Tiêu chí | Cách kiểm tra |
 | --- | --- | --- |
 | AC-01 | Nhận đúng nội dung quan trọng ở cả ba trường hợp ngôn ngữ | Đối chiếu từng bản ghi với phần người dùng đã đánh dấu; không dùng kết quả tốt ở một ngôn ngữ để che lỗi ở ngôn ngữ khác |
-| AC-02 | Notes tiếng Anh ghi đủ các ý quan trọng đã đánh dấu | So sánh notes với nội dung nguồn và các mục đã xác định trước |
+| AC-02 | Notes ghi đủ các ý quan trọng đã đánh dấu | So sánh notes với nội dung nguồn và các mục đã xác định trước |
 | AC-03 | Không bịa quyết định, người phụ trách hoặc deadline trong bộ mẫu | Đối chiếu từng quyết định/action item; kiểm tra riêng trường hợp thiếu thông tin và phát biểu mơ hồ |
 | AC-04 | Dùng đúng nhãn người nói tại các đoạn quan trọng | Kiểm tra đoạn đổi người nói và action item dùng đại từ “tôi”; không yêu cầu tự nhận diện tên |
 | AC-05 | Mốc thời gian tìm được đúng bằng chứng | Bấm mốc của quyết định/action item và nghe đoạn nguồn; timestamp theo đoạn là đủ |

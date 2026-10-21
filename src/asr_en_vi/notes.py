@@ -26,6 +26,7 @@ from asr_en_vi.storage import database_path
 from asr_en_vi.tasks import TaskError, _request_id, _task_summary
 
 _MAX_MARKDOWN_BYTES = MAX_OUTPUT_BYTES * 4
+_MAX_COVERAGE_BYTES = 65_536
 _ACTIVE_STATES = ("accepted", "running", "stopping")
 _SEGMENT_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 NOTES_PROVIDERS = ("chatgpt", "antigravity")
@@ -769,6 +770,35 @@ def load_notes_task_input(
     return dict(task), snapshot
 
 
+def _coverage_json(coverage: object) -> str | None:
+    """Serialize a coverage manifest, refusing one that lacks an accepted call for any request."""
+    if coverage is None:
+        return None
+    chunks = coverage.get("chunks") if isinstance(coverage, dict) else None
+    if (
+        not isinstance(chunks, list)
+        or not chunks
+        or any(
+            not isinstance(chunk, dict)
+            or type(chunk.get("provider_call_index")) is not int
+            or chunk["provider_call_index"] < 1
+            for chunk in chunks
+        )
+    ):
+        raise TaskError(400, "invalid_coverage", "The notes coverage manifest is incomplete.")
+    try:
+        encoded = json.dumps(coverage, allow_nan=False, separators=(",", ":"))  # ASCII only
+    except (TypeError, ValueError):
+        raise TaskError(
+            400, "invalid_coverage", "The notes coverage manifest is incomplete."
+        ) from None
+    if len(encoded) > _MAX_COVERAGE_BYTES:
+        raise TaskError(
+            413, "coverage_too_large", "The notes coverage manifest exceeds the size limit."
+        )
+    return encoded
+
+
 def publish_notes_revision(
     data_dir: Path,
     task_id: str,
@@ -776,11 +806,13 @@ def publish_notes_revision(
     owner_id: str,
     markdown: object,
     elapsed_seconds: float,
+    coverage: object = None,
 ) -> dict[str, object] | None:
     if not isinstance(markdown, str) or "\x00" in markdown:
         raise TaskError(400, "invalid_markdown", "The generated notes document is invalid.")
     if len(markdown.encode("utf-8")) > _MAX_MARKDOWN_BYTES:
         raise TaskError(413, "markdown_too_large", "Generated notes exceed the size limit.")
+    coverage_json = _coverage_json(coverage)
     with _connect(data_dir) as connection, connection:
         connection.execute("BEGIN IMMEDIATE")
         task = connection.execute(
@@ -798,8 +830,8 @@ def publish_notes_revision(
         connection.execute(
             "INSERT INTO notes_revisions(id, meeting_id, source_snapshot_id, task_id, markdown, "
             "provider, model, reasoning_effort, connection_version, prompt_version, "
-            "schema_version, output_language) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "schema_version, output_language, coverage_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 revision_id,
                 task["meeting_id"],
@@ -813,6 +845,7 @@ def publish_notes_revision(
                 task["notes_prompt_version"],
                 task["notes_schema_version"],
                 task["notes_output_language"],
+                coverage_json,
             ),
         )
         connection.execute(

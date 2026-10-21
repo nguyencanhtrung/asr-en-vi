@@ -6,12 +6,13 @@ import copy
 import json
 import math
 import re
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
 SCHEMA_VERSION = 1
-PROMPT_VERSION = "notes-hierarchical-v5"
+PROMPT_VERSION = "notes-hierarchical-v6"
 LEGACY_ENGLISH_PROMPT_VERSION = "notes-hierarchical-v4"
 _MAX_PROMPT_HARD_LIMIT_BYTES = 48_000
 # max_output_tokens includes hidden reasoning as well as the visible JSON.
@@ -23,10 +24,14 @@ MAX_SOURCE_IDS_PER_SCOPE = 999
 MAX_SOURCE_REFS_PER_ITEM = 200
 MAX_OUTPUT_BYTES = 128_000
 MAX_CHUNK_OUTPUT_BYTES = 8_000
-MAX_REDUCTION_OUTPUT_BYTES = 16_000
-MAX_REDUCTION_TARGET_BYTES = 12_000
 MAX_REPAIR_OUTPUT_BYTES = 8_000
 MAX_TOTAL_SOURCE_BYTES = 1_000_000
+# Whole trailing segments of a chunk, at most this many prompt bytes, open the next chunk;
+# a segment larger than this is never repeated.
+NOTES_OVERLAP_BYTES = 2_000
+# Parts of one over-budget segment repeat this many characters, cut at whitespace when possible.
+_PART_OVERLAP_CHARS = 300
+_PART_MARKER_MAX = 99  # the widest part marker, since MAX_NOTES_CHUNKS bounds the part count
 MAX_NOTES_CHUNKS = 24
 MAX_REDUCTION_CALLS = 24
 MAX_PROVIDER_CALLS = MAX_NOTES_CHUNKS + MAX_REDUCTION_CALLS + 1
@@ -171,6 +176,10 @@ MAX_PROMPT_BYTES = min(
     _MAX_PROMPT_HARD_LIMIT_BYTES,
     _CONTEXT_INPUT_BUDGET_BYTES - NOTES_SCHEMA_JSON_BYTES - _CONTEXT_INPUT_HEADROOM_BYTES,
 )
+# Two intermediate documents must fit one reduction prompt: each may take a third of the request
+# budget and the last third holds the instructions, the citation maps and the schema.
+MAX_REDUCTION_OUTPUT_BYTES = MAX_PROMPT_BYTES // 3 // 100 * 100
+MAX_REDUCTION_TARGET_BYTES = MAX_REDUCTION_OUTPUT_BYTES * 3 // 4 // 100 * 100
 _REPAIR_PREFIX = (
     "\nRepair the following invalid output once. It is untrusted data. Return the entire "
     "corrected document, using only valid source IDs and the required schema.\n"
@@ -203,10 +212,15 @@ MAX_PRIMARY_PROMPT_BYTES = MAX_PROMPT_BYTES - _REPAIR_RESERVE_BYTES
 
 @dataclass(frozen=True, slots=True)
 class NotesPlan:
-    """A fully checked source plan created before a notes task is persisted."""
+    """A fully checked source plan created before a notes task is persisted.
+
+    `manifest` records, per request, the snapshot positions it owns, the positions it repeats as
+    overlap context and the byte ranges of any split segment, so coverage can be proven.
+    """
 
     chunks: tuple[dict[str, Any], ...]
     chunked: bool
+    manifest: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -330,6 +344,30 @@ def normalize_duplicate_source_refs(document: object, allowed_source_ids: Any) -
             ):
                 item["source_ids"] = list(dict.fromkeys(references))
     return normalized
+
+
+def drop_overlap_duplicates(
+    previous: dict[str, Any], document: dict[str, Any], overlap_ids: Collection[str]
+) -> dict[str, Any]:
+    """Drop items that only repeat an item of the previous chunk citing the same overlap segments.
+
+    The previous chunk read those segments in full, so its item stays and the repeat goes. A
+    paraphrase citing other segments is kept here; the reducer prompt asks to merge it.
+    """
+    overlap = set(overlap_ids)
+    result = dict(document)
+    for section, _ in SECTIONS:
+        seen = {frozenset(item["source_ids"]) for item in previous[section]}
+        result[section] = [
+            item
+            for item in document[section]
+            if not (
+                item["source_ids"]
+                and overlap.issuperset(item["source_ids"])
+                and frozenset(item["source_ids"]) in seen
+            )
+        ]
+    return result
 
 
 def restore_source_refs(
@@ -581,6 +619,8 @@ def provider_source(snapshot: dict[str, Any]) -> dict[str, Any]:
                 "text": segment["text"],
                 "speaker_name": segment.get("speaker_name")
                 or speakers.get(segment.get("speaker_id")),
+                # Request-local markers set by the planner; stored segments never carry them.
+                **{key: segment[key] for key in ("overlap", "part") if key in segment},
             }
             for segment in snapshot["segments"]
         ],
@@ -655,7 +695,11 @@ def _source_instructions(
                 "Prefer concise "
                 "item text, consolidate close repetitions, and preserve distinct decisions, "
                 "questions, "
-                "actions, confirmations and their source IDs.\n"
+                "actions, confirmations and their source IDs. "
+                'Segments marked "overlap" repeat the end of the previous chunk as context: cite '
+                "them where a point depends on them, but emit no point resting only on them. "
+                'A segment marked "part": [i, n] is piece i of n of one long segment; its pieces '
+                "share the id and time range, and neighbours repeat a short stretch of text.\n"
             )
         else:
             instructions += (
@@ -669,7 +713,11 @@ def _source_instructions(
                 "trong giới hạn "
                 f"{MAX_CHUNK_OUTPUT_BYTES} byte UTF-8. Viết mục ngắn gọn, gộp ý lặp gần nhau, "
                 "giữ riêng "
-                "các quyết định, câu hỏi, hành động, mục cần xác nhận và mã nguồn tương ứng.\n"
+                "các quyết định, câu hỏi, hành động, mục cần xác nhận và mã nguồn tương ứng. "
+                'Đoạn có dấu "overlap" lặp lại phần cuối của phần trước làm ngữ cảnh: chỉ trích '
+                "dẫn khi một ý phụ thuộc vào chúng, không tạo ý chỉ dựa trên chúng. "
+                'Đoạn có dấu "part": [i, n] là mảnh i trên n của một đoạn dài; các mảnh dùng '
+                "chung mã và khoảng thời gian, hai mảnh liền nhau lặp lại một đoạn văn bản ngắn.\n"
             )
     return instructions
 
@@ -849,13 +897,200 @@ def prompt_fits_repair(
     return _fits_repairable_prompt(prompt, allowed_source_ids, output_language=output_language)
 
 
+def _coverage_manifest(
+    source_ids: Sequence[str], chunks: Sequence[dict[str, Any]]
+) -> dict[str, Any]:
+    """Describe which snapshot positions and text bytes each planned request carries."""
+    positions = {source_id: position for position, source_id in enumerate(source_ids)}
+
+    def span(segments: list[dict[str, Any]]) -> list[int] | None:
+        if not segments:
+            return None
+        return [positions[segments[0]["id"]], positions[segments[-1]["id"]] + 1]
+
+    entries = []
+    for index, chunk in enumerate(chunks, start=1):
+        overlap = [segment for segment in chunk["segments"] if segment.get("overlap")]
+        owned = [segment for segment in chunk["segments"] if not segment.get("overlap")]
+        entries.append(
+            {
+                "index": index,
+                "owned": span(owned) or [0, 0],
+                "overlap": span(overlap),
+                "parts": [
+                    {
+                        "position": positions[segment["id"]],
+                        "part": segment["part"][0],
+                        "count": segment["part"][1],
+                        "bytes": list(segment["bytes"]),
+                    }
+                    for segment in owned
+                    if "part" in segment
+                ],
+            }
+        )
+    return {"version": 1, "segment_count": len(source_ids), "chunks": entries}
+
+
+def _without(item: dict[str, Any], *keys: str) -> dict[str, Any]:
+    return {key: value for key, value in item.items() if key not in keys}
+
+
+def verify_coverage(snapshot: dict[str, Any], plan: NotesPlan) -> None:
+    """Prove from the plan alone that every segment and text byte reaches a request in order."""
+    failure = NotesDocumentError("The notes chunk plan does not preserve complete source coverage.")
+    segments = provider_source(snapshot)["segments"]
+    try:
+        if plan.manifest != _coverage_manifest([item["id"] for item in segments], plan.chunks):
+            raise failure
+    except (KeyError, IndexError, TypeError):
+        raise failure from None
+    if not plan.chunked:
+        return
+
+    position = 0
+    split: tuple[int, int, int, int] | None = None  # (part, count, start, end) read so far
+    previous: list[dict[str, Any]] = []
+    for chunk in plan.chunks:
+        overlap = [item for item in chunk["segments"] if item.get("overlap")]
+        owned = [item for item in chunk["segments"] if not item.get("overlap")]
+        # The overlap must be the trailing whole segments the previous request owned.
+        repeated = [_without(item, "overlap") for item in overlap]
+        if (
+            any("part" in item for item in overlap)
+            or repeated != previous[len(previous) - len(overlap) :]
+        ):
+            raise failure
+        for entry in owned:
+            source = segments[position] if position < len(segments) else None
+            if source is None or entry["id"] != source["id"]:
+                raise failure
+            if "part" not in entry:
+                if split is not None or entry != source:
+                    raise failure
+                position += 1
+                continue
+            number, count = entry["part"]
+            start, end = entry["bytes"]
+            data = source["text"].encode("utf-8")
+            try:
+                text = data[start:end].decode("utf-8")
+            except UnicodeDecodeError:
+                raise failure from None
+            continues = number == 1 and start == 0
+            if split is not None:
+                last_number, last_count, last_start, last_end = split
+                next_part = (last_number + 1, last_count)
+                continues = (number, count) == next_part and last_start < start <= last_end
+            if not (
+                continues
+                and count >= 2
+                and start < end <= len(data)
+                and text == entry["text"]
+                and _without(entry, "text", "part", "bytes") == _without(source, "text")
+            ):
+                raise failure
+            if number == count:
+                if end != len(data):
+                    raise failure
+                position += 1
+                split = None
+            else:
+                split = (number, count, start, end)
+        previous = owned
+    if position != len(segments) or split is not None:
+        raise failure
+
+
+def _split_text(text: str, fits: Callable[[str], bool]) -> list[tuple[int, int]]:
+    """Cut text into ordered character ranges that each fit, at whitespace where possible.
+
+    A range after the first starts a short stretch before the previous one ends, so a sentence
+    cut by a boundary is complete in one of the two ranges.
+    """
+    ranges: list[tuple[int, int]] = []
+    start = 0
+    while True:
+        low, high = start, len(text)
+        while low < high:  # the largest end that fits, found by bisection
+            middle = (low + high + 1) // 2
+            if fits(text[start:middle]):
+                low = middle
+            else:
+                high = middle - 1
+        end = low
+        if end <= start:
+            raise NotesDocumentError(
+                "A single transcript segment exceeds the maximum notes chunk context budget."
+            )
+        if end < len(text):
+            end = next(
+                (i + 1 for i in range(end - 1, (start + end) // 2, -1) if text[i].isspace()), end
+            )
+        ranges.append((start, end))
+        if len(ranges) > MAX_NOTES_CHUNKS:
+            raise NotesDocumentError(
+                f"This transcript exceeds the maximum of {MAX_NOTES_CHUNKS} notes chunks."
+            )
+        if end >= len(text):
+            return ranges
+        start = max(start + 1, end - _PART_OVERLAP_CHARS)
+        start = next((i + 1 for i in range(start, end) if text[i].isspace()), start)
+
+
+def _split_segment(
+    segment: dict[str, Any],
+    prompt_segment: dict[str, Any],
+    fits: Callable[[list[dict[str, Any]]], bool],
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Cut one over-budget segment into parts that all keep its id, times and speaker."""
+    text = segment["text"]
+    marker = [_PART_MARKER_MAX, _PART_MARKER_MAX]
+    ranges = _split_text(
+        text, lambda piece: fits([{**prompt_segment, "text": piece, "part": marker}])
+    )
+    units = []
+    for number, (start, end) in enumerate(ranges, start=1):
+        part = {
+            "text": text[start:end],
+            "part": [number, len(ranges)],
+            "bytes": [len(text[:start].encode("utf-8")), len(text[:end].encode("utf-8"))],
+        }
+        units.append(({**segment, **part}, {**prompt_segment, **part}))
+    return units
+
+
+def _trailing_overlap(
+    owned: list[tuple[dict[str, Any], dict[str, Any]]],
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Whole trailing segments of a chunk, within the overlap bound, as context for the next."""
+    kept = []
+    size = 0
+    for segment, prompt_segment in reversed(owned):
+        if "part" in segment:
+            break
+        marked = {**prompt_segment, "overlap": True}
+        size += (
+            len(json.dumps(marked, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
+        )
+        if size > NOTES_OVERLAP_BYTES:
+            break
+        kept.append(({**segment, "overlap": True}, marked))
+    return kept[::-1]
+
+
 def plan_source(
     snapshot: dict[str, Any],
     *,
     projected_snapshot: dict[str, Any] | None = None,
     output_language: str = "en",
 ) -> NotesPlan:
-    """Plan original-ID chunks against projected prompts and their actual schemas."""
+    """Plan original-ID chunks against projected prompts and their actual schemas.
+
+    Chunks own consecutive units of the source. Every chunk after the first also repeats the
+    trailing whole segments of the previous one as overlap context, and a segment too long for
+    any chunk becomes several parts that keep its id and time range.
+    """
     output_language = validate_output_language(output_language)
     source = provider_source(snapshot)
     planning_snapshot = (
@@ -879,66 +1114,54 @@ def plan_source(
             f"This transcript exceeds the {MAX_TOTAL_SOURCE_BYTES}-byte total notes source limit."
         )
 
+    source_ids = [segment["id"] for segment in source["segments"]]
     full_prompt = _source_prompt(planning_snapshot, output_language=output_language)
     full_scope = tuple(segment["id"] for segment in prompt_source["segments"])
     if _fits_repairable_prompt(full_prompt, full_scope, output_language=output_language):
-        return NotesPlan((snapshot,), chunked=False)
+        return NotesPlan((snapshot,), False, _coverage_manifest(source_ids, (snapshot,)))
 
-    segments = source["segments"]
-    prompt_segments = prompt_source["segments"]
-    chunks: list[dict[str, Any]] = []
-    current: list[dict[str, Any]] = []
-    prompt_current: list[dict[str, Any]] = []
-    for segment, prompt_segment in zip(segments, prompt_segments, strict=True):
-        candidate = [*current, segment]
-        prompt_candidate = [*prompt_current, prompt_segment]
-        candidate_scope = tuple(item["id"] for item in prompt_candidate)
-        if _fits_repairable_prompt(
+    def fits(prompt_segments: list[dict[str, Any]]) -> bool:
+        return _fits_repairable_prompt(
             _chunk_prompt_for_budget(
-                planning_snapshot, prompt_candidate, output_language=output_language
+                planning_snapshot, prompt_segments, output_language=output_language
             ),
-            candidate_scope,
+            tuple(item["id"] for item in prompt_segments),
             output_language=output_language,
-        ):
-            current = candidate
-            prompt_current = prompt_candidate
-            continue
-        if current:
-            chunks.append(_chunk_snapshot(snapshot, current))
-            current = []
-            prompt_current = []
-            if len(chunks) >= MAX_NOTES_CHUNKS:
-                raise NotesDocumentError(
-                    f"This transcript exceeds the maximum of {MAX_NOTES_CHUNKS} notes chunks."
-                )
-        single_scope = (prompt_segment["id"],)
-        if not _fits_repairable_prompt(
-            _chunk_prompt_for_budget(
-                planning_snapshot, [prompt_segment], output_language=output_language
-            ),
-            single_scope,
-            output_language=output_language,
-        ):
-            raise NotesDocumentError(
-                "A single transcript segment exceeds the maximum notes chunk context budget."
-            )
-        current = [segment]
-        prompt_current = [prompt_segment]
-
-    if current:
-        chunks.append(_chunk_snapshot(snapshot, current))
-    if not chunks:
-        raise NotesDocumentError("The transcript source is empty.")
-    if len(chunks) > MAX_NOTES_CHUNKS:
-        raise NotesDocumentError(
-            f"This transcript exceeds the maximum of {MAX_NOTES_CHUNKS} notes chunks."
         )
 
-    original_ids = [segment["id"] for segment in segments]
-    chunk_ids = [segment["id"] for chunk in chunks for segment in chunk["segments"]]
-    if chunk_ids != original_ids:
-        raise NotesDocumentError("The notes chunk plan does not preserve complete source coverage.")
-    return NotesPlan(tuple(chunks), chunked=True)
+    units: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for segment, prompt_segment in zip(source["segments"], prompt_source["segments"], strict=True):
+        if fits([prompt_segment]):
+            units.append((segment, prompt_segment))
+        else:
+            units.extend(_split_segment(segment, prompt_segment, fits))
+    if not units:
+        raise NotesDocumentError("The transcript source is empty.")
+
+    chunks: list[dict[str, Any]] = []
+    overlap: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    index = 0
+    while index < len(units):
+        if len(chunks) >= MAX_NOTES_CHUNKS:
+            raise NotesDocumentError(
+                f"This transcript exceeds the maximum of {MAX_NOTES_CHUNKS} notes chunks."
+            )
+        owned = [units[index]]
+        index += 1
+        # A unit always fits alone, so give up the oldest overlap segment until it fits too.
+        while overlap and not fits([*(pair[1] for pair in overlap), owned[0][1]]):
+            overlap = overlap[1:]
+        while index < len(units) and fits(
+            [*(pair[1] for pair in overlap), *(pair[1] for pair in owned), units[index][1]]
+        ):
+            owned.append(units[index])
+            index += 1
+        chunks.append(_chunk_snapshot(snapshot, [pair[0] for pair in (*overlap, *owned)]))
+        overlap = _trailing_overlap(owned)
+
+    plan = NotesPlan(tuple(chunks), True, _coverage_manifest(source_ids, chunks))
+    verify_coverage(snapshot, plan)
+    return plan
 
 
 def _reduction_instructions(*, final: bool, output_language: str = "en") -> str:
@@ -965,7 +1188,10 @@ def _reduction_instructions(*, final: bool, output_language: str = "en") -> str:
             "later decisions can supersede earlier proposals. Keep confirmed actions "
             "conservative and "
             "preserve literal deadline phrases. Consolidate duplicates without dropping distinct "
-            "source-supported points. The reducer sees summaries, not the transcript, "
+            "source-supported points. Neighbouring chunks overlap, so one point can appear in two "
+            "summaries with shared source IDs; merge such repeats and never record one "
+            "statement as two decisions or action items. The reducer sees summaries, not the "
+            "transcript, "
             "so do not claim "
             "to verify details absent from them. Do not emit URLs, Markdown or extra properties.\n"
         )
@@ -993,6 +1219,9 @@ def _reduction_instructions(*, final: bool, output_language: str = "en") -> str:
             "Chỉ ghi hành động đã xác nhận "
             "khi "
             "có căn cứ và giữ nguyên cụm từ hạn chót. Gộp ý trùng nhưng không bỏ ý riêng có nguồn. "
+            "Các phần liền kề chồng lên nhau nên một ý có thể xuất hiện trong hai bản tóm tắt với "
+            "mã nguồn chung; hãy gộp lại và không ghi một phát biểu thành hai quyết định hoặc "
+            "hành động. "
             "Bộ "
             "rút "
             "gọn chỉ thấy các bản tóm tắt, không thấy transcript; "

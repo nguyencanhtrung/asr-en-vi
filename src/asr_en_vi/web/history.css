@@ -65,10 +65,20 @@
   margin-top: 26px;
 }
 
-.mini-calendar-section .section-heading .text-button {
-  min-height: 0;
-  padding: 0;
-  font-size: 10px;
+/* The month keeps its full label: "Hôm nay" drops to its own row when a scrollbar leaves the rail too narrow. */
+.mini-calendar-section .cal-pick {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.mini-calendar-section .cal-month,
+.mini-calendar-section .cal-today {
+  flex: 1 0 auto;
+}
+
+.mini-calendar-section .cal-year {
+  width: 56px;
+  flex: none;
 }
 
 /* ---- shared calendar ---- */

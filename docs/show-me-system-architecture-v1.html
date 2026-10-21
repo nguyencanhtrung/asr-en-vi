@@ -525,7 +525,7 @@
       <section id="overview">
         <div class="eyebrow">01 · Mental model</div>
         <h1>Một ứng dụng local, hai pipeline, một nguồn sự thật.</h1>
-        <p class="lede">Frontend giúp người vận hành nhập bản ghi và duyệt kết quả. FastAPI bảo vệ quy tắc nghiệp vụ. Worker dùng GPU local để chép lời, rồi chỉ gửi transcript đã chụp sang đúng provider cloud mà người dùng chọn để tạo notes tiếng Anh.</p>
+        <p class="lede">Frontend giúp người vận hành nhập bản ghi và duyệt kết quả. FastAPI bảo vệ quy tắc nghiệp vụ. Worker dùng GPU local để chép lời, rồi chỉ gửi transcript đã chụp sang đúng provider cloud mà người dùng chọn để tạo notes.</p>
         <div class="callout">
           <strong>Phạm vi</strong>
           <span>Đây là kiến trúc mục tiêu từ Q1–Q27 và các tài liệu v1. Nó mô tả hành vi phải triển khai; chưa khẳng định model, đăng nhập provider, hiệu năng hai giờ hay các API đã chạy thật.</span>
@@ -819,7 +819,7 @@
       notes: ["Worker · Orchestration", "Notes pipeline", "Chia nguồn theo utterance, trích xuất có source IDs, merge trong context budget, kiểm tra schema/ID và render Markdown.", "Tối đa một repair call cho toàn task. Chunk riêng lẻ không bao giờ được công bố như notes hoàn chỉnh."],
       chatgpt: ["Cloud option A", "ChatGPT", "Luồng thiết kế dùng Sign in with ChatGPT trực tiếp và Responses API bằng quyền tài khoản người dùng cấp.", "Provider/model/account version được pin khi task được nhận; eligibility và callback Docker vẫn cần kiểm chứng runtime."],
       antigravity: ["Cloud option B", "OMP + Google Antigravity", "Worker gọi một OMP RPC runner bị giới hạn để sử dụng model Antigravity mà người dùng đã đăng nhập.", "Runner phải tắt tools, skills, MCP, project context và auto-compaction; khả năng inference/quota cần được test thật."],
-      payload: ["Cloud data boundary", "Transcript snapshot", "Cloud nhận text, source IDs/timestamps, speaker labels/display names và ngày họp cần thiết để tạo notes tiếng Anh.", "Không gửi bản ghi audio qua notes adapter. Snapshot đã gửi là bất biến và gắn với revision được tạo."],
+      payload: ["Cloud data boundary", "Transcript snapshot", "Cloud nhận text, source IDs/timestamps, speaker labels/display names và ngày họp cần thiết để tạo notes.", "Không gửi bản ghi audio qua notes adapter. Snapshot đã gửi là bất biến và gắn với revision được tạo."],
     };
 
     document.querySelectorAll('.node').forEach((node) => {

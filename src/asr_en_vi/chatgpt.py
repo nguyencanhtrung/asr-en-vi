@@ -2120,6 +2120,7 @@ class ChatGPTProvider:
         model: str,
         reasoning_effort: str,
         output_language: str = "en",
+        on_coverage: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Generate and validate notes using only the account and model pinned at acceptance."""
         validate_reasoning_effort(model, reasoning_effort)
@@ -2187,6 +2188,7 @@ class ChatGPTProvider:
                 limit_error=lambda message: ChatGPTError(
                     413, "notes_synthesis_limit_exceeded", message
                 ),
+                on_coverage=on_coverage,
             )
 
     def verify(self, *, model: str, reasoning_effort: str | None = None) -> dict[str, Any]:

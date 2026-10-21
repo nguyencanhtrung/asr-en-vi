@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import dataclasses
 import json
 import time
 from dataclasses import dataclass
@@ -13,7 +15,7 @@ from asr_en_vi.chatgpt import (
     ChatGPTError,
     ChatGPTProvider,
 )
-from asr_en_vi.notes_document import MAX_PROMPT_BYTES
+from asr_en_vi.notes_document import MAX_PROMPT_BYTES, MAX_REDUCTION_OUTPUT_BYTES
 
 
 @dataclass
@@ -884,7 +886,6 @@ def test_long_source_uses_bounded_multi_level_reduction_and_later_decision_wins(
     from asr_en_vi.notes_document import (
         MAX_CHUNK_OUTPUT_BYTES,
         MAX_NOTES_CHUNKS,
-        MAX_REDUCTION_OUTPUT_BYTES,
         project_source_snapshot,
     )
 
@@ -1132,12 +1133,13 @@ def test_final_repair_is_skipped_when_actual_prompt_budget_cannot_fit_it(tmp_pat
     assert diagnostic["repair_state"] == "unavailable"
 
 
-@pytest.mark.parametrize("intermediate_bytes", [11_500, 16_001])
+@pytest.mark.parametrize(
+    "intermediate_bytes", [MAX_REDUCTION_OUTPUT_BYTES - 100, MAX_REDUCTION_OUTPUT_BYTES + 1]
+)
 def test_intermediate_reduction_has_its_own_hard_output_budget(
     tmp_path, monkeypatch, intermediate_bytes
 ):
     from asr_en_vi import notes_document
-    from asr_en_vi.notes_document import MAX_REDUCTION_OUTPUT_BYTES
 
     monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
     snapshot = _snapshot()
@@ -1300,8 +1302,419 @@ def test_transport_failure_diagnostics_use_actual_stage_and_bounded_metadata(tmp
     assert diagnostic["attempt"] == "primary"
     assert diagnostic["provider_call_index"] == 7
     assert diagnostic["prompt_bytes"] == len(adapter.calls[-1].prompt.encode("utf-8"))
-    assert diagnostic["response_limit"] == 16_000
+    assert diagnostic["response_limit"] == MAX_REDUCTION_OUTPUT_BYTES
     assert diagnostic["output_bytes"] == 16_001
     assert diagnostic["request_id"] == "req_reduce123"
     assert "private" not in json.dumps(diagnostic)
     assert "untrusted-stage" not in json.dumps(diagnostic)
+
+
+def _many_segments_snapshot(count=600):
+    snapshot = _snapshot()
+    snapshot["segments"] = [
+        {
+            "id": f"{index + 1:032x}",
+            "start_seconds": float(index),
+            "end_seconds": float(index) + 0.5,
+            "text": f"discussion detail {index} about the launch plan",
+            "speaker_name": "Morgan",
+        }
+        for index in range(count)
+    ]
+    return snapshot
+
+
+def _source_segments(prompt):
+    return json.loads(prompt.split("SOURCE_JSON:\n", 1)[1])["segments"]
+
+
+def _synthesis_summaries(prompt):
+    return json.loads(prompt.split("SYNTHESIS_INPUT_JSON:\n", 1)[1])["summaries"]
+
+
+def test_long_run_sends_budgeted_overlapping_requests_and_reports_coverage(tmp_path):
+    from asr_en_vi.notes_document import MAX_CHUNK_OUTPUT_BYTES, prompt_fits_repair
+
+    snapshot = _many_segments_snapshot()
+    original = copy.deepcopy(snapshot)
+    adapter = NotesOnlyAdapter(responder=lambda prompt, _limit: _document_for_prompt(prompt))
+    provider = _provider(tmp_path, adapter)
+    manifests = []
+
+    provider.generate_notes_document(
+        snapshot=snapshot,
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+        on_coverage=manifests.append,
+    )
+
+    chunk_calls = [call for call in adapter.calls if "SOURCE_JSON:\n" in call.prompt]
+    assert len(chunk_calls) > 2
+    previous_owned: list[str] | None = None
+    for call in chunk_calls:
+        # Prompt, citation schema, headroom and the repair reserve all fit the request budget.
+        assert prompt_fits_repair(call.prompt, allowed_source_ids=call.allowed_source_ids)
+        assert call.max_output_bytes == MAX_CHUNK_OUTPUT_BYTES
+        segments = _source_segments(call.prompt)
+        overlap = [item["id"] for item in segments if item.get("overlap")]
+        owned = [item["id"] for item in segments if not item.get("overlap")]
+        if previous_owned is None:
+            assert overlap == []
+        else:
+            assert overlap and overlap == previous_owned[-len(overlap) :]
+        assert call.allowed_source_ids == tuple(overlap + owned)  # overlap stays citable
+        previous_owned = owned
+    (manifest,) = manifests
+    assert manifest["segment_count"] == len(snapshot["segments"])
+    assert [chunk["provider_call_index"] for chunk in manifest["chunks"]] == list(
+        range(1, len(chunk_calls) + 1)
+    )
+    assert manifest["chunks"][0]["owned"][0] == 0
+    assert manifest["chunks"][-1]["owned"][1] == len(snapshot["segments"])
+    assert snapshot == original
+
+
+def test_coverage_records_the_repair_call_that_was_accepted(tmp_path):
+    first = _valid_document()
+    second = _valid_document()
+    second["overview"][0]["source_ids"] = ["00001"]
+    adapter = NotesOnlyAdapter(
+        ["not-json", json.dumps(first), json.dumps(second), json.dumps(_valid_document())]
+    )
+    provider = _provider(tmp_path, adapter)
+    manifests = []
+
+    provider.generate_notes_document(
+        snapshot=_chunked_snapshot(),
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+        on_coverage=manifests.append,
+    )
+
+    assert len(adapter.calls) == 4
+    assert [chunk["provider_call_index"] for chunk in manifests[0]["chunks"]] == [2, 3]
+
+
+def test_single_request_run_reports_a_manifest_for_its_one_call(tmp_path):
+    adapter = NotesOnlyAdapter([json.dumps(_valid_document())])
+    provider = _provider(tmp_path, adapter)
+    manifests = []
+
+    provider.generate_notes_document(
+        snapshot=_snapshot(),
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+        on_coverage=manifests.append,
+    )
+
+    assert manifests == [
+        {
+            "version": 1,
+            "segment_count": 1,
+            "chunks": [
+                {
+                    "index": 1,
+                    "owned": [0, 1],
+                    "overlap": None,
+                    "parts": [],
+                    "provider_call_index": 1,
+                }
+            ],
+        }
+    ]
+
+
+def test_incomplete_coverage_stops_the_run_before_any_provider_call(tmp_path, monkeypatch):
+    from asr_en_vi import notes_document
+
+    real_plan_source = notes_document.plan_source
+
+    def lossy_plan(snapshot, **kwargs):
+        plan = real_plan_source(snapshot, **kwargs)
+        return dataclasses.replace(plan, chunks=plan.chunks[:-1])
+
+    monkeypatch.setattr(notes_document, "plan_source", lossy_plan)
+    adapter = NotesOnlyAdapter(responder=lambda prompt, _limit: _document_for_prompt(prompt))
+    provider = _provider(tmp_path, adapter)
+
+    with pytest.raises(notes_document.NotesDocumentError, match="complete source coverage"):
+        provider.generate_notes_document(
+            snapshot=_chunked_snapshot(),
+            connection_version=7,
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+        )
+
+    assert adapter.calls == []
+
+
+def test_oversized_segment_is_sent_in_ordered_parts_and_cited_by_its_original_id(tmp_path):
+    long_text = "budget review item " * 3_500
+    snapshot = _snapshot()
+    snapshot["segments"] = [
+        {"id": "a" * 32, "start_seconds": 1.0, "end_seconds": 2.0, "text": "Opening remarks."},
+        {"id": "b" * 32, "start_seconds": 3.25, "end_seconds": 99.5, "text": long_text},
+        {"id": "c" * 32, "start_seconds": 100.0, "end_seconds": 101.0, "text": "Closing."},
+    ]
+    original = copy.deepcopy(snapshot)
+
+    def respond(prompt, _limit):
+        if "SOURCE_JSON:\n" in prompt:
+            cited = _source_segments(prompt)[-1]["id"]
+            document = _valid_document()
+            document["overview"] = [{"text": "A concise summary.", "source_ids": [cited]}]
+            return json.dumps(document)
+        cited = list(
+            dict.fromkeys(
+                source_id
+                for summary in _synthesis_summaries(prompt)
+                for source_id in summary["source_order"]
+            )
+        )
+        document = _valid_document()
+        document["decisions"] = [{"text": "Everything was reviewed.", "source_ids": cited}]
+        return json.dumps(document)
+
+    adapter = NotesOnlyAdapter(responder=respond)
+    provider = _provider(tmp_path, adapter)
+    manifests = []
+
+    result = provider.generate_notes_document(
+        snapshot=snapshot,
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+        on_coverage=manifests.append,
+    )
+
+    part_entries = [
+        item
+        for call in adapter.calls
+        if "SOURCE_JSON:\n" in call.prompt
+        for item in _source_segments(call.prompt)
+        if "part" in item
+    ]
+    count = len(part_entries)
+    assert count >= 3
+    assert [item["part"] for item in part_entries] == [[n, count] for n in range(1, count + 1)]
+    assert len({item["id"] for item in part_entries}) == 1
+    assert {(item["start_seconds"], item["end_seconds"]) for item in part_entries} == {(3.25, 99.5)}
+    for call in adapter.calls:  # prompts carry aliases and no planner internals
+        assert not any(original * 32 in call.prompt for original in "abc")
+        assert '"bytes"' not in call.prompt
+    # The manifest's byte ranges cover the whole stored text, in order.
+    ranges = [part["bytes"] for chunk in manifests[0]["chunks"] for part in chunk["parts"]]
+    assert ranges[0][0] == 0 and ranges[-1][1] == len(long_text.encode())
+    assert all(right[0] <= left[1] for left, right in zip(ranges, ranges[1:], strict=False))
+    assert "b" * 32 in {ref for item in result["decisions"] for ref in item["source_ids"]}
+    assert snapshot == original
+
+
+def test_overlap_repeats_are_dropped_before_reduction_but_distinct_items_survive(tmp_path):
+    chunk_number = 0
+
+    def respond(prompt, _limit):
+        nonlocal chunk_number
+        if "SYNTHESIS_INPUT_JSON:\n" in prompt:
+            summaries = _synthesis_summaries(prompt)
+            ids = list(dict.fromkeys(i for summary in summaries for i in summary["source_order"]))
+            document = _valid_document()
+            document["overview"] = [{"text": "Final.", "source_ids": ids[:1]}]
+            return json.dumps(document)
+        chunk_number += 1
+        segments = _source_segments(prompt)
+        overlap = [item["id"] for item in segments if item.get("overlap")]
+        owned = [item["id"] for item in segments if not item.get("overlap")]
+        document = _valid_document()
+        document["overview"] = [{"text": "Topic.", "source_ids": owned[:1]}]
+        document["open_questions"] = [
+            {"text": f"Question {chunk_number}", "source_ids": [owned[-1]]}
+        ]
+        if overlap:
+            # A rephrase of the previous chunk's closing question, resting only on the overlap.
+            document["open_questions"].append(
+                {"text": "Same question, rephrased", "source_ids": [overlap[-1]]}
+            )
+            # A point that needs both the overlap and this chunk is not a repeat.
+            document["confirmation_items"] = [
+                {"text": "Spans the boundary", "source_ids": [overlap[-1], owned[0]]}
+            ]
+        return json.dumps(document)
+
+    adapter = NotesOnlyAdapter(responder=respond)
+    provider = _provider(tmp_path, adapter)
+
+    provider.generate_notes_document(
+        snapshot=_many_segments_snapshot(300),
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+    )
+
+    final_prompt = adapter.calls[-1].prompt
+    summaries = [summary["notes"] for summary in _synthesis_summaries(final_prompt)]
+    assert len(summaries) == chunk_number >= 2
+    assert [item["text"] for item in summaries[0]["open_questions"]] == ["Question 1"]
+    for number, notes in enumerate(summaries[1:], start=2):
+        assert [item["text"] for item in notes["open_questions"]] == [f"Question {number}"]
+        assert [item["text"] for item in notes["confirmation_items"]] == ["Spans the boundary"]
+    assert "overlap repeats" not in final_prompt  # the reducer is told, not given repeats
+    assert "Neighbouring chunks overlap" in final_prompt
+
+
+def _tight_budget(monkeypatch, *, limit=14_000):
+    from asr_en_vi import notes_document
+
+    monkeypatch.setattr(notes_document, "MAX_PROMPT_BYTES", limit)
+
+
+def _four_chunk_snapshot():
+    snapshot = _snapshot()
+    snapshot["segments"] = [
+        {
+            "id": f"{index:032x}",
+            "start_seconds": float(index),
+            "end_seconds": float(index + 1),
+            "text": f"source detail {index} " + "x" * 3_000,
+        }
+        for index in range(1, 5)
+    ]
+    return snapshot
+
+
+def test_a_summary_that_cannot_pair_is_compacted_alone_and_the_tail_is_still_read(
+    tmp_path, monkeypatch
+):
+    _tight_budget(monkeypatch)
+
+    def respond(prompt, max_output_bytes):
+        if "SOURCE_JSON:\n" in prompt:
+            source_id = _source_segments(prompt)[0]["id"]
+            document = _valid_document()
+            document["overview"] = [{"text": "chunk " + "x" * 6_400, "source_ids": [source_id]}]
+            return json.dumps(document, separators=(",", ":"))
+        summaries = _synthesis_summaries(prompt)
+        ids = list(dict.fromkeys(i for summary in summaries for i in summary["source_order"]))
+        document = _valid_document()
+        if "final meeting-level notes" in prompt:
+            document["decisions"] = [{"text": "Read everything.", "source_ids": ids}]
+        else:
+            assert max_output_bytes == MAX_REDUCTION_OUTPUT_BYTES
+            document["overview"] = [{"text": "compact " + "y" * 1_400, "source_ids": ids}]
+        return json.dumps(document, separators=(",", ":"))
+
+    adapter = NotesOnlyAdapter(responder=respond)
+    provider = _provider(tmp_path, adapter)
+    manifests = []
+
+    result = provider.generate_notes_document(
+        snapshot=_four_chunk_snapshot(),
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+        on_coverage=manifests.append,
+    )
+
+    reductions = [call for call in adapter.calls if "SYNTHESIS_INPUT_JSON:\n" in call.prompt]
+    final = reductions[-1]
+    assert "final meeting-level notes" in final.prompt
+    inputs = [len(_synthesis_summaries(call.prompt)) for call in reductions[:-1]]
+    # Level one cannot pair 6.5 KB summaries, so one of each pair is compacted alone; level two
+    # then pairs the compacted summaries with their neighbours.
+    assert inputs == [1, 1, 2, 2] and len(adapter.calls) == 9
+    summaries = _synthesis_summaries(final.prompt)
+    assert [list(item["source_order"]) for item in summaries] == [
+        ["00000", "00001"],
+        ["00002", "00003"],
+    ]
+    cited = {ref for item in result["decisions"] for ref in item["source_ids"]}
+    assert cited == {f"{index:032x}" for index in range(1, 5)}  # the tail is in the notes
+    assert len(manifests) == 1
+
+
+def test_run_fails_instead_of_dropping_a_summary_that_does_not_shrink(tmp_path, monkeypatch):
+    _tight_budget(monkeypatch)
+
+    def respond(prompt, _limit):
+        if "SOURCE_JSON:\n" in prompt:
+            source_id = _source_segments(prompt)[0]["id"]
+            document = _valid_document()
+            document["overview"] = [{"text": "chunk " + "x" * 6_400, "source_ids": [source_id]}]
+            return json.dumps(document, separators=(",", ":"))
+        summaries = _synthesis_summaries(prompt)
+        return json.dumps(summaries[0]["notes"], separators=(",", ":"))  # returned unchanged
+
+    adapter = NotesOnlyAdapter(responder=respond)
+    provider = _provider(tmp_path, adapter)
+    manifests = []
+
+    with pytest.raises(ChatGPTError) as failed:
+        provider.generate_notes_document(
+            snapshot=_four_chunk_snapshot(),
+            connection_version=7,
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+            on_coverage=manifests.append,
+        )
+
+    assert failed.value.code == "notes_synthesis_limit_exceeded"
+    assert len(adapter.calls) == 5  # four chunks and the one compaction that did not shrink
+    assert manifests == []
+
+
+def test_repair_used_in_a_chunk_is_not_available_to_the_final_reduction(tmp_path):
+    second = _valid_document()
+    second["overview"][0]["source_ids"] = ["00001"]
+    adapter = NotesOnlyAdapter(
+        ["not-json", json.dumps(_valid_document()), json.dumps(second), "still-not-json"]
+    )
+    provider = _provider(tmp_path, adapter)
+    manifests = []
+
+    with pytest.raises(ChatGPTError) as invalid:
+        provider.generate_notes_document(
+            snapshot=_chunked_snapshot(),
+            connection_version=7,
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+            on_coverage=manifests.append,
+        )
+
+    assert invalid.value.code == "notes_invalid_output"
+    assert len(adapter.calls) == 4
+    assert sum("INVALID_OUTPUT:" in call.prompt for call in adapter.calls) == 1
+    diagnostic = provider.store._read()["last_diagnostic"]
+    assert diagnostic["stage"] == "final"
+    assert diagnostic["provider_call_index"] == 4
+    assert diagnostic["repair_state"] == "already_consumed"
+    assert manifests == []
+
+
+def test_network_failure_after_earlier_chunks_is_not_resent_and_reports_no_coverage(tmp_path):
+    adapter = NotesOnlyAdapter(
+        [
+            json.dumps(_valid_document()),
+            ChatGPTError(503, "provider_unavailable", "ChatGPT could not complete the notes."),
+            json.dumps(_valid_document()),
+        ]
+    )
+    provider = _provider(tmp_path, adapter)
+    manifests = []
+
+    with pytest.raises(ChatGPTError) as failed:
+        provider.generate_notes_document(
+            snapshot=_chunked_snapshot(),
+            connection_version=7,
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+            on_coverage=manifests.append,
+        )
+
+    assert failed.value.code == "provider_unavailable"
+    # No resend, no repair and no later chunk: the operator starts a new run.
+    assert len(adapter.calls) == 2
+    assert len(adapter.replies) == 1
+    assert manifests == []

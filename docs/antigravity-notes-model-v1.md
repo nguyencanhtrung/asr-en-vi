@@ -66,7 +66,7 @@ Quan sát thêm:
 - **Hai lỗi chung:** gần như mọi bản đều bỏ sót một vài action item được giao rõ ràng. Năm bản (cả hai provider) gán nhầm người phụ trách cho cùng một action item.
 - **Token:** Gemini High dùng khoảng 68 nghìn token reasoning và 80 nghìn token đầu ra cho cả cuộc họp; Medium dùng khoảng 10–12 nghìn token đầu ra. Lần gọi High lâu nhất mất 194 s, trong giới hạn 15 phút mỗi lần gọi.
 - **Low:** phải dùng lượt sửa duy nhất của tác vụ, nên app không đề xuất mức này.
-- **Claude Sonnet 5.5:** tóm tắt chunk dài gấp 2–3 lần Gemini nên pipeline không gộp được trong ngân sách. Muốn dùng Claude cần ngân sách gộp thích ứng theo #11.
+- **Claude Sonnet 5.5:** tóm tắt chunk dài gấp 2–3 lần Gemini nên pipeline của PR #40 không gộp được trong ngân sách. Ngân sách gộp thích ứng đã có từ #11: trần đầu ra của tóm tắt trung gian được suy từ ngân sách prompt và tóm tắt lớn hơn được rút gọn riêng khi hai bản không ghép cặp được. Chưa chạy lại Claude 5.5 trên pipeline mới nên chưa có số đo.
 - **Lỗi khi chưa có system prompt trung tính:** một lần chạy High dừng sau 159 s với `MALFORMED_FUNCTION_CALL`. Sau khi PR #40 thay prompt, mọi lần High đều hợp lệ.
 
 ## Thay đổi trong app (PR #40)
@@ -74,7 +74,7 @@ Quan sát thêm:
 - Antigravity có lựa chọn mức suy nghĩ High (mặc định) hoặc Medium, lưu cùng model. Mỗi tác vụ ghim mức này; mỗi lần gọi OMP gửi `set_thinking_level` rồi xác nhận bằng `get_state` trước khi gửi prompt. [RPC `set_thinking_level`](https://github.com/can1357/oh-my-pi/blob/v18.5.0/packages/coding-agent/src/modes/rpc/rpc-types.ts#L75)
 - Lỗi 404 `Requested entity was not found` được báo là model không dùng được với gói hiện tại, thay vì "không kết nối được".
 
-Việc còn lại: thử lại Gemini 4 Argon khi nâng OMP; thử lại Claude 5.5 sau #11; bỏ GPT-OSS-120b và Claude 4.6 khỏi đề xuất từ 2026-11-02.
+Việc còn lại: thử lại Gemini 4 Argon khi nâng OMP; đo lại Claude 5.5 với ngân sách gộp thích ứng của #11; bỏ GPT-OSS-120b và Claude 4.6 khỏi đề xuất từ 2026-11-02.
 
 ## Giới hạn
 

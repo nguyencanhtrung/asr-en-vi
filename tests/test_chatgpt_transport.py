@@ -43,6 +43,17 @@ class SlowByteStream(httpx.SyncByteStream):
             yield chunk
 
 
+class DroppedStream(httpx.SyncByteStream):
+    """A response whose connection fails after part of the body arrived."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def __iter__(self):
+        yield b'data: {"type":"response.output_text.delta","delta":"{\\"overview\\":"}\n\n'
+        raise self.error
+
+
 class TerminalThenExtraStream(httpx.SyncByteStream):
     def __init__(self, terminal_event: bytes) -> None:
         self.terminal_event = terminal_event
@@ -512,6 +523,62 @@ def test_notes_request_body_cap_rejects_expanded_json_without_sending_it():
 
     assert oversized.value.code == "notes_request_too_large"
     assert calls == 0
+
+
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (httpx.ReadError("connection reset"), "provider_unavailable"),
+        (httpx.RemoteProtocolError("server disconnected"), "provider_unavailable"),
+        (httpx.ReadTimeout("no data"), "provider_timeout"),
+    ],
+)
+def test_notes_network_error_while_receiving_is_reported_and_never_resent(error, code):
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200, headers={"content-type": "text/event-stream"}, stream=DroppedStream(error)
+        )
+
+    adapter = ChatGPTHTTPAdapter(transport=httpx.MockTransport(handler))
+    with pytest.raises(ChatGPTError) as failure:
+        adapter.generate_notes(
+            access_token="access-secret",
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+            prompt="Bounded test prompt.",
+            allowed_source_ids=(),
+        )
+
+    assert failure.value.code == code
+    assert len(requests) == 1  # the inference request is sent once; the operator starts a new run
+
+
+@pytest.mark.parametrize(
+    "error",
+    [httpx.ConnectError("refused"), httpx.WriteError("broken pipe"), httpx.ReadError("reset")],
+)
+def test_notes_network_error_after_sending_is_reported_and_never_resent(error):
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        raise error
+
+    adapter = ChatGPTHTTPAdapter(transport=httpx.MockTransport(handler))
+    with pytest.raises(ChatGPTError) as failure:
+        adapter.generate_notes(
+            access_token="access-secret",
+            model="gpt-6.1-sol",
+            reasoning_effort="high",
+            prompt="Bounded test prompt.",
+            allowed_source_ids=(),
+        )
+
+    assert failure.value.code == "provider_unavailable"
+    assert len(requests) == 1
 
 
 def test_notes_incomplete_stream_never_returns_partial_output():

@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 import uvicorn
+from notes_helpers import seed_completed_transcript
 from playwright.sync_api import expect, sync_playwright
 from seeding import prepare_diarization_model, seed_meeting
 
@@ -96,11 +97,17 @@ def live(tmp_path):
 
 
 @pytest.fixture
-def signed_in(live):
-    """Factory for authenticated (context, page) pairs in a chosen timezone and clock."""
+def signed_in(live, request):
+    """Factory for authenticated (context, page) pairs in a chosen timezone and clock.
+
+    Headless Chromium hides scrollbars; parametrize this indirectly with True to draw them as a
+    desktop browser does.
+    """
     with sync_playwright() as playwright:
         chrome_path = os.environ.get("CHROME_BIN") or shutil.which("google-chrome")
         launch = {"executable_path": chrome_path} if chrome_path else {}
+        if getattr(request, "param", False):
+            launch["ignore_default_args"] = ["--hide-scrollbars"]
         browser = playwright.chromium.launch(headless=True, **launch)
 
         def make(
@@ -137,6 +144,11 @@ def open_page(context, live, path="/", now=FIXED_NOW):
     page.clock.set_fixed_time(now)
     page.goto(f"{live.url}{path}", wait_until="domcontentloaded")
     return page
+
+
+def open_calendar(page):
+    """Open the calendar view as a user does: click the selected day of the sidebar calendar."""
+    page.locator("#mini-calendar .cal-day.is-selected").click()
 
 
 def _prepare_browser_asr_model(path: Path) -> Path:
@@ -379,7 +391,7 @@ def test_design_system_history_and_transcript_are_responsive(live, signed_in, tm
     expect(page.locator("#recent-list a")).to_have_count(2)
     assert _design_metrics(page)["overflow"] == 0
 
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     expect(page.locator("#large-calendar")).to_be_visible()
     expect(
         page.locator("#large-calendar").get_by_text("Điều phối sản phẩm — tuần 42", exact=True)
@@ -452,7 +464,8 @@ def test_history_search_calendar_navigation_and_return(live, browser_context):
               };
             }"""
         )
-        assert header_metrics["calendar"]["height"] == 40
+        # Above 680px the sidebar calendar is the way in, so the header button is hidden.
+        assert header_metrics["calendar"]["height"] == (40 if width <= 680 else 0)
         assert header_metrics["create"]["height"] == 40
         assert not header_metrics["overflow"]
         if width <= 680:
@@ -508,7 +521,7 @@ def test_history_search_calendar_navigation_and_return(live, browser_context):
     page.wait_for_url(f"{live.url}/meetings/{alpha}")
     expect(page.locator("#meeting-title")).to_have_text("Alpha review")
     expect(page.locator("#meeting-date")).to_have_attribute("datetime", "2026-10-14")
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     large = page.locator("#large-calendar")
     expect(page.locator("#calendar-title")).to_be_visible()
     expect(large.locator(".cal-title")).to_have_text("Tháng 10 · 2026")
@@ -586,14 +599,14 @@ def test_history_search_calendar_navigation_and_return(live, browser_context):
     expect(page.locator("#recent-list a[aria-current='page']")).to_contain_text("Alpha review")
 
     # Choosing a different meeting from a calendar cell opens exactly that record.
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     large.locator('.cal-day[data-date="2026-10-14"]').click()
     page.locator("#day-panel-list a").filter(has_text="Beta sync").click()
     page.wait_for_url(f"{live.url}/meetings/{beta}")
     expect(page.locator("#meeting-title")).to_have_text("Beta sync")
     page.go_back()
     expect(page.locator("#meeting-title")).to_have_text("Alpha review")
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     large.locator('.cal-day[data-date="2026-10-14"]').click()
     large.locator(".cal-chip").filter(has_text="Alpha review").click()
     page.wait_for_url(f"{live.url}/meetings/{alpha}")
@@ -643,7 +656,7 @@ def test_empty_history_states(live, browser_context):
     page.goto(f"{live.url}/", wait_until="domcontentloaded")
     expect(page.locator("#sidebar-empty")).to_have_text("Cuộc họp đã lưu sẽ xuất hiện tại đây.")
     expect(page.locator("#workspace-empty")).to_be_visible()
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     expect(page.locator("#large-calendar .cal-summary")).to_have_text(
         "Không có cuộc họp trong tháng này."
     )
@@ -652,6 +665,142 @@ def test_empty_history_states(live, browser_context):
     expect(page.locator("#large-calendar .cal-count")).to_have_count(0)
     page.get_by_role("button", name="Quay lại notes").click()
     expect(page.locator("#home-view")).to_be_visible()
+
+
+def test_sidebar_stays_viewport_high_and_in_place_while_a_long_transcript_scrolls(live, signed_in):
+    meeting_id, generation_id, _segments = seed_completed_transcript(live.settings.data_dir)
+    with sqlite3.connect(database_path(live.settings.data_dir)) as connection:
+        connection.execute(
+            "UPDATE transcript_segments SET text = ? WHERE generation_id = ?",
+            ("A long meeting discussion. " * 500, generation_id),
+        )
+    _context, page = signed_in(viewport={"width": 1280, "height": 800})
+    page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="networkidle")
+    expect(page.locator("#transcript-segments > li")).to_have_count(2)
+    sidebar = page.locator(".sidebar")
+
+    def assert_pinned(height):
+        box = sidebar.evaluate(
+            "element => { const box = element.getBoundingClientRect();"
+            " return { top: box.top, height: box.height }; }"
+        )
+        # At a fractional scroll end, sticky positioning can sit a sub-pixel off the top.
+        assert abs(box["top"]) < 1 and box["height"] == height, box
+
+    assert page.evaluate("document.body.scrollHeight") > 2 * 800
+    assert_pinned(800)
+    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    assert page.evaluate("window.scrollY") > 800
+    assert_pinned(800)
+    expect(page.locator(".version-link")).to_be_in_viewport()
+
+    # A viewport shorter than the sidebar keeps its height and scrolls the sidebar itself.
+    page.set_viewport_size({"width": 1280, "height": 400})
+    assert_pinned(400)
+    assert sidebar.evaluate("element => element.scrollHeight > element.clientHeight")
+    sidebar.evaluate("element => element.scrollTo(0, element.scrollHeight)")
+    expect(page.locator(".version-link")).to_be_in_viewport()
+
+    # At 680px and below the sidebar is still the top bar that scrolls away with the page.
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert sidebar.evaluate("element => getComputedStyle(element).position") == "static"
+    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    assert sidebar.evaluate("element => element.getBoundingClientRect().bottom") <= 0
+
+
+RAIL_METRICS = """() => {
+  const rail = document.querySelector(".sidebar");
+  const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+  // What the browser gives the month select when nothing squeezes it: widest label, padding, caret.
+  const month = document.querySelector("#mini-calendar .cal-month");
+  const probe = month.cloneNode(true);
+  probe.style.cssText = "position: absolute; visibility: hidden; width: max-content; flex: none";
+  month.parentElement.append(probe);
+  const monthWanted = probe.getBoundingClientRect().width;
+  probe.remove();
+  const sideways = rail.scrollWidth - rail.clientWidth;
+  // Even content that cannot fit must not summon a horizontal scrollbar.
+  const wide = document.createElement("div");
+  wide.style.cssText = "width: 999px; height: 1px; flex: none";
+  rail.append(wide);
+  const horizontalBar = rail.offsetHeight - rail.clientHeight;
+  wide.remove();
+  return {
+    scrollbar: rail.offsetWidth - rail.clientWidth
+      - parseFloat(getComputedStyle(rail).borderRightWidth),
+    tall: rail.scrollHeight > rail.clientHeight,
+    horizontalBar,
+    sideways,
+    clientRight: rail.clientWidth,
+    wordmarkRight: rect(".brand-wordmark").right,
+    toggleLeft: rect(".theme-toggle").left,
+    toggleRight: rect(".theme-toggle").right,
+    monthWidth: month.getBoundingClientRect().width,
+    monthWanted,
+    pickRight: Math.max(
+      ...[".cal-month", ".cal-year", ".cal-today"].map((c) => rect("#mini-calendar " + c).right),
+    ),
+    calendarRight: rect("#mini-calendar").right,
+  };
+}"""
+
+
+@pytest.mark.parametrize("signed_in", [True], indirect=True, ids=["classic-scrollbars"])
+def test_sidebar_fits_beside_a_classic_scrollbar_and_still_scrolls(live, signed_in):
+    for title, date in (("Alpha", "2026-10-14"), ("Beta", "2026-10-14"), ("Gamma", "2026-10-16")):
+        seed_meeting(live.settings.data_dir, title, date)
+    for width, height in ((1366, 768), (1024, 700), (900, 600)):
+        _context, page = signed_in(viewport={"width": width, "height": height})
+        page.goto(f"{live.url}/", wait_until="domcontentloaded")
+        expect(page.locator("#recent-list .recent-link")).to_have_count(3)
+        expect(page.locator("#mini-calendar .cal-day").first).to_be_visible()
+        metrics = page.evaluate(RAIL_METRICS)
+
+        # The case is real: a drawn scrollbar takes width and the content outgrows the viewport.
+        assert metrics["scrollbar"] > 0 and metrics["tall"], metrics
+        assert metrics["horizontalBar"] == 0 and metrics["sideways"] <= 0, metrics
+        assert metrics["wordmarkRight"] <= metrics["toggleLeft"], metrics
+        assert metrics["toggleRight"] <= metrics["clientRight"] - 4, metrics  # clear of the bar
+        assert metrics["monthWidth"] >= metrics["monthWanted"] - 0.5, metrics
+        assert metrics["pickRight"] <= metrics["calendarRight"] + 0.5, metrics
+
+        # It still scrolls by itself, down to the footer.
+        expect(page.locator(".version-link")).not_to_be_in_viewport()
+        page.mouse.move(40, height // 2)
+        page.mouse.wheel(0, 2000)
+        expect(page.locator(".version-link")).to_be_in_viewport()
+
+
+def test_calendar_opens_from_the_sidebar_calendar_and_the_header_button_only_on_phones(
+    live, signed_in
+):
+    seed_meeting(live.settings.data_dir, "Dated meeting", "2026-10-14")
+    seed_meeting(live.settings.data_dir, "Undated meeting")
+    _context, page = signed_in(viewport={"width": 1280, "height": 800})
+    page.goto(f"{live.url}/", wait_until="domcontentloaded")
+
+    expect(page.locator("#mini-open-calendar")).to_have_count(0)
+    expect(page.get_by_role("button", name="Mở lịch")).to_have_count(0)
+    expect(page.locator("#mini-calendar")).to_be_visible()
+    expect(page.locator("#open-calendar")).to_be_hidden()
+
+    page.locator('#mini-calendar .cal-day[data-date="2026-10-14"]').click()
+    expect(page.locator("#calendar-view")).to_be_visible()
+    expect(page.locator("#day-panel-title")).to_have_text("14/10/2026")
+    page.get_by_role("button", name="Quay lại notes").click()
+    expect(page.locator("#home-view")).to_be_visible()
+
+    page.locator("#mini-calendar .cal-undated").click()
+    expect(page.locator("#calendar-view")).to_be_visible()
+    expect(page.locator("#day-panel-title")).to_have_text("Chưa đặt ngày")
+    page.get_by_role("button", name="Quay lại notes").click()
+    expect(page.locator("#home-view")).to_be_visible()
+
+    page.set_viewport_size({"width": 375, "height": 800})
+    expect(page.locator("#mini-calendar")).to_be_hidden()
+    expect(page.locator("#open-calendar")).to_be_visible()
+    page.locator("#open-calendar").click()
+    expect(page.locator("#calendar-view")).to_be_visible()
 
 
 def test_diarization_error_shows_sanitized_copyable_diagnostic_command(live, browser_context):
@@ -865,7 +1014,7 @@ def test_edit_metadata_conflict_keeps_draft_and_persists_across_restart(live, br
     expect(page_a.locator("#meeting-date")).to_have_text("Chưa đặt ngày")
     expect(page_a.locator("#meeting-language")).to_have_text("Tiếng Việt")
     expect(page_a.locator("#recent-list")).not_to_contain_text("Draft from A")
-    page_a.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page_a)
     expect(page_a.locator("#large-calendar .cal-undated-count")).to_have_text("1")
     expect(page_a.locator('#large-calendar .cal-day[data-date="2026-10-14"]')).not_to_have_class(
         "has-meetings"
@@ -892,7 +1041,7 @@ def test_edit_metadata_conflict_keeps_draft_and_persists_across_restart(live, br
     page_a.locator("#edit-date").fill("2026-02-28")
     page_a.get_by_role("button", name="Lưu thay đổi").click()
     expect(page_a.locator("#meeting-date")).to_have_attribute("datetime", "2026-02-28")
-    page_a.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page_a)
     page_a.locator("#large-calendar .cal-month").select_option("1")
     expect(
         page_a.locator('#large-calendar .cal-day[data-date="2026-02-28"] .cal-count')
@@ -999,7 +1148,7 @@ def test_calendar_does_not_add_history_entries_or_revive_stale_return_target(liv
 
     page.locator("#recent-list a").first.click()
     page.wait_for_url(f"{live.url}/meetings/{meeting_id}")
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     expect(page.locator("#calendar-view")).to_be_visible()
     assert page.url == f"{live.url}/meetings/{meeting_id}", "the calendar must not change the URL"
 
@@ -1008,7 +1157,7 @@ def test_calendar_does_not_add_history_entries_or_revive_stale_return_target(liv
     page.wait_for_url(f"{live.url}/")
     expect(page.locator("#home-view")).to_be_visible()
     expect(page.locator("#calendar-view")).to_be_hidden()
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     page.get_by_role("button", name="Quay lại notes").click()
     expect(page.locator("#home-view")).to_be_visible()
     expect(page.locator("#meeting-view")).to_be_hidden()
@@ -1017,7 +1166,7 @@ def test_calendar_does_not_add_history_entries_or_revive_stale_return_target(liv
     # Returning from the calendar adds no entry: one Back from the meeting reaches home.
     page.locator("#recent-list a").first.click()
     page.wait_for_url(f"{live.url}/meetings/{meeting_id}")
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     page.get_by_role("button", name="Quay lại notes").click()
     expect(page.locator("#meeting-title")).to_have_text("Back target")
     page.go_back()
@@ -1059,7 +1208,7 @@ def test_negative_utc_offset_keeps_date_only_values_and_local_today(live, signed
     expect(page.locator("#edit-date")).to_have_value("2026-10-14")
     page.locator("#edit-cancel").click()
 
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     large = page.locator("#large-calendar")
     expect(large.locator(".cal-day.is-today")).to_have_attribute("data-date", "2026-10-16")
     expect(large.locator('.cal-day[data-date="2026-10-14"] .cal-count')).to_have_text("1")
@@ -1187,7 +1336,7 @@ def test_slow_save_never_repaints_after_navigating_elsewhere(live, browser_conte
     page.get_by_role("button", name="Sửa tên và ngày").click()
     page.locator("#edit-title").fill("B renamed")
     page.get_by_role("button", name="Lưu thay đổi").click()
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     expect(page.locator("#calendar-view")).to_be_visible()
     held[0].continue_()
     wait_for_stored_title(context, live, b, "B renamed")
@@ -1249,7 +1398,7 @@ def test_leaving_calendar_follows_the_url_even_while_loading_or_after_an_error(
     held = hold_first(page, rf"/api/meetings/{x}$", "GET")
     page.goto(f"{live.url}/meetings/{x}", wait_until="domcontentloaded")
     expect(page.locator("#meeting-loading")).to_be_visible()
-    page.get_by_role("button", name="Lịch", exact=True).click()
+    open_calendar(page)
     expect(page.locator("#calendar-view")).to_be_visible()
     held[0].continue_()
     settle(page)
@@ -1262,7 +1411,7 @@ def test_leaving_calendar_follows_the_url_even_while_loading_or_after_an_error(
     # From the error view the URL still names the meeting that failed, so return there.
     page.goto(f"{live.url}/meetings/missing", wait_until="domcontentloaded")
     expect(page.locator("#meeting-error")).to_be_visible()
-    page.get_by_role("button", name="Lịch", exact=True).click()
+    open_calendar(page)
     expect(page.locator("#calendar-view")).to_be_visible()
     page.get_by_role("button", name="Quay lại notes").click()
     expect(page.locator("#meeting-error")).to_be_visible()
@@ -1271,7 +1420,7 @@ def test_leaving_calendar_follows_the_url_even_while_loading_or_after_an_error(
 
     # From home, leaving lands on home with focus on the page heading.
     page.goto(f"{live.url}/", wait_until="domcontentloaded")
-    page.get_by_role("button", name="Lịch", exact=True).click()
+    open_calendar(page)
     page.get_by_role("button", name="Quay lại notes").click()
     expect(page.locator("#home-view")).to_be_visible()
     assert page.evaluate("document.activeElement.id") == "page-title"
@@ -1282,8 +1431,9 @@ def test_duration_rounds_before_choosing_the_unit(live, browser_context):
     for seconds in (0.4, 59.4, 59.5, 59.99, 90, 3599.6):
         seed_meeting(live.settings.data_dir, f"d {seconds}", "2026-10-20", duration_seconds=seconds)
     page.goto(f"{live.url}/", wait_until="domcontentloaded")
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     page.locator('#large-calendar .cal-day[data-date="2026-10-20"]').click()
+    expect(page.locator("#day-panel-list a")).to_have_count(6)
     labels = {
         link.locator(".link-title").inner_text(): link.locator(".link-date").inner_text()
         for link in page.locator("#day-panel-list a").all()
@@ -1302,7 +1452,7 @@ def test_duration_rounds_before_choosing_the_unit(live, browser_context):
 def test_year_box_commits_on_typing_and_enter_and_rejects_bad_years(live, browser_context):
     _, page = browser_context
     page.goto(f"{live.url}/", wait_until="domcontentloaded")
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     large_title = page.locator("#large-calendar .cal-title")
     mini_title = page.locator("#mini-calendar .cal-title")
     year = page.locator("#large-calendar .cal-year")
@@ -1337,7 +1487,7 @@ def test_year_box_commits_on_typing_and_enter_and_rejects_bad_years(live, browse
 def test_year_box_blur_commits_valid_years_and_reverts_partial_ones(live, browser_context):
     _, page = browser_context
     page.goto(f"{live.url}/", wait_until="domcontentloaded")
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     title = page.locator("#large-calendar .cal-title")
     year = page.locator("#large-calendar .cal-year")
 
@@ -1374,7 +1524,7 @@ def test_background_history_refresh_does_not_overwrite_partial_year_text(live, b
     expect(page.locator("#recent-list a")).to_have_count(1)
 
     held = hold_first(page, r"/api/meetings$", "GET")  # the refresh the calendar triggers
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     expect(page.locator("#calendar-view")).to_be_visible()
     year = page.locator("#large-calendar .cal-year")
     year.click()
@@ -1417,7 +1567,7 @@ def test_save_released_after_a_calendar_round_trip_is_rendered_and_saved(live, b
     page.locator("#edit-title").fill("After round trip")
     page.locator("#edit-date").fill("2026-10-20")
     page.get_by_role("button", name="Lưu thay đổi").click()
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     expect(page.locator("#calendar-view")).to_be_visible()
     page.get_by_role("button", name="Quay lại notes").click()
     expect(page.locator("#meeting-title")).to_have_text("Round trip")  # nothing saved yet
@@ -1442,7 +1592,7 @@ def test_save_result_arriving_while_the_calendar_is_open_shows_after_leaving(liv
     page.get_by_role("button", name="Sửa tên và ngày").click()
     page.locator("#edit-title").fill("Saved in background")
     page.get_by_role("button", name="Lưu thay đổi").click()
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     release_when_held(held)
     wait_for_stored_title(context, live, meeting_id, "Saved in background")
     settle(page)
@@ -1472,7 +1622,7 @@ def test_conflict_arriving_around_a_calendar_round_trip_is_not_lost(live, browse
     page.get_by_role("button", name="Sửa tên và ngày").click()
     page.locator("#edit-title").fill("My draft")
     page.get_by_role("button", name="Lưu thay đổi").click()
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     page.get_by_role("button", name="Quay lại notes").click()
     other_tab_renames("Other tab one", 1)
     release_when_held(held)
@@ -1488,7 +1638,7 @@ def test_conflict_arriving_around_a_calendar_round_trip_is_not_lost(live, browse
     page.get_by_role("button", name="Sửa tên và ngày").click()
     page.locator("#edit-title").fill("Second draft")
     page.get_by_role("button", name="Lưu thay đổi").click()
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     other_tab_renames("Other tab two", 2)
     release_when_held(held)
     wait_for_stored_title(context, live, meeting_id, "Other tab two")
@@ -1536,7 +1686,7 @@ def test_stale_meeting_read_answering_after_a_save_cannot_roll_the_ui_back(live,
 
     # 2. Detour through the calendar; leaving re-reads the meeting. That read hits the
     #    server now, while the title is still "Before save", but its response is held.
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     expect(page.locator("#calendar-view")).to_be_visible()
     held_read = fetch_now_deliver_later(page, meeting_path)
     page.get_by_role("button", name="Quay lại notes").click()
@@ -2619,7 +2769,7 @@ def test_transcription_requires_explicit_start_and_renders_poll_cancel_and_rerun
     page.locator("#transcript-segments").evaluate(
         "list => { window.__transcriptListBeforeAssignmentRefresh = list; }"
     )
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     page.get_by_role("button", name="Quay lại notes").click()
     expect(page.locator("#meeting-title")).to_be_focused()
     assert page.evaluate(
@@ -2677,7 +2827,7 @@ def test_transcription_requires_explicit_start_and_renders_poll_cancel_and_rerun
     current_generation["segments"][0]["text"] = "Concurrent text from another tab."
     current_generation["speakers"][0]["display_name"] = "Concurrent speaker name."
     current_generation["source_version"] += 1
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     page.get_by_role("button", name="Quay lại notes").click()
     text_editor = page.locator(".segment-text-editor")
     speaker_name = page.locator("#speaker-catalog-list .speaker-name-form input").first
@@ -2717,7 +2867,7 @@ def test_transcription_requires_explicit_start_and_renders_poll_cancel_and_rerun
     while not late_text_responses and time.monotonic() < deadline:
         page.wait_for_timeout(50)
     assert len(late_text_responses) == 1
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     page.get_by_role("button", name="Quay lại notes").click()
     expect(page.locator(".segment-text-editor")).to_have_value("Saved after refresh.")
     held_text_route, held_text_body, held_segment = late_text_responses[0]
@@ -2778,7 +2928,7 @@ def test_transcription_requires_explicit_start_and_renders_poll_cancel_and_rerun
     while not late_speaker_responses and time.monotonic() < deadline:
         page.wait_for_timeout(50)
     assert len(late_speaker_responses) == 1
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     page.get_by_role("button", name="Quay lại notes").click()
     expect(page.locator("#speaker-catalog-list .speaker-name-form input").nth(1)).to_have_value(
         "Saved before refresh."
@@ -2801,7 +2951,7 @@ def test_transcription_requires_explicit_start_and_renders_poll_cancel_and_rerun
         page.wait_for_timeout(50)
     assert len(late_add_responses) == 1
     assert len(add_speaker_requests) == 2
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     page.get_by_role("button", name="Quay lại notes").click()
     expect(page.locator("#speaker-catalog-list")).not_to_contain_text("Late witness")
     held_add_route, held_add_response = late_add_responses.pop()
@@ -3192,7 +3342,7 @@ def test_meeting_install_preserves_newer_transcript_after_metadata_and_same_meet
     )
 
     stale_meeting_load["enabled"] = True
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     page.get_by_role("button", name="Quay lại notes").click()
     expect(page.locator("#meeting-title")).to_have_text("Metadata saved during transcript edit")
     expect(editor).to_have_value("Keep this unsaved transcript draft.")
@@ -3295,7 +3445,7 @@ def test_late_speaker_assignment_reconciles_after_same_meeting_reload(live, brow
         page.wait_for_timeout(50)
     assert len(held_assignment) == 1
 
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     page.get_by_role("button", name="Quay lại notes").click()
     speaker_select = page.locator(".segment-speaker-select")
     expect(speaker_select).to_have_value("SPEAKER_01")
@@ -3509,7 +3659,7 @@ def test_assignment_conflict_survives_task_rerender_in_its_own_error_panel(live,
 
     task["error_code"] = "diarization_model_load_failed"
     task["error_message"] = "An unrelated task failed."
-    page.get_by_role("button", name="Mở lịch").click()
+    open_calendar(page)
     page.get_by_role("button", name="Quay lại notes").click()
 
     expect(page.locator("#transcription-error")).to_be_visible()
