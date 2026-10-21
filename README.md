@@ -123,8 +123,19 @@ Community-1 trả về regular turns để phát hiện chồng lấn và exclus
 người nói có thời lượng giao nhau lớn nhất. Văn bản và timestamp ASR không bị chia hoặc dịch chuyển.
 Đoạn có nhiều người nói, overlap, speaker dominance thấp, không có speaker match hoặc tín hiệu ASR
 không chắc được giữ và đánh dấu để rà soát. Khi phát lại, mọi đoạn transcript chứa thời gian phát
-được tô sáng; nút timestamp tua cùng nguồn audio đã lưu. Có thể đổi người nói hiển thị trong catalog
-của thế hệ hiện tại; gán ban đầu của model và timestamp vẫn được lưu riêng.
+được tô sáng; nút timestamp tua và phát cùng nguồn audio đã lưu, còn mở nguồn từ notes chỉ tua tới
+mốc nguồn. Có thể đổi người nói hiển thị trong catalog của thế hệ hiện tại; gán ban đầu của model
+và timestamp vẫn được lưu riêng.
+
+Trình phát dính ở mép trên vùng nội dung khi cuộn xuống notes hoặc transcript, ở cả desktop và màn
+hình từ 680 px trở xuống; thanh dính chỉ gồm trình phát (cao tối đa 72 px), còn tiêu đề và dòng
+hướng dẫn của khối bản ghi cuộn đi như bình thường. Khi audio đang phát và đoạn đang phát đổi, danh
+sách tự cuộn để đoạn đó nằm gọn trong tầm nhìn, dưới thanh trình phát, miễn là còn thấy một phần
+danh sách đoạn; cuộn tức thì khi hệ điều hành bật giảm chuyển động. Danh sách không tự cuộn khi
+audio tạm dừng, trong 2 giây sau khi bạn cuộn tay (con lăn, chạm, phím cuộn hoặc kéo thanh cuộn),
+khi focus đang nằm trong một ô sửa của transcript, hay khi cả danh sách đoạn nằm ngoài tầm nhìn
+dưới thanh trình phát (ví dụ lúc bạn đang đọc notes hoặc vừa mở một nguồn), nên trang không bị kéo
+khỏi chỗ đang đọc.
 
 Nếu diarization hoặc alignment lỗi hay bị hủy, task không công bố thế hệ mới và thế hệ hiện tại vẫn
 được giữ. Không có bước gửi audio hoặc inference cloud. Thư mục model đã tải có thể được dùng offline
