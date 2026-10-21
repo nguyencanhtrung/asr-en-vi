@@ -30,6 +30,11 @@ LOGIN_TIMEOUT_SECONDS = 10 * 60
 RPC_START_TIMEOUT_SECONDS = 20.0
 RPC_COMMAND_TIMEOUT_SECONDS = 30.0
 RPC_INFERENCE_TIMEOUT_SECONDS = 5 * 60.0
+RPC_NOTES_INFERENCE_TIMEOUT_SECONDS = 15 * 60.0
+RPC_SYSTEM_PROMPT = (
+    "You are a text-only assistant. This session has no tools or functions: never emit a "
+    "function call or tool call. Reply with plain text only, exactly as the user message asks."
+)
 OPERATION_LOCK_TIMEOUT_SECONDS = 5.0
 LOGIN_LOCK_WAIT_SECONDS = 15.0
 MAX_RPC_FRAME_BYTES = 1024 * 1024
@@ -435,6 +440,8 @@ class OmpRpcAdapter:
             "--no-extensions",
             "--no-skills",
             "--no-rules",
+            "--system-prompt",
+            RPC_SYSTEM_PROMPT,
             "--cwd",
             str(self.workspace_dir),
             "--config",
@@ -561,6 +568,10 @@ class OmpRpcAdapter:
         model_access_denied = any(marker in details for marker in _MODEL_ACCESS_ERROR_MARKERS)
         if command == "set_model" or model_access_denied:
             raise AntigravityError(422, "model_unavailable", "Antigravity model is unavailable.")
+        if "finish reason:" in details:
+            raise AntigravityError(
+                502, "provider_invalid_response", "Antigravity stopped without a usable result."
+            )
         raise AntigravityError(502, "provider_unavailable", "OMP could not complete the request.")
 
     def login(self, interaction: LoginInteraction) -> None:
@@ -691,7 +702,9 @@ class OmpRpcAdapter:
         return [item for item in models if isinstance(item, dict)]
 
     @staticmethod
-    def _prompt_for_text(client: _RpcClient, message: str) -> str | None:
+    def _prompt_for_text(
+        client: _RpcClient, message: str, timeout: float = RPC_INFERENCE_TIMEOUT_SECONDS
+    ) -> str | None:
         """Send one prompt and return the last assistant text once the prompt completes."""
         assistant_text: str | None = None
 
@@ -716,10 +729,13 @@ class OmpRpcAdapter:
 
         prompt_id = secrets.token_urlsafe(12)
         client.send({"id": prompt_id, "type": "prompt", "message": message})
-        deadline = time.monotonic() + RPC_INFERENCE_TIMEOUT_SECONDS
+        deadline = time.monotonic() + timeout
         accepted = False
         while True:
-            frame = client._read_frame(max(0.01, deadline - time.monotonic()))
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AntigravityError(503, "provider_timeout", "OMP did not respond in time.")
+            frame = client._read_frame(remaining)
             capture(frame)
             if frame.get("type") == "response" and frame.get("id") == prompt_id:
                 if frame.get("success") is not True:
@@ -767,7 +783,7 @@ class OmpRpcAdapter:
             client.request(
                 {"type": "set_model", "provider": ANTIGRAVITY_PROVIDER_ID, "modelId": model}
             )
-            return self._prompt_for_text(client, prompt) or ""
+            return self._prompt_for_text(client, prompt, RPC_NOTES_INFERENCE_TIMEOUT_SECONDS) or ""
 
     def logout(self) -> bool:
         self.prepare()

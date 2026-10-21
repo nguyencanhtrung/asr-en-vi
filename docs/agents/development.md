@@ -70,6 +70,12 @@ For OMP v18.5.0, source facts that the contract cannot test are:
   only `message` and `retryable`. Read the tagged
   [`rpc-prompt-results.ts` source](https://github.com/can1357/oh-my-pi/blob/v18.5.0/packages/coding-agent/src/modes/rpc/rpc-prompt-results.ts#L108-L110)
   for pre-agent rejections and [provider-run errors](https://github.com/can1357/oh-my-pi/blob/v18.5.0/packages/coding-agent/src/modes/rpc/rpc-prompt-results.ts#L181-L199).
+- S-3: a Gemini provider error finish reason (`SAFETY`, `MALFORMED_FUNCTION_CALL`, ...)
+  sets the assistant error message `Generation failed with finish reason: <REASON>`. A
+  stream that ends without any finish reason says `stream ended without a finish reason`.
+  Read the tagged
+  [error finish reasons](https://github.com/can1357/oh-my-pi/blob/v18.5.0/packages/ai/src/providers/google-gemini-cli.ts#L866-L879)
+  and [missing finish reason](https://github.com/can1357/oh-my-pi/blob/v18.5.0/packages/ai/src/providers/google-gemini-cli.ts#L1054-L1057).
 
 Read the tagged source, not `strings` on the binary.
 

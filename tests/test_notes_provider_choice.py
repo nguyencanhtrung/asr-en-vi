@@ -24,7 +24,12 @@ from test_notes_provider import (
 )
 
 from asr_en_vi import notes_runner, worker
-from asr_en_vi.antigravity import AntigravityError, AntigravityProvider, _strip_json_fence
+from asr_en_vi.antigravity import (
+    AntigravityError,
+    AntigravityProvider,
+    OmpRpcAdapter,
+    _strip_json_fence,
+)
 from asr_en_vi.app import create_app
 from asr_en_vi.chatgpt import DIRECT_SCOPE, ChatGPTError, ChatGPTProvider
 from asr_en_vi.config import Settings
@@ -967,6 +972,16 @@ for line in sys.stdin:
             "success": True, "data": {"agentInvoked": True},
         }
         print(json.dumps(accepted), flush=True)
+        if mode == "finish_reason":
+            # S-2 frame shape; S-3 (docs/agents/development.md) message for an error finish reason.
+            failed = {
+                "type": "prompt_result", "id": request_id, "status": "error",
+                "error": {"provider": "google-antigravity", "model": model, "retryable": False,
+                          "message": "Generation failed with finish reason: "
+                                     "MALFORMED_FUNCTION_CALL"},
+            }
+            print(json.dumps(failed), flush=True)
+            break
         if mode == "quota":
             # S-2 (docs/agents/development.md): a provider-run error is status "error" with an
             # error object carrying message, retryable, provider, model and optional httpStatus.
@@ -1053,7 +1068,12 @@ def test_antigravity_run_through_worker_publishes_one_revision_with_a_fresh_omp_
 
 
 @pytest.mark.parametrize(
-    ("mode", "code"), [("invalid", "notes_invalid_output"), ("quota", "provider_quota")]
+    ("mode", "code"),
+    [
+        ("invalid", "notes_invalid_output"),
+        ("quota", "provider_quota"),
+        ("finish_reason", "provider_invalid_response"),
+    ],
 )
 def test_antigravity_failures_through_worker_fail_the_task_without_a_revision(
     tmp_path, fake_omp_binary, mode, code
@@ -1365,3 +1385,21 @@ def test_request_hash_changes_only_when_confirmed_fields_are_present():
     with_model = _request_hash(**base, expected_model="x")
     assert with_model != _request_hash(**base)
     assert _request_hash(**base, expected_model="x", expected_reasoning_effort="high") != with_model
+
+
+def test_finish_reason_errors_are_invalid_responses_but_a_dropped_stream_is_unavailable():
+    def code(message):
+        frame = {"type": "prompt_result", "status": "error", "error": {"message": message}}
+        with pytest.raises(AntigravityError) as raised:
+            OmpRpcAdapter.raise_rpc_error(frame)
+        return raised.value.code
+
+    assert code("Generation failed with finish reason: SAFETY") == "provider_invalid_response"
+    # S-3: a stream without any finish reason is a dropped connection.
+    assert (
+        code(
+            "Cloud Code Assist stream ended without a finish reason "
+            "(connection dropped or response truncated)"
+        )
+        == "provider_unavailable"
+    )

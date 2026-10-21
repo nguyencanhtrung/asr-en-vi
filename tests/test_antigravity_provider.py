@@ -9,8 +9,12 @@ from pathlib import Path
 
 import pytest
 
+from asr_en_vi import antigravity
 from asr_en_vi.antigravity import (
     ANTIGRAVITY_PROVIDER_ID,
+    RPC_INFERENCE_TIMEOUT_SECONDS,
+    RPC_NOTES_INFERENCE_TIMEOUT_SECONDS,
+    RPC_SYSTEM_PROMPT,
     AntigravityError,
     AntigravityProvider,
     LoginInteraction,
@@ -201,6 +205,8 @@ def test_runner_contract_is_isolated_and_disables_agent_surfaces(tmp_path, monke
         "--no-rules",
     ):
         assert flag in contract["command"]
+    command = contract["command"]
+    assert command[command.index("--system-prompt") + 1] == RPC_SYSTEM_PROMPT
     assert contract["version"] == "18.5.0"
     assert "CLAUDE_CONFIG_DIR" not in adapter.environment
     assert "OPENAI_API_KEY" not in adapter.environment
@@ -587,3 +593,72 @@ for line in sys.stdin:
     assert provider.provider_view()["status"] == expected_status
     with provider.store.locked() as state:
         assert state["connection_version"] == (4 if expected_status == "reconnect_required" else 3)
+
+
+def test_prompt_deadline_cuts_a_stream_that_keeps_producing_frames(monkeypatch):
+    clock = {"now": 0.0}
+    monkeypatch.setattr(antigravity.time, "monotonic", lambda: clock["now"])
+    sent = []
+
+    class StubClient:
+        def __init__(self):
+            self.frames = iter(
+                [
+                    {"type": "response", "id": "p", "success": True, "data": {}},
+                    {
+                        "type": "message_end",
+                        "message": {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": "late"}],
+                        },
+                    },
+                    {"type": "prompt_result", "id": "p", "status": "completed"},
+                ]
+            )
+
+        def send(self, payload):
+            sent.append(payload)
+
+        def _read_frame(self, timeout):
+            clock["now"] += 1000.0  # buffered frames arrive after the deadline
+            frame = next(self.frames)
+            if frame.get("id") == "p":
+                frame["id"] = sent[0]["id"]
+            return frame
+
+    with pytest.raises(AntigravityError) as failure:
+        OmpRpcAdapter._prompt_for_text(StubClient(), "hi", 900.0)
+
+    assert failure.value.status_code == 503
+    assert failure.value.code == "provider_timeout"
+
+
+def test_generate_and_verify_use_their_own_inference_deadlines(monkeypatch):
+    timeouts = []
+
+    class StubClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def request(self, payload):
+            return {}
+
+    def fake_prompt(client, message, timeout=RPC_INFERENCE_TIMEOUT_SECONDS):
+        timeouts.append(timeout)
+        return '{"ok":true}'
+
+    monkeypatch.setattr(antigravity, "_RpcClient", StubClient)
+    monkeypatch.setattr(OmpRpcAdapter, "_prompt_for_text", staticmethod(fake_prompt))
+    adapter = OmpRpcAdapter.__new__(OmpRpcAdapter)
+
+    adapter.generate("m", "p")
+    adapter.verify("m")
+
+    assert timeouts == [RPC_NOTES_INFERENCE_TIMEOUT_SECONDS, RPC_INFERENCE_TIMEOUT_SECONDS]
+    assert (RPC_NOTES_INFERENCE_TIMEOUT_SECONDS, RPC_INFERENCE_TIMEOUT_SECONDS) == (900.0, 300.0)
