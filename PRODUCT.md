@@ -27,6 +27,7 @@ ASR EN VI biến bản ghi cuộc họp tiếng Anh hoặc tiếng Việt thành
 - Transcript mở ở chế độ đọc để nghe và đọc nhanh: mỗi đoạn chỉ hiện mốc thời gian, người nói, nội dung và dấu cần kiểm tra. Nút **Sửa** mở ô sửa cho đúng một đoạn tại một lúc; bản nháp chưa lưu của đoạn vừa rời đi được giữ và đánh dấu. Gán người nói ban đầu và chỉ số model nằm trong phần **Chi tiết** của đoạn đang sửa.
 - Người nói hiện thành chip; chip còn tên mặc định do hệ thống đặt (Speaker N) có dấu **đặt tên** và đổi tên ngay tại chỗ.
 - Trạng thái worker, model, tác vụ, lỗi và dữ liệu cần nghe lại phải quét nhanh được trong phiên làm việc dài.
+- Meeting notes mở ở chế độ **Xem** theo mặc định để đọc toàn bề rộng và trình duyệt nhớ lựa chọn cuối cùng; **Viết** dùng để sửa Markdown. Bản nháp chưa lưu luôn được báo rõ và trình duyệt cảnh báo trước khi đóng hoặc tải lại trang.
 
 ## Capabilities and Constraints
 
