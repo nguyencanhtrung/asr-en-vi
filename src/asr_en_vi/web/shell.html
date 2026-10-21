@@ -502,13 +502,17 @@
                   <p class="field-help" id="language-hint-help">Gợi ý ngôn ngữ không dịch hoặc khóa ngôn ngữ của transcript.</p>
                 </fieldset>
               </div>
+              <div class="auto-transcribe">
+                <label class="auto-transcribe-option"><input id="auto-transcribe" type="checkbox" checked aria-describedby="auto-transcribe-help" /><span>Chép lời ngay sau khi tạo</span></label>
+                <p class="field-help" id="auto-transcribe-help">Bỏ chọn để tự bấm “Bắt đầu chép lời” trên trang cuộc họp.</p>
+              </div>
             </div>
 
             <section class="upload-state" aria-label="Trạng thái tải bản ghi lên">
               <div class="upload-state-header">
                 <span class="upload-state-icon" aria-hidden="true"><span></span></span>
                 <div><p class="upload-state-label">TẢI LÊN VÀ KIỂM TRA</p><p class="workflow-state" id="workflow-state" aria-live="polite">Chưa chọn file.</p></div>
-                <span class="state-code" id="state-code">IDLE</span>
+                <span class="state-label" id="state-label">Chưa chọn file</span>
               </div>
               <div class="transfer-progress" id="transfer-progress" hidden>
                 <div class="progress-heading"><span>Tiến độ truyền file</span><span id="upload-progress-value">0%</span></div>
@@ -523,7 +527,6 @@
           <footer class="dialog-actions">
             <button class="secondary-button" id="cancel-upload" type="button" hidden>Hủy tải lên</button>
             <button class="secondary-button" id="retry-upload" type="button" hidden>Tải lại từ đầu</button>
-            <button class="secondary-button" id="start-upload" type="button" disabled>Tải lên và kiểm tra</button>
             <button class="primary-button" id="create-meeting" type="submit" disabled>Tạo cuộc họp</button>
           </footer>
         </form>
