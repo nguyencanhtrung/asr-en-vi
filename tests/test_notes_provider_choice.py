@@ -66,6 +66,7 @@ class FakeOmp:
         self.responder = responder
         self.replies = list(replies or [])
         self.calls: list[tuple[str, str]] = []
+        self.levels: list[str] = []
         self.catalog_calls = 0
         self.verify_calls = 0
 
@@ -76,15 +77,16 @@ class FakeOmp:
         self.catalog_calls += 1
         return []
 
-    def verify(self, model):
+    def verify(self, model, thinking_level="high"):
         self.verify_calls += 1
         return {"ok": True}
 
     def logout(self):
         return True
 
-    def generate(self, model, prompt):
+    def generate(self, model, prompt, thinking_level="high"):
         self.calls.append((model, prompt))
+        self.levels.append(thinking_level)
         if self.replies:
             reply = self.replies.pop(0)
             if isinstance(reply, Exception):
@@ -217,7 +219,7 @@ def test_antigravity_pin_requires_a_connection_and_a_saved_model(tmp_path):
         "provider": "antigravity",
         "connection_version": 4,
         "model": PINNED_MODEL,
-        "reasoning_effort": "default",
+        "reasoning_effort": "high",
     }
 
     for status, code in (
@@ -264,8 +266,10 @@ def test_antigravity_preference_is_static_and_rejects_an_effort(tmp_path):
             provider.save_notes_preference(bad)
         assert invalid.value.code == "invalid_model"
     with pytest.raises(AntigravityError) as effort:
-        provider.save_notes_preference("gemini-3-pro-high", "high")
+        provider.save_notes_preference("gemini-3-pro-high", "low")
     assert effort.value.code == "invalid_reasoning_effort"
+    provider.save_notes_preference("gemini-3-pro-high", "medium")
+    assert provider.saved_notes_effort() == "medium"
     assert adapter.catalog_calls == 0 and adapter.calls == []
 
 
@@ -370,6 +374,7 @@ async def test_notes_preferences_cover_both_providers_without_network_and_surviv
             "provider": None,
             "models": {},
             "reasoning_effort": "default",
+            "reasoning_efforts": {"chatgpt": "default", "antigravity": "high"},
         }
         # Neither provider is connected: choosing a model is still local and static.
         saved = await api.put(
@@ -380,6 +385,7 @@ async def test_notes_preferences_cover_both_providers_without_network_and_surviv
             "provider": "antigravity",
             "models": {"antigravity": PINNED_MODEL},
             "reasoning_effort": "default",
+            "reasoning_efforts": {"chatgpt": "default", "antigravity": "high"},
         }
         saved = await api.put(
             "/api/notes-preferences",
@@ -389,6 +395,7 @@ async def test_notes_preferences_cover_both_providers_without_network_and_surviv
             "provider": "chatgpt",
             "models": {"antigravity": PINNED_MODEL, "chatgpt": "gpt-5.6-luna"},
             "reasoning_effort": "high",
+            "reasoning_efforts": {"chatgpt": "high", "antigravity": "high"},
         }
         assert chatgpt.model_calls == [] and omp.catalog_calls == 0
 
@@ -396,7 +403,7 @@ async def test_notes_preferences_cover_both_providers_without_network_and_surviv
             ({"provider": "other", "model": "m"}, "invalid_provider"),
             ({"provider": "antigravity", "model": "bad model"}, "invalid_model"),
             (
-                {"provider": "antigravity", "model": PINNED_MODEL, "reasoning_effort": "high"},
+                {"provider": "antigravity", "model": PINNED_MODEL, "reasoning_effort": "low"},
                 "invalid_reasoning_effort",
             ),
             (
@@ -420,6 +427,7 @@ async def test_notes_preferences_cover_both_providers_without_network_and_surviv
             "provider": "chatgpt",
             "models": {"antigravity": PINNED_MODEL, "chatgpt": "gpt-5.6-luna"},
             "reasoning_effort": "high",
+            "reasoning_efforts": {"chatgpt": "high", "antigravity": "high"},
         }
 
 
@@ -473,7 +481,7 @@ async def test_notes_run_pins_only_the_chosen_provider_and_never_picks_a_model(
         assert (task["provider"], task["model"], task["reasoning_effort"]) == (
             "antigravity",
             PINNED_MODEL,
-            "default",
+            "high",
         )
         row = _task_row(settings.data_dir, task["id"])
         assert (row["notes_provider"], row["notes_model"], row["notes_connection_version"]) == (
@@ -947,14 +955,18 @@ def reply(prompt):
     )
 
 
+level = "high"
 print(json.dumps({"type": "ready"}), flush=True)
 for line in sys.stdin:
     command = json.loads(line)
     request_id = command.get("id")
     kind = command.get("type")
     data = None
-    if kind == "get_state":
-        data = {"dumpTools": []}
+    if kind == "set_thinking_level":
+        level = command["level"]
+        data = {}
+    elif kind == "get_state":
+        data = {"dumpTools": [], "thinkingLevel": level}
     elif kind in {"set_auto_compaction", "set_auto_retry"}:
         data = {}
     elif kind == "set_model":
@@ -962,7 +974,8 @@ for line in sys.stdin:
         data = {}
     elif kind == "prompt":
         with (agent / "calls.jsonl").open("a") as handle:
-            handle.write(json.dumps({"pid": os.getpid(), "pgid": os.getpgid(0), "model": model}))
+            record = {"pid": os.getpid(), "pgid": os.getpgid(0), "model": model, "level": level}
+            handle.write(json.dumps(record))
             handle.write("\\n")
         if mode == "hang":
             (agent / "hang-pid").write_text(str(os.getpid()))
@@ -1057,7 +1070,7 @@ def test_antigravity_run_through_worker_publishes_one_revision_with_a_fresh_omp_
     assert state["task"]["status"] == "succeeded"
     assert [item["provider"] for item in state["revisions"]] == ["antigravity"]
     revision = state["revisions"][0]
-    assert (revision["model"], revision["reasoning_effort"]) == (PINNED_MODEL, "default")
+    assert (revision["model"], revision["reasoning_effort"]) == (PINNED_MODEL, "high")
     assert revision["markdown"].startswith("##")
     calls = _omp_calls(fake_omp_binary)
     assert len(calls) == (3 if chunked else 1)
@@ -1148,7 +1161,7 @@ def test_task_summary_exposes_the_pinned_provider_only_for_notes(tmp_path):
     assert (summary["provider"], summary["model"], summary["reasoning_effort"]) == (
         "antigravity",
         PINNED_MODEL,
-        "default",
+        "high",
     )
     with pytest.raises(TaskError) as invalid:
         accept_notes_task(
@@ -1301,7 +1314,7 @@ async def test_confirmed_choice_must_match_the_saved_preference(tmp_path, monkey
         _connect_chatgpt(api.app.state.chatgpt_provider)
         _connect_antigravity(api.app.state.antigravity_provider)
         model = "gpt-6.1-sol" if provider_id == "chatgpt" else PINNED_MODEL
-        effort = "high" if provider_id == "chatgpt" else "default"
+        effort = "high"
 
         def body(request_id, **extra):
             return api.run_payload(
@@ -1311,6 +1324,8 @@ async def test_confirmed_choice_must_match_the_saved_preference(tmp_path, monkey
         mismatches = [{"expected_model": "someone-else"}]
         if provider_id == "chatgpt":
             mismatches += [{"expected_model": model, "expected_reasoning_effort": "low"}]
+        else:
+            mismatches += [{"expected_model": model, "expected_reasoning_effort": "medium"}]
         for index, extra in enumerate(mismatches):
             response = await api.post(runs, body(f"mismatch-{index}", **extra))
             assert response.status_code == 409, extra
@@ -1345,7 +1360,7 @@ async def test_confirmed_choice_is_optional_and_validated(tmp_path, monkeypatch)
             ("chatgpt", {"expected_model": None}, "invalid_expected_model"),
             ("chatgpt", {"expected_model": ""}, "invalid_expected_model"),
             ("chatgpt", {"expected_reasoning_effort": 5}, "invalid_reasoning_effort"),
-            ("antigravity", {"expected_reasoning_effort": "high"}, "invalid_reasoning_effort"),
+            ("antigravity", {"expected_reasoning_effort": "low"}, "invalid_reasoning_effort"),
         ]
         for provider_id, extra, code in invalid:
             response = await api.post(
@@ -1403,3 +1418,73 @@ def test_finish_reason_errors_are_invalid_responses_but_a_dropped_stream_is_unav
         )
         == "provider_unavailable"
     )
+
+
+def test_antigravity_run_pins_and_applies_the_saved_medium_level(tmp_path, fake_omp_binary):
+    settings = Settings(data_dir=tmp_path / "data", auth_dir=tmp_path / "auth")
+    meeting_id, generation_id, _ = seed_completed_transcript(settings.data_dir)
+    provider = _antigravity(tmp_path, FakeOmp())
+    provider.save_notes_preference(PINNED_MODEL, "medium")
+    _accept(settings.data_dir, provider, "antigravity", "medium-1", meeting_id, generation_id)
+    task = claim_next_task(settings.data_dir, owner_id="owner-medium-1")
+    assert task is not None and task["notes_reasoning_effort"] == "medium"
+
+    provider.save_notes_preference(PINNED_MODEL, "high")  # applies to the next run only
+    _run_with_worker(settings, task, "owner-medium-1")
+
+    state = notes_state(settings.data_dir, meeting_id)
+    assert state["revisions"][0]["reasoning_effort"] == "medium"
+    assert {call["level"] for call in _omp_calls(fake_omp_binary)} == {"medium"}
+
+
+def test_accepted_legacy_default_task_runs_with_high(tmp_path, fake_omp_binary):
+    settings, meeting_id, task = _antigravity_task(tmp_path, "legacy-1")
+    with sqlite3.connect(database_path(settings.data_dir)) as connection:
+        connection.execute(
+            "UPDATE tasks SET notes_reasoning_effort = 'default' WHERE kind = 'notes'"
+        )
+    task = {**task, "notes_reasoning_effort": "default"}
+
+    _run_with_worker(settings, task, "owner-legacy-1")
+
+    assert {call["level"] for call in _omp_calls(fake_omp_binary)} == {"high"}
+
+
+@pytest.mark.anyio
+async def test_antigravity_confirmed_level_is_compared_after_legacy_default_is_normalized(
+    tmp_path, monkeypatch
+):
+    settings = _settings(tmp_path)
+    async with _api(settings, monkeypatch) as api:
+        meeting_id, generation_id, _ = seed_completed_transcript(settings.data_dir)
+        runs = f"/api/meetings/{meeting_id}/notes-runs"
+        _connect_antigravity(api.app.state.antigravity_provider)
+        provider = api.app.state.antigravity_provider
+        provider.save_notes_preference(PINNED_MODEL, "medium")
+
+        stale = await api.post(
+            runs,
+            api.run_payload(
+                meeting_id,
+                generation_id,
+                "stale-level-1",
+                provider="antigravity",
+                expected_reasoning_effort="default",  # legacy body, saved level is medium
+            ),
+        )
+        assert stale.status_code == 409, stale.json()
+        assert stale.json()["detail"]["code"] == "notes_preference_changed"
+
+        provider.save_notes_preference(PINNED_MODEL, "high")
+        legacy = await api.post(
+            runs,
+            api.run_payload(
+                meeting_id,
+                generation_id,
+                "legacy-level-1",
+                provider="antigravity",
+                expected_reasoning_effort="default",
+            ),
+        )
+        assert legacy.status_code == 202
+        assert legacy.json()["reasoning_effort"] == "high"

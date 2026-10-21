@@ -49,7 +49,8 @@
     reconnect_required: (name) => `${name} cần được kết nối lại trước khi tạo notes.`,
     connection_changed: (name) => `Kết nối ${name} đã đổi trong lúc chạy nên tác vụ dừng lại.`,
     provider_quota: (name) => `${name} đã hết hạn mức sử dụng.`,
-    model_unavailable: (name) => `Model đã chọn không dùng được với ${name}.`,
+    model_unavailable: (name) => `Model đã chọn không dùng được với ${name}; gói hiện tại có thể không bao gồm model này.`,
+    thinking_level_unavailable: (name) => `${name} không áp dụng được mức suy nghĩ đã chọn; tác vụ đã dừng trước khi gửi yêu cầu tiếp theo.`,
     provider_unavailable: (name) => `${name} tạm thời không khả dụng.`,
     provider_invalid_response: (name) => `${name} dừng mà không trả về kết quả dùng được nên không có notes mới nào được lưu.`,
     provider_timeout: (name) => `${name} không phản hồi kịp thời gian.`,
@@ -79,7 +80,7 @@
       loadedFor: "",
       provider: null,
       localProvider: null,
-      preferences: { provider: null, models: {}, reasoning_effort: "default" },
+      preferences: { provider: null, models: {}, reasoning_effort: "default", reasoning_efforts: {} },
       status: { chatgpt: "disconnected", antigravity: "disconnected" },
       catalogs: { chatgpt: null, antigravity: null },
       catalogErrors: { chatgpt: "", antigravity: "" },
@@ -309,7 +310,15 @@
     return model ? model.display_name : modelId;
   }
 
+  function effortLabel(effort) {
+    return effort === "medium" ? "Medium" : "High";
+  }
+
   function effortFor(provider, modelId) {
+    if (provider === "antigravity") {
+      const saved = state.choice.preferences.reasoning_efforts.antigravity;
+      return saved === "medium" ? "medium" : "high";
+    }
     if (provider !== "chatgpt") return "default";
     const effort = state.choice.preferences.reasoning_effort;
     const models = catalogModels(provider);
@@ -384,6 +393,8 @@
           ? preferences.models : {},
         reasoning_effort: preferences && typeof preferences.reasoning_effort === "string"
           ? preferences.reasoning_effort : "default",
+        reasoning_efforts: preferences && preferences.reasoning_efforts
+          && typeof preferences.reasoning_efforts === "object" ? preferences.reasoning_efforts : {},
       };
       choice.loaded = true;
       choice.loadedFor = meetingId;
@@ -433,8 +444,10 @@
       choice.preferences = {
         provider: PROVIDER_IDS.includes(saved && saved.provider) ? saved.provider : provider,
         models: saved && saved.models && typeof saved.models === "object" ? saved.models : { [provider]: model },
-        reasoning_effort: saved && typeof saved.reasoning_effort === "string"
-          ? saved.reasoning_effort : body.reasoning_effort,
+        reasoning_effort: provider === "chatgpt" && saved && typeof saved.reasoning_effort === "string"
+          ? saved.reasoning_effort : choice.preferences.reasoning_effort,
+        reasoning_efforts: saved && saved.reasoning_efforts && typeof saved.reasoning_efforts === "object"
+          ? saved.reasoning_efforts : choice.preferences.reasoning_efforts,
       };
       const next = `${providerLabel(provider)} · ${modelName(provider, model)}`;
       choice.message = data && activeTask(data)
@@ -477,8 +490,9 @@
     modelSelect.value = readiness.ready || models === null ? readiness.model : "";
     modelSelect.disabled = locked || models === null || models.length === 0;
     const name = providerLabel(provider);
-    const effort = provider === "chatgpt" && choice.preferences.reasoning_effort !== "default"
+    let effort = provider === "chatgpt" && choice.preferences.reasoning_effort !== "default"
       ? ` · effort ${choice.preferences.reasoning_effort}` : "";
+    if (provider === "antigravity") effort = ` · mức suy nghĩ ${effortLabel(effortFor("antigravity"))}`;
     const plan = $("#notes-run-plan");
     const reload = $("#notes-choice-reload");
     reload.hidden = choice.loaded || !state.currentMeetingId;
@@ -552,8 +566,11 @@
       : "Chưa bắt đầu";
     $("#notes-task-stage").textContent = stage;
     $("#notes-task-provider").textContent = taskProviderName;
-    $("#notes-task-model").textContent = [task.model, taskProvider === "chatgpt" && task.reasoning_effort
-      && task.reasoning_effort !== "default" ? `effort ${task.reasoning_effort}` : ""]
+    const taskEffort = taskProvider === "antigravity"
+      ? `mức suy nghĩ ${effortLabel(task.reasoning_effort === "medium" ? "medium" : "high")}`
+      : (taskProvider === "chatgpt" && task.reasoning_effort
+        && task.reasoning_effort !== "default" ? `effort ${task.reasoning_effort}` : "");
+    $("#notes-task-model").textContent = [task.model, taskEffort]
       .filter(Boolean).join(" · ") || "Chưa ghi nhận";
     const active = ACTIVE_TASK_STATES.has(task.status);
     if (task.status === "accepted") status.textContent = "Tác vụ đã được nhận. Worker sẽ bắt đầu xử lý notes.";
@@ -1114,7 +1131,9 @@
     const confirmed = savedModel(pending.provider);
     if (state.choice.loaded && confirmed) {
       complete.expected_model = confirmed;
-      if (pending.provider === "chatgpt") complete.expected_reasoning_effort = effortFor("chatgpt", confirmed);
+      if (pending.provider === "chatgpt" || pending.provider === "antigravity") {
+        complete.expected_reasoning_effort = effortFor(pending.provider, confirmed);
+      }
     }
     savePendingRequest(meeting.id, complete);
     return complete;

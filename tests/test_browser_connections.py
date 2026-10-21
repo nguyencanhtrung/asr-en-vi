@@ -115,6 +115,7 @@ class MockProviderApi:
         self.antigravity_session = None
         self.antigravity_polls = ["pending", "connected"]
         self.antigravity_selected_model = None
+        self.antigravity_effort = "high"
         self.antigravity_verification = None
         self.antigravity_failure_operation = None
         self.antigravity_failure_code = "reconnect_required"
@@ -237,6 +238,7 @@ class MockProviderApi:
                 {
                     "models": self.antigravity_models,
                     "selected_model": self.antigravity_selected_model,
+                    "reasoning_effort": self.antigravity_effort,
                 },
             )
             return
@@ -256,9 +258,14 @@ class MockProviderApi:
                 )
                 return
             self.antigravity_selected_model = body["model"]
+            self.antigravity_effort = body.get("reasoning_effort", self.antigravity_effort)
             self.fulfill(
                 route,
-                {"provider": "antigravity", "model": self.antigravity_selected_model},
+                {
+                    "provider": "antigravity",
+                    "model": self.antigravity_selected_model,
+                    "reasoning_effort": self.antigravity_effort,
+                },
             )
             return
         if method == "POST" and path == "/api/providers/antigravity/verify":
@@ -584,8 +591,17 @@ def test_antigravity_login_catalog_verification_and_disconnect(browser_runtime):
     expect(page.locator("#antigravity-account")).to_have_text("Google Antigravity")
 
     page.locator("#antigravity-model").select_option("gemini-3-pro-high")
+    expect(page.locator("#antigravity-effort")).to_have_value("high")
+    page.locator("#antigravity-effort").select_option("medium")
     page.get_by_role("button", name="Lưu mô hình Antigravity").click()
     expect(page.locator("#antigravity-model-status")).to_contain_text("Đã lưu Gemini 3 Pro High")
+    expect(page.locator("#antigravity-model-status")).to_contain_text("mức suy nghĩ Medium")
+    assert api.antigravity_effort == "medium"
+    assert (
+        "PUT",
+        "/api/providers/antigravity/preference",
+        {"model": "gemini-3-pro-high", "reasoning_effort": "medium"},
+    ) in api.calls
     page.get_by_role("button", name="Chạy kiểm tra model đã chọn").click()
     expect(page.locator("#antigravity-verification-result")).to_contain_text(
         "Đã xác minh Gemini 3 Pro High"

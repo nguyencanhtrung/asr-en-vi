@@ -99,9 +99,13 @@ def _expected_choice(
             raise TaskError(
                 400, "invalid_reasoning_effort", "Provide the reasoning effort you confirmed."
             )
-        if chosen_provider == "antigravity" and expected_reasoning_effort != "default":
+        if chosen_provider == "antigravity" and expected_reasoning_effort not in (
+            "high",
+            "medium",
+            "default",
+        ):
             raise TaskError(
-                400, "invalid_reasoning_effort", "Antigravity does not support a reasoning effort."
+                400, "invalid_reasoning_effort", "Choose High or Medium as the thinking level."
             )
         effort = expected_reasoning_effort
     return model, effort
@@ -217,6 +221,10 @@ def notes_preferences(
         "provider": last_notes_provider(data_dir),
         "models": models,
         "reasoning_effort": chatgpt_effort,
+        "reasoning_efforts": {
+            "chatgpt": chatgpt_effort,
+            "antigravity": antigravity_provider.saved_notes_effort(),
+        },
     }
 
 
@@ -351,6 +359,10 @@ def accept_notes_task(
         pin = provider.notes_task_pin()
         if pin["provider"] != chosen_provider:
             raise TaskError(500, "provider_mismatch", "The notes provider could not be selected.")
+        if chosen_provider == "antigravity" and confirmed_effort == "default":
+            confirmed_effort = (
+                "high"  # legacy pending requests; the hash above keeps the sent value
+            )
         if (confirmed_model is not None and confirmed_model != pin["model"]) or (
             confirmed_effort is not None and confirmed_effort != pin["reasoning_effort"]
         ):

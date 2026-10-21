@@ -196,6 +196,10 @@ URL chuyển hướng. Phiên đăng nhập hết hạn sau 10 phút và có th�
 model từ catalog, lưu lựa chọn và chạy yêu cầu kiểm tra tổng hợp để xác nhận model thực sự tạo được
 đầu ra. Catalog không tự chứng minh quyền inference hoặc quota.
 
+Cùng lúc lưu model, chọn **Mức suy nghĩ**: High (mặc định, đầy đủ hơn nhưng chậm hơn, khoảng 7–10
+phút cho cuộc họp 1 giờ) hoặc Medium (nhanh hơn nhưng có thể bỏ sót việc cần làm). Mỗi tác vụ notes
+ghim mức này lúc được nhận; đổi sau đó chỉ áp dụng cho lần chạy tiếp theo.
+
 Image pin OMP `18.5.0` bằng checksum riêng cho `amd64` và `arm64`. Runner dùng home, agent store,
 XDG directories và working directory riêng dưới volume `provider`; không đọc cấu hình Claude,
 Codex hay OMP cá nhân trên host. Mỗi tiến trình RPC chạy với `--no-session`, `--no-tools`,

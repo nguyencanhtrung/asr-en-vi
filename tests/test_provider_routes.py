@@ -64,6 +64,7 @@ async def test_provider_routes_obey_auth_contract_and_never_expose_credentials(p
                 "account": None,
                 "connection_version": 0,
                 "verification": None,
+                "reasoning_effort": "high",
             },
         ]
     }
@@ -71,6 +72,7 @@ async def test_provider_routes_obey_auth_contract_and_never_expose_credentials(p
         "provider": None,
         "models": {},
         "reasoning_effort": "default",
+        "reasoning_efforts": {"chatgpt": "default", "antigravity": "high"},
     }
 
     started = await client.post(
@@ -160,6 +162,7 @@ async def test_provider_routes_obey_auth_contract_and_never_expose_credentials(p
         "provider": "chatgpt",
         "models": {"chatgpt": "gpt-6.1-sol"},
         "reasoning_effort": "default",
+        "reasoning_efforts": {"chatgpt": "default", "antigravity": "high"},
     }
 
     verification = await client.post(
@@ -196,6 +199,7 @@ async def test_provider_routes_obey_auth_contract_and_never_expose_credentials(p
         "provider": "chatgpt",
         "models": {"chatgpt": "gpt-5.6-luna"},
         "reasoning_effort": "high",
+        "reasoning_efforts": {"chatgpt": "high", "antigravity": "high"},
     }
     verified_effort = await client.post(
         "/api/providers/chatgpt/verify",
@@ -227,6 +231,7 @@ async def test_provider_routes_obey_auth_contract_and_never_expose_credentials(p
         "provider": "chatgpt",
         "models": {"chatgpt": "gpt-5.6-luna"},
         "reasoning_effort": "high",
+        "reasoning_efforts": {"chatgpt": "high", "antigravity": "high"},
     }
 
 
