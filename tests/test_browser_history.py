@@ -3995,6 +3995,26 @@ def speaker_chip(page, index):
     return page.locator("#speaker-catalog-list > li").nth(index).locator(".speaker-chip")
 
 
+def show_a_past_generation(page):
+    """Serve each meeting with a copy of its transcript as history: a second transcript to open."""
+
+    def route_meeting(route):
+        if route.request.method != "GET":
+            route.fallback()
+            return
+        response = route.fetch()
+        payload = response.json()
+        past = json.loads(json.dumps(payload["transcription"]["generation"]))
+        past["id"] = "browser-past-generation"
+        past["generation_number"] = 0
+        for segment in past["segments"]:
+            segment["id"] = "b" + segment["id"][1:]
+        payload["transcription"]["generation_history"] = [past]
+        route.fulfill(response=response, json=payload)
+
+    page.route(re.compile(r"/api/meetings/[^/?]+$"), route_meeting)
+
+
 def test_transcript_reads_by_default_and_shows_no_editing_control(live, browser_context):
     _context, page = browser_context
     open_reading_meeting(live, page)
@@ -4109,6 +4129,50 @@ def test_edit_opens_the_editor_and_esc_cancels_and_ctrl_enter_saves(live, browse
     ]
 
 
+def test_ctrl_enter_saves_from_every_control_of_the_open_editor_once(live, browser_context):
+    _context, page = browser_context
+    open_reading_meeting(live, page)
+    patches = record_patches(page)
+    page.evaluate(
+        """() => {
+          window.__submits = 0;
+          document.querySelector("#transcript-generation")
+            .addEventListener("submit", () => { window.__submits += 1; }, true);
+        }"""
+    )
+    row = page.locator(".transcript-segment").nth(0)
+    controls = [
+        ("the text box", row.locator(".segment-text-editor"), "Control+Enter"),
+        ("the speaker select", row.locator(".segment-speaker-select"), "Control+Enter"),
+        ("Lưu đoạn", row.get_by_role("button", name="Lưu đoạn"), "Meta+Enter"),
+        ("Hủy", row.get_by_role("button", name="Hủy"), "Control+Enter"),
+        ("the Chi tiết summary", row.locator("details.segment-details summary"), "Meta+Enter"),
+    ]
+    for saved, (name, control, shortcut) in enumerate(controls, start=1):
+        row.locator(".segment-edit-button").click()
+        text = f"Saved from {name}."
+        row.locator(".segment-text-editor").fill(text)
+        control.focus()
+        page.keyboard.press(shortcut)
+        expect(row.locator(".segment-text")).to_have_text(text)
+        expect(row.locator(".segment-text-editor")).to_have_count(0)
+        expect(row.locator(".segment-edit-button")).to_be_focused()
+        # One submit and one request per press: neither Hủy nor the summary also acts on the key.
+        assert page.evaluate("window.__submits") == saved, name
+        assert [patch["text"] for patch in patches][saved - 1 :] == [text], name
+
+    # A key that ends an IME composition is not a command, on any control of the row.
+    row.locator(".segment-edit-button").click()
+    row.locator(".segment-text-editor").fill("Composing…")
+    row.locator(".segment-speaker-select").evaluate(
+        """el => el.dispatchEvent(new KeyboardEvent("keydown", {
+          key: "Enter", ctrlKey: true, isComposing: true, bubbles: true, cancelable: true }))"""
+    )
+    settle(page)
+    expect(row.locator(".segment-text-editor")).to_have_value("Composing…")
+    assert len(patches) == len(controls)
+
+
 def test_unsaved_text_survives_opening_another_segment_and_is_marked(live, browser_context):
     _context, page = browser_context
     open_reading_meeting(live, page)
@@ -4143,6 +4207,277 @@ def test_unsaved_text_survives_opening_another_segment_and_is_marked(live, brows
     expect(first.locator(".segment-draft-mark")).to_have_count(0)
     first.locator(".segment-edit-button").click()
     expect(first.locator(".segment-text-editor")).to_have_value("We open with the launch plan.")
+
+
+def test_esc_and_cancel_keep_a_conflict_marked_text_draft(live, browser_context):
+    context, page = browser_context
+    show_a_past_generation(page)
+    meeting_id, generation_id = open_reading_meeting(live, page)
+    row = page.locator(".transcript-segment").nth(0)
+    draft = "My draft, typed before the other save."
+    editor = edit_segment(page)
+    editor.fill(draft)
+
+    # Another client saves this segment first, so the save below meets a real 409.
+    other = context.request.patch(
+        f"{live.url}/api/meetings/{meeting_id}/transcript-segments/{READING_SEGMENTS[0]['id']}/text",
+        headers={"Origin": live.url},
+        data={
+            "expected_generation_id": generation_id,
+            "expected_source_version": 1,
+            "text": "The other client's version.",
+        },
+    )
+    assert other.ok
+    row.get_by_role("button", name="Lưu đoạn").click()
+    expect(row.locator(".segment-edit-status")).to_contain_text("Bản nháp vẫn được giữ")
+
+    # Esc closes the editor but keeps the draft: the row stays marked, reopening brings back the
+    # text and the review of the conflict.
+    editor.press("Escape")
+    expect(row.locator(".segment-text-editor")).to_have_count(0)
+    expect(row.locator(".segment-edit-button")).to_be_focused()
+    expect(row.locator(".segment-draft-mark")).to_have_text("Bản nháp chưa lưu")
+    row.locator(".segment-edit-button").click()
+    expect(row.locator(".segment-text-editor")).to_have_value(draft)
+    expect(row.locator(".transcript-draft-review")).to_contain_text(f"Bản nháp chưa lưu: {draft}")
+
+    # So does Hủy; the draft is then listed for recovery while another transcript is on screen.
+    row.get_by_role("button", name="Hủy").click()
+    expect(row.locator(".segment-text-editor")).to_have_count(0)
+    expect(row.locator(".segment-edit-button")).to_be_focused()
+    expect(row.locator(".segment-draft-mark")).to_have_text("Bản nháp chưa lưu")
+    page.locator("#generation-selector").select_option("browser-past-generation")
+    recovery = page.locator("#transcript-draft-recovery")
+    expect(recovery).to_be_visible()
+    expect(recovery.locator(".transcript-draft-value")).to_have_text(f"Bản nháp chưa lưu: {draft}")
+
+
+# Tab stops of one row, as the read-mode test counts them.
+TAB_STOPS_JS = """row => [
+  ...row.querySelectorAll("a[href], button, input, select, textarea, summary, [tabindex]"),
+].filter((el) => !el.disabled && el.tabIndex >= 0 && el.getClientRects().length).length"""
+
+
+def save_over_another_clients_edit(context, live, page, draft):
+    """Save `draft` over another client's edit of the first segment: a real 409."""
+    meeting_id, generation_id = open_reading_meeting(live, page)
+    row = page.locator(".transcript-segment").nth(0)
+    edit_segment(page).fill(draft)
+    other = context.request.patch(
+        f"{live.url}/api/meetings/{meeting_id}/transcript-segments/{READING_SEGMENTS[0]['id']}/text",
+        headers={"Origin": live.url},
+        data={
+            "expected_generation_id": generation_id,
+            "expected_source_version": 1,
+            "text": "The other client's version.",
+        },
+    )
+    assert other.ok
+    row.get_by_role("button", name="Lưu đoạn").click()
+    expect(row.locator(".segment-edit-status")).to_contain_text("Bản nháp vẫn được giữ")
+
+
+def test_a_closed_conflicted_segment_keeps_a_reload_in_the_conflict_panel(live, browser_context):
+    context, page = browser_context
+    draft = "My draft, typed before the other save."
+    save_over_another_clients_edit(context, live, page, draft)
+    first = page.locator(".transcript-segment").nth(0)
+    second = page.locator(".transcript-segment").nth(1)
+    panel = page.locator("#transcript-mutation-error")
+    reloads = page.locator("[data-reload-latest]")  # every reload action on the page
+
+    # The editor is still open: the reload sits beside Lưu đoạn and the panel stays out of it.
+    expect(first.locator(".segment-edit-actions [data-reload-latest]")).to_have_count(1)
+    expect(reloads).to_have_count(1)
+    expect(panel).to_be_hidden()
+
+    # Esc closes it. A read row keeps two tab stops, so the reload moves to the conflict panel.
+    first.locator(".segment-text-editor").press("Escape")
+    expect(first.locator(".segment-text-editor")).to_have_count(0)
+    expect(first.locator(".segment-edit-button")).to_be_focused()
+    expect(panel).to_be_visible()
+    expect(panel.get_by_role("button", name="Tải lại bản mới nhất")).to_have_count(1)
+    expect(reloads).to_have_count(1)
+    assert first.evaluate(TAB_STOPS_JS) == 2
+
+    # So does Hủy, and so does opening another segment, which closes the editor it leaves.
+    first.locator(".segment-edit-button").click()
+    first.get_by_role("button", name="Hủy").click()
+    expect(panel.locator("[data-reload-latest]")).to_have_count(1)
+    expect(reloads).to_have_count(1)
+    first.locator(".segment-edit-button").click()
+    second.locator(".segment-edit-button").click()
+    expect(first.locator(".segment-text-editor")).to_have_count(0)
+    expect(second.locator(".segment-text-editor")).to_have_count(1)
+    expect(panel.locator("[data-reload-latest]")).to_have_count(1)
+    expect(reloads).to_have_count(1)
+    assert first.evaluate(TAB_STOPS_JS) == 2
+
+    # The panel's reload brings the other client's text. The draft stays, and since the latest
+    # version is now on screen, closing the editor again does not offer another reload.
+    panel.get_by_role("button", name="Tải lại bản mới nhất").click()
+    expect(panel).to_be_hidden()
+    expect(reloads).to_have_count(0)
+    first.locator(".segment-edit-button").click()
+    expect(first.locator(".segment-text-editor")).to_have_value(draft)
+    expect(first.locator(".transcript-draft-review")).to_contain_text(
+        "Bản mới nhất đã lưu: The other client's version."
+    )
+    first.get_by_role("button", name="Hủy").click()
+    expect(first.locator(".segment-draft-mark")).to_have_text("Bản nháp chưa lưu")
+    expect(panel).to_be_hidden()
+    expect(reloads).to_have_count(0)
+
+
+def test_a_reopened_conflicted_segment_offers_the_reload_in_its_editor(live, browser_context):
+    context, page = browser_context
+    draft = "My draft, typed before the other save."
+    save_over_another_clients_edit(context, live, page, draft)
+    first = page.locator(".transcript-segment").nth(0)
+    panel = page.locator("#transcript-mutation-error")
+    reloads = page.locator("[data-reload-latest]")  # every reload action on the page
+    first.locator(".segment-text-editor").press("Escape")
+    expect(first.locator(".segment-text-editor")).to_have_count(0)
+
+    # Reopened, the review still shows the text this page last saw; the reload is beside Lưu đoạn
+    # and the panel steps aside, so there is one reload on the page.
+    first.locator(".segment-edit-button").click()
+    expect(first.locator(".segment-text-editor")).to_have_value(draft)
+    review = first.locator(".transcript-draft-review")
+    expect(review).to_contain_text("Bản mới nhất đã lưu: We open with the launch plan.")
+    actions = first.locator(".segment-edit-actions")
+    expect(actions.locator("[data-reload-latest]")).to_have_count(1)
+    expect(reloads).to_have_count(1)
+    expect(panel).to_be_hidden()
+
+    # It loads the other client's version into the review and leaves the draft and the editor alone.
+    actions.get_by_role("button", name="Tải lại bản mới nhất").click()
+    expect(review).to_contain_text("Bản mới nhất đã lưu: The other client's version.")
+    expect(first.locator(".segment-text-editor")).to_have_value(draft)
+    expect(reloads).to_have_count(0)
+
+    # The user can now review the draft against it and save over the newer version.
+    reviewed = f"{draft} Reviewed."
+    first.locator(".segment-text-editor").fill(reviewed)
+    first.get_by_role("button", name="Lưu đoạn").click()
+    expect(first.locator(".segment-text")).to_have_text(reviewed)
+    expect(page.locator("#transcript-mutation-status")).to_have_text("Đã lưu.")
+    expect(reloads).to_have_count(0)
+
+
+def test_a_conflicted_speaker_name_keeps_a_reload_in_its_form_and_the_conflict_panel(
+    live, browser_context
+):
+    context, page = browser_context
+    meeting_id, generation_id = open_reading_meeting(live, page)
+    catalog = page.locator("#speaker-catalog-list")
+    panel = page.locator("#transcript-mutation-error")
+    reloads = page.locator("[data-reload-latest]")  # every reload action on the page
+    name = rename_speaker(page, 0)
+    name.fill("My name")
+
+    # Another client renames the same speaker first, so the save below meets a real 409.
+    other = context.request.patch(
+        f"{live.url}/api/meetings/{meeting_id}/transcript-generations/{generation_id}"
+        "/speakers/SPEAKER_00",
+        headers={"Origin": live.url},
+        data={"expected_source_version": 1, "display_name": "Their name"},
+    )
+    assert other.ok
+    catalog.get_by_role("button", name="Lưu tên").click()
+    expect(catalog.locator(".speaker-form-status")).to_contain_text("Bản nháp vẫn được giữ")
+
+    # The rename is still open: the reload sits in its form and the panel stays out of it.
+    expect(catalog.locator(".speaker-name-form [data-reload-latest]")).to_have_count(1)
+    expect(reloads).to_have_count(1)
+    expect(panel).to_be_hidden()
+
+    # Esc closes it. A chip is one button, so the reload moves to the conflict panel.
+    name.press("Escape")
+    expect(catalog.locator("input")).to_have_count(0)
+    expect(speaker_chip(page, 0)).to_be_focused()
+    expect(panel).to_be_visible()
+    expect(panel.get_by_role("button", name="Tải lại bản mới nhất")).to_have_count(1)
+    expect(reloads).to_have_count(1)
+    expect(catalog.locator("[data-reload-latest]")).to_have_count(0)
+
+    # So does Hủy, and so does opening another speaker's rename, which closes the one it leaves.
+    speaker_chip(page, 0).click()
+    catalog.get_by_role("button", name="Hủy").click()
+    expect(panel.locator("[data-reload-latest]")).to_have_count(1)
+    expect(reloads).to_have_count(1)
+    speaker_chip(page, 0).click()
+    speaker_chip(page, 1).click()
+    expect(catalog.locator("input")).to_have_value("Alice")
+    expect(panel.locator("[data-reload-latest]")).to_have_count(1)
+    expect(reloads).to_have_count(1)
+
+    # Reopened, the form carries the reload again and the panel steps aside. The review still shows
+    # the name this page last saw; the reload brings the other client's and keeps the draft.
+    speaker_chip(page, 0).click()
+    expect(catalog.locator("input")).to_have_value("My name")
+    review = catalog.locator(".transcript-draft-review")
+    expect(review).to_contain_text("Bản mới nhất đã lưu: Speaker 1")
+    expect(catalog.locator(".speaker-name-form [data-reload-latest]")).to_have_count(1)
+    expect(reloads).to_have_count(1)
+    expect(panel).to_be_hidden()
+    catalog.get_by_role("button", name="Tải lại bản mới nhất").click()
+    expect(review).to_contain_text("Bản mới nhất đã lưu: Their name")
+    expect(catalog.locator("input")).to_have_value("My name")
+    expect(reloads).to_have_count(0)
+
+    # The latest name is on screen, so closing the form again does not offer another reload.
+    catalog.get_by_role("button", name="Hủy").click()
+    expect(speaker_chip(page, 0).locator(".speaker-chip-mark")).to_have_text(["bản nháp"])
+    expect(panel).to_be_hidden()
+    expect(reloads).to_have_count(0)
+
+
+def test_esc_and_cancel_keep_a_conflict_marked_speaker_name_draft(live, browser_context):
+    context, page = browser_context
+    show_a_past_generation(page)
+    meeting_id, generation_id = open_reading_meeting(live, page)
+    catalog = page.locator("#speaker-catalog-list")
+    name = rename_speaker(page, 0)
+    name.fill("My name")
+
+    # Another client renames the same speaker first, so the save below meets a real 409.
+    other = context.request.patch(
+        f"{live.url}/api/meetings/{meeting_id}/transcript-generations/{generation_id}"
+        "/speakers/SPEAKER_00",
+        headers={"Origin": live.url},
+        data={"expected_source_version": 1, "display_name": "Their name"},
+    )
+    assert other.ok
+    catalog.get_by_role("button", name="Lưu tên").click()
+    expect(catalog.locator(".speaker-form-status")).to_contain_text("Bản nháp vẫn được giữ")
+
+    # Esc closes the rename but keeps the name: the chip stays marked, reopening brings it back
+    # with the review of the conflict.
+    name.press("Escape")
+    expect(catalog.locator("input")).to_have_count(0)
+    expect(speaker_chip(page, 0)).to_be_focused()
+    expect(speaker_chip(page, 0).locator(".speaker-chip-mark")).to_have_text(
+        ["đặt tên", "bản nháp"]
+    )
+    speaker_chip(page, 0).click()
+    expect(catalog.locator("input")).to_have_value("My name")
+    expect(catalog.locator(".transcript-draft-review")).to_contain_text(
+        "Bản nháp chưa lưu: My name"
+    )
+
+    # So does Hủy; the name is then listed for recovery while another transcript is on screen.
+    catalog.get_by_role("button", name="Hủy").click()
+    expect(catalog.locator("input")).to_have_count(0)
+    expect(speaker_chip(page, 0)).to_be_focused()
+    expect(speaker_chip(page, 0).locator(".speaker-chip-mark")).to_have_text(
+        ["đặt tên", "bản nháp"]
+    )
+    page.locator("#generation-selector").select_option("browser-past-generation")
+    recovery = page.locator("#transcript-draft-recovery")
+    expect(recovery).to_be_visible()
+    expect(recovery.locator(".transcript-draft-value")).to_have_text("Bản nháp chưa lưu: My name")
 
 
 def test_origin_and_model_measures_show_only_in_the_open_editors_details(live, browser_context):
@@ -4311,6 +4646,12 @@ def test_lock_arriving_mid_edit_disables_saving_but_not_cancel(live, browser_con
         expect(control).to_be_disabled()
     cancel = row.get_by_role("button", name="Hủy")
     expect(cancel).to_be_enabled()
+
+    # Ctrl+Enter from Hủy, the one control still usable, saves nothing under the lock.
+    cancel.focus()
+    page.keyboard.press("Control+Enter")
+    settle(page)
+    expect(editor).to_have_value("Half typed when the lock came.")
 
     # Hủy still closes it; Sửa is disabled by the lock, so focus stays on the row's timestamp.
     cancel.click()
@@ -4589,3 +4930,24 @@ def test_reading_rows_editor_and_chips_fit_360px_in_both_themes(live, signed_in,
     )
     too_low = {name: ratio for name, ratio in ratios.items() if ratio is None or ratio < 4.5}
     assert not too_low, too_low
+
+
+def test_rename_label_is_at_least_12px_and_a_long_speaker_id_fits_360px(live, signed_in):
+    context, page = signed_in(viewport={"width": 360, "height": 740})
+    meeting_id, generation_id = open_reading_meeting(live, page)
+    # A speaker added by hand has the longest id the app makes: MANUAL_ and 32 hex digits.
+    added = context.request.post(
+        f"{live.url}/api/meetings/{meeting_id}/transcript-generations/{generation_id}/speakers",
+        headers={"Origin": live.url},
+        data={"expected_source_version": 1, "display_name": ""},
+    )
+    assert added.ok
+    page.reload(wait_until="domcontentloaded")
+    expect(page.locator(".segment-edit-button").first).to_be_enabled()
+
+    speaker_chip(page, 2).click()
+    label = page.locator(".speaker-name-form label")
+    expect(label).to_contain_text("MANUAL_")
+    assert label.evaluate("el => parseFloat(getComputedStyle(el).fontSize)") >= 12
+    assert label.evaluate("el => el.scrollWidth - el.clientWidth") <= 0
+    assert page.evaluate(OVERFLOW_JS) == {"page": 0, "wide": []}

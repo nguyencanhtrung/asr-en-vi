@@ -792,6 +792,28 @@
     );
   }
 
+  // A conflict-marked draft can be the only copy of what the user typed, so Hủy and Esc keep it.
+  function isConflictedDraft(generationId, field, itemId) {
+    const draft = transcriptDraft(generationId, field, itemId);
+    return Boolean(draft && draft.conflictCode);
+  }
+
+  // A conflict marks the draft while the page still shows the value the draft started from. Once a
+  // reload shows a different one, the review already holds the latest and no reload is due.
+  function awaitsLatestReload(draft, currentValue) {
+    return Boolean(draft && draft.conflictCode && draft.baseValue === currentValue);
+  }
+
+  // A closed row or chip cannot hold the reload (a read row keeps two tab stops), so a conflict still
+  // waiting on it moves to the page's conflict panel when its editor closes, and back beside the
+  // editor's buttons when it reopens.
+  function placeLatestReload(generationId, field, itemId, currentValue, editorOpen) {
+    const draft = transcriptDraft(generationId, field, itemId);
+    if (!awaitsLatestReload(draft, currentValue)) return;
+    if (editorOpen) clearTranscriptMutationError(generationId);
+    else showTranscriptConflictNotice(generationId, draft.conflictCode);
+  }
+
   // The generation on screen and whether it takes edits, as renderGenerationNavigation decides.
   function displayedGeneration() {
     const transcription = state.meeting && state.meeting.transcription;
@@ -1548,6 +1570,8 @@
     status.dataset.speakerStatus = speaker.speaker_id;
     status.setAttribute("role", "status");
     form.append(label, save, cancel, clear, status);
+    // Reopened after a conflict, the form offers the reload where the conflict first showed it.
+    if (awaitsLatestReload(draft, speaker.display_name)) appendReloadLatestButton(form, generation.id);
     if (draft && draft.conflictCode) {
       form.append(
         createTranscriptDraftReview(
@@ -1600,6 +1624,10 @@
     if (!speaker || !current) return null;
     const item = buildSpeakerItem(generation, speaker, editable);
     current.replaceWith(item);
+    if (editable) {
+      const renaming = isRenamingSpeaker(generationId, speakerId);
+      placeLatestReload(generationId, "speakerName", speakerId, speaker.display_name, renaming);
+    }
     syncTranscriptMutationControls();
     return item;
   }
@@ -1620,10 +1648,11 @@
     }
   }
 
-  // Leave the rename and hand back the speaker's chip. `discard` is the Hủy path: it drops the typed name.
+  // Leave the rename and hand back the speaker's chip. `discard` is the Hủy path: it drops the typed
+  // name, unless that name is a conflict-marked draft; the chip then stays marked for review.
   function closeSpeakerRename(generationId, speakerId, { discard = false } = {}) {
     if (isRenamingSpeaker(generationId, speakerId)) state.renamingSpeaker = null;
-    if (discard) {
+    if (discard && !isConflictedDraft(generationId, "speakerName", speakerId)) {
       rememberTranscriptDraft(
         generationId,
         "speakerName",
@@ -1820,6 +1849,8 @@
     const status = document.createElement("p");
     status.className = "segment-edit-status";
     actions.append(save, cancel, status);
+    // Reopened after a conflict, the editor offers the reload where the conflict first showed it.
+    if (awaitsLatestReload(draft, segment.text)) appendReloadLatestButton(actions, generation.id);
     form.append(editor, actions);
     return form;
   }
@@ -1922,6 +1953,10 @@
     if (!segment || !current) return null;
     const row = buildSegmentRow(generation, segment, editable);
     current.replaceWith(row);
+    if (editable) {
+      const editing = isEditingSegment(generationId, segmentId);
+      placeLatestReload(generationId, "segmentText", segmentId, segment.text, editing);
+    }
     syncTranscriptMutationControls();
     updateActiveTranscriptIntervals();
     return row;
@@ -1943,10 +1978,11 @@
     }
   }
 
-  // Leave the editor and hand back the row's Sửa button. `discard` is the Hủy path: it drops the typed text.
+  // Leave the editor and hand back the row's Sửa button. `discard` is the Hủy path: it drops the typed
+  // text, unless that text is a conflict-marked draft; the row then stays marked for review.
   function closeSegmentEditor(generationId, segmentId, { discard = false } = {}) {
     if (isEditingSegment(generationId, segmentId)) state.editingSegment = null;
-    if (discard) {
+    if (discard && !isConflictedDraft(generationId, "segmentText", segmentId)) {
       rememberTranscriptDraft(
         generationId,
         "segmentText",
@@ -2089,6 +2125,10 @@
       appendReloadLatestButton(status.parentElement, generationId);
       return;
     }
+    showTranscriptConflictNotice(generationId, code);
+  }
+
+  function showTranscriptConflictNotice(generationId, code) {
     const message = code === "source_version_changed"
       ? "Transcript đã thay đổi. Bản nháp vẫn được giữ để xem lại."
       : "Phiên bản transcript đã đổi. Bản nháp vẫn được giữ để sao chép.";
@@ -3543,6 +3583,7 @@
     }
   });
   // Esc cancels and Ctrl/⌘+Enter saves, but never mid-composition: a Vietnamese IME uses both keys.
+  // Both work from any control of the open row: textarea, speaker select, Hủy, "Chi tiết".
   $("#transcript-generation").addEventListener("keydown", (event) => {
     if (event.isComposing || event.keyCode === 229) return;
     if (event.key === "Escape") {
@@ -3552,13 +3593,12 @@
       else if (renaming) cancelSpeakerRename(renaming.dataset.speakerId);
       else return;
       event.preventDefault();
-    } else if (
-      event.key === "Enter"
-      && (event.ctrlKey || event.metaKey)
-      && event.target.matches(".segment-text-editor")
-    ) {
+    } else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      const form = event.target.closest(".transcript-segment.is-editing")
+        ?.querySelector(".segment-edit-form");
+      if (!form) return;
       event.preventDefault();
-      event.target.form.requestSubmit();
+      form.requestSubmit();
     }
   });
   $("#transcript-segments").addEventListener("click", (event) => {
