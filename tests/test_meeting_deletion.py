@@ -15,7 +15,11 @@ from seeding import prepare_diarization_model, seed_meeting
 from asr_en_vi.app import create_app
 from asr_en_vi.auth import AuthStore
 from asr_en_vi.config import Settings
-from asr_en_vi.meeting_deletion import MeetingDeletionError, delete_meeting
+from asr_en_vi.meeting_deletion import (
+    MeetingDeletionError,
+    delete_meeting,
+    recover_pending_meeting_deletions,
+)
 from asr_en_vi.notes import accept_notes_task, publish_notes_revision
 from asr_en_vi.recordings import get_meeting
 from asr_en_vi.storage import database_path, initialize
@@ -333,6 +337,64 @@ async def test_symlinked_managed_directory_fails_safely_and_keeps_mark_for_both_
     assert external_file.read_bytes() == b"outside target"
 
 
+@pytest.mark.parametrize("data_path_kind", ["real", "symlinked_root", "symlinked_ancestor"])
+def test_delete_resolves_real_and_symlinked_data_roots(tmp_path, data_path_kind):
+    physical_parent = tmp_path / "physical-parent"
+    physical_parent.mkdir()
+    real_data_dir = physical_parent / "data"
+    initialize(real_data_dir)
+    meeting_id = seed_meeting(real_data_dir, f"Delete through {data_path_kind}")
+    owned = _audio_artifacts(real_data_dir, meeting_id)
+    external_file = tmp_path / "external-source.m4a"
+    external_file.write_bytes(b"keep outside data")
+
+    if data_path_kind == "real":
+        configured_data_dir = real_data_dir
+    elif data_path_kind == "symlinked_root":
+        configured_data_dir = tmp_path / "linked-data"
+        configured_data_dir.symlink_to(real_data_dir, target_is_directory=True)
+    else:
+        linked_parent = tmp_path / "linked-parent"
+        linked_parent.symlink_to(physical_parent, target_is_directory=True)
+        configured_data_dir = linked_parent / "data"
+
+    assert delete_meeting(configured_data_dir, meeting_id) == {
+        "meeting_id": meeting_id,
+        "status": "deleted",
+    }
+    assert all(not path.exists() for path in owned.values())
+    assert external_file.read_bytes() == b"keep outside data"
+    with sqlite3.connect(database_path(real_data_dir)) as connection:
+        assert (
+            connection.execute("SELECT 1 FROM meetings WHERE id = ?", (meeting_id,)).fetchone()
+            is None
+        )
+
+
+def test_delete_tolerates_temp_file_removed_by_competing_cleanup(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    initialize(data_dir)
+    meeting_id = seed_meeting(data_dir, "Competing temp cleanup")
+    owned = _audio_artifacts(data_dir, meeting_id)
+    from asr_en_vi import meeting_deletion
+
+    real_unlink = os.unlink
+    competitor_unlinked = False
+
+    def unlink_after_competitor(path, *args, **kwargs):
+        nonlocal competitor_unlinked
+        if path == owned["temp"].name and not competitor_unlinked:
+            competitor_unlinked = True
+            real_unlink(path, *args, **kwargs)
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(meeting_deletion.os, "unlink", unlink_after_competitor)
+
+    assert delete_meeting(data_dir, meeting_id)["status"] == "deleted"
+    assert competitor_unlinked
+    assert all(not path.exists() for path in owned.values())
+
+
 async def test_restart_resumes_cleanup_after_partial_file_removal(tmp_path, monkeypatch):
     settings = Settings(
         data_dir=tmp_path / "data",
@@ -371,6 +433,108 @@ async def test_restart_resumes_cleanup_after_partial_file_removal(tmp_path, monk
         response = await client.get(f"/api/meetings/{meeting_id}", headers=headers)
         assert response.status_code == 404
     assert not owned["temp"].exists()
+
+
+@pytest.mark.anyio
+async def test_startup_recovers_interrupted_cleanup_through_symlinked_data_ancestor(
+    tmp_path, monkeypatch
+):
+    physical_parent = tmp_path / "physical-parent"
+    physical_parent.mkdir()
+    real_data_dir = physical_parent / "data"
+    linked_parent = tmp_path / "linked-parent"
+    linked_parent.symlink_to(physical_parent, target_is_directory=True)
+    configured_data_dir = linked_parent / "data"
+    settings = Settings(
+        data_dir=configured_data_dir,
+        auth_dir=tmp_path / "auth",
+        public_url="http://127.0.0.1:8765",
+    )
+    initialize(real_data_dir)
+    meeting_id = seed_meeting(real_data_dir, "Symlinked root restart recovery")
+    owned = _audio_artifacts(real_data_dir, meeting_id)
+    from asr_en_vi import meeting_deletion
+
+    real_unlink = os.unlink
+
+    def fail_on_temp(path, *args, **kwargs):
+        if str(path).endswith("0123456789abcdef.m4a"):
+            raise OSError("simulated interruption during cleanup")
+        return real_unlink(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(meeting_deletion.os, "unlink", fail_on_temp)
+        with pytest.raises(MeetingDeletionError) as error:
+            delete_meeting(configured_data_dir, meeting_id)
+        assert error.value.code == "meeting_deletion_cleanup_failed"
+
+    assert not owned["raw"].exists()
+    assert not owned["audio"].exists()
+    assert owned["temp"].exists()
+    assert get_meeting(real_data_dir, meeting_id)["deletion_status"] == "failed"
+
+    app = create_app(settings)
+    async with (
+        app.router.lifespan_context(app),
+        AsyncClient(transport=ASGITransport(app=app), base_url=settings.public_url) as client,
+    ):
+        headers = await _authorize(client, settings)
+        response = await client.get(f"/api/meetings/{meeting_id}", headers=headers)
+        assert response.status_code == 404
+    assert not owned["temp"].exists()
+
+
+def test_recovery_defers_real_sqlite_write_lock_then_succeeds(tmp_path, caplog):
+    data_dir = tmp_path / "data"
+    initialize(data_dir)
+    meeting_id = seed_meeting(data_dir, "Locked deletion recovery")
+    owned = _audio_artifacts(data_dir, meeting_id)
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        connection.execute(
+            "UPDATE meetings SET deletion_requested_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (meeting_id,),
+        )
+
+    blocker = sqlite3.connect(database_path(data_dir), timeout=5)
+    try:
+        blocker.execute("BEGIN IMMEDIATE")
+        with (
+            caplog.at_level("WARNING", logger="asr_en_vi.meeting_deletion"),
+            ThreadPoolExecutor(max_workers=1) as executor,
+        ):
+            recovery = executor.submit(recover_pending_meeting_deletions, data_dir)
+            assert recovery.result(timeout=15) == []
+        assert blocker.execute(
+            "SELECT deletion_requested_at FROM meetings WHERE id = ?", (meeting_id,)
+        ).fetchone()[0]
+        assert "Deferring pending meeting deletion recovery" in caplog.text
+        assert "locked" in caplog.text
+    finally:
+        blocker.rollback()
+        blocker.close()
+
+    assert recover_pending_meeting_deletions(data_dir) == [meeting_id]
+    assert all(not path.exists() for path in owned.values())
+
+
+@pytest.mark.parametrize("error_type", [sqlite3.IntegrityError, RuntimeError])
+def test_recovery_does_not_suppress_unrelated_errors(tmp_path, monkeypatch, error_type):
+    data_dir = tmp_path / "data"
+    initialize(data_dir)
+    meeting_id = seed_meeting(data_dir, "Unrelated recovery error")
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        connection.execute(
+            "UPDATE meetings SET deletion_requested_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (meeting_id,),
+        )
+    from asr_en_vi import meeting_deletion
+
+    def raise_unrelated_error(_data_dir, _meeting_id):
+        raise error_type("injected unrelated failure")
+
+    monkeypatch.setattr(meeting_deletion, "_mark_meeting_for_deletion", raise_unrelated_error)
+    with pytest.raises(error_type, match="injected unrelated failure"):
+        recover_pending_meeting_deletions(data_dir)
 
 
 async def test_restart_finishes_after_files_are_removed_before_final_database_commit(

@@ -852,8 +852,93 @@ def test_delete_ui_guides_active_task_cancel_and_wait(live, browser_context, tmp
     _confirm_meeting_deletion(page, "Active deletion target")
 
     expect(page.locator("#meeting-delete-error")).to_contain_text("chờ trạng thái kết thúc")
-    expect(page.locator("#meeting-deletion-status")).to_be_hidden()
+    expect(page.locator("#meeting-deletion-status")).to_be_visible()
+    expect(page.locator("#meeting-deletion-status")).to_contain_text("chờ trạng thái kết thúc")
+    expect(page.locator("#meeting-deletion-status")).not_to_contain_text("khởi động")
+    expect(page.locator("#delete-meeting")).to_have_text("Xóa cuộc họp")
+    expect(page.locator("#meeting-delete-confirm")).to_have_text("Xóa dữ liệu đã lưu")
     assert context.request.get(f"{live.url}/api/meetings/{meeting_id}").status == 200
+
+
+@pytest.mark.parametrize(
+    ("status_code", "error_code", "error_message", "expected_message"),
+    [
+        (
+            409,
+            "meeting_task_active",
+            "A task is still running.",
+            "chờ trạng thái kết thúc",
+        ),
+        (
+            503,
+            "storage_unavailable",
+            "Storage service is temporarily unavailable.",
+            "Storage service is temporarily unavailable.",
+        ),
+    ],
+)
+def test_delete_failure_after_dialog_close_is_persisted_for_origin_meeting(
+    live,
+    browser_context,
+    status_code,
+    error_code,
+    error_message,
+    expected_message,
+):
+    target_title = f"Delayed deletion failure {error_code}"
+    other_title = f"Unrelated meeting during {error_code}"
+    target_id = seed_meeting(live.settings.data_dir, target_title, "2026-10-14")
+    other_id = seed_meeting(live.settings.data_dir, other_title, "2026-10-14")
+    _context, page = browser_context
+    page.goto(f"{live.url}/meetings/{target_id}", wait_until="domcontentloaded")
+    expect(page.locator("#meeting-title")).to_have_text(target_title)
+
+    held = hold_first(page, rf"/api/meetings/{target_id}$", "DELETE")
+    _confirm_meeting_deletion(page, target_title)
+    deadline = time.monotonic() + 5
+    while not held and time.monotonic() < deadline:
+        page.wait_for_timeout(25)
+    assert held, "DELETE request did not reach the hold point"
+
+    page.locator("#meeting-delete-cancel").click()
+    expect(page.locator("#meeting-delete-dialog")).to_be_hidden()
+    page.locator("#recent-list a").filter(has_text=other_title).click()
+    page.wait_for_url(f"{live.url}/meetings/{other_id}")
+    expect(page.locator("#meeting-title")).to_have_text(other_title)
+    audio_before = page.locator("#meeting-audio").evaluate(
+        "audio => ({ meetingId: audio.dataset.meetingId, src: audio.src })"
+    )
+    assert audio_before["meetingId"] == other_id
+
+    held[0].fulfill(
+        status=status_code,
+        content_type="application/json",
+        body=json.dumps(
+            {"detail": {"code": error_code, "message": error_message}}, ensure_ascii=False
+        ),
+    )
+    expect(page.locator("#delete-meeting")).to_be_enabled(timeout=10_000)
+    expect(page.locator("#meeting-title")).to_have_text(other_title)
+    expect(page.locator("#meeting-deletion-status")).to_be_hidden()
+    audio_after = page.locator("#meeting-audio").evaluate(
+        "audio => ({ meetingId: audio.dataset.meetingId, src: audio.src })"
+    )
+    assert audio_after == audio_before
+
+    page.locator("#recent-list a").filter(has_text=target_title).click()
+    page.wait_for_url(f"{live.url}/meetings/{target_id}")
+    expect(page.locator("#meeting-title")).to_have_text(target_title)
+    status = page.locator("#meeting-deletion-status")
+    expect(status).to_be_visible()
+    expect(status).to_contain_text(expected_message)
+    expect(status).not_to_contain_text("khởi động")
+    expect(status).not_to_contain_text("Thử dọn tiếp")
+    expect(page.locator("#delete-meeting")).to_have_text("Xóa cuộc họp")
+
+    page.locator("#delete-meeting").click()
+    expect(page.locator("#meeting-delete-dialog")).to_be_visible()
+    expect(page.locator("#meeting-delete-confirm")).to_have_text("Xóa dữ liệu đã lưu")
+    page.locator("#meeting-delete-cancel").click()
 
 
 def test_delete_ui_keeps_failed_cleanup_visible_and_retries(live, browser_context, tmp_path):

@@ -109,7 +109,7 @@
     taskRequestError: null,
     deletionRequestPending: false,
     deletionRequestMeetingId: null,
-    deletionMessages: new Map(),
+    deletionFailures: new Map(),
   };
 
   // ---- views ----
@@ -720,16 +720,22 @@
 
   function renderMeetingDeletion(meeting) {
     const markerStatus = meeting && meeting.deletion_status;
-    const deletionMessage = state.deletionMessages.get(meeting.id) || "";
+    const deletionFailure = state.deletionFailures.get(meeting.id);
+    const deletionMessage = deletionFailure ? deletionFailure.message : "";
+    const cleanupMarked = Boolean(
+      markerStatus || (deletionFailure && deletionFailure.cleanupMarked),
+    );
     const requestPending = state.deletionRequestPending
       && state.deletionRequestMeetingId === meeting.id;
     const status = $("#meeting-deletion-status");
     const message = $("#meeting-deletion-message");
     const visible = Boolean(requestPending || markerStatus || deletionMessage);
     status.hidden = !visible;
-    status.dataset.state = requestPending ? "pending" : (markerStatus || "error");
+    status.dataset.state = requestPending
+      ? "pending"
+      : (markerStatus || (cleanupMarked ? "failed" : "error"));
     $("#delete-meeting").disabled = state.deletionRequestPending;
-    $("#delete-meeting").textContent = markerStatus || deletionMessage
+    $("#delete-meeting").textContent = cleanupMarked
       ? "Thử dọn tiếp"
       : "Xóa cuộc họp";
     if (requestPending) {
@@ -3655,7 +3661,11 @@
     $("#meeting-delete-error").textContent = "";
     $("#meeting-delete-error").hidden = true;
     const confirmButton = $("#meeting-delete-confirm");
-    confirmButton.textContent = meeting.deletion_status || state.deletionMessages.has(meeting.id)
+    const deletionFailure = state.deletionFailures.get(meeting.id);
+    const cleanupMarked = Boolean(
+      meeting.deletion_status || (deletionFailure && deletionFailure.cleanupMarked),
+    );
+    confirmButton.textContent = cleanupMarked
       ? "Thử dọn tiếp"
       : "Xóa dữ liệu đã lưu";
     confirmButton.disabled = true;
@@ -3676,7 +3686,7 @@
     confirmButton.textContent = "Đang dọn dữ liệu…";
     state.deletionRequestPending = true;
     state.deletionRequestMeetingId = meetingId;
-    state.deletionMessages.delete(meetingId);
+    state.deletionFailures.delete(meetingId);
     renderMeetingDeletion(meeting);
     try {
       try {
@@ -3701,7 +3711,7 @@
       if (dialog.open) dialog.close();
       state.deletionRequestPending = false;
       state.deletionRequestMeetingId = null;
-      state.deletionMessages.delete(meetingId);
+      state.deletionFailures.delete(meetingId);
       state.meetings = state.meetings.filter((item) => item.id !== meetingId);
       state.recent = state.recent.filter((item) => item.id !== meetingId);
       state.results = state.results.filter((item) => item.id !== meetingId);
@@ -3734,9 +3744,8 @@
         : code === "meeting_deletion_cleanup_failed"
           ? "Dọn dẹp chưa hoàn tất. Yêu cầu đã được lưu để thử lại khi khởi động; khắc phục lỗi lưu trữ rồi thử lại."
           : failureMessage;
-      if (code === "meeting_deletion_cleanup_failed") {
-        state.deletionMessages.set(meetingId, userMessage);
-      }
+      const cleanupMarked = code === "meeting_deletion_cleanup_failed";
+      state.deletionFailures.set(meetingId, { message: userMessage, cleanupMarked });
       if (state.meeting && state.meeting.id === meetingId
           && window.location.pathname === `/meetings/${encodeURIComponent(meetingId)}`) {
         renderMeetingDeletion(state.meeting);
@@ -3753,7 +3762,7 @@
         const errorPanel = $("#meeting-delete-error");
         errorPanel.textContent = userMessage;
         errorPanel.hidden = false;
-        confirmButton.textContent = "Thử dọn tiếp";
+        confirmButton.textContent = cleanupMarked ? "Thử dọn tiếp" : "Xóa dữ liệu đã lưu";
         $("#meeting-delete-confirmation").value = "";
         confirmButton.disabled = true;
       }

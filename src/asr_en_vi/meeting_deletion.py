@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import sqlite3
@@ -28,6 +29,7 @@ _DIRECTORY_FLAGS = (
     | getattr(os, "O_CLOEXEC", 0)
     | getattr(os, "O_NOFOLLOW", 0)
 )
+_LOGGER = logging.getLogger(__name__)
 
 
 class MeetingDeletionError(RuntimeError):
@@ -123,8 +125,8 @@ def _open_child_directory(parent_fd: int, name: str) -> int | None:
 
 
 def _open_directory_chain(path: Path) -> int:
-    """Open every component without following symlinks, returning an owned directory handle."""
-    absolute = Path(os.path.abspath(path))
+    """Resolve the configured root, then open its components without following symlinks."""
+    absolute = Path(os.path.realpath(path))
     descriptor = os.open(os.sep, _DIRECTORY_FLAGS)
     try:
         for component in absolute.parts[1:]:
@@ -168,7 +170,10 @@ def _unlink_owned_files(data_dir: Path, upload_ids: list[str]) -> None:
                     match = _TEMP_NAME_RE.fullmatch(filename)
                     if match is None or match.group(1) != upload_id:
                         continue
-                    os.unlink(filename, dir_fd=temp_fd)
+                    try:
+                        os.unlink(filename, dir_fd=temp_fd)
+                    except FileNotFoundError:
+                        continue
                     changed.add(temp_fd)
 
         for descriptor in changed:
@@ -193,6 +198,21 @@ def _record_cleanup_failure(data_dir: Path, meeting_id: str) -> None:
         # The committed deletion marker remains the retry record even if its diagnostic
         # cannot be updated during a concurrent database failure.
         return
+
+
+def _is_sqlite_busy_or_locked(error: sqlite3.Error) -> bool:
+    error_code = getattr(error, "sqlite_errorcode", None)
+    if isinstance(error_code, int):
+        return (error_code & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+    message = str(error).casefold()
+    return message.startswith(
+        (
+            "database is busy",
+            "database is locked",
+            "database table is locked",
+            "database schema is locked",
+        )
+    )
 
 
 def _finalize_database_delete(data_dir: Path, meeting_id: str) -> None:
@@ -294,13 +314,22 @@ def delete_meeting(data_dir: Path, meeting_id: str) -> dict[str, str]:
 
 def recover_pending_meeting_deletions(data_dir: Path) -> list[str]:
     """Retry every committed deletion marker after application startup."""
-    with _connect(data_dir) as connection:
-        meeting_ids = [
-            row[0]
-            for row in connection.execute(
-                "SELECT id FROM meetings WHERE deletion_requested_at IS NOT NULL ORDER BY id"
-            ).fetchall()
-        ]
+    try:
+        with _connect(data_dir) as connection:
+            meeting_ids = [
+                row[0]
+                for row in connection.execute(
+                    "SELECT id FROM meetings WHERE deletion_requested_at IS NOT NULL ORDER BY id"
+                ).fetchall()
+            ]
+    except sqlite3.Error as error:
+        if not _is_sqlite_busy_or_locked(error):
+            raise
+        _LOGGER.warning(
+            "Deferring pending meeting deletion recovery because SQLite is busy or locked: %s",
+            error,
+        )
+        return []
     completed: list[str] = []
     for meeting_id in meeting_ids:
         try:
@@ -310,4 +339,13 @@ def recover_pending_meeting_deletions(data_dir: Path) -> list[str]:
         except MeetingDeletionError as error:
             if error.code != "meeting_task_active":
                 _record_cleanup_failure(data_dir, meeting_id)
+        except sqlite3.Error as error:
+            if not _is_sqlite_busy_or_locked(error):
+                raise
+            _LOGGER.warning(
+                "Deferring pending meeting deletion recovery for %s because SQLite is busy "
+                "or locked: %s",
+                meeting_id,
+                error,
+            )
     return completed
