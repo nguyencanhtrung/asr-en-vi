@@ -92,6 +92,48 @@ def seed_completed_transcript(
     return meeting_id, generation_id, segment_ids
 
 
+def rerun_transcript(data_dir: Path, meeting_id: str) -> None:
+    """Make a second transcript generation the current one, as running the recording again does."""
+    newer, task_id = uuid.uuid4().hex, uuid.uuid4().hex
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(
+            "INSERT INTO tasks(id, request_id, request_hash, meeting_id, kind, model_path, "
+            "model_name, device, compute_type, language_hint, status, stage, result_scope, "
+            "audio_duration_seconds, transcript_end_seconds, segment_count) VALUES (?, ?, ?, ?, "
+            "'transcription', '/models/whisper-small', 'whisper-small', 'cpu', 'int8', 'en', "
+            "'succeeded', 'complete', 'transcript_only', 30.0, 5.0, 2)",
+            (task_id, f"newer-{task_id}", f"hash-{task_id}", meeting_id),
+        )
+        connection.execute(
+            "INSERT INTO transcript_generations(id, meeting_id, task_id, generation_number, "
+            "status, language_hint, model_name, language_probability, uncertainty_policy, "
+            "segment_count, diarization_model_name, regular_turn_count, exclusive_turn_count, "
+            "alignment_policy) VALUES (?, ?, ?, 2, 'complete', 'en', 'whisper-small', 0.9, "
+            "'test-policy', 2, 'community-1', 1, 0, 'test-alignment')",
+            (newer, meeting_id, task_id),
+        )
+        connection.execute(
+            "INSERT INTO generation_speakers(generation_id, speaker_id, display_name, "
+            "first_seen_seconds, last_seen_seconds) VALUES (?, 'SPEAKER_00', 'Morgan', 1.0, 5.0)",
+            (newer,),
+        )
+        connection.executemany(
+            "INSERT INTO transcript_segments(id, generation_id, sequence, start_seconds, "
+            "end_seconds, text, original_speaker_id, speaker_id, avg_logprob, no_speech_prob, "
+            "compression_ratio, uncertain, review_reasons, overlap, speaker_dominance, "
+            "assignment_version) VALUES (?, ?, ?, ?, ?, ?, 'SPEAKER_00', 'SPEAKER_00', "
+            "-0.2, 0.05, 1.0, 0, '[]', 0, 1.0, 1)",
+            [
+                (uuid.uuid4().hex, newer, 0, 1.0, 2.0, "A fresh pass heard the opening."),
+                (uuid.uuid4().hex, newer, 1, 4.0, 5.0, "A fresh pass heard the follow-up."),
+            ],
+        )
+        connection.execute(
+            "UPDATE meetings SET current_generation_id = ? WHERE id = ?", (newer, meeting_id)
+        )
+
+
 def default_cited_document(segment_ids: list[str]) -> dict[str, object]:
     """Six sections of bullets that cite the first two transcript segments."""
     first, second = segment_ids[0], segment_ids[1]

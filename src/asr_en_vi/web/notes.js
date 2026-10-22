@@ -219,6 +219,10 @@
         ? revision.output_language
         : "en",
       citations: normalizeCitations(revision.citations),
+      // The source links of the saved Markdown that open no source; a server without the field names none.
+      warnings: Array.isArray(revision.warnings)
+        ? revision.warnings.filter((warning) => warning && typeof warning.href === "string")
+        : [],
     };
   }
 
@@ -746,8 +750,10 @@
     return `/meetings/${encodeURIComponent(meetingId)}?notes_source=${encodeURIComponent(snapshotId)}&segment=${encodeURIComponent(segmentId)}#transcript`;
   }
 
+  // A source link is spelled with the literal notes_source=; the server names the broken ones by that spelling.
   function sourceReference(rawHref, expectedMeetingId = null, expectedSnapshotId = null) {
-    if (typeof rawHref !== "string" || !rawHref.startsWith("/") || rawHref.startsWith("//")) return null;
+    if (typeof rawHref !== "string" || !rawHref.includes("notes_source=")) return null;
+    if (!rawHref.startsWith("/") || rawHref.startsWith("//")) return null;
     let url;
     try {
       url = new URL(rawHref, window.location.origin);
@@ -858,7 +864,17 @@
       if (match.index > previous) parent.append(document.createTextNode(unescape(text.slice(previous, match.index))));
       if (match[1] !== undefined) {
         const source = sourceReference(match[2], revision.meeting_id, revision.source_snapshot_id);
-        if (source) {
+        if (revision.warnings.some((warning) => warning.href === match[2])) {
+          // Typed with a source the saved snapshot lacks: shown as text, never opened or repaired.
+          const invalid = document.createElement("span");
+          invalid.className = "notes-link-invalid";
+          invalid.textContent = unescape(match[1]);
+          const reason = document.createElement("span");
+          reason.className = "visually-hidden";
+          reason.textContent = " (liên kết nguồn không hợp lệ)";
+          invalid.append(reason);
+          parent.append(invalid);
+        } else if (source) {
           const link = document.createElement("a");
           link.href = source.href;
           link.dataset.notesSourceLink = "true";
@@ -980,6 +996,23 @@
     if (mode === "write") $("#notes-markdown").focus({ preventScroll: true });
   }
 
+  // The saved Markdown's source links that open no source, said in words above the notes.
+  function renderLinkWarning(revision) {
+    const line = $("#notes-link-warning");
+    const count = revision ? revision.warnings.length : 0;
+    line.hidden = !count;
+    if (!count) {
+      line.replaceChildren();
+      return;
+    }
+    const first = document.createElement("code");
+    first.textContent = revision.warnings[0].href;
+    line.replaceChildren(
+      `Markdown đã lưu có ${count} liên kết nguồn không hợp lệ. Nội dung được giữ nguyên; Xem chỉ hiện chúng dưới dạng chữ và không mở nguồn nào. Liên kết đầu tiên: `,
+      first,
+    );
+  }
+
   function renderSelectedRevision(data) {
     const wrapper = $("#notes-saved-work");
     const revision = data && data.revisions.find((item) => item.id === data.selectedNoteId);
@@ -1014,6 +1047,7 @@
         : "";
       $("#notes-preview").replaceChildren();
       $("#notes-markdown").value = "";
+      renderLinkWarning(null);
       return;
     }
     const draft = revisionDraft(revision);
@@ -1027,6 +1061,7 @@
       provenance,
       `Edit ${revision.edit_version}`,
     ].filter(Boolean).join(" · ");
+    renderLinkWarning(revision);
     renderMarkdown(draft.value, revision);
     renderDraftState(data, revision, draft);
     if (draft.conflict) {
@@ -1679,19 +1714,27 @@
       : speakerId || "Chưa xác định";
   }
 
-  // How the current transcript departs from the saved source, in words; "" while they agree.
+  function dateLabel(date) {
+    return date || "Chưa đặt ngày";
+  }
+
+  // How the current meeting departs from the saved source, in words; "" while they agree or before the meeting loads.
   function sourceDifference(source) {
-    const generation = currentGeneration(state.currentMeeting);
-    if (!generation) return "";
-    if (generation.id !== source.generationId) {
-      return "Transcript hiện tại là một lần chép lời khác với bản chụp này, nên đoạn được đánh dấu chỉ khớp theo mốc thời gian.";
-    }
-    const current = generation.segments.find((item) => item.id === source.segmentId);
-    if (!current) return "";
+    const meeting = state.currentMeeting;
+    if (!meeting) return "";
     const notes = [];
-    if (current.text !== source.text) notes.push("Văn bản của đoạn này đã được sửa trong transcript hiện tại.");
-    if (speakerForSnapshot(generation, current) !== source.speaker) {
-      notes.push("Người nói của đoạn này đã đổi trong transcript hiện tại.");
+    const generation = currentGeneration(meeting);
+    if (generation && generation.id !== source.generationId) {
+      notes.push("Transcript hiện tại là một lần chép lời khác với bản chụp này, nên đoạn được đánh dấu chỉ khớp theo mốc thời gian.");
+    } else if (generation) {
+      const current = generation.segments.find((item) => item.id === source.segmentId);
+      if (current && current.text !== source.text) notes.push("Văn bản của đoạn này đã được sửa trong transcript hiện tại.");
+      if (current && speakerForSnapshot(generation, current) !== source.speaker) {
+        notes.push("Người nói của đoạn này đã đổi trong transcript hiện tại.");
+      }
+    }
+    if ((meeting.meeting_date || null) !== source.meetingDate) {
+      notes.push(`Ngày họp hiện tại (${dateLabel(meeting.meeting_date || null)}) khác ngày họp trong bản chụp (${dateLabel(source.meetingDate)}).`);
     }
     return notes.join(" ");
   }
@@ -1712,6 +1755,7 @@
       startSeconds: Number(segment.start_seconds),
       text: segment.text,
       speaker: speakerForSnapshot(snapshot, segment),
+      meetingDate: typeof snapshot.meeting_date === "string" && snapshot.meeting_date ? snapshot.meeting_date : null,
     };
     state.currentSource = source;
     const root = $("#notes-source-view");
@@ -1720,6 +1764,7 @@
     const time = $("#notes-source-time");
     time.textContent = formatSeconds(source.startSeconds);
     $("#notes-source-speaker").textContent = source.speaker;
+    $("#notes-source-date").textContent = dateLabel(source.meetingDate);
     $("#notes-source-text").textContent = source.text;
     renderSourceDifference();
     $("#notes-source-status").textContent = "";
@@ -1782,6 +1827,7 @@
       $("#notes-source-context").textContent = "";
       $("#notes-source-time").textContent = "";
       $("#notes-source-speaker").textContent = "";
+      $("#notes-source-date").textContent = "";
       $("#notes-source-text").textContent = "";
       renderSourceDifference();
       $("#notes-source-status").textContent = error && error.message

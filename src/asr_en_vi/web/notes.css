@@ -209,7 +209,7 @@
 
 .notes-source-metadata {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1px;
   overflow: hidden;
   margin: 12px 0 0;
@@ -662,8 +662,9 @@
   overflow-wrap: anywhere;
 }
 
-/* The transcript now differs from the saved source: say so beside the frozen text. */
-.notes-source-difference {
+/* The transcript now differs from the saved source, or the Markdown names a source it cannot open: say so in words. */
+.notes-source-difference,
+.notes-link-warning {
   margin: 8px 0 0;
   padding: 7px 10px;
   border: 1px solid var(--warning);
@@ -672,6 +673,20 @@
   color: var(--warning);
   font-size: 11px;
   line-height: 1.6;
+}
+
+.notes-link-warning code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+/* A source link the saved snapshot cannot back, kept as typed. The dashed underline is the cue besides colour. */
+.notes-markdown-preview .notes-link-invalid {
+  color: var(--warning);
+  text-decoration: underline dashed;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
 }
 
 .notes-source-view > .secondary-button {

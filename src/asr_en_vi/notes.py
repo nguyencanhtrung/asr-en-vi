@@ -522,7 +522,12 @@ def accept_notes_task(
 
 
 def _summary_markdown(row: sqlite3.Row) -> str:
-    """Hide generated timestamp citations in older revisions without rewriting saved notes."""
+    """Hide generated timestamp citations in never-edited older revisions, saved notes untouched.
+
+    Once the operator has saved an edit, the Markdown comes back exactly as it was typed.
+    """
+    if row["edit_version"] != 1:
+        return row["markdown"]
     prefix = (
         f"/meetings/{row['meeting_id']}?"
         + urlencode({"notes_source": row["source_snapshot_id"]})
@@ -539,6 +544,45 @@ def _stored_citations(row: sqlite3.Row) -> list[object]:
     """The citations saved with a revision; none for one made before they were kept."""
     citations = json.loads(row["citations_json"]) if row["citations_json"] else []
     return citations if isinstance(citations, list) else []
+
+
+# A run of characters without space or ")" that a ")" closes. Starting only at a run boundary keeps
+# the scan linear: a start inside a run cannot succeed where its first character failed.
+_LINK_RUN_RE = re.compile(r"(?<![^)\s])([^)\s]+)\)")
+
+
+def _source_link_warnings(
+    connection: sqlite3.Connection, row: sqlite3.Row, markdown: str
+) -> list[dict[str, str]]:
+    """Source links in `markdown` that do not open this revision's saved source, as typed.
+
+    Computed on every read and never stored, so it follows the Markdown. Only the exact address the
+    notes were made with, to a segment of the saved snapshot, is a valid link. A source link is
+    spelled with the literal `notes_source=`; the page opens no other spelling as one.
+    """
+    if "notes_source=" not in markdown:
+        return []
+    prefix = f"/meetings/{row['meeting_id']}?notes_source={row['source_snapshot_id']}&segment="
+    segment_ids: set[str] | None = None
+    warnings = []
+    for run in _LINK_RUN_RE.finditer(markdown):
+        _, opener, href = run[1].partition("](")
+        if not opener or "notes_source=" not in href:
+            continue
+        reason = "other_source"
+        if href.startswith(prefix):
+            if segment_ids is None:
+                stored = connection.execute(
+                    "SELECT snapshot_json FROM notes_sources WHERE id = ?",
+                    (row["source_snapshot_id"],),
+                ).fetchone()
+                segments = json.loads(stored["snapshot_json"])["segments"]
+                segment_ids = {segment["id"] for segment in segments}
+            if href.removeprefix(prefix).removesuffix("#transcript") in segment_ids:
+                continue
+            reason = "unknown_segment"
+        warnings.append({"code": "source_link_invalid", "reason": reason, "href": href})
+    return warnings
 
 
 def _revision_payload(
@@ -560,11 +604,13 @@ def _revision_payload(
         source_state = "stale"
     else:
         source_state = "current"
+    markdown = _summary_markdown(row)
     return {
         "id": row["id"],
         "meeting_id": row["meeting_id"],
         "source_snapshot_id": row["source_snapshot_id"],
-        "markdown": _summary_markdown(row),
+        "markdown": markdown,
+        "warnings": _source_link_warnings(connection, row, markdown),
         "citations": _stored_citations(row),
         "edit_version": row["edit_version"],
         "source_state": source_state,
@@ -723,7 +769,8 @@ def update_note(
 def export_note(data_dir: Path, note_id: str) -> str:
     with _connect_read_only(data_dir) as connection:
         row = connection.execute(
-            "SELECT markdown, meeting_id, source_snapshot_id FROM notes_revisions WHERE id = ?",
+            "SELECT markdown, meeting_id, source_snapshot_id, edit_version "
+            "FROM notes_revisions WHERE id = ?",
             (note_id,),
         ).fetchone()
     if row is None:

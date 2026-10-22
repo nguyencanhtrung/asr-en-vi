@@ -349,7 +349,8 @@ ID nguồn trước khi lưu. Người phụ trách hoặc thời hạn thiếu 
 **Chưa xác định**. Chỉ quy đổi deadline tương đối khi ngày họp và cách diễn đạt đủ rõ; luôn giữ
 cách nói gốc để rà soát. Kiểm tra schema không thay thế việc người dùng đối chiếu nội dung.
 
-Khi nhận tác vụ, ứng dụng chụp nguồn bất biến và khóa transcript, người nói cùng ngày họp của
+Khi nhận tác vụ, ứng dụng chụp nguồn bất biến (cơ sở dữ liệu từ chối mọi `UPDATE` bảng bản chụp từ
+migration schema SQLite v11) và khóa transcript, người nói cùng ngày họp của
 cuộc họp đó. Tài khoản/model ChatGPT được giữ cố định; không đổi hoặc ngắt kết nối khi tác vụ còn
 hoạt động. Vẫn xem nguồn, sửa notes cũ và làm việc với cuộc họp khác được. Một danh sách bước
 **Nhận yêu cầu**, **Khởi chạy**, **Tạo notes**, **Lưu notes** đánh dấu từng bước là đã xong, đang
@@ -370,7 +371,9 @@ chế độ. Khi còn thay đổi chưa lưu, nút **Viết** có chấm báo, *
 lưu”, và trình duyệt cảnh báo trước khi đóng hoặc tải lại trang còn bản nháp notes hoặc transcript
 chưa lưu. Sao chép và tải Markdown lấy cùng nội dung đã lưu của phiên bản đang chọn; cần lưu hoặc
 giải quyết bản nháp trước. Markdown đã lưu, chế độ **Viết**, bản sao chép và file tải về chỉ chứa
-nội dung tóm tắt, không kèm liên kết timestamp.
+nội dung tóm tắt, không kèm liên kết timestamp. Markdown chỉnh tay có liên kết nguồn không mở được
+bản chụp của bản notes vẫn được lưu và trả lại đúng nguyên văn; backend kèm `warnings`, **Xem** hiện
+liên kết đó thành chữ cùng một dòng cảnh báo và không mở nguồn nào.
 
 Trích dẫn nguồn là dữ liệu riêng của từng bản notes, lưu trong cột `notes_revisions.citations_json`
 (migration schema SQLite v10, chỉ thêm cột nên bản v9 đang chạy được nâng cấp nguyên vẹn). Với mỗi
@@ -391,11 +394,11 @@ hiện chip.
 
 Bấm chip, hoặc dán link của chip, chọn tab **Transcript & bản ghi** bằng một mục lịch sử mới nên
 Back quay lại **Meeting notes**. Thẻ **Nguồn đã lưu lúc tạo notes** hiện ngay dưới trình phát với văn
-bản, người nói và mốc của bản chụp; trình phát tua tới mốc và phát (trình duyệt có thể chặn phát
+bản, người nói, ngày họp và mốc của bản chụp; trình phát tua tới mốc và phát (trình duyệt có thể chặn phát
 với link vừa dán, khi đó thẻ nhắc bấm phát); đoạn tương ứng trong transcript được đánh dấu bằng
 nhãn **Nguồn của mục notes** và đưa vào tầm nhìn, cuộn tức thì khi người dùng chọn giảm chuyển
-động. Khi transcript hiện tại đã khác bản chụp, thẻ vẫn hiện văn bản của bản chụp kèm ghi chú nói
-khác ở đâu. Bản chụp nguồn vẫn được giữ để kiểm tra nội bộ và lưu lịch sử. Notes cũ hiển thị nguồn
+động. Khi nguồn hiện tại đã khác bản chụp (transcript hoặc ngày họp), thẻ vẫn hiện văn bản của bản chụp
+kèm ghi chú nói khác ở đâu. Bản chụp nguồn vẫn được giữ để kiểm tra nội bộ và lưu lịch sử. Notes cũ hiển thị nguồn
 lịch sử hoặc cần cập nhật khi nguồn thay đổi; đổi riêng tên cuộc họp không làm notes cần cập nhật.
 
 ## Phát triển và kiểm tra
