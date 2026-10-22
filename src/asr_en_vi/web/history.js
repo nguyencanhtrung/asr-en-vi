@@ -91,6 +91,7 @@
     notesTaskStatus: null,
     tab: null, // "notes" | "transcript"; null while the default waits for notes.js
     tabTimer: 0,
+    notesSourceSegmentId: null, // the transcript row the open notes source names (see markNotesSource)
     editorBusy: false,
     transcriptMutationFocus: null,
     transcriptMutationFocusAfter: null,
@@ -178,14 +179,14 @@
   const TAB_PENDING_MS = 4000; // if notes.js never answers, the page falls back to the transcript
 
   // The tab the address names: a #notes or #transcript hash, the tab this history entry remembers (see
-  // pushMeetingUrl), or, for a saved-source link with no hash, the notes tab where the source view lives.
+  // pushMeetingUrl), or, for a saved-source link with no hash, the transcript tab where the source card lives.
   function locatedTab() {
     const named = window.location.hash.slice(1);
     if (MEETING_TABS.includes(named)) return named;
     const remembered = window.history.state && window.history.state.meetingTab;
     if (MEETING_TABS.includes(remembered)) return remembered;
     const params = new URLSearchParams(window.location.search);
-    return params.has("notes_source") && params.has("segment") ? "notes" : null;
+    return params.has("notes_source") && params.has("segment") ? "transcript" : null;
   }
 
   // With no tab in the address: notes when the meeting has saved notes or is making some, else transcript.
@@ -248,6 +249,19 @@
       setTab(tab);
     }
     if (focus) $(`#meeting-tab-${tab}`).focus();
+  }
+
+  // Opening a saved source from the notes: the Transcript tab, as one new history entry so Back returns to
+  // the notes. A pasted or restored link already names that address, so only a click needs this.
+  function showNotesSourceTab({ meetingId, snapshotId, segmentId }) {
+    if (state.view !== "meeting" || !state.meeting || state.meeting.id !== meetingId) return false;
+    const query = `?notes_source=${encodeURIComponent(snapshotId)}&segment=${encodeURIComponent(segmentId)}`;
+    const url = `/meetings/${encodeURIComponent(meetingId)}${query}#transcript`;
+    if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== url) {
+      pushMeetingUrl(url, "transcript");
+    }
+    setTab("transcript");
+    return true;
   }
 
   // The tab names what its panel holds: how many segments, and how many of them ask for a second look.
@@ -2236,6 +2250,66 @@
     );
   }
 
+  // The row of the open notes source stays marked and labelled whatever plays, and a re-render of the
+  // list marks it again: this runs after every pass over the rows.
+  function applyNotesSourceMark() {
+    const id = state.notesSourceSegmentId;
+    for (const item of $("#transcript-segments").querySelectorAll(".is-notes-source")) {
+      if (item.dataset.segmentId === id) continue;
+      item.classList.remove("is-notes-source");
+      item.querySelector(":scope > .segment-source-mark")?.remove();
+    }
+    const row = id ? segmentRow(id) : null;
+    if (!row || row.classList.contains("is-notes-source")) return row;
+    row.classList.add("is-notes-source");
+    const label = document.createElement("span");
+    label.className = "segment-source-mark";
+    label.textContent = "Nguồn của mục notes";
+    row.append(label);
+    return row;
+  }
+
+  // Mark the row a saved notes source names (its ID, else the row spanning its time, since a newer
+  // transcript has other IDs) and bring it into view when it is not, moving the page no further than
+  // that takes so the card above stays as visible as it can. Null clears the mark.
+  function markNotesSource(segmentId, startSeconds) {
+    let id = null;
+    if (segmentId) {
+      const rows = [...$("#transcript-segments").querySelectorAll(".transcript-segment")];
+      const row = rows.find((item) => item.dataset.segmentId === segmentId)
+        || rows.find((item) => (
+          Number(item.dataset.startSeconds) <= startSeconds && startSeconds < Number(item.dataset.endSeconds)
+        ));
+      id = row ? row.dataset.segmentId : null;
+    }
+    state.notesSourceSegmentId = id;
+    const row = applyNotesSourceMark();
+    if (!row) return false;
+    const bar = $(".player-bar").getBoundingClientRect();
+    const box = row.getBoundingClientRect();
+    if (box.top < bar.bottom || box.bottom > window.innerHeight) {
+      ownScrollUntil = performance.now() + OWN_SCROLL_GAP_MS;
+      row.scrollIntoView({
+        block: "nearest",
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      });
+    }
+    return true;
+  }
+
+  // Start the recording where it is, but only while its player is on screen: the Transcript tab. A browser
+  // may also refuse without a recent gesture, which is not an error.
+  async function playRecording() {
+    if (state.tab !== "transcript") return false;
+    const audio = $("#meeting-audio");
+    try {
+      await audio.play();
+      return !audio.paused;
+    } catch {
+      return false;
+    }
+  }
+
   function updateActiveTranscriptIntervals() {
     const audio = $("#meeting-audio");
     const seconds = audio.currentTime;
@@ -2251,6 +2325,7 @@
       else item.removeAttribute("aria-current");
       if (active && !current) current = item;
     }
+    applyNotesSourceMark();
     // Compare ids, not elements: a re-render of the same transcript is not a new active segment.
     const currentId = current ? current.dataset.segmentId : null;
     const changed = currentId !== null && currentId !== activeSegmentId;
@@ -3383,14 +3458,15 @@
       state.transcriptMutationError = null;
       state.editingSegment = null;
       state.renamingSpeaker = null;
+      state.notesSourceSegmentId = null;
       clearSpeakerAddName();
       resetTab();
     }
     if (!sameMeeting) closeEditor(); // drops the draft, which orphans any save still in flight
     if (sameMeeting) {
+      initMeetingTab(); // before the render tells notes.js of the meeting, so its source view can take focus
       renderMeeting(state.meeting); // show what we already know while the refresh runs
       showView("meeting");
-      initMeetingTab();
     } else {
       setHeading("Cuộc họp", "Cuộc họp · ASR EN VI");
       showView("loading");
@@ -3591,6 +3667,9 @@
     selectTab,
     defaultSpeakerNames,
     focusSpeakerCatalog,
+    showNotesSourceTab,
+    markNotesSource,
+    playRecording,
     currentContext() {
       return {
         meeting: state.view === "meeting" ? state.meeting : null,

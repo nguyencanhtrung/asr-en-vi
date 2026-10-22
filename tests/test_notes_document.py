@@ -22,6 +22,7 @@ from asr_en_vi.notes_document import (
     NotesDocumentError,
     _coverage_manifest,
     build_chunk_prompt,
+    build_citations,
     build_notes_schema,
     build_prompt,
     build_reduction_prompt,
@@ -115,6 +116,69 @@ def test_vietnamese_renderer_localizes_sections_empty_state_and_action_labels(do
     assert "Morgan" in markdown
     assert "Owner:" not in markdown and "Deadline:" not in markdown
     assert "notes_source=" not in markdown and "01:01:01" not in markdown
+
+
+def test_citations_name_the_sources_of_every_bullet_the_markdown_renders(document, snapshot):
+    assert build_citations(document, snapshot) == [
+        {
+            "section": "Decisions",
+            "text": r"Ship the update\.",
+            "sources": [{"id": "c" * 32, "start_seconds": 3661.9}],
+        },
+        {
+            "section": "Confirmed Action Items",
+            "text": "Send the report — Owner: Undetermined; Deadline: tomorrow (2026-10-20).",
+            "sources": [{"id": "c" * 32, "start_seconds": 3661.9}],
+        },
+    ]
+    assert "c" * 32 not in render_markdown(document, snapshot)  # the Markdown carries none
+
+
+def test_citation_text_is_the_bullet_text_as_rendered_in_order_for_both_languages(
+    document, snapshot
+):
+    snapshot["segments"].append({**snapshot["segments"][0], "id": "d" * 32, "start_seconds": 7})
+    document["overview"] = [
+        {"text": "Use *bold* [link](x) #1 and `code`", "source_ids": ["d" * 32, "c" * 32]},
+        {"text": "No source here.", "source_ids": []},
+        {"text": "No source here.", "source_ids": ["c" * 32]},
+    ]
+    for language in ("en", "vi"):
+        markdown = render_markdown(document, snapshot, output_language=language)
+        citations = build_citations(document, snapshot, output_language=language)
+        bullets = []
+        section = None
+        for line in markdown.splitlines():
+            if line.startswith("## "):
+                section = line[3:]
+            elif line.startswith("- "):
+                bullets.append({"section": section, "text": line[2:]})
+        # One entry per bullet, same order, same words: the two outputs share one builder.
+        assert [{"section": c["section"], "text": c["text"]} for c in citations] == bullets
+        assert len(citations) == 5
+    first, empty, last = build_citations(document, snapshot)[:3]
+    assert first["text"] == r"Use \*bold\* \[link\]\(x\) \#1 and \`code\`"
+    assert [source["id"] for source in first["sources"]] == ["d" * 32, "c" * 32]  # document order
+    assert first["sources"][0]["start_seconds"] == 7
+    # A bullet without sources still has its entry, so identical bullets keep their places.
+    assert (empty["text"], empty["sources"]) == ("No source here\\.", [])
+    assert last["text"] == empty["text"] and len(last["sources"]) == 1
+
+
+def test_vietnamese_citations_use_the_vietnamese_headings(document, snapshot):
+    document["decisions"][0]["text"] = "Gửi bản nháp."
+    sections = {
+        entry["section"] for entry in build_citations(document, snapshot, output_language="vi")
+    }
+    assert sections == {"Quyết định", "Các việc đã thống nhất"}
+
+
+def test_citations_refuse_what_the_renderer_refuses(document, snapshot):
+    document["decisions"][0]["source_ids"] = ["unknown"]
+    with pytest.raises(NotesDocumentError, match="source IDs"):
+        build_citations(document, snapshot)
+    with pytest.raises(NotesDocumentError):
+        build_citations(document, snapshot, output_language="fr")
 
 
 @pytest.mark.parametrize("section", [key for key, _ in SECTIONS])

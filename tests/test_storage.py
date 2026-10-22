@@ -5,6 +5,7 @@ import sqlite3
 
 import pytest
 
+from asr_en_vi.notes import get_note, notes_state
 from asr_en_vi.storage import (
     _migrate_v2,
     _migrate_v3,
@@ -13,6 +14,7 @@ from asr_en_vi.storage import (
     _migrate_v6,
     _migrate_v7,
     _migrate_v8,
+    _migrate_v9,
     initialize,
 )
 
@@ -122,7 +124,7 @@ def test_sqlite_persists_across_reopen_with_current_domain_schema(tmp_path):
         "notes_revisions",
         "notes_preferences",
     }
-    assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     assert os.stat(data_dir).st_mode & 0o777 == 0o700
     assert os.stat(database).st_mode & 0o777 == 0o600
 
@@ -146,7 +148,7 @@ def test_schema_v1_database_migrates_transactionally_and_preserves_existing_data
         assert connection.execute("SELECT value FROM legacy_values").fetchone() == ("kept",)
         assert connection.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
-        ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,)]
+        ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,), (10,)]
         tables = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -194,7 +196,7 @@ def test_schema_v4_migration_preserves_existing_generation_and_backfills_its_spe
         ).fetchone() == ("succeeded", "/models/whisper-small", "")
         assert connection.execute(
             "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1"
-        ).fetchone() == (9,)
+        ).fetchone() == (10,)
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
@@ -235,7 +237,7 @@ def test_schema_v5_rebuild_preserves_tasks_transcript_rows_and_processing_slot(t
         ).fetchall() == [("legacy-speaker", "legacy-speaker")]
         assert connection.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
-        ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,)]
+        ).fetchall() == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,), (10,)]
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
@@ -284,7 +286,7 @@ def test_schema_v6_migration_backfills_existing_notes_as_english(tmp_path):
         ).fetchone() == ("en", "## Overview\n\nLegacy English notes.")
         assert connection.execute(
             "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1"
-        ).fetchone() == (9,)
+        ).fetchone() == (10,)
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
@@ -348,7 +350,7 @@ def test_schema_v8_migration_keeps_a_populated_v7_database_and_allows_antigravit
         ]
         assert connection.execute(
             "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1"
-        ).fetchone() == (9,)
+        ).fetchone() == (10,)
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         indexes = {
             row[0]
@@ -437,7 +439,7 @@ def test_schema_v9_adds_a_validated_coverage_column_and_keeps_existing_revisions
         assert connection.execute(
             "SELECT markdown, coverage_json FROM notes_revisions WHERE id = 'old-revision'"
         ).fetchone() == ("Kept notes.", None)
-        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone() == (9,)
+        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone() == (10,)
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         connection.execute(
             "UPDATE notes_revisions SET coverage_json = ? WHERE id = 'old-revision'",
@@ -447,3 +449,76 @@ def test_schema_v9_adds_a_validated_coverage_column_and_keeps_existing_revisions
             connection.execute(
                 "UPDATE notes_revisions SET coverage_json = 'not json' WHERE id = 'old-revision'"
             )
+
+
+def test_schema_v10_adds_a_validated_citations_column_and_keeps_a_populated_v9_database(tmp_path):
+    data_dir = tmp_path / "version-nine-data"
+    data_dir.mkdir(mode=0o700)
+    database = data_dir / "app.sqlite3"
+    _create_legacy_database(database, version=5)
+    edited = "## Overview\n\n- Kept and edited by hand.\n"
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA foreign_keys = OFF")
+        for version, migrate in (
+            (6, _migrate_v6),
+            (7, _migrate_v7),
+            (8, _migrate_v8),
+            (9, _migrate_v9),
+        ):
+            migrate(connection)
+            connection.execute("INSERT INTO schema_migrations(version) VALUES (?)", (version,))
+        connection.execute(
+            "INSERT INTO notes_sources(id, meeting_id, generation_id, source_version, "
+            "notes_source_version, meeting_date, snapshot_json) VALUES "
+            "('old-source', 'old-meeting', 'old-generation', 1, 1, '2024-05-06', '{}')"
+        )
+        connection.execute(
+            "INSERT INTO tasks(id, request_id, request_hash, meeting_id, kind, model_path, "
+            "model_name, device, compute_type, language_hint, status, stage, result_scope, "
+            "audio_duration_seconds, notes_provider, notes_connection_version, notes_model, "
+            "notes_reasoning_effort, notes_prompt_version, notes_schema_version, "
+            "notes_source_id) VALUES ('old-notes-task', 'old-notes-request', 'old-notes-hash', "
+            "'old-meeting', 'notes', '', 'gpt-6.1-sol', 'auto', 'provider', 'en', 'succeeded', "
+            "'succeeded', 'notes_only', 12.0, 'chatgpt', 3, 'gpt-6.1-sol', 'high', "
+            "'notes-hierarchical-v6', 1, 'old-source')"
+        )
+        connection.execute(
+            "INSERT INTO notes_revisions(id, meeting_id, source_snapshot_id, task_id, markdown, "
+            "edit_version, provider, model, reasoning_effort, connection_version, "
+            "prompt_version, schema_version, coverage_json) VALUES ('old-revision', "
+            "'old-meeting', 'old-source', 'old-notes-task', ?, 4, 'chatgpt', 'gpt-6.1-sol', "
+            "'high', 3, 'notes-hierarchical-v6', 1, '{\"version\":1}')",
+            (edited,),
+        )
+        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone() == (9,)
+
+    initialize(data_dir)
+    initialize(data_dir)
+
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        assert connection.execute(
+            "SELECT markdown, edit_version, coverage_json, citations_json FROM notes_revisions "
+            "WHERE id = 'old-revision'"
+        ).fetchone() == (edited, 4, '{"version":1}', None)
+        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone() == (10,)
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+        connection.execute(
+            "UPDATE notes_revisions SET citations_json = '[]' WHERE id = 'old-revision'"
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "UPDATE notes_revisions SET citations_json = 'not json' WHERE id = 'old-revision'"
+            )
+        connection.execute(
+            "UPDATE notes_revisions SET citations_json = NULL WHERE id = 'old-revision'"
+        )
+
+    # The revision made before citations were kept reads as it did, with none to show.
+    revision = notes_state(data_dir, "old-meeting")["revisions"][0]
+    assert (revision["markdown"], revision["edit_version"], revision["citations"]) == (
+        edited,
+        4,
+        [],
+    )
+    assert get_note(data_dir, "old-revision")["citations"] == []

@@ -61,5 +61,9 @@ _Avoid_: Quyết định
 **Mốc nguồn (Source timestamp)**:
 Vị trí trong bản ghi dùng để nghe lại và kiểm chứng nội dung transcript, quyết định hoặc action item.
 
+**Trích dẫn nguồn (Notes citation)**:
+Dữ liệu riêng của một bản notes nối từng mục với các đoạn nguồn của nó (ID và mốc bắt đầu) trong bản chụp nguồn. Trích dẫn không nằm trong Markdown, nên bản đã lưu, chế độ Viết, bản sao chép và file tải về không có link timestamp; chế độ Xem hiện chúng thành chip, và chỉ cho mục còn nguyên nội dung như lúc tạo. Bản notes tạo trước khi có trích dẫn không có dữ liệu này.
+_Avoid_: Link timestamp trong Markdown
+
 **Duyệt notes (Review)**:
 Việc người dùng đối chiếu bản nháp với nguồn và sửa nội dung để đạt mức dùng được, tập trung vào quyết định, người phụ trách, thời hạn và các đoạn chưa rõ.

@@ -6,7 +6,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 def _migrate_v2(connection: sqlite3.Connection) -> None:
@@ -491,6 +491,15 @@ def _migrate_v9(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v10(connection: sqlite3.Connection) -> None:
+    """Keep the timestamp citations of each notes revision apart from its Markdown."""
+    # NULL marks a revision made before citations were kept: it shows none, and no row is rewritten.
+    connection.execute(
+        "ALTER TABLE notes_revisions ADD COLUMN citations_json TEXT "
+        "CHECK(citations_json IS NULL OR json_valid(citations_json))"
+    )
+
+
 def database_path(data_dir: Path) -> Path:
     return Path(data_dir) / "app.sqlite3"
 
@@ -597,6 +606,9 @@ def initialize(data_dir: Path) -> Path:
         if current_version < 9:
             _migrate_v9(connection)
             connection.execute("INSERT INTO schema_migrations(version) VALUES (9)")
+        if current_version < 10:
+            _migrate_v10(connection)
+            connection.execute("INSERT INTO schema_migrations(version) VALUES (10)")
         connection.commit()
     finally:
         connection.close()

@@ -218,7 +218,27 @@
       output_language: ["en", "vi"].includes(revision.output_language)
         ? revision.output_language
         : "en",
+      citations: normalizeCitations(revision.citations),
     };
+  }
+
+  // A revision made before citations were kept has none; an entry or source of another shape is dropped.
+  function normalizeCitations(citations) {
+    if (!Array.isArray(citations)) return [];
+    return citations
+      .filter((entry) => entry
+        && typeof entry.section === "string"
+        && typeof entry.text === "string"
+        && Array.isArray(entry.sources))
+      .map((entry) => ({
+        section: entry.section,
+        text: entry.text,
+        sources: entry.sources.filter((source) => source
+          && typeof source.id === "string"
+          && source.id
+          && Number.isFinite(source.start_seconds)
+          && source.start_seconds >= 0),
+      }));
   }
 
   function isNotesTask(task) {
@@ -721,6 +741,11 @@
     return Boolean(draft && draft.value !== draft.baselineMarkdown);
   }
 
+  // The address of a saved source: the Transcript tab, where its card sits under the player.
+  function sourceHref(meetingId, snapshotId, segmentId) {
+    return `/meetings/${encodeURIComponent(meetingId)}?notes_source=${encodeURIComponent(snapshotId)}&segment=${encodeURIComponent(segmentId)}#transcript`;
+  }
+
   function sourceReference(rawHref, expectedMeetingId = null, expectedSnapshotId = null) {
     if (typeof rawHref !== "string" || !rawHref.startsWith("/") || rawHref.startsWith("//")) return null;
     let url;
@@ -729,7 +754,12 @@
     } catch {
       return null;
     }
-    if (url.origin !== window.location.origin || url.hash || url.username || url.password) return null;
+    if (
+      url.origin !== window.location.origin
+      || (url.hash && url.hash !== "#transcript")
+      || url.username
+      || url.password
+    ) return null;
     const pathMatch = url.pathname.match(/^\/meetings\/([^/]+)$/);
     if (!pathMatch) return null;
     let meetingId;
@@ -753,12 +783,70 @@
       (expectedMeetingId && meetingId !== expectedMeetingId)
       || (expectedSnapshotId && snapshotId !== expectedSnapshotId)
     ) return null;
-    return {
-      meetingId,
-      snapshotId,
-      segmentId,
-      href: `/meetings/${encodeURIComponent(meetingId)}?notes_source=${encodeURIComponent(snapshotId)}&segment=${encodeURIComponent(segmentId)}`,
-    };
+    return { meetingId, snapshotId, segmentId, href: sourceHref(meetingId, snapshotId, segmentId) };
+  }
+
+  // mm:ss, or h:mm:ss from one hour on: the time a chip shows and says.
+  function chipLabel(seconds) {
+    const total = Math.floor(seconds);
+    const minutes = String(Math.floor((total % 3600) / 60)).padStart(2, "0");
+    const rest = String(total % 60).padStart(2, "0");
+    return total >= 3600 ? `${Math.floor(total / 3600)}:${minutes}:${rest}` : `${minutes}:${rest}`;
+  }
+
+  // The chip is a link to the saved source, so a middle click or a copied address works as a click does.
+  function citationChip(revision, source) {
+    const label = chipLabel(source.start_seconds);
+    const link = document.createElement("a");
+    link.className = "notes-citation-chip";
+    link.href = sourceHref(revision.meeting_id, revision.source_snapshot_id, source.id);
+    link.dataset.notesSourceLink = "true";
+    link.dataset.meetingId = revision.meeting_id;
+    link.dataset.snapshotId = revision.source_snapshot_id;
+    link.dataset.segmentId = source.id;
+    link.setAttribute("aria-label", `Nghe lại đoạn nguồn lúc ${label}`);
+    link.textContent = label;
+    return link;
+  }
+
+  // The citation sources that still belong to each bullet, by line index. A bullet keeps its chips only
+  // while its section heading and its text are exactly what the notes were made with, so an edited bullet
+  // shows none and never another bullet's. Each entry is used once, in order. Identical bullets cannot
+  // be told apart, so a text keeps its chips only while the notes hold as many bullets with it as they
+  // were made with: once one was edited or removed, or another was edited into a copy, none keeps a chip.
+  function citedBullets(lines, citations) {
+    const found = new Map();
+    if (!citations.length) return found;
+    const keyOf = (section, text) => `${section}\u0000${text}`;
+    const groups = new Map();
+    for (const entry of citations) {
+      const key = keyOf(entry.section, entry.text);
+      if (!groups.has(key)) groups.set(key, { size: 0, queue: [] });
+      const group = groups.get(key);
+      group.size += 1;
+      group.queue.push(entry.sources);
+    }
+    const bullets = [];
+    const counts = new Map();
+    let section = "";
+    lines.forEach((line, index) => {
+      const heading = line.match(/^(#{1,6})\s+(.+)$/);
+      if (heading) {
+        section = heading[2].trim();
+        return;
+      }
+      const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+      if (!bullet) return;
+      const key = keyOf(section, bullet[1].trim());
+      bullets.push({ index, key });
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    for (const { index, key } of bullets) {
+      const group = groups.get(key);
+      if (!group || counts.get(key) !== group.size) continue;
+      found.set(index, group.queue.shift());
+    }
+    return found;
   }
 
   function appendInline(parent, text, revision) {
@@ -809,11 +897,13 @@
     const shallowest = Math.min(
       ...lines.map((line) => line.match(/^(#{1,6})\s+(.+)$/)).filter(Boolean).map((match) => match[1].length),
     );
+    // Chips belong to Xem; the Markdown, Viết, the copy and the download never carry a reference.
+    const cited = state.mode === "view" ? citedBullets(lines, revision.citations || []) : new Map();
     let list = null;
     let paragraph = null;
     const closeParagraph = () => { paragraph = null; };
     const closeList = () => { list = null; };
-    for (const line of lines) {
+    for (const [index, line] of lines.entries()) {
       if (!line.trim()) {
         closeParagraph();
         closeList();
@@ -838,6 +928,7 @@
         }
         const item = document.createElement("li");
         appendInline(item, bullet[1], revision);
+        for (const source of cited.get(index) || []) item.append(citationChip(revision, source));
         list.append(item);
         continue;
       }
@@ -1588,10 +1679,35 @@
       : speakerId || "Chưa xác định";
   }
 
+  // How the current transcript departs from the saved source, in words; "" while they agree.
+  function sourceDifference(source) {
+    const generation = currentGeneration(state.currentMeeting);
+    if (!generation) return "";
+    if (generation.id !== source.generationId) {
+      return "Transcript hiện tại là một lần chép lời khác với bản chụp này, nên đoạn được đánh dấu chỉ khớp theo mốc thời gian.";
+    }
+    const current = generation.segments.find((item) => item.id === source.segmentId);
+    if (!current) return "";
+    const notes = [];
+    if (current.text !== source.text) notes.push("Văn bản của đoạn này đã được sửa trong transcript hiện tại.");
+    if (speakerForSnapshot(generation, current) !== source.speaker) {
+      notes.push("Người nói của đoạn này đã đổi trong transcript hiện tại.");
+    }
+    return notes.join(" ");
+  }
+
+  function renderSourceDifference() {
+    const note = state.currentSource ? sourceDifference(state.currentSource) : "";
+    const element = $("#notes-source-difference");
+    element.textContent = note;
+    element.hidden = !note;
+  }
+
   function updateSourceView(snapshot, segment, meetingId) {
     const source = {
       snapshotId: snapshot.id,
       meetingId,
+      generationId: snapshot.generation_id,
       segmentId: segment.id,
       startSeconds: Number(segment.start_seconds),
       text: segment.text,
@@ -1605,16 +1721,21 @@
     time.textContent = formatSeconds(source.startSeconds);
     $("#notes-source-speaker").textContent = source.speaker;
     $("#notes-source-text").textContent = source.text;
+    renderSourceDifference();
     $("#notes-source-status").textContent = "";
     $("#notes-source-seek").disabled = !Number.isFinite(source.startSeconds) || source.startSeconds < 0;
     $("#notes-source-heading").focus({ preventScroll: true });
     return source;
   }
 
-  async function showSourceReference(reference, { updateUrl = false } = {}) {
+  // One flow for a chip click and for a pasted or restored link: the Transcript tab, the saved source under the
+  // player, the recording sought and played, and the transcript row it names marked and in view. A click first
+  // makes the one history entry that Back returns from; a link already is one.
+  async function showSourceReference(reference, { fromClick = false } = {}) {
     if (!reference || reference.meetingId !== state.currentMeetingId) return;
+    const meetings = window.ASRMeetingHistory;
+    if (fromClick && meetings) meetings.showNotesSourceTab(reference);
     const key = `${reference.meetingId}\u0000${reference.snapshotId}\u0000${reference.segmentId}`;
-    if (state.sourceKey === key && state.currentSource) return;
     const sequence = ++state.sourceSeq;
     state.sourceKey = key;
     $("#notes-source-status").textContent = "Đang tải bản chụp transcript đã lưu…";
@@ -1639,32 +1760,21 @@
         || Number(segment.start_seconds) < 0
       ) throw new Error("Không tìm thấy đoạn trong bản chụp transcript đã lưu.");
       const source = updateSourceView(snapshot, segment, reference.meetingId);
-      if (updateUrl && window.ASRMeetingHistory) {
-        const sought = await window.ASRMeetingHistory.seekNotesSource({
-          meetingId: source.meetingId,
-          snapshotId: source.snapshotId,
-          segmentId: source.segmentId,
-          startSeconds: source.startSeconds,
-        });
+      $("#notes-source-status").textContent = "Đang đưa trình phát bản ghi tới mốc nguồn…";
+      let sought = false;
+      let playing = false;
+      if (meetings) {
+        meetings.markNotesSource(source.segmentId, source.startSeconds);
+        sought = await meetings.seekNotesSource(source);
         if (sequence !== state.sourceSeq) return;
-        $("#notes-source-status").textContent = sought
-          ? `Đã tua bản ghi cuộc họp tới ${formatSeconds(source.startSeconds)}.`
-          : "Đã mở nguồn bất biến nhưng chưa thể tua bản ghi. Dùng nút tua để thử lại.";
-      } else {
-        $("#notes-source-status").textContent = "Đang đưa trình phát bản ghi tới mốc nguồn…";
-        const sought = window.ASRMeetingHistory
-          ? await window.ASRMeetingHistory.seekNotesSource({
-            meetingId: source.meetingId,
-            snapshotId: source.snapshotId,
-            segmentId: source.segmentId,
-            startSeconds: source.startSeconds,
-          })
-          : false;
+        playing = sought && await meetings.playRecording();
         if (sequence !== state.sourceSeq) return;
-        $("#notes-source-status").textContent = sought
-          ? `Đã tua bản ghi cuộc họp tới ${formatSeconds(source.startSeconds)}.`
-          : "Nguồn đã mở. Trình phát chưa xác nhận được mốc thời gian này.";
       }
+      $("#notes-source-status").textContent = !sought
+        ? "Đã mở nguồn bất biến nhưng chưa thể tua bản ghi. Dùng nút tua để thử lại."
+        : playing
+          ? `Đã tua bản ghi cuộc họp tới ${formatSeconds(source.startSeconds)} và đang phát.`
+          : `Đã tua bản ghi cuộc họp tới ${formatSeconds(source.startSeconds)}. Bấm phát trên trình phát để nghe.`;
     } catch (error) {
       if (sequence !== state.sourceSeq) return;
       state.currentSource = null;
@@ -1673,6 +1783,7 @@
       $("#notes-source-time").textContent = "";
       $("#notes-source-speaker").textContent = "";
       $("#notes-source-text").textContent = "";
+      renderSourceDifference();
       $("#notes-source-status").textContent = error && error.message
         ? error.message
         : "Không thể mở nguồn transcript đã lưu.";
@@ -1701,11 +1812,12 @@
       || !params[0][1]
       || !params[1][1]
     ) return null;
+    // The hash names a tab, not a source: #transcript (what a chip links to), #notes or none all open it.
     return {
       meetingId,
       snapshotId: params[0][1],
       segmentId: params[1][1],
-      href: `/meetings/${encodeURIComponent(meetingId)}?notes_source=${encodeURIComponent(params[0][1])}&segment=${encodeURIComponent(params[1][1])}`,
+      href: sourceHref(meetingId, params[0][1], params[1][1]),
     };
   }
 
@@ -1725,6 +1837,7 @@
     state.sourceKey = "";
     state.currentSource = null;
     $("#notes-source-view").hidden = true;
+    if (window.ASRMeetingHistory) window.ASRMeetingHistory.markNotesSource(null);
     if (!clearLocation) return;
     const reference = sourceFromLocation();
     if (reference && window.location.search) {
@@ -1739,8 +1852,7 @@
     $("#notes-source-status").textContent = sought
       ? `Đã tua bản ghi cuộc họp tới ${formatSeconds(source.startSeconds)}.`
       : "Chưa thể tua bản ghi tới mốc này. Hãy kiểm tra audio đã tải xong.";
-    // The player lives in the transcript tab: show it at the mark. A failed seek keeps its message in view.
-    if (sought) window.ASRMeetingHistory.selectTab("transcript", { focus: true });
+    if (sought) window.ASRMeetingHistory.markNotesSource(source.segmentId, source.startSeconds);
   }
 
   function handleMeetingContext(event) {
@@ -1749,6 +1861,7 @@
     state.view = detail.view || "";
     state.currentMeeting = detail.view === "meeting" ? detail.meeting : null;
     state.transcriptionRequestInFlight = Boolean(detail.transcriptionRequestInFlight);
+    if (state.currentSource) renderSourceDifference();
     const meetingId = state.currentMeeting && state.currentMeeting.id;
     if (!meetingId) {
       state.currentMeetingId = null;
@@ -1885,7 +1998,7 @@
     );
     if (!reference || reference.segmentId !== link.dataset.segmentId) return;
     event.preventDefault();
-    void showSourceReference(reference, { updateUrl: true });
+    void showSourceReference(reference, { fromClick: true });
   });
   $("#notes-source-close").addEventListener("click", () => closeSourceView());
   $("#notes-source-seek").addEventListener("click", () => void seekCurrentSource());

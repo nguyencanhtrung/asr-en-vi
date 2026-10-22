@@ -678,11 +678,10 @@ def test_saved_source_stays_frozen_and_seeks_same_audio_after_live_edit(
     expect(page.locator("#notes-source-text")).to_have_text(original_text)
     expect(audio).to_have_attribute("src", f"/api/meetings/{meeting_id}/audio")
     assert hashlib.sha256(audio_path.read_bytes()).hexdigest() == audio_digest
-    page.locator("#meeting-tab-notes").click()
     page.locator("#notes-source-seek").click()
     expect(page.locator("#notes-source-status")).to_contain_text("Đã tua bản ghi", timeout=10_000)
     assert audio.evaluate("element => Math.abs(element.currentTime - 1) < 0.1")
-    # The seek button shows the player it moved: the recording is in the transcript tab.
+    # The card and the player it moves share the transcript tab.
     expect(page.locator("#meeting-tab-transcript")).to_have_attribute("aria-selected", "true")
     _assert_no_token_urls(requests)
     assert not console_errors
@@ -776,6 +775,10 @@ def test_failed_notes_read_keeps_old_revision_draft_source_and_other_meeting_nav
     )
     expect(page.locator("#notes-source-view")).to_be_visible(timeout=10_000)
     expect(page.locator("#notes-source-text")).to_have_text(original_text)
+    # The saved source opens in the transcript tab; the draft waits in the notes tab.
+    expect(page.locator("#meeting-tab-transcript")).to_have_attribute("aria-selected", "true")
+    page.locator("#meeting-tab-notes").click()
+    expect(page.locator("#notes-markdown")).to_have_value(draft)
     page.locator("#notes-save").click()
     expect(page.locator("#notes-copy-export-status")).to_contain_text(
         "Markdown đã được lưu", timeout=10_000

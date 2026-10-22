@@ -2304,6 +2304,24 @@ textarea:focus-visible {
   box-shadow: inset 1px 0 var(--accent);
 }
 
+/* The row the open notes source names. It stays marked after playback moves on, and carries a label. */
+.transcript-segment.is-notes-source {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 var(--accent);
+  scroll-margin-bottom: var(--player-gap);
+}
+
+.segment-source-mark {
+  grid-column: 2;
+  justify-self: start;
+  padding: 3px 7px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+}
+
 .segment-timestamp {
   justify-self: start;
   min-height: 28px;

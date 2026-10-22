@@ -355,11 +355,13 @@ def test_notes_tab_holds_the_whole_notes_part(live, signed_in):
         "#notes-save",
         "#notes-copy",
         "#notes-export",
-        "#notes-source-view",
     )
     for selector in in_panel:
         assert panel.locator(selector).count() == 1, selector
         assert page.locator(f"#meeting-panel-transcript {selector}").count() == 0, selector
+    # The saved source is not part of the notes: its card sits in the Transcript tab.
+    assert panel.locator("#notes-source-view").count() == 0
+    assert page.locator("#meeting-panel-transcript > #notes-source-view").count() == 1
     # The three selects sit behind "Đổi…".
     expect(panel.locator("#notes-change")).to_be_visible()
     panel.locator("#notes-change").click()
@@ -648,69 +650,76 @@ def failed_notes_source(live):
     )
 
 
-def test_a_saved_source_link_opens_the_notes_tab_unless_a_hash_says_otherwise(live, signed_in):
+def test_a_saved_source_link_opens_the_transcript_tab_unless_a_hash_says_otherwise(live, signed_in):
     _context, page = signed_in()
-    meeting_id, snapshot_id, segment_id, text = failed_notes_source(live)
-    link = f"?notes_source={snapshot_id}&segment={segment_id}"
+    meeting_id, _revision, snapshot, segment_ids = _seed_saved_notes(live.settings.data_dir)
+    link = f"?notes_source={snapshot['id']}&segment={segment_ids[0]}"
+    text = snapshot["segments"][0]["text"]
 
-    # With no hash the default would be the transcript (no saved notes); the link wins: notes.
+    # With no hash the default would be notes (it has saved notes); the link wins: the transcript,
+    # where the card sits under the player.
     open_meeting(page, live, meeting_id, link)
-    expect_tab(page, "notes")
+    expect_tab(page, "transcript")
     expect(page.locator("#notes-source-view")).to_be_visible(timeout=10_000)
     expect(page.locator("#notes-source-text")).to_have_text(text)
     assert parse_qs(urlsplit(page.url).query) == {
-        "notes_source": [snapshot_id],
-        "segment": [segment_id],
+        "notes_source": [snapshot["id"]],
+        "segment": [segment_ids[0]],
     }
 
-    # A hash wins over the link: the source stays loaded in the notes tab, which is not shown.
-    open_meeting(page, live, meeting_id, f"{link}#transcript")
-    expect_tab(page, "transcript")
+    # A hash wins over the link: the source stays loaded in the transcript tab, which is not shown.
+    open_meeting(page, live, meeting_id, f"{link}#notes")
+    expect_tab(page, "notes")
     expect(page.locator("#notes-source-view")).to_be_hidden()
     expect(page.locator("#notes-source-text")).to_have_text(text, timeout=10_000)
-    page.locator(NOTES_TAB).click()
+    page.locator(TRANSCRIPT_TAB).click()
     expect(page.locator("#notes-source-view")).to_be_visible()
     # The query stays when the tab changes.
     assert parse_qs(urlsplit(page.url).query) == {
-        "notes_source": [snapshot_id],
-        "segment": [segment_id],
+        "notes_source": [snapshot["id"]],
+        "segment": [segment_ids[0]],
     }
-    assert fragment(page) == "notes"
+    assert fragment(page) == "transcript"
 
 
 def test_closing_the_source_view_keeps_the_tab_in_the_address(live, signed_in):
     _context, page = signed_in()
     meeting_id, snapshot_id, segment_id, _text = failed_notes_source(live)
-    open_meeting(page, live, meeting_id, f"?notes_source={snapshot_id}&segment={segment_id}#notes")
+    link = f"?notes_source={snapshot_id}&segment={segment_id}#transcript"
+    open_meeting(page, live, meeting_id, link)
     expect(page.locator("#notes-source-view")).to_be_visible(timeout=10_000)
     page.locator("#notes-source-close").click()
     expect(page.locator("#notes-source-view")).to_be_hidden()
-    assert page.url == f"{live.url}/meetings/{meeting_id}#notes"
+    assert page.url == f"{live.url}/meetings/{meeting_id}#transcript"
     page.reload()
-    expect_tab(page, "notes")
+    expect_tab(page, "transcript")
 
 
-def test_the_seek_button_shows_the_player_in_the_transcript_tab(live, signed_in, tmp_path):
+def test_the_seek_button_moves_the_player_that_sits_in_the_same_tab(live, signed_in, tmp_path):
     _context, page = signed_in()
     meeting_id, revision, _snapshot, segment_ids = _seed_saved_notes(live.settings.data_dir)
     _write_test_recording(live.settings.data_dir, meeting_id, tmp_path)
     link = f"?notes_source={revision['source_snapshot_id']}&segment={segment_ids[0]}"
     open_meeting(page, live, meeting_id, link)
-    expect_tab(page, "notes")
+    expect_tab(page, "transcript")  # the card and the player it moves are in the same tab
     expect(page.locator("#notes-source-status")).to_contain_text("Đã tua bản ghi", timeout=10_000)
-    expect_tab(page, "notes")  # the automatic seek of a link leaves the tab alone
-
-    page.locator("#notes-source-seek").click()
-    expect_tab(page, "transcript")
-    assert focused_id(page) == "meeting-tab-transcript"
     audio = page.locator("#meeting-audio")
     expect(audio).to_be_visible()
-    assert audio.evaluate("element => Math.abs(element.currentTime - 1) < 0.1")
-    assert fragment(page) == "transcript"
+    page.evaluate("document.querySelector('#meeting-audio').pause()")
+    page.evaluate("document.querySelector('#meeting-audio').currentTime = 20")
+    address, entries = page.url, page.evaluate("history.length")
 
-    page.go_back()  # Back returns to the notes, source view still open
-    expect_tab(page, "notes")
-    expect(page.locator("#notes-source-view")).to_be_visible()
+    page.locator("#notes-source-seek").click()
+    wait_for(
+        page,
+        lambda: page.evaluate(
+            "Math.abs(document.querySelector('#meeting-audio').currentTime - 1) < 0.1"
+        ),
+    )
+    expect_tab(page, "transcript")  # nothing to switch to
+    assert focused_id(page) == "notes-source-seek"
+    assert (page.url, page.evaluate("history.length")) == (address, entries)  # no new entry
+    assert audio.evaluate("element => element.paused")  # the button seeks; a chip click also plays
 
 
 # ---- AC 6: no transcript yet, the Notes tab says so and offers the way to the transcript ----

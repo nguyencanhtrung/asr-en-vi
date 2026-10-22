@@ -8,7 +8,10 @@ from pathlib import Path
 
 from seeding import seed_meeting
 
+from asr_en_vi.notes import accept_notes_task, get_notes_source, publish_notes_revision
+from asr_en_vi.notes_document import build_citations, render_markdown
 from asr_en_vi.storage import database_path, initialize
+from asr_en_vi.tasks import claim_next_task
 
 
 class StubNotesProviderStore:
@@ -87,3 +90,111 @@ def seed_completed_transcript(
             (generation_id, meeting_id),
         )
     return meeting_id, generation_id, segment_ids
+
+
+def default_cited_document(segment_ids: list[str]) -> dict[str, object]:
+    """Six sections of bullets that cite the first two transcript segments."""
+    first, second = segment_ids[0], segment_ids[1]
+    return {
+        "schema_version": 1,
+        "overview": [
+            {"text": "The team reviewed its launch plan.", "source_ids": [first]},
+            {"text": "A second point cites both parts.", "source_ids": [first, second]},
+        ],
+        "key_topics": [],
+        "decisions": [{"text": "Prepare the launch plan.", "source_ids": [first]}],
+        "open_questions": [{"text": "Who will review the draft?", "source_ids": [second]}],
+        "action_items": [
+            {
+                "text": "Send the draft.",
+                "source_ids": [second],
+                "owner": "Morgan",
+                "deadline_text": "tomorrow",
+                "deadline_date": None,
+            }
+        ],
+        "confirmation_items": [{"text": "Confirm the review date.", "source_ids": [second]}],
+    }
+
+
+def seed_cited_notes(
+    data_dir: Path,
+    build_document=default_cited_document,
+    *,
+    title: str = "Cited notes",
+    output_language: str = "en",
+    segment_starts: list[float] | None = None,
+    with_citations: bool = True,
+    existing: tuple[str, str, list[str]] | None = None,
+    source_version: int = 1,
+):
+    """A meeting with one saved notes revision, published as the worker does.
+
+    The Markdown comes from `render_markdown` and the citations from `build_citations`, both over
+    the frozen source snapshot, so they agree as they do for a real run. `segment_starts` replaces
+    the transcript with one-second segments starting there; `with_citations=False` publishes the
+    revision without any, as notes made before citations were kept read. `existing` adds another
+    revision to a meeting seeded before, whose transcript is then at `source_version`.
+    """
+    meeting_id, generation_id, segment_ids = existing or seed_completed_transcript(
+        data_dir, title=title
+    )
+    if segment_starts is not None:
+        segment_ids = [uuid.uuid4().hex for _ in segment_starts]
+        with sqlite3.connect(database_path(data_dir)) as connection:
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute(
+                "DELETE FROM transcript_segments WHERE generation_id = ?", (generation_id,)
+            )
+            connection.executemany(
+                "INSERT INTO transcript_segments(id, generation_id, sequence, start_seconds, "
+                "end_seconds, text, original_speaker_id, speaker_id, avg_logprob, no_speech_prob, "
+                "compression_ratio, uncertain, review_reasons, overlap, speaker_dominance, "
+                "assignment_version) VALUES (?, ?, ?, ?, ?, ?, 'SPEAKER_00', 'SPEAKER_00', "
+                "-0.2, 0.05, 1.0, 0, '[]', 0, 1.0, 1)",
+                [
+                    (identifier, generation_id, index, start, start + 1.0, f"Segment {index}.")
+                    for index, (identifier, start) in enumerate(
+                        zip(segment_ids, segment_starts, strict=True)
+                    )
+                ],
+            )
+            connection.execute(
+                "UPDATE transcript_generations SET segment_count = ? WHERE id = ?",
+                (len(segment_ids), generation_id),
+            )
+    request_id = f"cited-{uuid.uuid4().hex}"
+    accepted = accept_notes_task(
+        data_dir,
+        provider=StubNotesProvider(),
+        meeting_id=meeting_id,
+        request_id=request_id,
+        expected_generation_id=generation_id,
+        expected_source_version=source_version,
+        expected_metadata_version=1,
+        worker_ready=True,
+        output_language=output_language,
+    )
+    owner_id = f"cited-worker-{uuid.uuid4().hex}"
+    claimed = claim_next_task(data_dir, owner_id=owner_id)
+    assert claimed is not None and claimed["id"] == accepted["id"]
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        source_id = connection.execute(
+            "SELECT notes_source_id FROM tasks WHERE id = ?", (accepted["id"],)
+        ).fetchone()[0]
+    snapshot = get_notes_source(data_dir, source_id)
+    document = build_document(segment_ids)
+    revision = publish_notes_revision(
+        data_dir,
+        accepted["id"],
+        owner_id=owner_id,
+        markdown=render_markdown(document, snapshot, output_language=output_language),
+        elapsed_seconds=0.1,
+        citations=(
+            build_citations(document, snapshot, output_language=output_language)
+            if with_citations
+            else None
+        ),
+    )
+    assert revision is not None
+    return meeting_id, revision, snapshot, segment_ids

@@ -1,4 +1,4 @@
-"""Versioned notes documents, source validation and deterministic Markdown rendering."""
+"""Versioned notes documents, source validation, deterministic Markdown rendering and citations."""
 
 from __future__ import annotations
 
@@ -564,10 +564,14 @@ def timestamp(seconds: float) -> str:
     return f"{total // 3600:02d}:{(total // 60) % 60:02d}:{total % 60:02d}"
 
 
-def render_markdown(
-    document: dict[str, Any], snapshot: dict[str, Any], *, output_language: str = "en"
-) -> str:
-    output_language = validate_output_language(output_language)
+def _section_bullets(
+    document: dict[str, Any], snapshot: dict[str, Any], output_language: str
+) -> list[tuple[str, list[tuple[str, list[str]]]]]:
+    """Each section's rendered heading and its bullets as (content, source IDs), in order.
+
+    The Markdown lines and the citations both read from here, so the text a citation names is
+    exactly the text of its bullet.
+    """
     document = validate_document(document, snapshot)
     headings = (
         {key: heading for key, heading in SECTIONS}
@@ -581,17 +585,12 @@ def render_markdown(
             "confirmation_items": "Các mục cần xác nhận",
         }
     )
-    empty_state = "None recorded." if output_language == "en" else "Chưa ghi nhận."
     undetermined = "Undetermined" if output_language == "en" else "Chưa xác định"
     owner_label = "Owner" if output_language == "en" else "Người phụ trách"
     deadline_label = "Deadline" if output_language == "en" else "Hạn chót"
-    lines: list[str] = []
+    sections = []
     for section, _heading in SECTIONS:
-        heading = headings[section]
-        lines.extend([f"## {heading}", ""])
-        if not document[section]:
-            lines.extend([empty_state, ""])
-            continue
+        bullets = []
         for item in document[section]:
             content = _markdown(item["text"])
             if section == "action_items":
@@ -602,9 +601,47 @@ def render_markdown(
                 if item["deadline_date"] and item["deadline_date"] != item["deadline_text"]:
                     deadline += f" ({item['deadline_date']})"
                 content += f" — {owner_label}: {owner}; {deadline_label}: {deadline}."
-            lines.append(f"- {content}")
+            bullets.append((content, item["source_ids"]))
+        sections.append((headings[section], bullets))
+    return sections
+
+
+def render_markdown(
+    document: dict[str, Any], snapshot: dict[str, Any], *, output_language: str = "en"
+) -> str:
+    output_language = validate_output_language(output_language)
+    empty_state = "None recorded." if output_language == "en" else "Chưa ghi nhận."
+    lines: list[str] = []
+    for heading, bullets in _section_bullets(document, snapshot, output_language):
+        lines.extend([f"## {heading}", ""])
+        if not bullets:
+            lines.extend([empty_state, ""])
+            continue
+        lines.extend(f"- {content}" for content, _source_ids in bullets)
         lines.append("")
     return "\n".join(lines)
+
+
+def build_citations(
+    document: dict[str, Any], snapshot: dict[str, Any], *, output_language: str = "en"
+) -> list[dict[str, Any]]:
+    """The source segments of every bullet `render_markdown` writes, for View mode to link.
+
+    One entry per bullet, in render order, with the section heading and bullet text exactly as
+    rendered. The Markdown itself stays free of references; a bullet that was edited later no
+    longer equals its entry, so it shows no chips.
+    """
+    output_language = validate_output_language(output_language)
+    starts = {segment["id"]: segment["start_seconds"] for segment in snapshot["segments"]}
+    return [
+        {
+            "section": heading,
+            "text": content,
+            "sources": [{"id": ref, "start_seconds": starts[ref]} for ref in source_ids],
+        }
+        for heading, bullets in _section_bullets(document, snapshot, output_language)
+        for content, source_ids in bullets
+    ]
 
 
 def provider_source(snapshot: dict[str, Any]) -> dict[str, Any]:
