@@ -9,6 +9,7 @@
   const MAX_YEAR = 9999;
   const WEEKDAYS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
   const LANGUAGES = { en: "English", vi: "Tiếng Việt" };
+  const LANGUAGE_HINTS = new Set(Object.keys(LANGUAGES));
   const REVIEW_REASON_LABELS = {
     asr_uncertain: "Nhận dạng chưa chắc",
     overlap: "Có lời nói chồng lấn",
@@ -103,6 +104,8 @@
     editingSegment: null, // { generationId, segmentId }: the one segment whose editor is open
     renamingSpeaker: null, // { generationId, speakerId }: the one speaker chip being renamed
     pendingTaskRequestId: null,
+    transcriptionLanguageMeetingId: null,
+    transcriptionLanguageSelection: null,
     taskRequestError: null,
   };
 
@@ -3174,6 +3177,18 @@
       : "Chưa xác định";
   }
 
+  function validLanguageHint(value) {
+    return typeof value === "string" && LANGUAGE_HINTS.has(value) ? value : null;
+  }
+
+  function defaultTranscriptionLanguage(meeting, task = null) {
+    const taskLanguage = validLanguageHint(task && task.language_hint);
+    if (taskLanguage) return taskLanguage;
+    const current = meeting && meeting.transcription && meeting.transcription.generation;
+    const generationLanguage = validLanguageHint(current && current.language_hint);
+    return generationLanguage || validLanguageHint(meeting && meeting.language_hint) || "en";
+  }
+
   function taskStageLabel(task) {
     return TASK_STAGES[task.stage] || task.stage || "Chưa bắt đầu";
   }
@@ -3198,6 +3213,7 @@
   }
 
   function renderTranscription(transcription) {
+    const meeting = state.meeting;
     const task = transcription && transcription.task;
     const generation = transcription && transcription.generation;
     const active = Boolean(task && ACTIVE_TASK_STATES.has(task.status));
@@ -3206,6 +3222,7 @@
     const cancelButton = $("#cancel-transcription");
     const measurements = $("#task-measurements");
 
+    syncTranscriptionLanguageControl(meeting, task);
     renderRuntimeProfile(transcription && transcription.runtime);
 
     startButton.hidden = active;
@@ -3265,25 +3282,91 @@
   }
 
   function taskRequestStorageKey(meetingId) {
-    return `asr-en-vi:transcription-request:${meetingId}`;
+    return "asr-en-vi:transcription-request:" + meetingId;
   }
 
-  function getPendingTaskRequestId(meetingId) {
+  function rememberPendingTaskRequest(pending) {
+    state.pendingTaskRequestId = pending;
+    try {
+      window.sessionStorage.setItem(
+        taskRequestStorageKey(pending.meetingId),
+        JSON.stringify({ requestId: pending.requestId, languageHint: pending.languageHint }),
+      );
+    } catch {
+      // The in-memory fallback is already recorded above.
+    }
+    return pending;
+  }
+
+  function readPendingTaskRequest(meetingId, fallbackLanguage) {
+    if (state.pendingTaskRequestId && state.pendingTaskRequestId.meetingId === meetingId) {
+      return state.pendingTaskRequestId;
+    }
     const key = taskRequestStorageKey(meetingId);
     try {
       const stored = window.sessionStorage.getItem(key);
-      if (stored) return stored;
-      const requestId = newTaskRequestId();
-      window.sessionStorage.setItem(key, requestId);
-      return requestId;
-    } catch {
-      if (state.pendingTaskRequestId && state.pendingTaskRequestId.meetingId === meetingId) {
-        return state.pendingTaskRequestId.requestId;
+      if (!stored) return null;
+      let requestId = stored;
+      let languageHint = fallbackLanguage;
+      try {
+        const parsed = JSON.parse(stored);
+        if (typeof parsed === "string") requestId = parsed;
+        else if (parsed && typeof parsed === "object") {
+          requestId = parsed.requestId;
+          languageHint = validLanguageHint(parsed.languageHint) || fallbackLanguage;
+        }
+      } catch {
+        // Pre-language-selection clients stored the request ID as plain text.
       }
-      const requestId = newTaskRequestId();
-      state.pendingTaskRequestId = { meetingId, requestId };
-      return requestId;
+      if (typeof requestId !== "string" || !requestId) return null;
+      return rememberPendingTaskRequest({
+        meetingId,
+        requestId,
+        languageHint: validLanguageHint(languageHint) || "en",
+      });
+    } catch {
+      return null;
     }
+  }
+
+  function getPendingTaskRequest(meetingId, languageHint) {
+    const fallbackLanguage = validLanguageHint(languageHint) || "en";
+    return readPendingTaskRequest(meetingId, fallbackLanguage) || rememberPendingTaskRequest({
+      meetingId,
+      requestId: newTaskRequestId(),
+      languageHint: fallbackLanguage,
+    });
+  }
+
+  function selectedTranscriptionLanguage(meeting) {
+    const selector = $("#transcription-language");
+    return validLanguageHint(selector && selector.value)
+      || defaultTranscriptionLanguage(meeting);
+  }
+
+  function syncTranscriptionLanguageControl(meeting, task) {
+    const selector = $("#transcription-language");
+    if (!selector || !meeting) return;
+    const fallbackLanguage = defaultTranscriptionLanguage(meeting, task);
+    const pending = readPendingTaskRequest(meeting.id, fallbackLanguage);
+    const active = Boolean(task && ACTIVE_TASK_STATES.has(task.status));
+    const pendingLanguage = pending && validLanguageHint(pending.languageHint);
+    const rememberedLanguage = state.transcriptionLanguageMeetingId === meeting.id
+      ? validLanguageHint(state.transcriptionLanguageSelection)
+      : null;
+    // A pending request can coexist with the previous completed task in the meeting payload
+    // after a lost POST response. Its language is the only safe value to display or retry.
+    const languageHint = pendingLanguage
+      || (active && validLanguageHint(task && task.language_hint))
+      || rememberedLanguage
+      || validLanguageHint(task && task.language_hint)
+      || fallbackLanguage;
+    state.transcriptionLanguageMeetingId = meeting.id;
+    state.transcriptionLanguageSelection = languageHint;
+    selector.value = validLanguageHint(languageHint) || "en";
+    // An uncertain POST may already have created a task. Keep its request ID and language paired
+    // until the server answers; changing the selector here would make a retry misleading.
+    selector.disabled = active || Boolean(pending);
   }
 
   function clearPendingTaskRequestId(meetingId) {
@@ -3298,7 +3381,14 @@
   }
 
   function rotateTerminalTaskRequestId(meetingId, task) {
-    if (task && !ACTIVE_TASK_STATES.has(task.status)) clearPendingTaskRequestId(meetingId);
+    if (!task || ACTIVE_TASK_STATES.has(task.status)) return;
+    const pending = readPendingTaskRequest(
+      meetingId,
+      validLanguageHint(task.language_hint) || "en",
+    );
+    // A terminal task in a freshly loaded meeting can be the previous completed run while a
+    // newer POST is still uncertain. Only retire the stored request after seeing that same run.
+    if (!pending || pending.requestId === task.request_id) clearPendingTaskRequestId(meetingId);
   }
 
   function stopTaskPolling() {
@@ -3388,14 +3478,20 @@
   async function startTranscription({ auto = false } = {}) {
     const meeting = state.meeting;
     if (!meeting || state.taskRequestInFlight || sourceMutationUnavailable()) return;
-    const requestId = getPendingTaskRequestId(meeting.id);
+    const pending = getPendingTaskRequest(meeting.id, selectedTranscriptionLanguage(meeting));
+    const requestId = pending.requestId;
+    const languageHint = pending.languageHint;
     state.taskRequestInFlight = true;
     state.taskRequestError = null;
     renderTranscription(meeting.transcription);
     try {
       const task = await requestJson("/api/tasks", {
         method: "POST",
-        body: JSON.stringify({ meeting_id: meeting.id, request_id: requestId }),
+        body: JSON.stringify({
+          meeting_id: meeting.id,
+          request_id: requestId,
+          language_hint: languageHint,
+        }),
       });
       clearPendingTaskRequestId(meeting.id);
       state.taskRequestError = null;
@@ -3410,7 +3506,7 @@
       if (definitiveError) clearPendingTaskRequestId(meeting.id);
       const retryGuidance = definitiveError
         ? "Bấm lại để gửi một yêu cầu mới."
-        : "Bấm lại để xác minh bằng cùng request ID.";
+        : "Bấm lại để xác minh bằng cùng request ID và ngôn ngữ gợi ý.";
       const code = requestError && requestError.payload && requestError.payload.detail
         ? requestError.payload.detail.code
         : "";
@@ -3746,6 +3842,13 @@
   $("#edit-date").addEventListener("input", syncMetadataLockControls);
   $("#edit-date").addEventListener("change", syncMetadataLockControls);
   $("#meeting-edit").addEventListener("submit", saveMeeting);
+  $("#transcription-language").addEventListener("change", (event) => {
+    const meeting = state.meeting;
+    const language = validLanguageHint(event.currentTarget.value);
+    if (!meeting || !language) return;
+    state.transcriptionLanguageMeetingId = meeting.id;
+    state.transcriptionLanguageSelection = language;
+  });
   $("#start-transcription").addEventListener("click", () => void startTranscription());
   $("#cancel-transcription").addEventListener("click", () => void cancelTranscription());
   $("#task-diagnostic-copy").addEventListener("click", () => void copyDiagnosticCommand());

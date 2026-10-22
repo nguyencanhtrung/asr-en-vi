@@ -60,12 +60,23 @@ def _task_store(tmp_path: Path, *, meeting_count: int = 1):
     return data_dir, model_dir, meetings
 
 
-def _accept(data_dir: Path, model_dir: Path, meeting_id: str, request_id: str):
+def _accept(
+    data_dir: Path,
+    model_dir: Path,
+    meeting_id: str,
+    request_id: str,
+    *,
+    language_hint: str | None = None,
+):
+    options = {}
+    if language_hint is not None:
+        options["language_hint"] = language_hint
     return accept_transcription_task(
         data_dir,
         meeting_id=meeting_id,
         request_id=request_id,
         model_path=model_dir,
+        **options,
         diarization_model_path=data_dir.parent / "diarization-model",
         device="cpu",
         compute_type="int8",
@@ -137,6 +148,252 @@ def test_request_id_returns_original_task_and_rejects_payload_reuse(tmp_path):
     with pytest.raises(TaskError) as error:
         _accept(data_dir, model_dir, second_meeting, "request-0001")
     assert error.value.code == "idempotency_conflict"
+
+
+def test_rerun_language_is_pinned_per_task_and_generation(tmp_path):
+    data_dir, model_dir, (meeting_id,) = _task_store(tmp_path)
+    first = _accept(data_dir, model_dir, meeting_id, "language-run-001")
+    assert first["language_hint"] == "en"
+    assert first["model_name"] == "model"
+    assert first["device"] == "cpu"
+    assert first["compute_type"] == "int8"
+
+    same_default = _accept(
+        data_dir,
+        model_dir,
+        meeting_id,
+        "language-run-001",
+        language_hint="en",
+    )
+    assert same_default["id"] == first["id"]
+    with pytest.raises(TaskError) as conflict:
+        _accept(
+            data_dir,
+            model_dir,
+            meeting_id,
+            "language-run-001",
+            language_hint="vi",
+        )
+    assert conflict.value.code == "idempotency_conflict"
+
+    claim_next_task(data_dir, owner_id="language-owner-1")
+    assert update_task_progress(
+        data_dir,
+        first["id"],
+        owner_id="language-owner-1",
+        stage="publishing",
+        elapsed_seconds=1.0,
+        transcript_end_seconds=2.5,
+        segment_count=1,
+    )
+    first_generation = publish_complete_generation(
+        data_dir,
+        first["id"],
+        owner_id="language-owner-1",
+        segments=[
+            _segment(
+                "1" * 32,
+                original_speaker_id="SPEAKER_00",
+                speaker_id="SPEAKER_00",
+                text="English generation.",
+            )
+        ],
+        speakers=[
+            {
+                "speaker_id": "SPEAKER_00",
+                "display_name": "Alice",
+                "first_seen_seconds": 1.0,
+                "last_seen_seconds": 2.5,
+            }
+        ],
+        language_probability=0.9,
+        elapsed_seconds=1.0,
+    )
+    assert first_generation is not None
+
+    second = _accept(
+        data_dir,
+        model_dir,
+        meeting_id,
+        "language-run-002",
+        language_hint="vi",
+    )
+    assert second["language_hint"] == "vi"
+    assert second["model_name"] == "model"
+    assert second["device"] == "cpu"
+    assert second["compute_type"] == "int8"
+    claim_next_task(data_dir, owner_id="language-owner-2")
+    assert update_task_progress(
+        data_dir,
+        second["id"],
+        owner_id="language-owner-2",
+        stage="publishing",
+        elapsed_seconds=1.0,
+        transcript_end_seconds=2.5,
+        segment_count=1,
+    )
+    second_generation = publish_complete_generation(
+        data_dir,
+        second["id"],
+        owner_id="language-owner-2",
+        segments=[
+            _segment(
+                "2" * 32,
+                original_speaker_id="SPEAKER_99",
+                speaker_id="SPEAKER_99",
+                text="Vietnamese generation.",
+            )
+        ],
+        speakers=[
+            {
+                "speaker_id": "SPEAKER_99",
+                "display_name": "Speaker 1",
+                "first_seen_seconds": 1.0,
+                "last_seen_seconds": 2.5,
+            }
+        ],
+        language_probability=0.8,
+        elapsed_seconds=1.0,
+    )
+    assert second_generation is not None
+
+    state = transcription_state(data_dir, meeting_id)
+    assert state["generation"]["id"] == second_generation["id"]
+    assert state["generation"]["language_hint"] == "vi"
+    assert state["generation"]["model_name"] == "model"
+    assert state["generation"]["segments"][0]["id"] == "2" * 32
+    assert state["generation"]["speakers"][0]["speaker_id"] == "SPEAKER_99"
+    assert state["generation"]["speakers"][0]["display_name"] == "Speaker 1"
+    assert state["generation_history"][0]["id"] == first_generation["id"]
+    assert state["generation_history"][0]["language_hint"] == "en"
+    assert state["generation_history"][0]["segments"][0]["id"] == "1" * 32
+    assert state["generation_history"][0]["speakers"][0]["display_name"] == "Alice"
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        persisted = {
+            row[0]: row[1:]
+            for row in connection.execute(
+                "SELECT request_id, language_hint, model_name, device, compute_type "
+                "FROM tasks WHERE request_id IN (?, ?)",
+                ("language-run-001", "language-run-002"),
+            )
+        }
+    assert persisted == {
+        "language-run-001": ("en", "model", "cpu", "int8"),
+        "language-run-002": ("vi", "model", "cpu", "int8"),
+    }
+
+    failed = _accept(
+        data_dir,
+        model_dir,
+        meeting_id,
+        "language-run-003",
+        language_hint="en",
+    )
+    claim_next_task(data_dir, owner_id="language-owner-3")
+    assert fail_task(
+        data_dir,
+        failed["id"],
+        owner_id="language-owner-3",
+        error_code="transcription_failed",
+        message="Runner failed before publication.",
+        elapsed_seconds=1.0,
+    )
+    assert transcription_state(data_dir, meeting_id)["generation"]["id"] == second_generation["id"]
+
+    with pytest.raises(TaskError) as invalid:
+        _accept(
+            data_dir,
+            model_dir,
+            meeting_id,
+            "language-run-invalid",
+            language_hint="fr",
+        )
+    assert invalid.value.code == "invalid_language_hint"
+
+
+def test_canceled_rerun_preserves_edited_current_generation(tmp_path):
+    data_dir, model_dir, (meeting_id,) = _task_store(tmp_path)
+    first = _publish_generation(
+        data_dir,
+        model_dir,
+        meeting_id,
+        "cancel-rerun-001",
+        "cancel-rerun-owner-1",
+        [
+            _segment(
+                "a" * 32,
+                text="Original transcript.",
+                original_speaker_id="SPEAKER_00",
+                speaker_id="SPEAKER_00",
+            )
+        ],
+        [
+            {
+                "speaker_id": "SPEAKER_00",
+                "display_name": "Speaker 1",
+                "first_seen_seconds": 1.25,
+                "last_seen_seconds": 2.5,
+            }
+        ],
+    )
+    assert first is not None
+    update_current_generation_segment_text(
+        data_dir,
+        meeting_id,
+        "a" * 32,
+        expected_generation_id=first["id"],
+        expected_source_version=1,
+        text="Edited original transcript.",
+    )
+    update_current_generation_speaker_name(
+        data_dir,
+        meeting_id,
+        "SPEAKER_00",
+        expected_generation_id=first["id"],
+        expected_source_version=2,
+        display_name="Alice",
+    )
+
+    rerun = _accept(
+        data_dir,
+        model_dir,
+        meeting_id,
+        "cancel-rerun-002",
+        language_hint="vi",
+    )
+    claim_next_task(data_dir, owner_id="cancel-rerun-owner-2")
+    assert cancel_task(data_dir, rerun["id"])["status"] == "stopping"
+    assert (
+        publish_complete_generation(
+            data_dir,
+            rerun["id"],
+            owner_id="cancel-rerun-owner-2",
+            segments=[_segment("b" * 32, text="Late rerun output.")],
+            speakers=[
+                {
+                    "speaker_id": "SPEAKER_99",
+                    "display_name": "Speaker 1",
+                    "first_seen_seconds": 1.25,
+                    "last_seen_seconds": 2.5,
+                }
+            ],
+            language_probability=0.8,
+            elapsed_seconds=2.0,
+        )
+        is None
+    )
+    before_reap = transcription_state(data_dir, meeting_id)
+    assert before_reap["generation"]["id"] == first["id"]
+    assert before_reap["generation"]["segments"][0]["text"] == "Edited original transcript."
+    assert before_reap["generation"]["speakers"][0]["display_name"] == "Alice"
+    assert before_reap["generation_history"] == []
+
+    assert finish_canceled_task(
+        data_dir, rerun["id"], owner_id="cancel-rerun-owner-2", elapsed_seconds=3.0
+    )
+    after_reap = transcription_state(data_dir, meeting_id)
+    assert after_reap["task"]["status"] == "canceled"
+    assert after_reap["generation"]["id"] == first["id"]
 
 
 def test_server_computes_stale_worker_state_for_active_task(tmp_path):

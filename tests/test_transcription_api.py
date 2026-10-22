@@ -130,6 +130,69 @@ async def test_task_routes_accept_poll_cancel_and_rediscover_meeting_state(tmp_p
                 os.close(lock_fd)
 
 
+async def test_task_route_persists_per_run_language_and_checks_idempotency(tmp_path, monkeypatch):
+    monkeypatch.setattr(routes, "run_in_threadpool", _run_inline)
+    diarization_model_dir = prepare_diarization_model(tmp_path / "diarization-model")
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        auth_dir=tmp_path / "auth",
+        public_url="http://127.0.0.1:8765",
+        asr_model_path=_prepared_model(tmp_path / "model"),
+        diarization_model_path=diarization_model_dir,
+    )
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url=settings.public_url) as client:
+            headers = await _authorize(client, settings)
+            meeting_id = seed_meeting(settings.data_dir, "Per-run language", language_hint="en")
+            lock_fd = acquire_worker_lock(settings.data_dir)
+            assert lock_fd is not None
+            write_runtime_profile(
+                settings.data_dir,
+                RuntimeProfile(
+                    device="cpu", compute_type="int8", model_path=settings.asr_model_path
+                ),
+            )
+            write_heartbeat(settings.data_dir, "idle")
+            try:
+                payload = {
+                    "meeting_id": meeting_id,
+                    "request_id": "language-api-001",
+                    "language_hint": "vi",
+                }
+                accepted = await client.post("/api/tasks", headers=headers, json=payload)
+                assert accepted.status_code == 202
+                assert accepted.json()["language_hint"] == "vi"
+
+                retry = await client.post("/api/tasks", headers=headers, json=payload)
+                assert retry.status_code == 202
+                assert retry.json()["id"] == accepted.json()["id"]
+                assert retry.json()["language_hint"] == "vi"
+
+                conflict = await client.post(
+                    "/api/tasks",
+                    headers=headers,
+                    json={**payload, "language_hint": "en"},
+                )
+                assert conflict.status_code == 409
+                assert conflict.json()["detail"]["code"] == "idempotency_conflict"
+
+                invalid = await client.post(
+                    "/api/tasks",
+                    headers=headers,
+                    json={
+                        "meeting_id": meeting_id,
+                        "request_id": "language-api-002",
+                        "language_hint": "fr",
+                    },
+                )
+                assert invalid.status_code == 400
+                assert invalid.json()["detail"]["code"] == "invalid_language_hint"
+            finally:
+                os.close(lock_fd)
+
+
 async def test_speaker_reassignment_api_checks_generation_and_assignment_versions(
     tmp_path, monkeypatch
 ):

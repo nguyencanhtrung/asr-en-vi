@@ -382,6 +382,14 @@
             <header class="transcription-heading">
               <h3 id="transcription-heading">Transcript</h3>
               <div class="transcription-actions">
+                <div class="transcription-language-control">
+                  <label for="transcription-language">Ngôn ngữ gợi ý lần chạy</label>
+                  <select id="transcription-language" aria-describedby="transcription-language-help">
+                    <option value="en">English</option>
+                    <option value="vi">Tiếng Việt</option>
+                  </select>
+                  <p class="field-help" id="transcription-language-help">Chỉ là gợi ý; transcript không bị khóa ngôn ngữ.</p>
+                </div>
                 <button class="primary-button" id="start-transcription" type="button">Bắt đầu chép lời</button>
                 <button class="secondary-button" id="cancel-transcription" type="button" hidden>Hủy chép lời</button>
               </div>

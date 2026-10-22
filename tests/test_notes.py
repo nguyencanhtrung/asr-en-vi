@@ -6,7 +6,12 @@ import uuid
 from pathlib import Path
 
 import pytest
-from notes_helpers import StubNotesProvider, default_cited_document, seed_completed_transcript
+from notes_helpers import (
+    StubNotesProvider,
+    default_cited_document,
+    rerun_transcript,
+    seed_completed_transcript,
+)
 
 from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
 from asr_en_vi.notes import (
@@ -29,6 +34,7 @@ from asr_en_vi.tasks import (
     add_current_generation_speaker,
     cancel_task,
     claim_next_task,
+    fail_task,
     finish_canceled_task,
     reassign_current_generation_speaker,
     recover_abandoned_tasks,
@@ -373,6 +379,51 @@ def test_revision_becomes_historical_when_meeting_selects_another_generation(tmp
         )
 
     assert get_note(data_dir, revision["id"])["source_state"] == "historical"
+
+
+def test_completed_rerun_remains_current_when_followup_notes_fails(tmp_path):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, _ = seed_completed_transcript(data_dir)
+    previous_markdown = _markdown("The original revision remains available.")
+    previous_revision = _publish(data_dir, meeting_id, generation_id, markdown=previous_markdown)
+
+    rerun_transcript(data_dir, meeting_id)
+    newer = transcription_state(data_dir, meeting_id)["generation"]
+    assert newer["id"] != generation_id
+    assert newer["generation_number"] == 2
+
+    accepted = _accept(
+        data_dir,
+        meeting_id,
+        newer["id"],
+        request_id="notes-after-rerun-fails",
+    )
+    claimed = claim_next_task(data_dir, owner_id="notes-failure-worker")
+    assert claimed is not None and claimed["id"] == accepted["id"]
+    assert fail_task(
+        data_dir,
+        accepted["id"],
+        owner_id="notes-failure-worker",
+        error_code="notes_provider_failed",
+        message="Provider failed after the transcript was published.",
+        elapsed_seconds=1.0,
+    )
+
+    state = transcription_state(data_dir, meeting_id)
+    assert state["generation"]["id"] == newer["id"]
+    assert state["generation_history"][0]["id"] == generation_id
+    assert notes_state(data_dir, meeting_id)["task"]["status"] == "failed"
+    assert get_note(data_dir, previous_revision["id"])["source_state"] == "historical"
+
+    edited_markdown = _markdown("The historical revision was edited safely.")
+    edited = update_note(
+        data_dir,
+        previous_revision["id"],
+        expected_edit_version=1,
+        markdown=edited_markdown,
+    )
+    assert edited["markdown"] == edited_markdown
+    assert export_note(data_dir, previous_revision["id"]) == edited_markdown
 
 
 def test_cancel_and_recovery_never_publish_late_result_or_remove_old_revisions(tmp_path):

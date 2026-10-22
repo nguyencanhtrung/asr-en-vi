@@ -1769,6 +1769,38 @@ textarea:focus-visible {
   justify-content: flex-end;
 }
 
+.transcription-language-control {
+  display: flex;
+  min-width: 148px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  color: var(--ink-2);
+  font-size: 10px;
+}
+
+.transcription-language-control select {
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+}
+
+.transcription-language-control select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.transcription-language-control .field-help {
+  max-width: 210px;
+  margin: 0;
+  line-height: 1.35;
+}
+
 .runtime-profile {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2453,6 +2485,10 @@ textarea:focus-visible {
 
   .transcription-actions {
     justify-content: flex-start;
+  }
+
+  .transcription-language-control {
+    width: 100%;
   }
 
   .task-measurements {
