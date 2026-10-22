@@ -189,6 +189,8 @@ def test_only_the_selected_tab_is_in_the_tab_order(live, signed_in):
         assert page.locator(f"#meeting-tab-{other}").get_attribute("tabindex") == "-1"
         page.locator("#edit-meeting").focus()
         page.keyboard.press("Tab")
+        assert focused_id(page) == "delete-meeting"
+        page.keyboard.press("Tab")
         assert focused_id(page) == f"meeting-tab-{selected}"
         page.keyboard.press("Tab")  # the next stop is inside the panel, never the other tab
         assert focused_id(page) != f"meeting-tab-{other}"
@@ -197,6 +199,8 @@ def test_only_the_selected_tab_is_in_the_tab_order(live, signed_in):
             == f"meeting-panel-{selected}"
         )
         page.keyboard.press("Shift+Tab")
+        page.keyboard.press("Shift+Tab")
+        assert focused_id(page) == "delete-meeting"
         page.keyboard.press("Shift+Tab")
         assert focused_id(page) == "edit-meeting"
         page.locator(f"#meeting-tab-{other}").click()
@@ -1000,6 +1004,8 @@ def test_tab_focus_is_visible_and_the_selected_tab_is_marked_by_more_than_colour
 
     page.locator("#edit-meeting").focus()
     page.keyboard.press("Tab")  # keyboard focus, so :focus-visible applies
+    assert focused_id(page) == "delete-meeting"
+    page.keyboard.press("Tab")
     assert focused_id(page) == "meeting-tab-transcript"
     ring = page.locator(TRANSCRIPT_TAB).evaluate(
         """element => {

@@ -752,6 +752,8 @@ def test_player_shows_a_keyboard_focus_ring(live, signed_in, scheme):
     page = open_meeting(live, signed_in, color_scheme=scheme)
     page.locator("#edit-meeting").focus()
     page.keyboard.press("Tab")
+    assert page.evaluate("document.activeElement.id") == "delete-meeting"
+    page.keyboard.press("Tab")
     assert page.evaluate("document.activeElement.id") == "meeting-tab-transcript"
     page.keyboard.press("Tab")
     assert page.evaluate("document.activeElement.id") == "meeting-audio"

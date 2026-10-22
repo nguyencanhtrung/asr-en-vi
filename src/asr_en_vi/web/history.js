@@ -109,7 +109,7 @@
     taskRequestError: null,
     deletionRequestPending: false,
     deletionRequestMeetingId: null,
-    deletionMessage: "",
+    deletionMessages: new Map(),
   };
 
   // ---- views ----
@@ -720,24 +720,31 @@
 
   function renderMeetingDeletion(meeting) {
     const markerStatus = meeting && meeting.deletion_status;
+    const deletionMessage = state.deletionMessages.get(meeting.id) || "";
     const requestPending = state.deletionRequestPending
       && state.deletionRequestMeetingId === meeting.id;
     const status = $("#meeting-deletion-status");
     const message = $("#meeting-deletion-message");
-    const visible = Boolean(requestPending || markerStatus || state.deletionMessage);
+    const visible = Boolean(requestPending || markerStatus || deletionMessage);
     status.hidden = !visible;
     status.dataset.state = requestPending ? "pending" : (markerStatus || "error");
-    $("#delete-meeting").disabled = requestPending;
-    $("#delete-meeting").textContent = markerStatus ? "Thử dọn tiếp" : "Xóa cuộc họp";
+    $("#delete-meeting").disabled = state.deletionRequestPending;
+    $("#delete-meeting").textContent = markerStatus || deletionMessage
+      ? "Thử dọn tiếp"
+      : "Xóa cuộc họp";
     if (requestPending) {
-      message.textContent = "Đang dọn audio và dữ liệu do workspace quản lý. Chỉ máy chủ mới xác nhận hoàn tất sau khi dọn file và lưu thay đổi cuối cùng.";
+      message.textContent = "Dọn dẹp chưa hoàn tất. Nếu bị gián đoạn, hệ thống sẽ tự thử lại khi khởi động; nếu vẫn chưa xong, xử lý sự cố rồi chọn “Thử dọn tiếp”.";
     } else if (markerStatus === "failed") {
-      message.textContent = "Dọn dẹp chưa hoàn tất. Yêu cầu đã được lưu để thử lại khi khởi động; khắc phục lỗi lưu trữ rồi bấm “Thử dọn tiếp”.";
+      message.textContent = "Dọn dẹp chưa hoàn tất. Hệ thống sẽ tự thử lại khi khởi động; sau khi xử lý sự cố, hãy chọn “Thử dọn tiếp”.";
     } else if (markerStatus === "pending") {
-      message.textContent = "Yêu cầu dọn dẹp đang được lưu. Cuộc họp vẫn còn cho tới khi file managed được xử lý và cơ sở dữ liệu xác nhận xóa.";
+      message.textContent = "Dọn dẹp chưa hoàn tất. Hệ thống sẽ thử lại khi khởi động; sau khi xử lý sự cố, hãy chọn “Thử dọn tiếp”.";
     } else {
-      message.textContent = state.deletionMessage;
+      message.textContent = deletionMessage;
     }
+  }
+
+  function renderCurrentMeetingDeletion() {
+    if (state.view === "meeting" && state.meeting) renderMeetingDeletion(state.meeting);
   }
 
   const ACTIVE_TASK_STATES = new Set(["accepted", "running", "stopping"]);
@@ -3613,7 +3620,6 @@
       if (known && known.id === meeting.id && known.metadata_version > meeting.metadata_version) meeting = known;
       rotateTerminalTaskRequestId(meetingId, meeting.transcription && meeting.transcription.task);
       installServerMeeting(meeting);
-      state.deletionMessage = "";
       renderMeeting(meeting);
       const audio = $("#meeting-audio");
       if (audio.dataset.meetingId !== meeting.id) {
@@ -3648,7 +3654,11 @@
     $("#meeting-delete-confirmation").value = "";
     $("#meeting-delete-error").textContent = "";
     $("#meeting-delete-error").hidden = true;
-    $("#meeting-delete-confirm").disabled = true;
+    const confirmButton = $("#meeting-delete-confirm");
+    confirmButton.textContent = meeting.deletion_status || state.deletionMessages.has(meeting.id)
+      ? "Thử dọn tiếp"
+      : "Xóa dữ liệu đã lưu";
+    confirmButton.disabled = true;
     $("#meeting-delete-dialog").showModal();
     $("#meeting-delete-confirmation").focus();
   }
@@ -3666,7 +3676,7 @@
     confirmButton.textContent = "Đang dọn dữ liệu…";
     state.deletionRequestPending = true;
     state.deletionRequestMeetingId = meetingId;
-    state.deletionMessage = "";
+    state.deletionMessages.delete(meetingId);
     renderMeetingDeletion(meeting);
     try {
       const result = await requestJson(`/api/meetings/${encodeURIComponent(meetingId)}`, {
@@ -3679,14 +3689,15 @@
       if (dialog.open) dialog.close();
       state.deletionRequestPending = false;
       state.deletionRequestMeetingId = null;
-      state.deletionMessage = "";
+      state.deletionMessages.delete(meetingId);
       state.meetings = state.meetings.filter((item) => item.id !== meetingId);
       state.recent = state.recent.filter((item) => item.id !== meetingId);
       state.results = state.results.filter((item) => item.id !== meetingId);
       state.total = Math.max(0, state.total - 1);
       renderSidebar();
       renderCalendars();
-      if (state.meeting && state.meeting.id === meetingId) {
+      if (state.meeting && state.meeting.id === meetingId
+          && window.location.pathname === `/meetings/${encodeURIComponent(meetingId)}`) {
         if (window.location.pathname !== "/" || window.location.search || window.location.hash) {
           window.history.pushState({}, "", "/");
         }
@@ -3694,6 +3705,7 @@
         showHome();
         $("#page-title").focus();
       }
+      renderCurrentMeetingDeletion();
       await refreshHistory();
     } catch (error) {
       state.deletionRequestPending = false;
@@ -3710,8 +3722,11 @@
         : code === "meeting_deletion_cleanup_failed"
           ? "Dọn dẹp chưa hoàn tất. Yêu cầu đã được lưu để thử lại khi khởi động; khắc phục lỗi lưu trữ rồi thử lại."
           : failureMessage;
-      state.deletionMessage = userMessage;
-      if (state.meeting && state.meeting.id === meetingId) {
+      if (code === "meeting_deletion_cleanup_failed") {
+        state.deletionMessages.set(meetingId, userMessage);
+      }
+      if (state.meeting && state.meeting.id === meetingId
+          && window.location.pathname === `/meetings/${encodeURIComponent(meetingId)}`) {
         renderMeetingDeletion(state.meeting);
         try {
           await loadMeeting(meetingId);
@@ -3719,12 +3734,17 @@
           // Keep the API failure visible in the confirmation dialog.
         }
       }
-      const errorPanel = $("#meeting-delete-error");
-      errorPanel.textContent = userMessage;
-      errorPanel.hidden = false;
-      confirmButton.textContent = "Thử dọn tiếp";
-      $("#meeting-delete-confirmation").value = "";
-      confirmButton.disabled = true;
+      renderCurrentMeetingDeletion();
+      const targetStillSelected = state.meeting && state.meeting.id === meetingId
+        && window.location.pathname === `/meetings/${encodeURIComponent(meetingId)}`;
+      if (targetStillSelected && $("#meeting-delete-dialog").open) {
+        const errorPanel = $("#meeting-delete-error");
+        errorPanel.textContent = userMessage;
+        errorPanel.hidden = false;
+        confirmButton.textContent = "Thử dọn tiếp";
+        $("#meeting-delete-confirmation").value = "";
+        confirmButton.disabled = true;
+      }
     }
   }
 
