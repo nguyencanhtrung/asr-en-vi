@@ -99,13 +99,13 @@ def test_example_environment_selects_hardware_profiles_automatically():
     )
 
 
-def test_status_badge_sizes_only_its_dot_and_runtime_details_have_ui_targets():
+def test_status_strip_item_sizes_only_its_dot_and_runtime_details_have_ui_targets():
     stylesheet = (ROOT / "src/asr_en_vi/web/shell.css").read_text(encoding="utf-8")
     markup = (ROOT / "src/asr_en_vi/web/shell.html").read_text(encoding="utf-8")
     script = (ROOT / "src/asr_en_vi/web/history.js").read_text(encoding="utf-8")
 
-    assert ".saved-badge > span:first-child" in stylesheet
-    assert ".saved-badge > span," not in stylesheet
+    assert ".meeting-status-item > span:first-child" in stylesheet
+    assert ".meeting-status-item > span," not in stylesheet
     assert 'id="runtime-backend"' in markup
     assert 'id="runtime-model"' in markup
     assert "#runtime-backend" in script

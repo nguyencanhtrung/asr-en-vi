@@ -286,14 +286,14 @@ def test_player_bar_sticks_while_the_heading_and_hint_scroll_away(live, signed_i
     ]
     assert rect(bar)["height"] <= MAX_BAR_HEIGHT
 
-    notes_top = page.evaluate(
-        "document.querySelector('#notes-panel').getBoundingClientRect().top + window.scrollY"
+    list_top = page.evaluate(
+        "document.querySelector('#transcript-segments').getBoundingClientRect().top + scrollY"
     )
     middle_top = segment(page, SEGMENT_COUNT // 2).evaluate(
         "element => element.getBoundingClientRect().top + window.scrollY - 300"
     )
-    # Stuck over the notes panel, over the transcript, and at the very end of the page.
-    for y in (notes_top, middle_top, page.evaluate("document.documentElement.scrollHeight")):
+    # Stuck where the transcript list starts, over its middle, and at the very end of the page.
+    for y in (list_top, middle_top, page.evaluate("document.documentElement.scrollHeight")):
         scroll_to(page, y)
         assert_pinned(page, viewport)
 
@@ -315,15 +315,10 @@ def test_player_bar_stays_above_positioned_content_scrolling_under_it(live, sign
 @BOTH_VIEWPORTS
 def test_scroll_targets_stay_clear_of_the_player_bar(live, signed_in, viewport):
     page = open_meeting(live, signed_in, viewport=viewport)
-    page.evaluate("document.querySelector('#notes-source-view').hidden = false")
     scroll_to(page, 1500)
     bar = rect(page.locator(".player-bar"))
-    targets = [
-        segment(page, 3),
-        segment(page, 17),
-        segment(page, 31),
-        page.locator("#notes-source-heading"),
-    ]
+    # The notes source heading is no target here: it is in the Notes tab, which pins no player.
+    targets = [segment(page, 3), segment(page, 17), segment(page, 31)]
     for target in targets:
         assert clearance(target) > bar["height"]  # the bar's height plus a gap
         target.evaluate("element => element.scrollIntoView({ block: 'start' })")
@@ -513,13 +508,17 @@ def test_no_following_while_focus_is_in_a_transcript_edit_field(
 
 
 @pytest.mark.parametrize(
-    "selector", ["#notes-output-language", "#history-search"], ids=["notes-panel", "sidebar"]
+    ("selector", "opener"),
+    [("#edit-title", "#edit-meeting"), ("#history-search", None)],
+    ids=["meeting-edit", "sidebar"],
 )
 def test_following_continues_while_focus_is_in_a_field_outside_the_transcript(
-    live, signed_in, selector
+    live, signed_in, selector, opener
 ):
     page = open_meeting(live, signed_in, reduced_motion="reduce")
     freeze_clock(page)
+    if opener:  # the title field is on the page only while the meeting editor is open
+        page.locator(opener).click()
     show_list(page)
     play_at(page, 0, paused=True)
     field = page.locator(selector)
@@ -613,19 +612,21 @@ def test_opening_a_notes_source_while_playing_leaves_the_page_on_the_source(live
     page = open_meeting(live, signed_in, reduced_motion="reduce")
     freeze_clock(page)
     play_at(page, 0)
-    # The reader opened a source from the notes: its view sits under the player bar and the
-    # transcript list is far below the viewport.
+    # The reader is on the Notes tab and opened a source: its view is on screen, and the transcript
+    # list, in the other tab, is not rendered at all.
+    page.locator("#meeting-tab-notes").click()
+    expect(page.locator("#transcript-segments")).to_be_hidden()
     page.evaluate("document.querySelector('#notes-source-view').hidden = false")
     page.evaluate(NOTES_BELOW_SOURCE)
     heading = page.locator("#notes-source-heading")
     place(heading, clearance(heading))
     settle(page)
-    assert rect(page.locator("#transcript-segments"))["top"] >= DESKTOP["height"]
     before = scroll_y(page)
+    heading_top = rect(heading)["top"]
     assert seek_notes_source(page, 60.5) is True
     expect(segment(page, 30)).to_have_attribute("aria-current", "true")
     assert scroll_y(page) == before  # the page is not pulled away from the source
-    assert rect(heading)["top"] >= rect(page.locator(".player-bar"))["bottom"]
+    assert rect(heading)["top"] == heading_top
 
 
 def test_opening_a_notes_source_while_playing_follows_when_the_list_is_in_view(live, signed_in):
@@ -752,6 +753,8 @@ def test_player_bar_fits_narrow_screens_and_is_an_opaque_themed_surface(
 def test_player_shows_a_keyboard_focus_ring(live, signed_in, scheme):
     page = open_meeting(live, signed_in, color_scheme=scheme)
     page.locator("#edit-meeting").focus()
+    page.keyboard.press("Tab")
+    assert page.evaluate("document.activeElement.id") == "meeting-tab-transcript"
     page.keyboard.press("Tab")
     assert page.evaluate("document.activeElement.id") == "meeting-audio"
     scroll_to(page, 1500)  # the focus stays on the player while it is stuck at the top edge

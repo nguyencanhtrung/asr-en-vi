@@ -190,7 +190,7 @@ def test_saved_provider_and_model_are_preselected(
     save_preference(page, live, "antigravity", ANTIGRAVITY_MODEL)
     save_preference(page, live, provider, model, "high" if provider == "chatgpt" else "medium")
     mock_providers(page, live)
-    page.goto(f"{live.url}/meetings/{meeting_id}")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
     expect(page.locator("#notes-provider")).to_have_value(provider)
     expect(page.locator("#notes-model")).to_have_value(model)
     expect(page.locator("#notes-run-plan")).to_contain_text(f"{label} · {model_label}")
@@ -211,7 +211,7 @@ def test_missing_saved_model_requires_an_explicit_choice(live, signed_in):
     save_preference(page, live, "antigravity", "model-that-was-removed")
     mock_providers(page, live)
     runs = capture_runs(page)
-    page.goto(f"{live.url}/meetings/{meeting_id}")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
     expect(page.locator("#notes-provider")).to_have_value("antigravity")
     expect(page.locator("#notes-model")).to_have_value("")
     expect(page.locator("#notes-run-plan")).to_contain_text("model-that-was-removed")
@@ -234,7 +234,7 @@ def test_catalog_blocked_by_active_provider_keeps_saved_model_with_reason(live, 
             status=409, json={"detail": {"code": "provider_in_use", "message": "busy"}}
         ),
     )
-    page.goto(f"{live.url}/meetings/{meeting_id}")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
     expect(page.locator("#notes-model")).to_have_value(ANTIGRAVITY_MODEL)
     expect(page.locator("#notes-model")).to_be_disabled()
     expect(page.locator("#notes-run-plan")).to_contain_text("đang chạy notes")
@@ -249,7 +249,7 @@ def test_antigravity_run_produces_labelled_revision_and_regeneration_keeps_edits
     save_preference(page, live, "antigravity", ANTIGRAVITY_MODEL)
     mock_providers(page, live)
     runs = capture_runs(page)
-    page.goto(f"{live.url}/meetings/{meeting_id}")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
     expect(page.locator("#notes-provider")).to_have_value("antigravity")
     with page.expect_response(
         lambda response: response.url.endswith("/notes-runs") and response.request.method == "POST"
@@ -309,7 +309,7 @@ def test_preference_change_during_active_run_applies_to_next_run(
     )
     owner_id = claim(live.settings.data_dir, active["id"])
     mock_providers(page, live)
-    page.goto(f"{live.url}/meetings/{meeting_id}")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
     expect(page.locator("#notes-task-provider-model")).to_have_text(
         f"Google Antigravity · {ANTIGRAVITY_MODEL} · mức suy nghĩ High"
     )
@@ -381,7 +381,7 @@ def test_failed_run_is_reported_and_new_run_can_use_other_provider(
     )
     mock_providers(page, live)
     runs = capture_runs(page)
-    page.goto(f"{live.url}/meetings/{meeting_id}")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
     fail(live.settings.data_dir, failed["id"], code)
     expect(
         page.locator('#notes-steps > li[data-step-state="failed"]:not([hidden])')
@@ -421,7 +421,7 @@ def test_start_rejection_names_the_chosen_provider(live, signed_in):
             status=409, json={"detail": {"code": "reconnect_required", "message": "x"}}
         ),
     )
-    page.goto(f"{live.url}/meetings/{meeting_id}")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
     page.locator("#notes-start").click()
     expect(page.locator("#notes-error-message")).to_contain_text(
         "Google Antigravity cần được kết nối lại"
@@ -447,7 +447,7 @@ def test_pending_retry_resends_the_stored_provider(live, signed_in, fake_notes_p
             route.continue_()
 
     page.route(f"{live.url}/api/meetings/{meeting_id}/notes-runs", notes_request)
-    page.goto(f"{live.url}/meetings/{meeting_id}")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
     expect(page.locator("#notes-provider")).to_have_value("antigravity")
     page.locator("#notes-start").click()
     expect(page.locator("#notes-start")).to_have_text("Xác minh yêu cầu notes")
@@ -477,7 +477,7 @@ def test_stored_pending_request_without_provider_means_chatgpt(live, signed_in):
         route.fulfill(status=503, json={"detail": {"code": "temporary", "message": "Retry."}})
 
     page.route(f"{live.url}/api/meetings/{meeting_id}/notes-runs", notes_request)
-    page.goto(f"{live.url}/meetings/{meeting_id}")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
     stored = {
         "request_id": "old-pending-request-1",
         "output_language": "en",
@@ -507,7 +507,7 @@ def test_model_saved_elsewhere_refreshes_the_open_notes_panel(live, signed_in, f
     save_preference(page, live, "chatgpt", CHATGPT_MODEL, "high")
     mock_providers(page, live)
     runs = capture_runs(page)
-    page.goto(f"{live.url}/meetings/{meeting_id}")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
     expect(page.locator("#notes-model")).to_have_value(CHATGPT_MODEL)
     save_preference(page, live, "chatgpt", "gpt-6-luna", "low")
     announce_choice_change(page)
@@ -527,7 +527,7 @@ def test_antigravity_run_confirms_model_and_thinking_level(live, signed_in, fake
     save_preference(page, live, "antigravity", ANTIGRAVITY_MODEL, "medium")
     mock_providers(page, live)
     runs = capture_runs(page)
-    page.goto(f"{live.url}/meetings/{meeting_id}")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
     with page.expect_response(lambda r: r.url.endswith("/notes-runs")):
         page.locator("#notes-start").click()
     assert runs[0]["expected_model"] == ANTIGRAVITY_MODEL
@@ -551,7 +551,7 @@ def test_preference_changed_conflict_reloads_the_choice_without_retry(live, sign
         )
 
     page.route(f"{live.url}/api/meetings/{meeting_id}/notes-runs", conflict)
-    page.goto(f"{live.url}/meetings/{meeting_id}")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
     expect(page.locator("#notes-model")).to_have_value(CHATGPT_MODEL)
     page.locator("#notes-start").click()
     expect(page.locator("#notes-error-message")).to_contain_text("xác nhận lại")
@@ -575,7 +575,7 @@ def test_failed_preference_load_keeps_start_disabled_until_reloaded(live, signed
             route.fallback()
 
     page.route(f"{live.url}/api/notes-preferences", preferences)
-    page.goto(f"{live.url}/meetings/{meeting_id}")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
     expect(page.locator("#notes-run-plan")).to_contain_text("Chưa đọc được lựa chọn")
     expect(page.locator("#notes-start")).to_be_disabled()
     expect(page.locator("#notes-choice-reload")).to_be_visible()
@@ -604,7 +604,7 @@ def test_pending_retry_resends_stored_body_while_preferences_fail(
             route.continue_()
 
     page.route(f"{live.url}/api/meetings/{meeting_id}/notes-runs", notes_request)
-    page.goto(f"{live.url}/meetings/{meeting_id}")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
     expect(page.locator("#notes-start")).to_be_enabled()
     page.locator("#notes-start").click()
     expect(page.locator("#notes-start")).to_have_text("Xác minh yêu cầu notes")
@@ -627,7 +627,7 @@ def test_failed_reload_after_a_good_load_disables_start_despite_known_model(live
     meeting_id, _generation, _ = seed_completed_transcript(live.settings.data_dir)
     save_preference(page, live, "chatgpt", CHATGPT_MODEL, "high")
     mock_providers(page, live)
-    page.goto(f"{live.url}/meetings/{meeting_id}")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
     expect(page.locator("#notes-start")).to_be_enabled()
     page.route(
         f"{live.url}/api/notes-preferences",

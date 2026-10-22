@@ -151,10 +151,18 @@ def test_notes_action_precedes_long_transcript(live, signed_in, width):
     page.goto(f"{live.url}/meetings/{meeting_id}")
     expect(page.locator("#notes-start")).to_be_enabled()
     expect(page.locator("#transcript-segments > li")).to_have_count(2)
-    action = page.locator("#notes-start").bounding_box()
+    # The long transcript is in the other tab, so it no longer pushes the action down the page.
+    page.locator("#meeting-tab-transcript").click()
     transcript = page.locator("#transcription-panel").bounding_box()
-    assert action is not None and transcript is not None
-    assert action["y"] + action["height"] < transcript["y"]
+    assert transcript is not None and transcript["height"] > page.viewport_size["height"]
+    expect(page.locator("#notes-start")).to_be_hidden()
+    page.locator("#meeting-tab-notes").click()
+    expect(page.locator("#notes-start")).to_be_visible()
+    expect(page.locator("#transcription-panel")).to_be_hidden()
+    action = page.locator("#notes-start").bounding_box()
+    assert action is not None
+    assert action["y"] + action["height"] < transcript["height"]
+    assert page.evaluate("document.documentElement.scrollHeight") < transcript["height"]
 
 
 def test_output_language_options_use_short_labels(live, signed_in):
@@ -367,7 +375,7 @@ def test_notes_language_pending_request_survives_reload_and_saved_language_is_re
             route.continue_()
 
     page.route(f"{live.url}/api/meetings/{meeting_id}/notes-runs", notes_request)
-    page.goto(f"{live.url}/meetings/{meeting_id}")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
     expect(page.locator("#notes-output-language")).to_have_value("en")
     page.locator("#notes-output-language").select_option("vi")
     expect(page.locator("#notes-output-language")).to_have_value("vi")
@@ -432,7 +440,7 @@ def test_notes_browser_generation_revisions_conflicts_copy_export_and_markdown_s
     )
     _write_test_recording(live.settings.data_dir, meeting_id, tmp_path)
 
-    page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes", wait_until="domcontentloaded")
     expect(page.locator("#meeting-title")).to_have_text("Browser notes acceptance")
     expect(page.locator("#notes-start")).to_be_enabled()
 
@@ -477,7 +485,8 @@ def test_notes_browser_generation_revisions_conflicts_copy_export_and_markdown_s
     expect(page.locator("#notes-revision-meta")).to_contain_text("Ngôn ngữ: English")
     expect(page.locator("#notes-steps > li:not([hidden])")).to_have_count(4)
     expect(page.locator('#notes-steps > li[data-step-state="done"]')).to_have_count(4)
-    expect(page.locator("#meeting-status-text")).to_have_text("Đã có transcript và notes")
+    expect(page.locator("#status-transcript")).to_have_text("Transcript · Hoàn tất")
+    expect(page.locator("#status-notes")).to_have_text("Notes · 1 bản")
     assert page.locator("#notes-preview h4").all_text_contents() == [
         "Overview",
         "Key Topics and Rationale",
@@ -619,7 +628,7 @@ def test_saved_source_stays_frozen_and_seeks_same_audio_after_live_edit(
     audio_path = _write_test_recording(live.settings.data_dir, meeting_id, tmp_path)
     audio_digest = hashlib.sha256(audio_path.read_bytes()).hexdigest()
 
-    page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes", wait_until="domcontentloaded")
     expect(page.locator("#notes-start")).to_be_enabled()
     with page.expect_response(
         lambda response: response.url.endswith("/notes-runs") and response.request.method == "POST"
@@ -634,6 +643,7 @@ def test_saved_source_stays_frozen_and_seeks_same_audio_after_live_edit(
     _complete_fake_task(live.settings.data_dir, accepted["id"], "source", markdown)
     expect(page.locator("#notes-saved-work")).to_be_visible(timeout=10_000)
     audio = page.locator("#meeting-audio")
+    page.locator("#meeting-tab-transcript").click()  # the player is in the transcript tab
     expect(audio).to_be_visible()
     assert audio.get_attribute("src") == f"/api/meetings/{meeting_id}/audio"
     expect(page.locator("#notes-preview a[data-notes-source-link]")).to_have_count(0)
@@ -650,6 +660,7 @@ def test_saved_source_stays_frozen_and_seeks_same_audio_after_live_edit(
         "segment": [segment_ids[0]],
     }
 
+    page.locator("#meeting-tab-transcript").click()
     first_segment = page.locator(".transcript-segment").nth(0)
     first_segment.locator(".segment-edit-button").click()
     editor = first_segment.locator(".segment-text-editor")
@@ -662,9 +673,12 @@ def test_saved_source_stays_frozen_and_seeks_same_audio_after_live_edit(
     expect(page.locator("#notes-source-text")).to_have_text(original_text)
     expect(audio).to_have_attribute("src", f"/api/meetings/{meeting_id}/audio")
     assert hashlib.sha256(audio_path.read_bytes()).hexdigest() == audio_digest
+    page.locator("#meeting-tab-notes").click()
     page.locator("#notes-source-seek").click()
     expect(page.locator("#notes-source-status")).to_contain_text("Đã tua bản ghi", timeout=10_000)
     assert audio.evaluate("element => Math.abs(element.currentTime - 1) < 0.1")
+    # The seek button shows the player it moved: the recording is in the transcript tab.
+    expect(page.locator("#meeting-tab-transcript")).to_have_attribute("aria-selected", "true")
     _assert_no_token_urls(requests)
     assert not console_errors
     assert not http_errors
@@ -713,10 +727,12 @@ def test_failed_notes_read_keeps_old_revision_draft_source_and_other_meeting_nav
 
     page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
     expect(page.locator("#notes-revision-selector")).to_have_value(revision["id"], timeout=10_000)
+    page.locator("#meeting-tab-transcript").click()  # the lock reason is shown with the transcript
     expect(
         page.get_by_text("Tác vụ notes đang dùng nguồn; chỉnh sửa tạm thời bị khóa.", exact=False)
     ).to_be_visible()
     expect(page.locator(".segment-edit-button").first).to_be_disabled()
+    page.locator("#meeting-tab-notes").click()
     draft = "# Draft while another notes task is running\n\nKeep this across navigation.\n"
     page.locator("#notes-mode-write").click()
     page.locator("#notes-markdown").fill(draft)
@@ -1154,6 +1170,7 @@ def test_beforeunload_warns_only_while_a_notes_or_transcript_draft_is_unsaved(li
     )
     assert page.evaluate(warns) is False
 
+    page.locator("#meeting-tab-transcript").click()
     first_segment = page.locator(".transcript-segment").nth(0)
     first_segment.locator(".segment-edit-button").click()
     editor = first_segment.locator(".segment-text-editor")

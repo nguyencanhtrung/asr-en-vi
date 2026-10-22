@@ -6,6 +6,30 @@
   background: var(--surface);
 }
 
+/* No complete transcript yet: the tab holds one explanation and the way to the transcript. */
+.notes-empty {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+}
+
+.notes-empty h3 {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 560;
+  line-height: 1.3;
+}
+
+.notes-empty p {
+  max-width: 62ch;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
 .notes-heading-row,
 .notes-source-view > header {
   display: flex;

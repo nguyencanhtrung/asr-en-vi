@@ -1341,7 +1341,7 @@ def test_slow_save_never_repaints_after_navigating_elsewhere(live, browser_conte
     wait_for_stored_title(context, live, a, "A renamed")
     settle(page)
     expect(page.locator("#meeting-title")).to_have_text("Meeting B")
-    expect(page.locator("#page-title")).to_have_text("Meeting B")
+    expect(page.locator("#page-title")).to_have_text("Cuộc họp")  # the name shows once, below
     assert page.title() == "Meeting B · ASR EN VI"
     assert page.url == f"{live.url}/meetings/{b}"
     assert audio_meeting_id(page) == b
@@ -1398,7 +1398,7 @@ def test_slow_conflict_lookup_never_repaints_after_navigating_elsewhere(live, br
     held[0].continue_()
     settle(page)
     expect(page.locator("#meeting-title")).to_have_text("Conflict B")
-    expect(page.locator("#page-title")).to_have_text("Conflict B")
+    expect(page.locator("#page-title")).to_have_text("Cuộc họp")  # the name shows once, below
     assert audio_meeting_id(page) == b
     expect(page.locator("#edit-conflict")).to_be_hidden()
     expect(page.locator("#meeting-edit")).to_be_hidden()
@@ -1592,7 +1592,7 @@ def test_save_released_after_a_calendar_round_trip_is_rendered_and_saved(live, b
     release_when_held(held)
 
     expect(page.locator("#meeting-title")).to_have_text("After round trip")
-    expect(page.locator("#page-title")).to_have_text("After round trip")
+    expect(page.locator("#page-title")).to_have_text("Cuộc họp")  # the name shows once, below
     expect(page.locator("#meeting-date")).to_have_attribute("datetime", "2026-10-20")
     expect(page.locator("#edit-status")).to_have_text("Đã lưu tên và ngày họp.")
     expect(page.locator("#meeting-edit")).to_be_hidden()
@@ -1726,7 +1726,7 @@ def test_stale_meeting_read_answering_after_a_save_cannot_roll_the_ui_back(live,
     stale_route.fulfill(response=stale_response)
     settle(page)
     expect(page.locator("#meeting-title")).to_have_text("After save")
-    expect(page.locator("#page-title")).to_have_text("After save")
+    expect(page.locator("#page-title")).to_have_text("Cuộc họp")  # the name shows once, below
     expect(page.locator("#meeting-date")).to_have_attribute("datetime", "2026-10-20")
     assert page.title() == "After save · ASR EN VI"
 
@@ -1765,8 +1765,10 @@ def test_runtime_profile_and_saved_status_render_without_collapsing(live, browse
         page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
         expect(page.locator("#runtime-backend")).to_have_text("GPU · CUDA · float16")
         expect(page.locator("#runtime-model")).to_have_text("whisper-large-v3")
-        expect(page.locator("#meeting-status-text")).to_have_text("Đã lưu, chưa xử lý")
-        assert page.locator("#meeting-status-text").bounding_box()["width"] > 80
+        expect(page.locator("#status-recording")).to_have_text("Bản ghi · Đã lưu · 1 giây")
+        expect(page.locator("#status-transcript")).to_have_text("Transcript · Chưa chép lời")
+        for item in page.locator("#meeting-status-strip li").all():
+            assert item.bounding_box()["width"] > 80  # an item must not collapse to its dot
     finally:
         os.close(lock_fd)
 
@@ -4610,7 +4612,11 @@ def test_locked_source_disables_edit_buttons_and_chips_with_the_reason(live, bro
     page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
     reason = "Tác vụ notes đang dùng nguồn; chỉnh sửa tạm thời bị khóa."
     expect(page.locator("#generation-mode")).to_contain_text(reason)
+    # The running notes task opens the notes tab, where the lock is announced ...
     expect(page.locator("#notes-lock-status")).to_be_visible()
+    # ... and the transcript tab shows the controls it disables.
+    page.locator("#meeting-tab-transcript").click()
+    expect(page.locator("#generation-mode")).to_be_visible()
     edits = page.locator(".segment-edit-button")
     expect(edits).to_have_count(2)
     for control in (edits.first, edits.last, page.locator(".speaker-chip").first):
