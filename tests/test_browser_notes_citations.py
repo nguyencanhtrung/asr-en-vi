@@ -8,19 +8,16 @@ production path: the renderer and the citation builder run over the frozen sourc
 from __future__ import annotations
 
 import re
-import sqlite3
-import uuid
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from notes_helpers import default_cited_document, seed_cited_notes
+from notes_helpers import default_cited_document, rerun_transcript, seed_cited_notes
 from playwright.sync_api import expect
 from test_browser_history import live as live
 from test_browser_history import signed_in as signed_in
 from test_browser_notes import _write_test_recording
 
-from asr_en_vi.storage import database_path
 from asr_en_vi.tasks import update_current_generation_segment_text
 
 pytestmark = pytest.mark.browser
@@ -580,45 +577,7 @@ def test_a_newer_transcript_with_other_segment_ids_still_marks_the_row_at_that_t
 ):
     _context, page = signed_in(viewport=DESKTOP)
     meeting_id, _revision, snapshot, segment_ids = seed_cited_notes(live.settings.data_dir)
-    newer = uuid.uuid4().hex
-    with sqlite3.connect(database_path(live.settings.data_dir)) as connection:
-        connection.execute("PRAGMA foreign_keys = ON")
-        task_id = uuid.uuid4().hex
-        connection.execute(
-            "INSERT INTO tasks(id, request_id, request_hash, meeting_id, kind, model_path, "
-            "model_name, device, compute_type, language_hint, status, stage, result_scope, "
-            "audio_duration_seconds, transcript_end_seconds, segment_count) VALUES (?, ?, ?, ?, "
-            "'transcription', '/models/whisper-small', 'whisper-small', 'cpu', 'int8', 'en', "
-            "'succeeded', 'complete', 'transcript_only', 30.0, 5.0, 2)",
-            (task_id, f"newer-{task_id}", f"hash-{task_id}", meeting_id),
-        )
-        connection.execute(
-            "INSERT INTO transcript_generations(id, meeting_id, task_id, generation_number, "
-            "status, language_hint, model_name, language_probability, uncertainty_policy, "
-            "segment_count, diarization_model_name, regular_turn_count, exclusive_turn_count, "
-            "alignment_policy) VALUES (?, ?, ?, 2, 'complete', 'en', 'whisper-small', 0.9, "
-            "'test-policy', 2, 'community-1', 1, 0, 'test-alignment')",
-            (newer, meeting_id, task_id),
-        )
-        connection.execute(
-            "INSERT INTO generation_speakers(generation_id, speaker_id, display_name, "
-            "first_seen_seconds, last_seen_seconds) VALUES (?, 'SPEAKER_00', 'Morgan', 1.0, 5.0)",
-            (newer,),
-        )
-        connection.executemany(
-            "INSERT INTO transcript_segments(id, generation_id, sequence, start_seconds, "
-            "end_seconds, text, original_speaker_id, speaker_id, avg_logprob, no_speech_prob, "
-            "compression_ratio, uncertain, review_reasons, overlap, speaker_dominance, "
-            "assignment_version) VALUES (?, ?, ?, ?, ?, ?, 'SPEAKER_00', 'SPEAKER_00', "
-            "-0.2, 0.05, 1.0, 0, '[]', 0, 1.0, 1)",
-            [
-                (uuid.uuid4().hex, newer, 0, 1.0, 2.0, "A fresh pass heard the opening."),
-                (uuid.uuid4().hex, newer, 1, 4.0, 5.0, "A fresh pass heard the follow-up."),
-            ],
-        )
-        connection.execute(
-            "UPDATE meetings SET current_generation_id = ? WHERE id = ?", (newer, meeting_id)
-        )
+    rerun_transcript(live.settings.data_dir, meeting_id)
     open_notes(live, page, meeting_id)
     page.locator(CHIP).last.click()  # the 00:04 source of the confirmation bullet
 

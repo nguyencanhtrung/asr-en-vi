@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 
 import pytest
-from notes_helpers import StubNotesProvider, seed_completed_transcript
+from notes_helpers import StubNotesProvider, default_cited_document, seed_completed_transcript
 
 from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
 from asr_en_vi.notes import (
@@ -21,16 +21,20 @@ from asr_en_vi.notes import (
     publish_notes_revision,
     update_note,
 )
-from asr_en_vi.notes_document import PROMPT_VERSION
+from asr_en_vi.notes_document import PROMPT_VERSION, NotesDocumentError, validate_document
 from asr_en_vi.recordings import RecordingError, update_meeting
 from asr_en_vi.storage import database_path
 from asr_en_vi.tasks import (
     TaskError,
+    add_current_generation_speaker,
     cancel_task,
     claim_next_task,
+    finish_canceled_task,
+    reassign_current_generation_speaker,
     recover_abandoned_tasks,
     transcription_state,
     update_current_generation_segment_text,
+    update_current_generation_speaker_name,
 )
 from asr_en_vi.worker import acquire_worker_lock
 
@@ -802,3 +806,425 @@ def test_replayed_request_returns_the_finished_task_and_never_starts_another(tmp
             1,
         )
         assert connection.execute("SELECT COUNT(*) FROM notes_sources").fetchone() == (1,)
+
+
+def _publish(
+    data_dir: Path,
+    meeting_id: str,
+    generation_id: str,
+    *,
+    source_version: int = 1,
+    markdown: str | None = None,
+) -> dict[str, object]:
+    """Accept, claim and publish one revision, as the worker does."""
+    accepted = accept_notes_task(
+        data_dir,
+        provider=StubNotesProvider(),
+        meeting_id=meeting_id,
+        request_id="notes-req-0001",
+        expected_generation_id=generation_id,
+        expected_source_version=source_version,
+        expected_metadata_version=1,
+        worker_ready=True,
+    )
+    claimed = claim_next_task(data_dir, owner_id="notes-worker")
+    assert claimed is not None and claimed["id"] == accepted["id"]
+    revision = publish_notes_revision(
+        data_dir,
+        accepted["id"],
+        owner_id="notes-worker",
+        markdown=markdown or _markdown(),
+        elapsed_seconds=1.0,
+    )
+    assert revision is not None
+    return revision
+
+
+def _stored(data_dir: Path, revision: dict[str, object]) -> tuple[str, str]:
+    """The snapshot JSON and the Markdown exactly as the database holds them."""
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        return connection.execute(
+            "SELECT sources.snapshot_json, revisions.markdown FROM notes_revisions AS revisions "
+            "JOIN notes_sources AS sources ON sources.id = revisions.source_snapshot_id "
+            "WHERE revisions.id = ?",
+            (revision["id"],),
+        ).fetchone()
+
+
+def _versions(data_dir: Path, meeting_id: str) -> tuple[int, int, int]:
+    """The transcript's source version, the notes source version and the metadata version."""
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        return connection.execute(
+            "SELECT generations.source_version, meetings.notes_source_version, "
+            "meetings.metadata_version FROM meetings "
+            "JOIN transcript_generations AS generations "
+            "ON generations.id = meetings.current_generation_id WHERE meetings.id = ?",
+            (meeting_id,),
+        ).fetchone()
+
+
+def test_a_snapshot_keeps_both_speaker_assignments_names_and_date_through_every_later_edit(
+    tmp_path,
+):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, segment_ids = seed_completed_transcript(data_dir)
+    riley = add_current_generation_speaker(
+        data_dir,
+        meeting_id,
+        expected_generation_id=generation_id,
+        expected_source_version=1,
+        display_name="Riley",
+    )
+    reassigned = reassign_current_generation_speaker(
+        data_dir,
+        meeting_id,
+        segment_ids[0],
+        expected_generation_id=generation_id,
+        expected_source_version=riley["source_version"],
+        expected_assignment_version=1,
+        speaker_id=riley["speaker_id"],
+    )
+    revision = _publish(
+        data_dir, meeting_id, generation_id, source_version=reassigned["source_version"]
+    )
+
+    snapshot = get_notes_source(data_dir, revision["source_snapshot_id"])
+    assert snapshot["segments"] == [
+        {
+            "id": segment_ids[0],
+            "sequence": 0,
+            "start_seconds": 1.0,
+            "end_seconds": 2.0,
+            "text": "We need a launch plan.",
+            "original_speaker_id": "SPEAKER_00",
+            "speaker_id": riley["speaker_id"],
+            "speaker_name": "Riley",
+        },
+        {
+            "id": segment_ids[1],
+            "sequence": 1,
+            "start_seconds": 4.0,
+            "end_seconds": 5.0,
+            "text": "Morgan will send a draft.",
+            "original_speaker_id": "SPEAKER_00",
+            "speaker_id": "SPEAKER_00",
+            "speaker_name": "Morgan",
+        },
+    ]
+    assert {item["speaker_id"]: item["display_name"] for item in snapshot["speakers"]} == {
+        "SPEAKER_00": "Morgan",
+        riley["speaker_id"]: "Riley",
+    }
+    assert snapshot["meeting_date"] == "2026-10-19"
+
+    before = _stored(data_dir, revision)
+    transcript = {"expected_generation_id": generation_id}
+    version = reassigned["source_version"]
+    for edit in (
+        lambda v: update_current_generation_segment_text(
+            data_dir,
+            meeting_id,
+            segment_ids[1],
+            **transcript,
+            expected_source_version=v,
+            text="Morgan sends it today.",
+        ),
+        lambda v: update_current_generation_speaker_name(
+            data_dir,
+            meeting_id,
+            "SPEAKER_00",
+            **transcript,
+            expected_source_version=v,
+            display_name="Dana",
+        ),
+        lambda v: add_current_generation_speaker(
+            data_dir, meeting_id, **transcript, expected_source_version=v, display_name="Casey"
+        ),
+        lambda v: reassign_current_generation_speaker(
+            data_dir,
+            meeting_id,
+            segment_ids[1],
+            **transcript,
+            expected_source_version=v,
+            expected_assignment_version=1,
+            speaker_id=riley["speaker_id"],
+        ),
+    ):
+        version = edit(version)["source_version"]
+    metadata_version = 1
+    for fields in (
+        {"meeting_date": "2026-10-20"},
+        {"meeting_date": None},
+        {"meeting_date": "2026-10-21"},
+        {"title": "Renamed"},
+    ):
+        meeting = update_meeting(
+            data_dir, meeting_id, expected_version=metadata_version, fields=fields
+        )
+        metadata_version = meeting["metadata_version"]
+
+    assert _stored(data_dir, revision) == before
+    assert get_notes_source(data_dir, revision["source_snapshot_id"]) == snapshot
+    assert get_note(data_dir, revision["id"])["source_state"] == "stale"
+    with (
+        sqlite3.connect(database_path(data_dir)) as connection,
+        pytest.raises(sqlite3.IntegrityError, match="notes_sources_are_immutable"),
+    ):
+        connection.execute(
+            "UPDATE notes_sources SET snapshot_json = '{}' WHERE id = ?",
+            (revision["source_snapshot_id"],),
+        )
+    assert _stored(data_dir, revision) == before
+
+
+# Each edit with the versions it leaves (transcript source, notes source, metadata) and the state
+# it gives notes made before it. The seeded meeting starts at (2, 1, 1) after one speaker is added.
+_SOURCE_EDITS = [
+    ("title", (2, 1, 2), "current"),
+    ("date added", (2, 2, 2), "stale"),
+    ("date changed", (2, 2, 2), "stale"),
+    ("date cleared", (2, 2, 2), "stale"),
+    ("segment text", (3, 1, 1), "stale"),
+    ("speaker name", (3, 1, 1), "stale"),
+    ("speaker assignment", (3, 1, 1), "stale"),
+    ("added speaker", (3, 1, 1), "stale"),
+]
+
+
+def _edit_source(data_dir, meeting_id, generation_id, segment_ids, riley_id, kind):
+    transcript = {"expected_generation_id": generation_id, "expected_source_version": 2}
+    if kind == "title":
+        update_meeting(data_dir, meeting_id, expected_version=1, fields={"title": "Renamed"})
+    elif kind.startswith("date"):
+        date = None if kind == "date cleared" else "2026-10-20"
+        update_meeting(data_dir, meeting_id, expected_version=1, fields={"meeting_date": date})
+    elif kind == "segment text":
+        update_current_generation_segment_text(
+            data_dir, meeting_id, segment_ids[0], **transcript, text="Edited after notes."
+        )
+    elif kind == "speaker name":
+        update_current_generation_speaker_name(
+            data_dir, meeting_id, "SPEAKER_00", **transcript, display_name="Dana"
+        )
+    elif kind == "speaker assignment":
+        reassign_current_generation_speaker(
+            data_dir,
+            meeting_id,
+            segment_ids[0],
+            **transcript,
+            expected_assignment_version=1,
+            speaker_id=riley_id,
+        )
+    else:
+        add_current_generation_speaker(data_dir, meeting_id, **transcript, display_name="Casey")
+
+
+@pytest.mark.parametrize(
+    ("kind", "versions", "state"), _SOURCE_EDITS, ids=[case[0] for case in _SOURCE_EDITS]
+)
+def test_each_edit_bumps_its_version_and_only_a_source_edit_marks_notes_stale(
+    tmp_path, kind, versions, state
+):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, segment_ids = seed_completed_transcript(
+        data_dir, meeting_date=None if kind == "date added" else "2026-10-19"
+    )
+    riley = add_current_generation_speaker(
+        data_dir,
+        meeting_id,
+        expected_generation_id=generation_id,
+        expected_source_version=1,
+        display_name="Riley",
+    )
+    revision = _publish(data_dir, meeting_id, generation_id, source_version=riley["source_version"])
+    assert revision["source_state"] == "current"
+    assert _versions(data_dir, meeting_id) == (2, 1, 1)
+    before = _stored(data_dir, revision)
+
+    _edit_source(data_dir, meeting_id, generation_id, segment_ids, riley["speaker_id"], kind)
+
+    assert _versions(data_dir, meeting_id) == versions
+    assert notes_state(data_dir, meeting_id)["revisions"][0]["source_state"] == state
+    saved = get_note(data_dir, revision["id"])
+    assert saved["source_state"] == state
+    assert (saved["markdown"], saved["edit_version"]) == (revision["markdown"], 1)
+    assert _stored(data_dir, revision) == before
+
+
+@pytest.mark.parametrize(
+    ("meeting_date", "attempts"),
+    [("2026-10-19", ("2026-10-20", None)), (None, ("2026-10-20",))],
+    ids=["change and delete a date", "add a date"],
+)
+def test_source_edits_stay_locked_until_the_worker_has_stopped_but_a_title_does_not(
+    tmp_path, meeting_date, attempts
+):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, segment_ids = seed_completed_transcript(
+        data_dir, meeting_date=meeting_date
+    )
+    riley = add_current_generation_speaker(
+        data_dir,
+        meeting_id,
+        expected_generation_id=generation_id,
+        expected_source_version=1,
+        display_name="Riley",
+    )
+    accepted = accept_notes_task(
+        data_dir,
+        provider=StubNotesProvider(),
+        meeting_id=meeting_id,
+        request_id="notes-req-0001",
+        expected_generation_id=generation_id,
+        expected_source_version=riley["source_version"],
+        expected_metadata_version=1,
+        worker_ready=True,
+    )
+    transcript = {"expected_generation_id": generation_id, "expected_source_version": 2}
+
+    def assert_locked() -> None:
+        assert notes_state(data_dir, meeting_id)["source_locked"] is True
+        edits = [
+            lambda: update_current_generation_segment_text(
+                data_dir, meeting_id, segment_ids[0], **transcript, text="Locked out."
+            ),
+            lambda: update_current_generation_speaker_name(
+                data_dir, meeting_id, "SPEAKER_00", **transcript, display_name="Dana"
+            ),
+            lambda: add_current_generation_speaker(
+                data_dir, meeting_id, **transcript, display_name="Casey"
+            ),
+            lambda: reassign_current_generation_speaker(
+                data_dir,
+                meeting_id,
+                segment_ids[0],
+                **transcript,
+                expected_assignment_version=1,
+                speaker_id=riley["speaker_id"],
+            ),
+            *[
+                lambda value=value: update_meeting(
+                    data_dir, meeting_id, expected_version=1, fields={"meeting_date": value}
+                )
+                for value in attempts
+            ],
+        ]
+        for edit in edits:
+            with pytest.raises((RecordingError, TaskError)) as locked:
+                edit()
+            assert locked.value.code == "notes_source_locked"
+        assert _versions(data_dir, meeting_id) == (2, 1, 1)
+
+    assert_locked()  # accepted
+    claim_next_task(data_dir, owner_id="notes-worker")
+    assert_locked()  # running
+    # Canceling a running task only asks its worker to stop.
+    assert cancel_task(data_dir, accepted["id"])["status"] == "stopping"
+    assert_locked()
+    renamed = update_meeting(
+        data_dir, meeting_id, expected_version=1, fields={"title": "Renamed while stopping"}
+    )
+    assert renamed["title"] == "Renamed while stopping"
+    assert notes_state(data_dir, meeting_id)["source_locked"] is True
+
+    assert finish_canceled_task(
+        data_dir, accepted["id"], owner_id="notes-worker", elapsed_seconds=0.1
+    )
+    assert notes_state(data_dir, meeting_id)["source_locked"] is False
+    edited = update_current_generation_segment_text(
+        data_dir, meeting_id, segment_ids[0], **transcript, text="Free once the worker stopped."
+    )
+    assert edited["source_version"] == 3
+
+
+def test_an_edited_revision_returns_the_typed_text_and_names_its_broken_source_links(tmp_path):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, segment_ids = seed_completed_transcript(data_dir)
+    revision = _publish(data_dir, meeting_id, generation_id)
+    assert revision["warnings"] == []
+    address = f"/meetings/{meeting_id}?notes_source={revision['source_snapshot_id']}&segment="
+    unknown = address + "f" * 32
+    other_source = f"/meetings/{meeting_id}?notes_source={'e' * 32}&segment={segment_ids[0]}"
+    malformed = f"/meetings/{meeting_id}?notes_source={revision['source_snapshot_id']}"
+    typed = (
+        "## Notes\n\n"
+        f"- exact shape, unknown segment [00:00:09]({unknown}) end\n"
+        f"- another snapshot [00:00:09]({other_source}) end\n"
+        f"- named link [see source]({unknown}) end\n"
+        f"- no segment [00:00:09]({malformed}) end\n"
+        # Typed by hand, but each opens a segment of this revision's own snapshot.
+        f"- valid [00:00:01]({address}{segment_ids[0]}) and [again]({address}{segment_ids[1]}"
+        "#transcript)\n"
+        "- plain text that names notes_source= is not a link\n"
+    )
+    warnings = [
+        {"code": "source_link_invalid", "reason": reason, "href": href}
+        for reason, href in (
+            ("unknown_segment", unknown),
+            ("other_source", other_source),
+            ("unknown_segment", unknown),
+            ("other_source", malformed),
+        )
+    ]
+
+    saved = update_note(data_dir, revision["id"], expected_edit_version=1, markdown=typed)
+
+    assert saved["markdown"] == typed and saved["warnings"] == warnings
+    for read in (
+        get_note(data_dir, revision["id"]),
+        notes_state(data_dir, meeting_id)["revisions"][0],
+    ):
+        assert read["markdown"] == typed and read["warnings"] == warnings
+    assert export_note(data_dir, revision["id"]) == typed
+    assert _stored(data_dir, revision)[1] == typed
+
+    # Fixing the link clears its warning; the warnings follow the Markdown, they are not stored.
+    fixed = update_note(
+        data_dir, revision["id"], expected_edit_version=2, markdown=typed.replace(unknown, "/x")
+    )
+    assert [item["href"] for item in fixed["warnings"]] == [other_source, malformed]
+
+
+def test_a_model_document_with_a_broken_source_is_refused_and_a_typed_link_is_not(tmp_path):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, segment_ids = seed_completed_transcript(data_dir)
+    accepted = _accept(data_dir, meeting_id, generation_id)
+    claim_next_task(data_dir, owner_id="notes-worker")
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        source_id = connection.execute(
+            "SELECT notes_source_id FROM tasks WHERE id = ?", (accepted["id"],)
+        ).fetchone()[0]
+    unknown = "f" * 32
+
+    document = default_cited_document(segment_ids)
+    document["decisions"][0]["source_ids"] = [unknown]
+    with pytest.raises(NotesDocumentError, match="source IDs"):
+        validate_document(document, get_notes_source(data_dir, source_id))
+    with pytest.raises(TaskError) as refused:
+        publish_notes_revision(
+            data_dir,
+            accepted["id"],
+            owner_id="notes-worker",
+            markdown=_markdown(),
+            elapsed_seconds=1.0,
+            citations=[
+                {
+                    "section": "Decisions",
+                    "text": r"Prepare the launch plan\.",
+                    "sources": [{"id": unknown, "start_seconds": 1.0}],
+                }
+            ],
+        )
+    assert refused.value.code == "invalid_citations"
+    assert notes_state(data_dir, meeting_id)["revisions"] == []
+
+    revision = publish_notes_revision(
+        data_dir, accepted["id"], owner_id="notes-worker", markdown=_markdown(), elapsed_seconds=1
+    )
+    assert revision is not None and revision["warnings"] == []
+    link = f"[00:00:01](/meetings/{meeting_id}?notes_source={source_id}&segment={unknown})"
+    saved = update_note(
+        data_dir, revision["id"], expected_edit_version=1, markdown=f"- Typed {link}\n"
+    )
+    assert saved["markdown"] == f"- Typed {link}\n"
+    assert [item["reason"] for item in saved["warnings"]] == ["unknown_segment"]

@@ -18,7 +18,12 @@ from asr_en_vi.config import Settings
 from asr_en_vi.notes import accept_notes_task, notes_state
 from asr_en_vi.notes_document import LEGACY_ENGLISH_PROMPT_VERSION, PROMPT_VERSION
 from asr_en_vi.storage import database_path
-from asr_en_vi.tasks import TaskError, cancel_task, claim_next_task
+from asr_en_vi.tasks import (
+    TaskError,
+    cancel_task,
+    claim_next_task,
+    update_current_generation_segment_text,
+)
 from asr_en_vi.worker import acquire_worker_lock, heartbeat_path
 
 _COVERAGE = {
@@ -180,7 +185,7 @@ def test_notes_runner_emits_the_citations_of_the_document_it_rendered(
 
 def test_notes_worker_keeps_stopping_slot_until_local_child_is_reaped(tmp_path, monkeypatch):
     data_dir = tmp_path / "data"
-    meeting_id, generation_id, _ = seed_completed_transcript(data_dir)
+    meeting_id, generation_id, segment_ids = seed_completed_transcript(data_dir)
     other_meeting, other_generation, _ = seed_completed_transcript(data_dir, title="Other meeting")
     accepted = _accept(data_dir, meeting_id, generation_id, "notes-worker-request-001")
     task = claim_next_task(data_dir, owner_id="worker-owner")
@@ -234,11 +239,24 @@ def test_notes_worker_keeps_stopping_slot_until_local_child_is_reaped(tmp_path, 
         with pytest.raises(TaskError) as busy:
             _accept(data_dir, other_meeting, other_generation, "notes-worker-request-002")
         assert busy.value.code == "system_busy"
+        # The cancel request alone does not free the transcript: its source is still being read.
+        assert notes_state(data_dir, meeting_id)["source_locked"] is True
+        with pytest.raises(TaskError) as locked:
+            update_current_generation_segment_text(
+                data_dir,
+                meeting_id,
+                segment_ids[0],
+                expected_generation_id=generation_id,
+                expected_source_version=1,
+                text="Edited while the worker is still stopping.",
+            )
+        assert locked.value.code == "notes_source_locked"
 
         release_reaper.set()
         runner_thread.join(timeout=8)
         assert not runner_thread.is_alive()
         assert notes_state(data_dir, meeting_id)["task"]["status"] == "canceled"
+        assert notes_state(data_dir, meeting_id)["source_locked"] is False
         assert notes_state(data_dir, meeting_id)["revisions"] == []
         with sqlite3.connect(database_path(data_dir)) as connection:
             assert connection.execute(

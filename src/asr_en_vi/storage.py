@@ -6,7 +6,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 def _migrate_v2(connection: sqlite3.Connection) -> None:
@@ -500,6 +500,14 @@ def _migrate_v10(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v11(connection: sqlite3.Connection) -> None:
+    """Make a notes source snapshot unchangeable in the database, not only by convention."""
+    connection.execute(
+        "CREATE TRIGGER notes_sources_update_guard BEFORE UPDATE ON notes_sources "
+        "BEGIN SELECT RAISE(ABORT, 'notes_sources_are_immutable'); END"
+    )
+
+
 def database_path(data_dir: Path) -> Path:
     return Path(data_dir) / "app.sqlite3"
 
@@ -609,6 +617,9 @@ def initialize(data_dir: Path) -> Path:
         if current_version < 10:
             _migrate_v10(connection)
             connection.execute("INSERT INTO schema_migrations(version) VALUES (10)")
+        if current_version < 11:
+            _migrate_v11(connection)
+            connection.execute("INSERT INTO schema_migrations(version) VALUES (11)")
         connection.commit()
     finally:
         connection.close()
