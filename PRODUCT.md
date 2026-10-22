@@ -23,12 +23,13 @@ ASR EN VI biến bản ghi cuộc họp tiếng Anh hoặc tiếng Việt thành
 - Ứng dụng chạy bằng Docker Compose trên localhost và được mở bằng link token từ terminal.
 - Người vận hành nhập audio/video, đặt tên và ngày, chọn gợi ý ngôn ngữ rồi tạo cuộc họp bằng một nút; chép lời tự bắt đầu trừ khi tắt. Sau đó họ theo dõi tác vụ rồi duyệt transcript trong cùng workspace.
 - Lịch tháng, danh sách gần đây và màn hình chi tiết cuộc họp là các đường truy cập chính tới dữ liệu đã lưu.
-- Khi đối chiếu transcript với audio, trình phát dính ở mép trên màn hình chi tiết cuộc họp và đoạn đang phát tự cuộn vào tầm nhìn; người vận hành không phải cuộn tìm trình phát hay đoạn đang nghe.
+- Trang cuộc họp chia hai tab: **Meeting notes** (kết quả chính) và **Transcript & bản ghi** (trình phát và transcript luôn đi cùng nhau để đối chiếu). Phần đầu trang chỉ hiện tên cuộc họp một lần, kèm dải trạng thái ngắn **Bản ghi · Transcript · Notes** cho biết cuộc họp đã đi tới bước nào. Tab mở sẵn là Meeting notes khi cuộc họp có ít nhất một bản notes đã lưu hoặc đang tạo notes, ngược lại là Transcript; `#notes` và `#transcript` chọn tab, đổi tab thêm một mục lịch sử nên Back quay lại tab trước và tải lại trang giữ tab. Khi chưa có transcript, tab Meeting notes chỉ nói **Cần transcript trước** và dẫn sang tab Transcript; bấm tạo notes ở đâu cũng đưa người vận hành tới tab Meeting notes để theo dõi tiến độ.
+- Khi đối chiếu transcript với audio, trình phát dính ở mép trên tab **Transcript & bản ghi** và đoạn đang phát tự cuộn vào tầm nhìn; người vận hành không phải cuộn tìm trình phát hay đoạn đang nghe.
 - Transcript mở ở chế độ đọc để nghe và đọc nhanh: mỗi đoạn chỉ hiện mốc thời gian, người nói, nội dung và dấu cần kiểm tra. Nút **Sửa** mở ô sửa cho đúng một đoạn tại một lúc; bản nháp chưa lưu của đoạn vừa rời đi được giữ và đánh dấu. Gán người nói ban đầu và chỉ số model nằm trong phần **Chi tiết** của đoạn đang sửa.
 - Người nói hiện thành chip; chip còn tên mặc định do hệ thống đặt (Speaker N) có dấu **đặt tên** và đổi tên ngay tại chỗ.
 - Trạng thái worker, model, tác vụ, lỗi và dữ liệu cần nghe lại phải quét nhanh được trong phiên làm việc dài.
 - Khi chép lời, thanh tiến độ cho biết đã chép tới đâu so với độ dài bản ghi và đang ở giai đoạn nào; khi tạo notes, danh sách bước cho biết đang ở bước nào, đã chạy bao lâu và bằng nhà cung cấp · model nào. Nút hủy nói rõ đang hủy chép lời hay tạo notes. Chi tiết kỹ thuật như compute backend nằm trong phần **Chi tiết xử lý** thu gọn.
-- Meeting notes mở ở chế độ **Xem** theo mặc định để đọc toàn bề rộng và trình duyệt nhớ lựa chọn cuối cùng; **Viết** dùng để sửa Markdown. Bản nháp chưa lưu luôn được báo rõ và trình duyệt cảnh báo trước khi đóng hoặc tải lại trang.
+- Meeting notes trong tab **Meeting notes** mở ở chế độ **Xem** theo mặc định để đọc toàn bề rộng và trình duyệt nhớ lựa chọn cuối cùng; **Viết** dùng để sửa Markdown. Bản nháp chưa lưu luôn được báo rõ và trình duyệt cảnh báo trước khi đóng hoặc tải lại trang.
 
 ## Capabilities and Constraints
 
@@ -62,7 +63,8 @@ ASR EN VI biến bản ghi cuộc họp tiếng Anh hoặc tiếng Việt thành
 ## Accessibility & Inclusion
 
 - Hỗ trợ đầy đủ tiếng Việt và tiếng Anh bằng font đóng gói local.
+- Hai tab của trang cuộc họp theo mẫu WAI-ARIA Tabs: chỉ tab đang chọn nằm trong thứ tự Tab, mũi tên trái/phải, Home và End đổi tab; tab đang chọn khác tab còn lại bằng chữ đậm và gạch chân, không chỉ bằng màu, và nhãn tab Transcript ghi số đoạn cùng số đoạn cần kiểm tra bằng chữ.
 - Tất cả control phải dùng được bằng bàn phím, có focus indicator rõ và không truyền trạng thái chỉ bằng màu. Thanh tiến độ có tên truy cập; mỗi bước tạo notes có chữ trạng thái; hiệu ứng nhấp nháy của thanh không xác định tắt khi người dùng chọn giảm chuyển động.
 - Mỗi đoạn transcript ở chế độ đọc có tối đa hai điểm dừng Tab (mốc thời gian và **Sửa**). Esc hủy và Ctrl/⌘+Enter lưu trong ô sửa; sau khi lưu hoặc hủy, focus quay lại **Sửa** của đoạn đó. Thông báo lưu của mọi đoạn đi qua một vùng `aria-live` chung. Khi nguồn bị khóa, **Sửa** và chip bị tắt kèm lý do.
 - Light/dark theme, contrast và reduced motion phải theo semantic state và sở thích hệ điều hành/người dùng.
-- Tự cuộn theo đoạn đang phát chỉ chạy khi còn thấy một phần danh sách đoạn bên dưới thanh trình phát, nên người đang đọc notes không bị kéo về transcript; nó cũng dừng khi audio tạm dừng, khi người dùng vừa cuộn tay hoặc đang sửa, và dùng cuộn tức thì khi người dùng chọn giảm chuyển động; thanh trình phát dính không che đoạn được cuộn tới, còn control nhận focus bàn phím được cuộn xuống dưới thanh (ô nhập văn bản có thể chỉ lộ dòng chứa con trỏ).
+- Tự cuộn theo đoạn đang phát chỉ chạy khi còn thấy một phần danh sách đoạn bên dưới thanh trình phát, nên người đang đọc notes (tab Meeting notes, khi danh sách đoạn đang ẩn) không bị kéo về transcript; nó cũng dừng khi audio tạm dừng, khi người dùng vừa cuộn tay hoặc đang sửa, và dùng cuộn tức thì khi người dùng chọn giảm chuyển động; thanh trình phát dính không che đoạn được cuộn tới, còn control nhận focus bàn phím được cuộn xuống dưới thanh (ô nhập văn bản có thể chỉ lộ dòng chứa con trỏ).

@@ -268,7 +268,9 @@ Desktop uses a narrow navigation ledger beside a flexible workspace capped at a 
 
 At 980px and below, the provider status buttons drop to their own row under the page title, and a status too long for its button wraps under the provider name instead of being cut. At 680px and below, the sidebar becomes a compact top bar that scrolls with the page, the calendar opener moves into the workspace header, secondary navigation moves into the workspace, and multi-column content stacks. At 520px and below, the create action becomes an accessible icon control and dialogs use nearly the full viewport. The document must never create horizontal overflow at the supported 320px minimum.
 
-In a meeting the player is the one sticky element in the content area, at every width: a single bar, at most 72px tall, pinned to the top edge of that area while the notes and the transcript scroll under it. On desktop the navigation ledger stays pinned beside it; at 680px and below, where the navigation bar scrolls away with the page, the player is the only pinned piece. The recording heading and its hint stay in normal flow and scroll away. Anything the page scrolls to stops below the bar: the document scroller reserves the bar's height and each scroll target adds a 12px gap, so a segment or the notes source heading never lands under it. The browser scrolls a keyboard-focused control clear of the bar too, but a text field may only reveal its caret line, so part of the field can stay beneath the bar. While audio plays and some of the transcript list shows below the bar, the active segment follows with a nearest-edge scroll, instant under reduced motion; the page holds still while audio is paused, for two seconds after a manual scroll, while a transcript field has focus, and while the whole list is off screen, so reading the notes is never interrupted.
+A meeting page is a header and two tabs. The header carries the meeting name once (the page heading above it only says "Cuộc họp"), the date and language hint, and a short status strip, Bản ghi · Transcript · Notes. The tablist sits directly under the header at every width, with the two provider status buttons left where they were; the Meeting notes panel and the Transcript & bản ghi panel take turns below it, one visible at a time and each as wide as the content area.
+
+In the Transcript tab the player is the one sticky element in the content area, at every width: a single bar, at most 72px tall, pinned to the top edge of that area while the transcript scrolls under it. The Meeting notes tab pins nothing and reserves no room for a bar. On desktop the navigation ledger stays pinned beside the bar; at 680px and below, where the navigation bar scrolls away with the page, the player is the only pinned piece. The recording heading and its hint stay in normal flow and scroll away. Anything the page scrolls to in the Transcript tab stops below the bar: the document scroller reserves the bar's height and each scroll target adds a 12px gap, so a segment never lands under it. The browser scrolls a keyboard-focused control clear of the bar too, but a text field may only reveal its caret line, so part of the field can stay beneath the bar. While audio plays and some of the transcript list shows below the bar, the active segment follows with a nearest-edge scroll, instant under reduced motion; the page holds still while audio is paused, for two seconds after a manual scroll, while a transcript field has focus, and while the whole list is off screen, which includes every moment the Meeting notes tab is open, so reading the notes is never interrupted.
 
 ## Elevation & Depth
 
@@ -298,10 +300,23 @@ Corners are compact and engineered: controls use the small radius, content panel
 - **Cancel:** The cancel control names what it stops (**Hủy chép lời**, **Hủy tạo notes**) and reads **Đang dừng…** once the request is sent.
 - **Disabled:** Neutral surface and muted ink, plus the native disabled state; never communicate disabled only through opacity.
 
+### Meeting Tabs
+
+- **Shape:** A WAI-ARIA tablist of two flat tabs under the header, resting on a one-pixel hairline: Meeting notes and Transcript & bản ghi. No boxes or fills. The selected tab takes accent ink, heavier type and a two-pixel accent underline that replaces the hairline beneath it, so colour is never the only cue. The Transcript tab label carries its counts in mono (10px) beside the name, wrapping under it when the row is narrow: the segments and how many of them show the amber review cue, for example "42 đoạn · 5 cần kiểm tra". With no transcript the label has no counts.
+- **Behavior:** Roving tabindex, so only the selected tab is a Tab stop; Left and Right move and wrap, Home and End jump, and the selection follows focus. Each change is a history entry (`#notes` or `#transcript`, path and query kept), so Back returns to the previous tab and a reload keeps the tab. With no hash the meeting picks its tab: Meeting notes when it has a saved notes revision or a notes run in progress, otherwise Transcript, and a saved-source link without a hash opens Meeting notes, where the source view lives. A hash always wins. Until the notes read has answered (four seconds at most) no tab is selected: the notes panel stays hidden and the transcript panel is laid out but transparent, so neither panel flashes and the transcript's controls are already in place when it is the one; the price is that during that short wait those transparent controls can still take keyboard focus, with no visible ring.
+- **Focus / motion:** The usual two-pixel accent outline, drawn inside the tab. The colour transition collapses under reduced motion; forced colors draw the selected tab's underline in `Highlight` and none under the other tab.
+- **Narrow:** The two tabs share the row; labels wrap and nothing scrolls sideways down to 320px.
+
+### Status Strip
+
+- **Shape:** One wrapping row of three flat chips under the date and language: Bản ghi, Transcript, Notes (11px, one-pixel hairline, small radius, surface fill). Each holds a 6px status dot and one short line, for example "Transcript · Đang chép lời" or "Notes · 2 bản".
+- **State:** The words carry the state; the dot (neutral, success, accent, warning, danger) only repeats it. It is a plain list, not a live region.
+
 ### Player
 
 - **Shape:** One bar with the small radius, a one-pixel hairline and the surface background, holding only the native audio control and no heading, hint or shadow.
-- **Behavior:** Sticky to the top edge of the content area, opaque so scrolling content never shows through, in light and dark.
+- **Behavior:** Sticky to the top edge of the content area while the Transcript tab is open, opaque so scrolling content never shows through, in light and dark.
+- **Across tabs:** Choosing the Meeting notes tab hides the bar but does not pause the audio, so the reader can listen while reading the notes and pauses from the Transcript tab.
 - **Focus:** The two-pixel accent outline is drawn inside the bar, so the bar edge and the top of the viewport never clip it.
 
 ### Transcript Segments
@@ -356,6 +371,10 @@ Corners are compact and engineered: controls use the small radius, content panel
 ### Notes Frame
 
 Saved notes sit in one full-width frame: a hairline box on the subtle surface with the small radius. One toolbar above it serves both modes and holds the version select, the **Xem | Viết** group, and the save, copy, and download actions, so no control moves when the mode changes. The group is two toggle buttons with `aria-pressed`; the pressed button takes the accent-soft fill and accent ink, the switch is instant, and keyboard focus is the usual two-pixel accent outline drawn inside the group. Xem renders the draft at the reading size with headings starting at h4, below the panel's h3; Viết shows a full-width mono textarea at least 420px tall on desktop. Unsaved work is marked twice: a warning dot hangs off the **Viết** label while its accessible name says there are unsaved changes, and Xem opens with a thin warning-soft line, "Đang xem bản nháp chưa lưu", so a draft is never mistaken for the saved version. Two polite status lines sit directly under the toolbar, so each message appears beside the button that caused it: the first says whether the draft differs from the saved Markdown, the second reports the result of the last save, copy, or download. The conflict block follows them, above the frame, in both modes. At 760px and below the toolbar stacks into full-width rows; at 520px and below its actions stack too.
+
+### Notes Empty State
+
+Without a complete transcript the Meeting notes tab holds one heading, **Cần transcript trước**, one line saying whether the transcript is being made or still has to be, and a secondary button to the Transcript tab. No select and no disabled create button is drawn; the language, provider and model controls return with the first complete transcript.
 
 ### Navigation
 

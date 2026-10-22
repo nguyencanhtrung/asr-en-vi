@@ -590,7 +590,7 @@
             <div>
               <span class="eyebrow" id="detail-kicker">Frontend</span>
               <h3 id="detail-title">Review workspace</h3>
-              <p id="detail-copy">Hiển thị lịch sử cuộc họp, transcript song song với notes và trình phát. Người dùng chọn provider/model cho từng lần tạo notes và luôn thấy cấu hình trước khi chạy.</p>
+              <p id="detail-copy">Hiển thị lịch sử cuộc họp; trang cuộc họp chia hai tab, Meeting notes và Transcript &amp; bản ghi (trình phát đi cùng transcript). Người dùng chọn provider/model cho từng lần tạo notes và luôn thấy cấu hình trước khi chạy.</p>
             </div>
             <div class="detail-rule">
               <b>Bất biến cần giữ</b>
@@ -805,7 +805,7 @@
 
   <script>
     const details = {
-      ui: ["Frontend", "Review workspace", "Hiển thị lịch sử cuộc họp, transcript song song với notes và trình phát. Người dùng chọn provider/model cho từng lần tạo notes và luôn thấy cấu hình trước khi chạy.", "UI không tự suy diễn tác vụ đã hủy hoặc hoàn tất; mọi trạng thái quan trọng phải lấy lại từ backend."],
+      ui: ["Frontend", "Review workspace", "Hiển thị lịch sử cuộc họp; trang cuộc họp chia hai tab, Meeting notes và Transcript & bản ghi (trình phát đi cùng transcript). Người dùng chọn provider/model cho từng lần tạo notes và luôn thấy cấu hình trước khi chạy.", "UI không tự suy diễn tác vụ đã hủy hoặc hoàn tất; mọi trạng thái quan trọng phải lấy lại từ backend."],
       clientstate: ["Frontend state", "Draft & polling", "Giữ text đang sửa ở client cho đến khi backend xác nhận save. Polling chỉ hỏi trạng thái bền và giảm tần suất khi tab bị ẩn hoặc mất mạng.", "Khi stale_version, giữ bản nháp để người dùng đối chiếu; không tự merge hoặc gửi lại lệnh tạo task."],
       access: ["FastAPI · Access", "Local session", "Đổi token localhost dùng lại thành cookie và loại token khỏi URL. Audio, snapshot và export đều đi qua cùng ranh giới xác thực.", "Đăng nhập ứng dụng local độc lập hoàn toàn với đăng nhập ChatGPT/Google cho inference."],
       meetings: ["FastAPI · Domain", "Meetings & revisions", "Sở hữu metadata, generation, segment, speaker, snapshot và notes revision. Đây là nơi thực thi expected version và trạng thái read-only.", "Mọi đường ghi, kể cả API trực tiếp hay tab khác, phải cùng tuân thủ source lock và optimistic concurrency."],

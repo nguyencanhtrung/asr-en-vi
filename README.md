@@ -138,6 +138,28 @@ không chắc được giữ và đánh dấu để rà soát. Khi phát lại, 
 mốc nguồn. Người nói do model gán ban đầu và timestamp được lưu riêng, nên sửa người nói không làm
 mất chúng.
 
+Trang cuộc họp chia thành hai tab theo mẫu WAI-ARIA Tabs, ngay dưới phần đầu trang: **Meeting notes**
+và **Transcript & bản ghi**. Phần đầu trang hiện tên cuộc họp đúng một lần (tiêu đề chung phía trên
+chỉ ghi **Cuộc họp**), ngày họp, gợi ý ngôn ngữ và một dải trạng thái ngắn **Bản ghi · Transcript ·
+Notes**, mỗi mục là chữ trạng thái như **Chưa chép lời**, **Đang chép lời**, **Hoàn tất**,
+**Đang tạo** hay **2 bản**. Tab **Transcript & bản ghi** chứa khối bản ghi với trình phát dính, khối
+chép lời (nút chép lời và hủy, tiến độ, lỗi), người nói và các đoạn; khi đã có transcript, nhãn tab
+ghi số đoạn và số đoạn **cần kiểm tra** (đoạn có dấu rà soát). Tab **Meeting notes** chứa toàn bộ
+phần notes: tạo, tiến độ, lỗi, phiên bản, **Xem | Viết**, sao chép và tải về. Khi chưa có transcript
+hoàn chỉnh, tab này chỉ hiện trạng thái trống **Cần transcript trước** cùng nút chuyển sang tab
+Transcript, không có ô chọn hay nút tạo notes bị tắt.
+
+Mở `/meetings/{id}` không kèm hash chọn **Meeting notes** nếu cuộc họp có ít nhất một bản notes đã
+lưu hoặc đang tạo notes, ngược lại chọn **Transcript & bản ghi**. `#notes` và `#transcript` chọn
+tab tương ứng và thắng quy tắc mặc định; link nguồn `?notes_source=…&segment=…` không kèm hash mở
+tab **Meeting notes**, nơi có khung nguồn đã lưu. Đổi tab (bấm, hoặc mũi tên trái/phải, Home, End
+khi focus ở một tab) thêm một mục lịch sử bằng `pushState` với hash mới và giữ nguyên đường dẫn
+cùng query, nên Back quay lại tab trước và tải lại trang giữ tab; chỉ tab đang chọn nằm trong thứ tự
+Tab. Bấm tạo notes từ bất kỳ đâu đều chọn tab **Meeting notes** để theo dõi tiến độ. Nút **Tua bản
+ghi tới mốc này** của khung nguồn mở tab **Transcript & bản ghi** tại mốc đó, vì trình phát nằm ở
+tab này. Từ 680 px trở xuống, danh sách tab nằm ngay dưới phần đầu trang; hai nút trạng thái
+**OpenAI** và **Google** giữ nguyên.
+
 Transcript mở ở chế độ đọc: mỗi đoạn chỉ hiện nút timestamp, tên người nói, nội dung (13 px) và,
 nếu có, dấu rà soát (**Cần kiểm tra** kèm lý do, hoặc **Nên nghe lại**); chưa có ô nhập, select hay
 nút lưu nào. Nút **Sửa** luôn hiện ở mỗi đoạn của thế hệ hiện tại và mở ô sửa của đoạn đó, gồm nội
@@ -163,15 +185,17 @@ tên đang gõ ở ô vừa rời đi được giữ làm bản nháp (chip hi�
 đánh dấu xung đột còn được giữ cả khi Esc hoặc **Hủy**. **Thêm người nói** vẫn nằm dưới danh sách
 chip. Ở thế hệ cũ, chip chỉ để đọc.
 
-Trình phát dính ở mép trên vùng nội dung khi cuộn xuống notes hoặc transcript, ở cả desktop và màn
-hình từ 680 px trở xuống; thanh dính chỉ gồm trình phát (cao tối đa 72 px), còn tiêu đề và dòng
-hướng dẫn của khối bản ghi cuộn đi như bình thường. Khi audio đang phát và đoạn đang phát đổi, danh
+Trình phát dính ở mép trên vùng nội dung khi cuộn transcript trong tab **Transcript & bản ghi**, ở
+cả desktop và màn hình từ 680 px trở xuống; thanh dính chỉ gồm trình phát (cao tối đa 72 px), còn
+tiêu đề và dòng hướng dẫn của khối bản ghi cuộn đi như bình thường. Tab **Meeting notes** không
+ghim trình phát và không tạm dừng audio, nên bạn vừa nghe vừa đọc notes được; muốn dừng thì quay
+lại tab **Transcript & bản ghi**. Khi audio đang phát và đoạn đang phát đổi, danh
 sách tự cuộn để đoạn đó nằm gọn trong tầm nhìn, dưới thanh trình phát, miễn là còn thấy một phần
 danh sách đoạn; cuộn tức thì khi hệ điều hành bật giảm chuyển động. Danh sách không tự cuộn khi
 audio tạm dừng, trong 2 giây sau khi bạn cuộn tay (con lăn, chạm, phím cuộn hoặc kéo thanh cuộn),
 khi focus đang nằm trong một ô sửa của transcript, hay khi cả danh sách đoạn nằm ngoài tầm nhìn
-dưới thanh trình phát (ví dụ lúc bạn đang đọc notes hoặc vừa mở một nguồn), nên trang không bị kéo
-khỏi chỗ đang đọc.
+dưới thanh trình phát hoặc đang ẩn vì bạn ở tab **Meeting notes** (ví dụ lúc bạn đang đọc notes hoặc
+vừa mở một nguồn), nên trang không bị kéo khỏi chỗ đang đọc.
 
 Nếu diarization hoặc alignment lỗi hay bị hủy, task không công bố thế hệ mới và thế hệ hiện tại vẫn
 được giữ. Không có bước gửi audio hoặc inference cloud. Thư mục model đã tải có thể được dùng offline
@@ -279,7 +303,7 @@ kết nối không ảnh hưởng ChatGPT, token truy cập localhost, transcrip
 ## Tạo và đối chiếu notes
 
 Mở cuộc họp đã có transcript hoàn chỉnh, lưu lựa chọn ChatGPT/model trong phần kết nối, rồi bấm
-**Tạo notes**. Worker gửi transcript cùng ID, timestamp, tên người nói và ngày họp cần thiết;
+**Tạo notes** trong tab **Meeting notes**. Worker gửi transcript cùng ID, timestamp, tên người nói và ngày họp cần thiết;
 không gửi audio. Nguồn dài được chia tại ranh giới đoạn, tạo các tóm tắt có trích dẫn đã kiểm tra
 riêng theo từng phần, rồi tổng hợp theo thứ tự transcript để xử lý quyết định hoặc đề xuất thay
 đổi về sau. Mỗi phần sau chỉ mở đầu bằng các đoạn cuối nguyên vẹn của phần trước (tối đa 2.000
@@ -318,7 +342,7 @@ sang đang dừng; chỉ khi tiến trình gọi provider đã kết thúc mới
 hủy hoặc restart giữ transcript và các notes đã lưu; không công bố đầu ra dở hoặc tự gửi lại
 inference. Đầu ra đã nhận đầy đủ nhưng không hợp lệ được phép sửa tối đa một lượt.
 
-Notes đã lưu nằm trong một khung toàn bề rộng với thanh công cụ chung: chọn phiên bản, nút chuyển
+Notes đã lưu nằm trong tab **Meeting notes**, trong một khung toàn bề rộng với thanh công cụ chung: chọn phiên bản, nút chuyển
 **Xem | Viết**, **Lưu bản nháp**, **Sao chép bản đã lưu** và **Tải Markdown đã lưu**. **Xem** là
 mặc định và hiển thị bản render của bản nháp hiện tại; **Viết** là ô soạn thảo Markdown. Trình
 duyệt nhớ chế độ cuối cùng; đổi chế độ không đổi bản nháp hay gọi API. Lưu dùng kiểm tra phiên bản
