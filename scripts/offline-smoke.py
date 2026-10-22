@@ -38,9 +38,12 @@ from urllib.request import HTTPCookieProcessor, ProxyHandler, Request, build_ope
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_FILE = ROOT / "compose.yaml"
+GPU_COMPOSE_FILE = ROOT / "compose.gpu.yaml"
+COMPOSE_FILES = (COMPOSE_FILE, GPU_COMPOSE_FILE)
 DEFAULT_PROJECT_PREFIX = "asr-offline-smoke"
 PUBLIC_IMAGE = "ghcr.io/nguyencanhtrung/asr-en-vi"
 MAX_AUDIO_BYTES = 25 * 1024 * 1024
+MAX_STDERR_DIAGNOSTIC_CHARS = 1200
 MIN_AUDIO_SECONDS = 2
 ASR_MODEL_NAME = "whisper-large-v3"
 DIARIZATION_MODEL_NAME = "speaker-diarization-community-1"
@@ -132,6 +135,53 @@ class Redactor:
         )
         result = re.sub(r"(?<=/access#)[^\s\"']+", "[REDACTED]", result)
         return result
+
+
+def validate_connected_provider_fixture(fixture: dict[str, Any]) -> None:
+    """Reject synthetic provider state that cannot prove a valid local connection."""
+    pin = fixture.get("notes_task_pin")
+    connection_version = fixture.get("connection_version")
+    sha256_fields = (
+        "access_token_sha256",
+        "refresh_token_sha256",
+        "state_sha256",
+    )
+    if (
+        fixture.get("connection_status") != "connected"
+        or fixture.get("provider_view_status") != "connected"
+        or fixture.get("fixture_session_status") != "connected"
+        or fixture.get("client_id_valid") is not True
+        or fixture.get("direct_scope_present") is not True
+        or fixture.get("token_expiry_valid") is not True
+        or isinstance(connection_version, bool)
+        or not isinstance(connection_version, int)
+        or connection_version < 0
+        or isinstance(fixture.get("state_bytes"), bool)
+        or not isinstance(fixture.get("state_bytes"), int)
+        or fixture["state_bytes"] <= 0
+        or not isinstance(pin, dict)
+        or pin.get("provider") != "chatgpt"
+        or pin.get("connection_version") != connection_version
+        or pin.get("model") != fixture.get("selected_model")
+        or pin.get("reasoning_effort") != fixture.get("selected_reasoning_effort")
+        or not isinstance(fixture.get("selected_model"), str)
+        or not fixture["selected_model"]
+        or not isinstance(fixture.get("selected_reasoning_effort"), str)
+        or not fixture["selected_reasoning_effort"]
+        or any(
+            not isinstance(fixture.get(field), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", fixture[field])
+            for field in sha256_fields
+        )
+    ):
+        raise SmokeFailure(
+            "Synthetic ChatGPT fixture does not prove a valid connected provider session."
+        )
+
+
+def _compose_file_arguments(config_path: Path | None) -> list[str]:
+    files = (config_path,) if config_path is not None else COMPOSE_FILES
+    return [argument for path in files for argument in ("-f", str(path))]
 
 
 def unique_project_name(prefix: str = DEFAULT_PROJECT_PREFIX) -> str:
@@ -489,7 +539,7 @@ class SmokeHarness:
             "mode": options.mode,
             "checks": {},
             "provider_fixture": {
-                "type": "synthetic Antigravity provider-state fixture",
+                "type": "synthetic ChatGPT provider registration and session fixture",
                 "external_account_validity": "not assessed",
             },
             "cleanup": {"volumes_preserved": True, "errors": []},
@@ -507,6 +557,19 @@ class SmokeHarness:
         safe = self.redactor.clean(message).replace("\r", " ")
         self.log_handle.write(f"{stamp} {safe}\n")
         self.log_handle.flush()
+
+    def _log_command_stderr(self, label: str, stderr: str | bytes | None) -> None:
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", errors="replace")
+        if not isinstance(stderr, str) or not stderr:
+            return
+        diagnostic = " ".join(self.redactor.clean(stderr).split())
+        if not diagnostic:
+            return
+        suffix = " … [truncated]"
+        if len(diagnostic) > MAX_STDERR_DIAGNOSTIC_CHARS:
+            diagnostic = diagnostic[: MAX_STDERR_DIAGNOSTIC_CHARS - len(suffix)].rstrip() + suffix
+        self.log(f"command {label}: stderr: {diagnostic}")
 
     def run_command(
         self,
@@ -531,8 +594,10 @@ class SmokeHarness:
                 timeout=timeout,
                 check=False,
             )
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as error:
             self.log(f"command {label}: timed out after {timeout}s")
+            if not sensitive_output:
+                self._log_command_stderr(label, error.stderr)
             if allow_failure:
                 return subprocess.CompletedProcess(command, 124, "", "")
             raise SmokeFailure(f"Command {label} exceeded its {timeout}-second deadline.") from None
@@ -545,6 +610,8 @@ class SmokeHarness:
             self.log(f"command {label}: exit={result.returncode}; output suppressed")
         else:
             self.log(f"command {label}: exit={result.returncode}")
+            if result.returncode != 0:
+                self._log_command_stderr(label, result.stderr)
         if result.returncode != 0 and not allow_failure:
             raise SmokeFailure(f"Command {label} exited with status {result.returncode}.")
         return result
@@ -555,9 +622,8 @@ class SmokeHarness:
             "compose",
             "--project-name",
             self.project,
-            "-f",
-            str(config_path or COMPOSE_FILE),
         ]
+        command.extend(_compose_file_arguments(config_path))
         command.extend(arguments)
         kwargs.setdefault("env", self._environment())
         return self.run_command(command, **kwargs)
@@ -577,11 +643,9 @@ class SmokeHarness:
             "compose",
             "--project-name",
             self.project,
-            "-f",
-            str(config_path or COMPOSE_FILE),
-            "exec",
-            "-T",
         ]
+        command.extend(_compose_file_arguments(config_path))
+        command.extend(("exec", "-T"))
         for key, value in (env_values or {}).items():
             command.extend(("-e", f"{key}={value}"))
         command.extend((service, "python", "-"))
@@ -978,29 +1042,36 @@ class SmokeHarness:
         self.log("local transcript text and speaker edits through the public API: pass")
 
     def _seed_provider_fixture(self) -> dict[str, Any]:
-        script = r"""import hashlib, json, time, uuid
-from asr_en_vi.chatgpt import ChatGPTProvider
+        script = r"""import json, time, uuid
+from asr_en_vi.chatgpt import ChatGPTProvider, DIRECT_SCOPE
 from asr_en_vi.config import Settings
+
+class FailOnNetworkAdapter:
+    def __getattr__(self, name):
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("unexpected provider adapter operation: " + name)
+        return fail
 
 settings = Settings.from_env()
 if settings.provider_dir is None:
     raise RuntimeError("provider directory unavailable")
-provider = ChatGPTProvider(settings.provider_dir, callback_url=settings.chatgpt_callback_url or "")
+provider = ChatGPTProvider(settings.provider_dir,
+    callback_url=settings.chatgpt_callback_url or "", adapter=FailOnNetworkAdapter())
 provider.ensure()
 now = time.time()
-client_id = "smoke-client-" + uuid.uuid4().hex[:12]
+client_id = "oaiapp_smoke-" + uuid.uuid4().hex[:12]
 session_id = uuid.uuid4().hex
 access_token = "synthetic-smoke-access-" + uuid.uuid4().hex
 refresh_token = "synthetic-smoke-refresh-" + uuid.uuid4().hex
 with provider.store.locked(write=True) as state:
-    state["connection_status"] = "reconnect_required"
+    state["connection_status"] = "connected"
     state["connection_version"] = 17
     state["active_client_id"] = client_id
     state["registrations"] = {client_id: {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "expires_at": now + 3600,
-        "scopes": [],
+        "scopes": [DIRECT_SCOPE],
         "subject": "synthetic-smoke-subject",
         "label": "Synthetic smoke session",
     }}
@@ -1016,16 +1087,24 @@ with provider.store.locked(write=True) as state:
     state["selected_model"] = "gpt-6.1-sol"
     state["selected_reasoning_effort"] = "high"
     state["verification"] = None
-    state["last_provider_error"] = "scope_not_authorized"
-raw = provider.store.state_path.read_bytes()
-saved = json.loads(raw)
-print(json.dumps({"sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw),
-                  "status": saved["connection_status"],
-                  "connection_version": saved["connection_version"],
-                  "selected_model": saved["selected_model"],
-                  "fixture_session_status": saved["sessions"][session_id]["status"]}))
+    state.pop("last_provider_error", None)
+    state.pop("last_diagnostic", None)
+if not provider._issued_client_id(client_id):
+    raise RuntimeError("synthetic client id is not in the issued-client format")
+session_id_present = session_id in state["sessions"]
+print(json.dumps({"seeded": True, "client_id_valid": True,
+                  "session_id_present": session_id_present}))
 """
-        return self.container_python("app", script, label="seed synthetic provider-state fixture")
+        result = self.container_python(
+            "app", script, label="seed valid synthetic connected provider session"
+        )
+        if (
+            result.get("seeded") is not True
+            or result.get("client_id_valid") is not True
+            or result.get("session_id_present") is not True
+        ):
+            raise SmokeFailure("Could not seed a valid synthetic connected provider session.")
+        return self._provider_fixture_state()
 
     def _seed_saved_notes(self, meeting_id: str) -> dict[str, Any]:
         script = r"""import contextlib, hashlib, json, sqlite3, uuid
@@ -1110,37 +1189,124 @@ print(json.dumps({"note_id": revision["id"], "source_snapshot_id": source_id,
                 "reasoning_effort": "high",
             },
         )
-        self.log(
-            "new notes preference uses reconnect-required synthetic ChatGPT "
-            "and makes no provider call"
-        )
+        self.log("saved ChatGPT notes preference without a provider request")
 
     def _provider_fixture_state(self) -> dict[str, Any]:
-        script = r"""import hashlib, json
-from asr_en_vi.chatgpt import ChatGPTProvider
+        script = r"""import hashlib, json, time
+from asr_en_vi.chatgpt import ChatGPTProvider, DIRECT_SCOPE
 from asr_en_vi.config import Settings
 
+class FailOnNetworkAdapter:
+    def __getattr__(self, name):
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("unexpected provider adapter operation: " + name)
+        return fail
+
 settings = Settings.from_env()
-provider = ChatGPTProvider(settings.provider_dir, callback_url=settings.chatgpt_callback_url or "")
+if settings.provider_dir is None:
+    raise RuntimeError("provider directory unavailable")
+provider = ChatGPTProvider(settings.provider_dir,
+    callback_url=settings.chatgpt_callback_url or "", adapter=FailOnNetworkAdapter())
 provider.ensure()
 with provider.store.locked() as state:
-    fixture_sessions = [item for item in state["sessions"].values()
-                        if item.get("status") == "connected"
-                        and item.get("expected_client_id") == state.get("active_client_id")]
-    if len(fixture_sessions) != 1:
+    client_id = state.get("active_client_id")
+    registration = state.get("registrations", {}).get(client_id) if client_id else None
+    fixture_sessions = [item for item in state.get("sessions", {}).values()
+                        if item.get("expected_client_id") == client_id]
+    if not isinstance(registration, dict) or len(fixture_sessions) != 1:
         raise RuntimeError("synthetic provider session fixture is missing")
     session_id = fixture_sessions[0]["id"]
-    status = state.get("connection_status")
+    connection_status = state.get("connection_status")
     connection_version = state.get("connection_version")
     selected_model = state.get("selected_model")
+    selected_reasoning_effort = state.get("selected_reasoning_effort")
+    access_token = registration.get("access_token")
+    refresh_token = registration.get("refresh_token")
+    expires_at = registration.get("expires_at")
+    direct_scope_present = DIRECT_SCOPE in registration.get("scopes", [])
+    token_expiry_valid = (isinstance(expires_at, (int, float))
+                          and not isinstance(expires_at, bool) and expires_at > time.time())
+    client_id_valid = provider._issued_client_id(client_id)
+provider_views = provider.get_providers().get("providers", [])
+provider_view = next((item for item in provider_views
+                      if isinstance(item, dict) and item.get("id") == "chatgpt"), {})
 reopened_session = provider.login_session(session_id)
+notes_task_pin = provider.notes_task_pin()
 raw = provider.store.state_path.read_bytes()
-print(json.dumps({"sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw),
-                  "status": status, "connection_version": connection_version,
-                  "selected_model": selected_model,
-                  "fixture_session_status": reopened_session.get("status")}))
+print(json.dumps({
+    "connection_status": connection_status,
+    "provider_view_status": provider_view.get("status"),
+    "fixture_session_status": reopened_session.get("status"),
+    "client_id_valid": client_id_valid,
+    "direct_scope_present": direct_scope_present,
+    "token_expiry_valid": token_expiry_valid,
+    "access_token_sha256": hashlib.sha256(access_token.encode()).hexdigest()
+        if isinstance(access_token, str) and access_token else None,
+    "refresh_token_sha256": hashlib.sha256(refresh_token.encode()).hexdigest()
+        if isinstance(refresh_token, str) and refresh_token else None,
+    "state_sha256": hashlib.sha256(raw).hexdigest(),
+    "state_bytes": len(raw),
+    "connection_version": connection_version,
+    "selected_model": selected_model,
+    "selected_reasoning_effort": selected_reasoning_effort,
+    "notes_task_pin": notes_task_pin,
+}))
 """
-        return self.container_python("app", script, label="read provider fixture identity")
+        fixture = self.container_python(
+            "app", script, label="verify local connected provider session and credentials"
+        )
+        validate_connected_provider_fixture(fixture)
+        return fixture
+
+    def _switch_provider_fixture_to_reconnect_required(self) -> None:
+        script = r"""import json
+from asr_en_vi.chatgpt import ChatGPTProvider, DIRECT_SCOPE
+from asr_en_vi.config import Settings
+
+class FailOnNetworkAdapter:
+    def __getattr__(self, name):
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("unexpected provider adapter operation: " + name)
+        return fail
+
+settings = Settings.from_env()
+provider = ChatGPTProvider(settings.provider_dir,
+    callback_url=settings.chatgpt_callback_url or "", adapter=FailOnNetworkAdapter())
+provider.ensure()
+with provider.store.locked(write=True) as state:
+    client_id = state.get("active_client_id")
+    registration = state.get("registrations", {}).get(client_id) if client_id else None
+    if (state.get("connection_status") != "connected" or not isinstance(registration, dict)
+            or DIRECT_SCOPE not in registration.get("scopes", [])):
+        raise RuntimeError("connected lifecycle proof is missing before provider-required phase")
+    state["connection_status"] = "reconnect_required"
+    registration["scopes"] = []
+    state["last_provider_error"] = "scope_not_authorized"
+print(json.dumps({"connection_status": state["connection_status"],
+                  "direct_scope_present": DIRECT_SCOPE in registration["scopes"],
+                  "last_provider_error": state["last_provider_error"]}))
+"""
+        result = self.container_python(
+            "app", script, label="switch synthetic fixture for provider-required offline UI"
+        )
+        if (
+            result.get("connection_status") != "reconnect_required"
+            or result.get("direct_scope_present") is not False
+            or result.get("last_provider_error") != "scope_not_authorized"
+        ):
+            raise SmokeFailure("Could not switch the synthetic fixture to reconnect-required.")
+        fixture = self.evidence.get("provider_fixture")
+        if not isinstance(fixture, dict):
+            raise SmokeFailure("Connected provider lifecycle evidence is missing.")
+        fixture["offline_provider_required_phase"] = {
+            "transition": "connected to reconnect_required",
+            "after_connected_restart_recreate_proof": True,
+            "connection_status": "reconnect_required",
+            "direct_scope_present": False,
+            "last_provider_error": "scope_not_authorized",
+            "external_account_validity": "not assessed",
+        }
+        self.evidence["checks"]["provider_required_fixture_transition"] = "pass"
 
     def _semantic_snapshot(self, client: ApiClient, meeting_id: str) -> dict[str, Any]:
         meeting = client.json("GET", f"/api/meetings/{meeting_id}")
@@ -1210,6 +1376,9 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
             (view for view in providers if isinstance(view, dict) and view.get("id") == "chatgpt"),
             {},
         )
+        reopened_status = chatgpt.get("status")
+        if reopened_status != "connected":
+            raise SmokeFailure("The synthetic ChatGPT provider did not reopen as connected.")
         return {
             "meeting": {
                 "id": meeting.get("id"),
@@ -1228,7 +1397,7 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
             "session_valid": auth_status == 200,
             "provider_fixture": {
                 **provider,
-                "reopened_status": chatgpt.get("status"),
+                "reopened_status": reopened_status,
                 "external_account_validity": "not assessed",
             },
         }
@@ -1266,11 +1435,23 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
         self._wait_ready(client=client)
         after_recreate = self._semantic_snapshot(client, meeting_id)
         self._compare_snapshot(before, after_recreate, "force-recreate")
+        before_provider = before["provider_fixture"]
+        after_restart_provider = after_restart["provider_fixture"]
+        after_recreate_provider = after_recreate["provider_fixture"]
         self.evidence["persistence"] = {
             "restart_equal": True,
             "force_recreate_equal": True,
-            "token_and_session_valid": True,
+            "synthetic_connected_session_valid": True,
             "provider_fixture_bytes_preserved": True,
+            "provider_access_token_digest_preserved": True,
+            "provider_refresh_token_digest_preserved": True,
+            "provider_scope_and_expiry_valid": True,
+            "notes_task_pin_preserved": True,
+            "provider_session_continuity": {
+                "baseline": before_provider,
+                "after_service_restart": after_restart_provider,
+                "after_force_recreate": after_recreate_provider,
+            },
             "provider_external_validity": "not assessed",
             "snapshot_sha256": hashlib.sha256(
                 json.dumps(before, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -1649,6 +1830,7 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
         markdown = note.get("markdown")
         if not isinstance(markdown, str) or not markdown:
             raise SmokeFailure("Saved notes fixture could not be read through the API.")
+        self._switch_provider_fixture_to_reconnect_required()
         browser_result = self._browser_workflow(first_meeting, markdown)
         self.evidence["checks"].update(browser_result)
         self.evidence["checks"]["offline_browser_external_requests"] = "none attempted"
@@ -1736,6 +1918,7 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
             if ownership_verified:
                 self.evidence["cleanup"]["manual_command"] = (
                     f"docker compose --project-name {self.project} -f compose.yaml "
+                    "-f compose.gpu.yaml "
                     "down --remove-orphans  # preserves named volumes"
                 )
                 self.log(
