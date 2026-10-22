@@ -305,6 +305,76 @@ def test_rerun_is_a_secondary_button_once_a_transcript_exists(live, signed_in):
     assert first_run.evaluate("el => getComputedStyle(el).backgroundColor") == accent
 
 
+def test_rerun_language_is_retained_across_an_uncertain_retry(live, signed_in):
+    _context, page = signed_in()
+    meeting_id, _generation_id, _segments = seed_completed_transcript(live.settings.data_dir)
+    requests = []
+
+    def start_task(route):
+        body = route.request.post_data_json
+        requests.append(body)
+        if len(requests) == 1:
+            route.abort("connectionfailed")
+            return
+        route.fulfill(
+            status=202,
+            content_type="application/json",
+            json={
+                "id": "a" * 32,
+                "request_id": body["request_id"],
+                "meeting_id": meeting_id,
+                "kind": "transcription",
+                "model_name": "model",
+                "language_hint": body["language_hint"],
+                "device": "cpu",
+                "compute_type": "int8",
+                "status": "accepted",
+                "worker_state": "checking-worker",
+                "stage": "accepted",
+                "result_scope": None,
+                "audio_duration_seconds": 30,
+                "transcript_end_seconds": 0,
+                "segment_count": 0,
+                "elapsed_seconds": 0,
+                "error_code": None,
+                "error_message": None,
+            },
+        )
+
+    page.route(f"{live.url}/api/tasks", start_task)
+    page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
+    language = page.locator("#transcription-language")
+    expect(language).to_have_value("en")
+    expect(language).to_have_accessible_name("Ngôn ngữ gợi ý lần chạy")
+    language.select_option("vi")
+    # An unrelated meeting render must not replace the user's choice with the previous
+    # generation's language before the rerun request is sent.
+    page.evaluate(
+        """meetingId => {
+          window.ASRMeetingHistory.setNotesSourceLock(meetingId, true, true);
+          window.ASRMeetingHistory.setNotesSourceLock(meetingId, false, true);
+        }""",
+        meeting_id,
+    )
+    expect(language).to_have_value("vi")
+    expect(language).not_to_be_disabled()
+    page.get_by_role("button", name="Chạy lại bản ghi").click()
+    expect(page.locator("#transcription-error")).to_be_visible()
+    expect(language).to_have_value("vi")
+    expect(language).to_be_disabled()
+
+    # A reload has no task row to identify the uncertain request, so the session record
+    # must still carry the language that was sent with the original request.
+    page.reload(wait_until="domcontentloaded")
+    expect(language).to_have_value("vi")
+    expect(language).to_be_disabled()
+    page.get_by_role("button", name="Chạy lại bản ghi").click()
+    expect(page.get_by_role("button", name="Hủy chép lời")).to_be_visible()
+    assert len(requests) == 2
+    assert requests[0]["language_hint"] == "vi"
+    assert requests[1] == requests[0]
+
+
 def test_runtime_details_sit_in_a_closed_disclosure(live, signed_in):
     _context, page = signed_in()
     meeting_id = seed_meeting(live.settings.data_dir, "Runtime details")

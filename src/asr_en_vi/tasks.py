@@ -35,6 +35,8 @@ _REVIEW_REASONS = frozenset(
 )
 _REQUEST_ID_RE = re.compile(r"[A-Za-z0-9._:-]{8,128}\Z")
 _SEGMENT_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
+_LANGUAGE_HINTS = frozenset({"en", "vi"})
+_LANGUAGE_HINT_UNSET = object()
 _ACTIVE_TASK_STATES = frozenset({"accepted", "running", "stopping"})
 _TASK_HEARTBEAT_MAX_AGE_SECONDS = 20
 TASK_ERROR_MESSAGES = {
@@ -96,11 +98,19 @@ def _request_id(value: object) -> str:
 def _payload_hash(
     *,
     meeting_id: str,
+    language_hint: str | None = None,
 ) -> str:
-    encoded = json.dumps(
-        {"meeting_id": meeting_id}, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    )
+    payload: dict[str, str] = {"meeting_id": meeting_id}
+    if language_hint is not None:
+        payload["language_hint"] = language_hint
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _language_hint(value: object) -> str:
+    if not isinstance(value, str) or value not in _LANGUAGE_HINTS:
+        raise TaskError(400, "invalid_language_hint", "language_hint must be en or vi.")
+    return value
 
 
 def _worker_state(row: sqlite3.Row) -> str:
@@ -128,6 +138,7 @@ def _task_summary(row: sqlite3.Row) -> dict[str, object]:
         "meeting_id": row["meeting_id"],
         "kind": row["kind"],
         "model_name": row["model_name"],
+        "language_hint": row["language_hint"],
         "device": row["device"],
         "compute_type": row["compute_type"],
         "status": row["status"],
@@ -161,6 +172,7 @@ def accept_transcription_task(
     meeting_id: object,
     request_id: object,
     model_path: Path,
+    language_hint: object = _LANGUAGE_HINT_UNSET,
     diarization_model_path: Path = Path("/models/speaker-diarization-community-1"),
     device: str,
     compute_type: str,
@@ -182,14 +194,26 @@ def accept_transcription_task(
         ).fetchone()
         if meeting is None:
             raise TaskError(404, "meeting_not_found", "Meeting not found.")
+        normalized_language_hint = (
+            meeting["language_hint"]
+            if language_hint is _LANGUAGE_HINT_UNSET
+            else _language_hint(language_hint)
+        )
         request_hash = _payload_hash(
             meeting_id=meeting_id,
+            language_hint=normalized_language_hint,
         )
+        legacy_request_hash = _payload_hash(meeting_id=meeting_id)
         existing = connection.execute(
             "SELECT * FROM tasks WHERE request_id = ?", (normalized_request_id,)
         ).fetchone()
         if existing is not None:
-            if existing["request_hash"] != request_hash:
+            if existing["language_hint"] != normalized_language_hint or existing[
+                "request_hash"
+            ] not in {
+                request_hash,
+                legacy_request_hash,
+            }:
                 raise TaskError(
                     409,
                     "idempotency_conflict",
@@ -249,7 +273,7 @@ def accept_transcription_task(
                 model_name,
                 device,
                 compute_type,
-                meeting["language_hint"],
+                normalized_language_hint,
                 recording["duration_seconds"],
             ),
         )

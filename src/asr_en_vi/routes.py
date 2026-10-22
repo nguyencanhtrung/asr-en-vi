@@ -569,22 +569,31 @@ def install_routes(
 
     @app.post("/api/tasks", status_code=202)
     async def start_transcription_task(request: Request) -> dict[str, object]:
-        payload = await _json_object(request, required={"meeting_id", "request_id"})
+        payload = await _json_object(
+            request,
+            required={"meeting_id", "request_id"},
+            optional={"language_hint"},
+        )
         worker_ready = worker_is_healthy(settings.data_dir)
         profile = read_runtime_profile(settings.data_dir) if worker_ready else None
+        task_options = {
+            "meeting_id": payload["meeting_id"],
+            "request_id": payload["request_id"],
+            "model_path": profile.model_path
+            if profile is not None
+            else settings.asr_gpu_model_path,
+            "diarization_model_path": settings.diarization_model_path,
+            "device": profile.device if profile is not None else "auto",
+            "compute_type": profile.compute_type if profile is not None else "default",
+            "worker_ready": worker_ready and profile is not None,
+        }
+        if "language_hint" in payload:
+            task_options["language_hint"] = payload["language_hint"]
         try:
             return await run_in_threadpool(
                 accept_transcription_task,
                 settings.data_dir,
-                meeting_id=payload["meeting_id"],
-                request_id=payload["request_id"],
-                model_path=profile.model_path
-                if profile is not None
-                else settings.asr_gpu_model_path,
-                diarization_model_path=settings.diarization_model_path,
-                device=profile.device if profile is not None else "auto",
-                compute_type=profile.compute_type if profile is not None else "default",
-                worker_ready=worker_ready and profile is not None,
+                **task_options,
             )
         except TaskError as error:
             _raise_task_error(error)
