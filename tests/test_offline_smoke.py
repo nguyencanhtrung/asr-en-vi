@@ -19,6 +19,20 @@ sys.modules[SPEC.name] = offline_smoke
 SPEC.loader.exec_module(offline_smoke)
 
 
+def test_browser_check_is_recorded_as_soon_as_it_completes():
+    harness = object.__new__(offline_smoke.SmokeHarness)
+    harness.evidence = {"checks": {}}
+    harness.log_handle = io.StringIO()
+    harness.redactor = offline_smoke.Redactor()
+    browser_checks = {}
+
+    harness._record_browser_check(browser_checks, "history_read")
+
+    assert browser_checks == {"history_read": True}
+    assert harness.evidence["checks"] == {"history_read": True}
+    assert "browser check history_read: pass" in harness.log_handle.getvalue()
+
+
 def test_project_names_are_unique_and_prefix_is_bounded():
     first = offline_smoke.unique_project_name("asr-offline-smoke")
     second = offline_smoke.unique_project_name("asr-offline-smoke")

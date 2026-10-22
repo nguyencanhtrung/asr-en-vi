@@ -28,6 +28,7 @@ import tempfile
 import threading
 import time
 import wave
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -513,6 +514,25 @@ class LoopbackRelay:
         self.thread.join(timeout=2)
 
 
+def open_undated_history_meeting(
+    page: Any, meeting_id: str, *, on_stage: Callable[[str], None]
+) -> None:
+    """Open an undated meeting through the browser's calendar history path."""
+    on_stage("select_undated_calendar_group")
+    undated_group = page.locator("#mini-calendar .cal-undated")
+    undated_group.wait_for(state="visible", timeout=10_000)
+    undated_group.click(timeout=10_000)
+
+    on_stage("open_matching_day_panel_link")
+    meeting_link = page.locator(f'#day-panel-list a[href="/meetings/{meeting_id}"]')
+    meeting_link.wait_for(state="visible", timeout=10_000)
+    meeting_link.click(timeout=10_000)
+
+    on_stage("wait_for_meeting_view")
+    page.wait_for_url(f"**/meetings/{meeting_id}", timeout=10_000)
+    page.locator("#meeting-title").wait_for(state="visible", timeout=10_000)
+
+
 class SmokeHarness:
     def __init__(self, options: SmokeOptions) -> None:
         self.options = options
@@ -557,6 +577,11 @@ class SmokeHarness:
         safe = self.redactor.clean(message).replace("\r", " ")
         self.log_handle.write(f"{stamp} {safe}\n")
         self.log_handle.flush()
+
+    def _record_browser_check(self, browser_checks: dict[str, Any], name: str) -> None:
+        browser_checks[name] = True
+        self.evidence.setdefault("checks", {})[name] = True
+        self.log(f"browser check {name}: pass")
 
     def _log_command_stderr(self, label: str, stderr: str | bytes | None) -> None:
         if isinstance(stderr, bytes):
@@ -1589,18 +1614,30 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
             raise SmokeFailure("Browser-context notes preference setup failed.")
 
     def _browser_workflow(self, meeting_id: str, note_markdown: str) -> dict[str, Any]:
-        try:
-            from playwright.sync_api import sync_playwright
-        except ImportError:
-            raise SmokeFailure(
-                "Playwright is required for the offline browser acceptance checks."
-            ) from None
-        assert self.access_token is not None
         blocked_hosts: list[str] = []
         calls: list[str] = []
         browser_checks: dict[str, Any] = {}
-        with sync_playwright() as playwright:
+        current_stage = "load_playwright"
+
+        def report_stage(name: str) -> None:
+            nonlocal current_stage
+            current_stage = name
+            self.log(f"browser stage: {name}")
+
+        def complete_check(name: str) -> None:
+            self._record_browser_check(browser_checks, name)
+
+        report_stage(current_stage)
+        try:
             try:
+                from playwright.sync_api import sync_playwright
+            except ImportError:
+                raise SmokeFailure(
+                    "Playwright is required for the offline browser acceptance checks."
+                ) from None
+            assert self.access_token is not None
+            with sync_playwright() as playwright:
+                report_stage("launch_chromium")
                 browser = playwright.chromium.launch(
                     headless=True,
                     args=[
@@ -1609,151 +1646,178 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
                         "--disable-sync",
                     ],
                 )
-            except Exception:
-                raise SmokeFailure("Playwright Chromium is unavailable on this host.") from None
-            try:
-                context = browser.new_context(accept_downloads=True, service_workers="block")
-                response = context.request.post(
-                    f"{self.base_url}/api/access/session",
-                    data={"token": self.access_token},
-                    headers={"Origin": self.base_url},
-                    timeout=15_000,
-                )
-                if response.status != 204:
-                    raise SmokeFailure(
-                        "Chromium could not authenticate with the test-project session."
+                browser_operation_failed = False
+                try:
+                    report_stage("create_browser_context")
+                    context = browser.new_context(accept_downloads=True, service_workers="block")
+                    report_stage("authenticate_session")
+                    response = context.request.post(
+                        f"{self.base_url}/api/access/session",
+                        data={"token": self.access_token},
+                        headers={"Origin": self.base_url},
+                        timeout=15_000,
                     )
+                    if response.status != 204:
+                        raise SmokeFailure(
+                            "Chromium could not authenticate with the test-project session."
+                        )
 
-                def route_request(route) -> None:
-                    parsed = urlsplit(route.request.url)
+                    def route_request(route) -> None:
+                        parsed = urlsplit(route.request.url)
+                        if (
+                            parsed.scheme in {"http", "https"}
+                            and parsed.netloc != urlsplit(self.base_url).netloc
+                        ):
+                            blocked_hosts.append(parsed.hostname or "unknown-host")
+                            route.abort()
+                        else:
+                            route.continue_()
+
+                    report_stage("block_nonlocal_requests")
+                    context.route("**/*", route_request)
+                    context.grant_permissions(
+                        ["clipboard-read", "clipboard-write"], origin=self.base_url
+                    )
+                    page = context.new_page()
+                    report_stage("open_home")
+                    page.goto(f"{self.base_url}/", wait_until="domcontentloaded", timeout=30_000)
+
+                    open_undated_history_meeting(page, meeting_id, on_stage=report_stage)
+                    complete_check("history_read")
+
+                    report_stage("edit_meeting_title")
+                    page.locator("#edit-meeting").click()
+                    editor = page.locator("#edit-title")
+                    editor.fill("Offline browser smoke review")
+                    page.locator("#edit-save").click()
+                    page.wait_for_function(
+                        "document.querySelector('#meeting-title')?.textContent === 'Offline browser smoke review'",
+                        timeout=15_000,
+                    )
+                    complete_check("history_edit")
+
+                    report_stage("playback_and_seek")
+                    page.locator("#meeting-tab-transcript").click()
+                    audio = page.locator("#meeting-audio")
+                    page.wait_for_function(
+                        "document.querySelector('#meeting-audio')?.readyState >= 1",
+                        timeout=20_000,
+                    )
+                    playback = audio.evaluate(
+                        "async element => { element.currentTime = Math.min(1, element.duration / 3); "
+                        "await element.play(); return !element.paused; }"
+                    )
+                    if playback is not True:
+                        raise SmokeFailure("Browser audio playback did not start in offline mode.")
+                    page.wait_for_timeout(300)
+                    audio.evaluate("element => element.pause()")
+                    seek_target = min(
+                        2.0, max(0.5, (audio.evaluate("element => element.duration") or 3) / 2)
+                    )
+                    audio.evaluate(
+                        "(element, target) => { element.currentTime = target; }", seek_target
+                    )
+                    page.wait_for_function(
+                        "target => Math.abs(document.querySelector('#meeting-audio').currentTime - target) < 0.25",
+                        arg=seek_target,
+                        timeout=5_000,
+                    )
+                    complete_check("playback_and_seeking")
+
+                    report_stage("edit_transcript_and_speaker")
+                    first_row = page.locator(".transcript-segment").first
+                    first_row.locator(".segment-edit-button").click()
+                    first_row.locator(".segment-text-editor").fill(
+                        "Offline browser smoke text edit."
+                    )
+                    first_row.locator("button[type='submit']").click()
+                    page.wait_for_function(
+                        "!document.querySelector('.segment-edit-form')", timeout=15_000
+                    )
+                    speaker = page.locator("#speaker-catalog-list > li").first
+                    speaker.locator(".speaker-chip").click()
+                    speaker_input = speaker.locator("input")
+                    speaker_input.fill("Offline Browser Speaker")
+                    speaker_input.press("Enter")
+                    page.wait_for_function(
+                        "document.querySelector('#speaker-catalog-list')?.textContent.includes('Offline Browser Speaker')",
+                        timeout=15_000,
+                    )
+                    complete_check("local_transcript_and_speaker_edits")
+
+                    report_stage("copy_and_export_notes")
+                    page.locator("#meeting-tab-notes").click()
+                    page.locator("#notes-saved-work").wait_for(state="visible", timeout=20_000)
+                    page.locator("#notes-copy").click()
+                    page.wait_for_function(
+                        "async expected => await navigator.clipboard.readText() === expected",
+                        arg=note_markdown,
+                        timeout=10_000,
+                    )
+                    copied = page.evaluate("navigator.clipboard.readText()")
+                    if copied != note_markdown:
+                        raise SmokeFailure("Saved notes copy did not match the stored Markdown.")
+                    with page.expect_download(timeout=15_000) as download_info:
+                        page.locator("#notes-export").click()
+                    exported_path = download_info.value.path()
                     if (
-                        parsed.scheme in {"http", "https"}
-                        and parsed.netloc != urlsplit(self.base_url).netloc
+                        exported_path is None
+                        or Path(exported_path).read_text(encoding="utf-8") != note_markdown
                     ):
-                        blocked_hosts.append(parsed.hostname or "unknown-host")
-                        route.abort()
-                    else:
-                        route.continue_()
+                        raise SmokeFailure("Saved notes export did not match the stored Markdown.")
+                    complete_check("saved_notes_copy_export")
 
-                context.route("**/*", route_request)
-                context.grant_permissions(
-                    ["clipboard-read", "clipboard-write"], origin=self.base_url
-                )
-                page = context.new_page()
-                page.goto(f"{self.base_url}/", wait_until="domcontentloaded", timeout=30_000)
-                meeting_link = page.locator(f'a[href="/meetings/{meeting_id}"]').first
-                meeting_link.wait_for(state="visible", timeout=20_000)
-                meeting_link.click()
-                page.locator("#meeting-title").wait_for(state="visible", timeout=15_000)
-                browser_checks["history_read"] = True
-
-                page.locator("#edit-meeting").click()
-                editor = page.locator("#edit-title")
-                editor.fill("Offline browser smoke review")
-                page.locator("#edit-save").click()
-                page.wait_for_function(
-                    "document.querySelector('#meeting-title')?.textContent === 'Offline browser smoke review'",
-                    timeout=15_000,
-                )
-                browser_checks["history_edit"] = True
-
-                page.locator("#meeting-tab-transcript").click()
-                audio = page.locator("#meeting-audio")
-                page.wait_for_function(
-                    "document.querySelector('#meeting-audio')?.readyState >= 1", timeout=20_000
-                )
-                playback = audio.evaluate(
-                    "async element => { element.currentTime = Math.min(1, element.duration / 3); "
-                    "await element.play(); return !element.paused; }"
-                )
-                if playback is not True:
-                    raise SmokeFailure("Browser audio playback did not start in offline mode.")
-                page.wait_for_timeout(300)
-                audio.evaluate("element => element.pause()")
-                seek_target = min(
-                    2.0, max(0.5, (audio.evaluate("element => element.duration") or 3) / 2)
-                )
-                audio.evaluate(
-                    "(element, target) => { element.currentTime = target; }", seek_target
-                )
-                page.wait_for_function(
-                    "target => Math.abs(document.querySelector('#meeting-audio').currentTime - target) < 0.25",
-                    arg=seek_target,
-                    timeout=5_000,
-                )
-                browser_checks["playback_and_seeking"] = True
-
-                first_row = page.locator(".transcript-segment").first
-                first_row.locator(".segment-edit-button").click()
-                first_row.locator(".segment-text-editor").fill("Offline browser smoke text edit.")
-                first_row.locator("button[type='submit']").click()
-                page.wait_for_function(
-                    "!document.querySelector('.segment-edit-form')", timeout=15_000
-                )
-                speaker = page.locator("#speaker-catalog-list > li").first
-                speaker.locator(".speaker-chip").click()
-                speaker_input = speaker.locator("input")
-                speaker_input.fill("Offline Browser Speaker")
-                speaker_input.press("Enter")
-                page.wait_for_function(
-                    "document.querySelector('#speaker-catalog-list')?.textContent.includes('Offline Browser Speaker')",
-                    timeout=15_000,
-                )
-                browser_checks["local_transcript_and_speaker_edits"] = True
-
-                page.locator("#meeting-tab-notes").click()
-                page.locator("#notes-saved-work").wait_for(state="visible", timeout=20_000)
-                page.locator("#notes-copy").click()
-                page.wait_for_function(
-                    "async expected => await navigator.clipboard.readText() === expected",
-                    arg=note_markdown,
-                    timeout=10_000,
-                )
-                copied = page.evaluate("navigator.clipboard.readText()")
-                if copied != note_markdown:
-                    raise SmokeFailure("Saved notes copy did not match the stored Markdown.")
-                with page.expect_download(timeout=15_000) as download_info:
-                    page.locator("#notes-export").click()
-                exported_path = download_info.value.path()
-                if (
-                    exported_path is None
-                    or Path(exported_path).read_text(encoding="utf-8") != note_markdown
-                ):
-                    raise SmokeFailure("Saved notes export did not match the stored Markdown.")
-                browser_checks["saved_notes_copy_export"] = True
-
-                self._configure_notes_preference_in_browser_api(context)
-                page.evaluate(
-                    "meetingId => window.ASRMeetingHistory.refreshMeeting(meetingId)", meeting_id
-                )
-                page.wait_for_function(
-                    "document.querySelector('#notes-start')?.textContent.includes('Kết nối ChatGPT')",
-                    timeout=15_000,
-                )
-                page.on(
-                    "request",
-                    lambda request: (
-                        calls.append(request.url)
-                        if request.method == "POST" and request.url.endswith("/notes-runs")
-                        else None
-                    ),
-                )
-                page.locator("#notes-start").click()
-                page.locator("#connections-dialog").wait_for(state="visible", timeout=10_000)
-                if calls:
-                    raise SmokeFailure(
-                        "Provider-required action unexpectedly submitted a notes run."
+                    report_stage("open_provider_required_dialog")
+                    self._configure_notes_preference_in_browser_api(context)
+                    page.evaluate(
+                        "meetingId => window.ASRMeetingHistory.refreshMeeting(meetingId)",
+                        meeting_id,
                     )
-                browser_checks["provider_required_without_cloud_call"] = True
-                page.close()
-                context.close()
-            finally:
-                browser.close()
-        if blocked_hosts:
-            hosts = ", ".join(sorted(set(blocked_hosts)))
-            raise SmokeFailure(f"Browser attempted nonlocal requests; blocked hosts: {hosts}.")
-        self.log("Chromium used only same-origin requests; no nonlocal request was attempted")
-        return browser_checks
+                    page.wait_for_function(
+                        "document.querySelector('#notes-start')?.textContent.includes('Kết nối ChatGPT')",
+                        timeout=15_000,
+                    )
+                    page.on(
+                        "request",
+                        lambda request: (
+                            calls.append(request.url)
+                            if request.method == "POST" and request.url.endswith("/notes-runs")
+                            else None
+                        ),
+                    )
+                    page.locator("#notes-start").click()
+                    page.locator("#connections-dialog").wait_for(state="visible", timeout=10_000)
+                    if calls:
+                        raise SmokeFailure(
+                            "Provider-required action unexpectedly submitted a notes run."
+                        )
+                    complete_check("provider_required_without_cloud_call")
+
+                    report_stage("close_browser_context")
+                    page.close()
+                    context.close()
+                except Exception:
+                    browser_operation_failed = True
+                    raise
+                finally:
+                    if not browser_operation_failed:
+                        report_stage("close_browser")
+                    try:
+                        browser.close()
+                    except Exception as close_error:
+                        if not browser_operation_failed:
+                            raise
+                        self.log(f"browser cleanup failed; exception={type(close_error).__name__}")
+
+            report_stage("validate_same_origin_requests")
+            if blocked_hosts:
+                hosts = ", ".join(sorted(set(blocked_hosts)))
+                raise SmokeFailure(f"Browser attempted nonlocal requests; blocked hosts: {hosts}.")
+            self.log("Chromium used only same-origin requests; no nonlocal request was attempted")
+            return browser_checks
+        except Exception as error:
+            self.log(f"browser stage failed: {current_stage}; exception={type(error).__name__}")
+            raise
 
     def _run_acceptance(self) -> None:
         self.evidence["source_commit"] = self._source_commit()
