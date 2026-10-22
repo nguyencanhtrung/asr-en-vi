@@ -650,6 +650,14 @@ def _confirm_meeting_deletion(page, meeting_title):
     expect(dialog).to_contain_text("Hủy chép lời")
     expect(dialog).to_contain_text("Hủy tạo notes")
     expect(dialog).to_contain_text("chờ tác vụ kết thúc")
+    expect(dialog.locator("#meeting-delete-cancel")).to_have_text("Đóng")
+    expect(dialog.locator("#meeting-delete-help")).to_contain_text(
+        "Đóng hộp thoại sau khi xác nhận không hủy yêu cầu xóa"
+    )
+    expect(dialog.locator("#meeting-delete-help")).to_contain_text("Nếu dọn dẹp bị gián đoạn")
+    expect(dialog.locator("#meeting-delete-help")).to_contain_text(
+        "có thể thử lại sau khi khắc phục lỗi lưu trữ"
+    )
     confirm = page.locator("#meeting-delete-confirm")
     expect(confirm).to_be_disabled()
     page.locator("#meeting-delete-confirmation").fill("wrong name")
@@ -755,6 +763,20 @@ def test_delete_ui_keeps_failed_cleanup_visible_and_retries(live, browser_contex
     expect(page.locator("#delete-meeting")).to_have_text("Thử dọn tiếp")
     assert external_file.read_bytes() == b"leave this outside data alone"
 
+    page.locator("#meeting-delete-cancel").click()
+    expect(page.locator("#meeting-delete-dialog")).to_be_hidden()
+    page.locator("#delete-meeting").click()
+    dialog = page.locator("#meeting-delete-dialog")
+    expect(dialog).to_be_visible()
+    expect(dialog.locator("#meeting-delete-cancel")).to_have_text("Đóng")
+    expect(dialog.locator("#meeting-delete-help")).to_contain_text(
+        "Đóng hộp thoại sau khi xác nhận không hủy yêu cầu xóa"
+    )
+    expect(dialog.locator("#meeting-delete-help")).to_contain_text("Nếu dọn dẹp bị gián đoạn")
+    expect(dialog.locator("#meeting-delete-help")).to_contain_text(
+        "có thể thử lại sau khi khắc phục lỗi lưu trữ"
+    )
+
     upload_dir.unlink()
     upload_dir.mkdir()
     page.locator("#meeting-delete-confirmation").fill("Retry deletion target")
@@ -804,6 +826,16 @@ def test_pending_meeting_delete_is_scoped_across_navigation(
         expect(page.locator("#meeting-deletion-status")).to_be_visible()
         expect(page.locator("#meeting-deletion-status")).to_contain_text("Dọn dẹp chưa hoàn tất")
         expect(page.locator("#meeting-deletion-status")).to_contain_text("Thử dọn tiếp")
+        dialog = page.locator("#meeting-delete-dialog")
+        expect(dialog).to_be_visible()
+        expect(dialog.locator("#meeting-delete-cancel")).to_have_text("Đóng")
+        expect(dialog.locator("#meeting-delete-help")).to_contain_text(
+            "Đóng hộp thoại sau khi xác nhận không hủy yêu cầu xóa"
+        )
+        expect(dialog.locator("#meeting-delete-help")).to_contain_text("Nếu dọn dẹp bị gián đoạn")
+        expect(dialog.locator("#meeting-delete-help")).to_contain_text(
+            "có thể thử lại sau khi khắc phục lỗi lưu trữ"
+        )
 
         page.locator("#meeting-delete-cancel").click()
         expect(page.locator("#meeting-delete-dialog")).to_be_hidden()
