@@ -6,7 +6,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 def _migrate_v2(connection: sqlite3.Connection) -> None:
@@ -508,6 +508,22 @@ def _migrate_v11(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v12(connection: sqlite3.Connection) -> None:
+    """Persist restartable meeting deletion and scope speaker removal to marked meetings."""
+    connection.execute("ALTER TABLE meetings ADD COLUMN deletion_requested_at TEXT")
+    connection.execute("ALTER TABLE meetings ADD COLUMN deletion_error_code TEXT")
+    connection.execute("DROP TRIGGER generation_speakers_delete_guard")
+    connection.execute(
+        "CREATE TRIGGER generation_speakers_delete_guard BEFORE DELETE ON generation_speakers "
+        "WHEN NOT EXISTS ("
+        "SELECT 1 FROM transcript_generations AS generations "
+        "JOIN meetings ON meetings.id = generations.meeting_id "
+        "WHERE generations.id = OLD.generation_id "
+        "AND meetings.deletion_requested_at IS NOT NULL) "
+        "BEGIN SELECT RAISE(ABORT, 'generation_speakers_are_immutable'); END"
+    )
+
+
 def database_path(data_dir: Path) -> Path:
     return Path(data_dir) / "app.sqlite3"
 
@@ -620,6 +636,9 @@ def initialize(data_dir: Path) -> Path:
         if current_version < 11:
             _migrate_v11(connection)
             connection.execute("INSERT INTO schema_migrations(version) VALUES (11)")
+        if current_version < 12:
+            _migrate_v12(connection)
+            connection.execute("INSERT INTO schema_migrations(version) VALUES (12)")
         connection.commit()
     finally:
         connection.close()

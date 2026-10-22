@@ -190,10 +190,18 @@ def accept_transcription_task(
     with _connect(data_dir) as connection, connection:
         connection.execute("BEGIN IMMEDIATE")
         meeting = connection.execute(
-            "SELECT id, language_hint FROM meetings WHERE id = ?", (meeting_id,)
+            "SELECT id, language_hint, deletion_requested_at FROM meetings WHERE id = ?",
+            (meeting_id,),
         ).fetchone()
         if meeting is None:
             raise TaskError(404, "meeting_not_found", "Meeting not found.")
+        if meeting["deletion_requested_at"] is not None:
+            raise TaskError(
+                409,
+                "meeting_deletion_pending",
+                "This meeting is being deleted. Wait for cleanup to finish before starting "
+                "another task.",
+            )
         normalized_language_hint = (
             meeting["language_hint"]
             if language_hint is _LANGUAGE_HINT_UNSET

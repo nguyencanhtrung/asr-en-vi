@@ -192,8 +192,12 @@
           <div class="meeting-intro">
             <h2 id="meeting-title" tabindex="-1"></h2>
             <button class="secondary-button edit-meeting-button" id="edit-meeting" type="button" aria-describedby="notes-lock-status">Sửa tên và ngày</button>
+            <button class="secondary-button delete-meeting-button" id="delete-meeting" type="button" aria-haspopup="dialog" aria-controls="meeting-delete-dialog">Xóa cuộc họp</button>
             <p class="edit-status" id="edit-status" role="status"></p>
           </div>
+          <section class="meeting-deletion-status" id="meeting-deletion-status" role="status" aria-live="polite" hidden>
+            <p id="meeting-deletion-message"></p>
+          </section>
           <form class="meeting-edit" id="meeting-edit" aria-label="Sửa tên và ngày họp" novalidate hidden>
             <div class="field-row">
               <div class="field-group">
@@ -590,6 +594,31 @@
             <button class="primary-button" id="create-meeting" type="submit" disabled>Tạo cuộc họp</button>
           </footer>
         </form>
+      </div>
+    </dialog>
+
+    <dialog class="meeting-delete-dialog" id="meeting-delete-dialog" aria-labelledby="meeting-delete-title">
+      <div class="meeting-delete-shell">
+        <header class="meeting-delete-header">
+          <h2 id="meeting-delete-title">Xóa cuộc họp và dữ liệu đã lưu?</h2>
+          <button class="icon-button" id="meeting-delete-close" type="button" aria-label="Đóng hộp thoại xác nhận xóa">
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
+          </button>
+        </header>
+        <div class="meeting-delete-body">
+          <p>Hành động này xóa transcript, người nói, notes và audio do workspace quản lý. File nguồn bên ngoài không bị thay đổi. Nếu transcript hoặc notes đang chạy, hãy dùng <strong>Hủy chép lời</strong> hoặc <strong>Hủy tạo notes</strong> trong tab tương ứng, chờ tác vụ kết thúc rồi thử lại.</p>
+          <p class="meeting-delete-name" id="meeting-delete-name"></p>
+          <form id="meeting-delete-form" novalidate>
+            <label for="meeting-delete-confirmation">Nhập chính xác tên cuộc họp để xác nhận</label>
+            <input id="meeting-delete-confirmation" type="text" autocomplete="off" aria-describedby="meeting-delete-help meeting-delete-error" />
+            <p class="field-help" id="meeting-delete-help">Nếu dọn dẹp bị gián đoạn, cuộc họp sẽ còn được đánh dấu và có thể thử lại sau khi khắc phục lỗi lưu trữ.</p>
+            <p class="meeting-delete-error" id="meeting-delete-error" role="alert" aria-live="assertive" hidden></p>
+            <div class="meeting-delete-actions">
+              <button class="secondary-button" id="meeting-delete-cancel" type="button">Giữ cuộc họp</button>
+              <button class="primary-button meeting-delete-confirm" id="meeting-delete-confirm" type="submit" disabled>Xóa dữ liệu đã lưu</button>
+            </div>
+          </form>
+        </div>
       </div>
     </dialog>
 

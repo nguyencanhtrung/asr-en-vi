@@ -107,6 +107,9 @@
     transcriptionLanguageMeetingId: null,
     transcriptionLanguageSelection: null,
     taskRequestError: null,
+    deletionRequestPending: false,
+    deletionRequestMeetingId: null,
+    deletionMessage: "",
   };
 
   // ---- views ----
@@ -366,6 +369,13 @@
     if (meeting.duration_seconds > 0) parts.push(formatRecordingDuration(meeting.duration_seconds));
     date.textContent = parts.join(" · ");
     link.append(title, date);
+    if (meeting.deletion_status) {
+      const deletionState = document.createElement("span");
+      deletionState.className = "meeting-link-deletion-state";
+      deletionState.dataset.state = meeting.deletion_status;
+      deletionState.textContent = meeting.deletion_status === "failed" ? "Dọn dẹp bị lỗi" : "Đang dọn dẹp";
+      link.append(deletionState);
+    }
     return link;
   }
 
@@ -704,7 +714,30 @@
     if (date.dateTime) dateElement.setAttribute("datetime", date.dateTime);
     else dateElement.removeAttribute("datetime");
     $("#meeting-language").textContent = LANGUAGES[meeting.language_hint];
+    renderMeetingDeletion(meeting);
     renderTranscription(meeting.transcription);
+  }
+
+  function renderMeetingDeletion(meeting) {
+    const markerStatus = meeting && meeting.deletion_status;
+    const requestPending = state.deletionRequestPending
+      && state.deletionRequestMeetingId === meeting.id;
+    const status = $("#meeting-deletion-status");
+    const message = $("#meeting-deletion-message");
+    const visible = Boolean(requestPending || markerStatus || state.deletionMessage);
+    status.hidden = !visible;
+    status.dataset.state = requestPending ? "pending" : (markerStatus || "error");
+    $("#delete-meeting").disabled = requestPending;
+    $("#delete-meeting").textContent = markerStatus ? "Thử dọn tiếp" : "Xóa cuộc họp";
+    if (requestPending) {
+      message.textContent = "Đang dọn audio và dữ liệu do workspace quản lý. Chỉ máy chủ mới xác nhận hoàn tất sau khi dọn file và lưu thay đổi cuối cùng.";
+    } else if (markerStatus === "failed") {
+      message.textContent = "Dọn dẹp chưa hoàn tất. Yêu cầu đã được lưu để thử lại khi khởi động; khắc phục lỗi lưu trữ rồi bấm “Thử dọn tiếp”.";
+    } else if (markerStatus === "pending") {
+      message.textContent = "Yêu cầu dọn dẹp đang được lưu. Cuộc họp vẫn còn cho tới khi file managed được xử lý và cơ sở dữ liệu xác nhận xóa.";
+    } else {
+      message.textContent = state.deletionMessage;
+    }
   }
 
   const ACTIVE_TASK_STATES = new Set(["accepted", "running", "stopping"]);
@@ -3580,6 +3613,7 @@
       if (known && known.id === meeting.id && known.metadata_version > meeting.metadata_version) meeting = known;
       rotateTerminalTaskRequestId(meetingId, meeting.transcription && meeting.transcription.task);
       installServerMeeting(meeting);
+      state.deletionMessage = "";
       renderMeeting(meeting);
       const audio = $("#meeting-audio");
       if (audio.dataset.meetingId !== meeting.id) {
@@ -3604,6 +3638,93 @@
       const message = error instanceof ApiError ? error.message : (error && error.message) || "Không thể tải dữ liệu cuộc họp.";
       showMeetingError(`${message} Hãy kiểm tra phiên truy cập hoặc mở lại cuộc họp từ workspace.`);
       return true;
+    }
+  }
+
+  function openMeetingDeletion() {
+    const meeting = state.meeting;
+    if (!meeting || state.deletionRequestPending) return;
+    $("#meeting-delete-name").textContent = meeting.title;
+    $("#meeting-delete-confirmation").value = "";
+    $("#meeting-delete-error").textContent = "";
+    $("#meeting-delete-error").hidden = true;
+    $("#meeting-delete-confirm").disabled = true;
+    $("#meeting-delete-dialog").showModal();
+    $("#meeting-delete-confirmation").focus();
+  }
+
+  async function deleteCurrentMeeting(event) {
+    event.preventDefault();
+    const meeting = state.meeting;
+    if (!meeting || state.deletionRequestPending) return;
+    if ($("#meeting-delete-confirmation").value !== meeting.title) return;
+    const meetingId = meeting.id;
+    const confirmButton = $("#meeting-delete-confirm");
+    $("#meeting-delete-error").textContent = "";
+    $("#meeting-delete-error").hidden = true;
+    confirmButton.disabled = true;
+    confirmButton.textContent = "Đang dọn dữ liệu…";
+    state.deletionRequestPending = true;
+    state.deletionRequestMeetingId = meetingId;
+    state.deletionMessage = "";
+    renderMeetingDeletion(meeting);
+    try {
+      const result = await requestJson(`/api/meetings/${encodeURIComponent(meetingId)}`, {
+        method: "DELETE",
+      });
+      if (result.meeting_id !== meetingId || result.status !== "deleted") {
+        throw new Error("Máy chủ chưa xác nhận việc xóa cuộc họp.");
+      }
+      const dialog = $("#meeting-delete-dialog");
+      if (dialog.open) dialog.close();
+      state.deletionRequestPending = false;
+      state.deletionRequestMeetingId = null;
+      state.deletionMessage = "";
+      state.meetings = state.meetings.filter((item) => item.id !== meetingId);
+      state.recent = state.recent.filter((item) => item.id !== meetingId);
+      state.results = state.results.filter((item) => item.id !== meetingId);
+      state.total = Math.max(0, state.total - 1);
+      renderSidebar();
+      renderCalendars();
+      if (state.meeting && state.meeting.id === meetingId) {
+        if (window.location.pathname !== "/" || window.location.search || window.location.hash) {
+          window.history.pushState({}, "", "/");
+        }
+        state.meeting = null;
+        showHome();
+        $("#page-title").focus();
+      }
+      await refreshHistory();
+    } catch (error) {
+      state.deletionRequestPending = false;
+      state.deletionRequestMeetingId = null;
+      const failureMessage = error && error.message
+        ? error.message
+        : "Không thể xác nhận trạng thái dọn dẹp. Hãy tải lại cuộc họp để kiểm tra.";
+      const code = error instanceof ApiError
+        && error.payload
+        && error.payload.detail
+        && error.payload.detail.code;
+      const userMessage = code === "meeting_task_active"
+        ? "Cuộc họp còn tác vụ đang chạy. Hãy hủy chép lời hoặc tạo notes, rồi chờ trạng thái kết thúc trước khi xóa."
+        : code === "meeting_deletion_cleanup_failed"
+          ? "Dọn dẹp chưa hoàn tất. Yêu cầu đã được lưu để thử lại khi khởi động; khắc phục lỗi lưu trữ rồi thử lại."
+          : failureMessage;
+      state.deletionMessage = userMessage;
+      if (state.meeting && state.meeting.id === meetingId) {
+        renderMeetingDeletion(state.meeting);
+        try {
+          await loadMeeting(meetingId);
+        } catch {
+          // Keep the API failure visible in the confirmation dialog.
+        }
+      }
+      const errorPanel = $("#meeting-delete-error");
+      errorPanel.textContent = userMessage;
+      errorPanel.hidden = false;
+      confirmButton.textContent = "Thử dọn tiếp";
+      $("#meeting-delete-confirmation").value = "";
+      confirmButton.disabled = true;
     }
   }
 
@@ -3830,6 +3951,21 @@
   $("#open-calendar").addEventListener("click", openCalendar);
   $("#calendar-back").addEventListener("click", leaveCalendar);
   $("#edit-meeting").addEventListener("click", openEditor);
+  $("#delete-meeting").addEventListener("click", openMeetingDeletion);
+  $("#meeting-delete-form").addEventListener("submit", (event) => void deleteCurrentMeeting(event));
+  $("#meeting-delete-confirmation").addEventListener("input", (event) => {
+    const meeting = state.meeting;
+    $("#meeting-delete-confirm").disabled = !meeting
+      || state.deletionRequestPending
+      || event.currentTarget.value !== meeting.title;
+  });
+  $("#meeting-delete-cancel").addEventListener("click", () => $("#meeting-delete-dialog").close());
+  $("#meeting-delete-close").addEventListener("click", () => $("#meeting-delete-dialog").close());
+  $("#meeting-delete-dialog").addEventListener("close", () => {
+    $("#meeting-delete-confirmation").value = "";
+    $("#meeting-delete-confirm").textContent = "Xóa dữ liệu đã lưu";
+    $("#meeting-delete-confirm").disabled = true;
+  });
   $("#edit-cancel").addEventListener("click", () => {
     closeEditor();
     $("#edit-meeting").focus();

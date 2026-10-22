@@ -147,8 +147,23 @@ def _request_hash(
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def _existing_task(data_dir: Path, request_id: str, request_hash: str) -> dict[str, object] | None:
-    with _connect_read_only(data_dir) as connection:
+def _existing_task(
+    data_dir: Path, request_id: str, request_hash: str, meeting_id: str
+) -> dict[str, object] | None:
+    with _connect(data_dir) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        meeting = connection.execute(
+            "SELECT deletion_requested_at FROM meetings WHERE id = ?", (meeting_id,)
+        ).fetchone()
+        if meeting is None:
+            raise TaskError(404, "meeting_not_found", "Meeting not found.")
+        if meeting["deletion_requested_at"] is not None:
+            raise TaskError(
+                409,
+                "meeting_deletion_pending",
+                "This meeting is being deleted. Wait for cleanup to finish before starting "
+                "another task.",
+            )
         row = connection.execute(
             "SELECT * FROM tasks WHERE request_id = ?", (request_id,)
         ).fetchone()
@@ -351,7 +366,7 @@ def accept_notes_task(
         expected_model=confirmed_model,
         expected_reasoning_effort=confirmed_effort,
     )
-    existing = _existing_task(data_dir, normalized_request_id, request_hash)
+    existing = _existing_task(data_dir, normalized_request_id, request_hash, meeting_id)
     if existing is not None:
         return existing
     if not worker_ready:
@@ -379,6 +394,20 @@ def accept_notes_task(
             )
         with _connect(data_dir) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
+            meeting = connection.execute(
+                "SELECT id, meeting_date, language_hint, metadata_version, notes_source_version, "
+                "current_generation_id, deletion_requested_at FROM meetings WHERE id = ?",
+                (meeting_id,),
+            ).fetchone()
+            if meeting is None:
+                raise TaskError(404, "meeting_not_found", "Meeting not found.")
+            if meeting["deletion_requested_at"] is not None:
+                raise TaskError(
+                    409,
+                    "meeting_deletion_pending",
+                    "This meeting is being deleted. Wait for cleanup to finish before starting "
+                    "another task.",
+                )
             existing_row = connection.execute(
                 "SELECT * FROM tasks WHERE request_id = ?", (normalized_request_id,)
             ).fetchone()
@@ -391,13 +420,6 @@ def accept_notes_task(
                     )
                 return _task_summary(existing_row)
 
-            meeting = connection.execute(
-                "SELECT id, meeting_date, language_hint, metadata_version, "
-                "notes_source_version, current_generation_id FROM meetings WHERE id = ?",
-                (meeting_id,),
-            ).fetchone()
-            if meeting is None:
-                raise TaskError(404, "meeting_not_found", "Meeting not found.")
             if meeting["metadata_version"] != metadata_version:
                 raise TaskError(
                     409,

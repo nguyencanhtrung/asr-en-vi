@@ -512,6 +512,8 @@ def create_meeting(
 
 def _meeting_summary(row: sqlite3.Row) -> dict[str, object]:
     meeting_id = row["id"]
+    deletion_requested_at = row["deletion_requested_at"]
+    deletion_error_code = row["deletion_error_code"]
     return {
         "id": meeting_id,
         "meeting_url": f"/meetings/{meeting_id}",
@@ -521,6 +523,10 @@ def _meeting_summary(row: sqlite3.Row) -> dict[str, object]:
         "metadata_version": row["metadata_version"],
         "notes_source_version": row["notes_source_version"],
         "created_at": row["created_at"],
+        "deletion_status": ("failed" if deletion_error_code else "pending")
+        if deletion_requested_at
+        else None,
+        "deletion_error_code": deletion_error_code,
         "recording": {
             "id": row["recording_id"],
             "duration_seconds": row["duration_seconds"],
@@ -558,6 +564,8 @@ def get_meeting(data_dir: Path, meeting_id: str) -> dict[str, object]:
 
 
 def _history_item(row: sqlite3.Row) -> dict[str, object]:
+    deletion_requested_at = row["deletion_requested_at"]
+    deletion_error_code = row["deletion_error_code"]
     return {
         "id": row["id"],
         "meeting_url": f"/meetings/{row['id']}",
@@ -565,6 +573,9 @@ def _history_item(row: sqlite3.Row) -> dict[str, object]:
         "meeting_date": row["meeting_date"],
         "metadata_version": row["metadata_version"],
         "duration_seconds": row["duration_seconds"],
+        "deletion_status": ("failed" if deletion_error_code else "pending")
+        if deletion_requested_at
+        else None,
     }
 
 
@@ -580,7 +591,8 @@ def list_meetings(data_dir: Path, *, query: str | None = None) -> dict[str, obje
     with _connect(data_dir) as connection:
         rows = connection.execute(
             "SELECT meetings.id, meetings.title, meetings.meeting_date, "
-            "meetings.metadata_version, recordings.duration_seconds "
+            "meetings.metadata_version, meetings.deletion_requested_at, "
+            "meetings.deletion_error_code, recordings.duration_seconds "
             "FROM meetings JOIN recordings ON recordings.meeting_id = meetings.id "
             "ORDER BY meetings.meeting_date IS NULL, meetings.meeting_date DESC, "
             "meetings.created_at DESC, meetings.rowid DESC"
@@ -615,11 +627,18 @@ def update_meeting(
     with _connect(data_dir) as connection, connection:
         connection.execute("BEGIN IMMEDIATE")
         current = connection.execute(
-            "SELECT title, meeting_date, metadata_version FROM meetings WHERE id = ?",
+            "SELECT title, meeting_date, metadata_version, deletion_requested_at "
+            "FROM meetings WHERE id = ?",
             (meeting_id,),
         ).fetchone()
         if current is None:
             raise RecordingError(404, "meeting_not_found", "Meeting not found.")
+        if current["deletion_requested_at"] is not None:
+            raise RecordingError(
+                409,
+                "meeting_deletion_pending",
+                "This meeting is being deleted. Wait for cleanup to finish before editing it.",
+            )
         if current["metadata_version"] != expected_version:
             raise RecordingError(
                 409,

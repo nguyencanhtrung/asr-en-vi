@@ -642,6 +642,125 @@ def test_history_search_calendar_navigation_and_return(live, browser_context):
         anonymous.close()
 
 
+def _confirm_meeting_deletion(page, meeting_title):
+    page.locator("#delete-meeting").click()
+    dialog = page.locator("#meeting-delete-dialog")
+    expect(dialog).to_be_visible()
+    expect(dialog).to_contain_text("File nguồn bên ngoài không bị thay đổi")
+    expect(dialog).to_contain_text("Hủy chép lời")
+    expect(dialog).to_contain_text("Hủy tạo notes")
+    expect(dialog).to_contain_text("chờ tác vụ kết thúc")
+    confirm = page.locator("#meeting-delete-confirm")
+    expect(confirm).to_be_disabled()
+    page.locator("#meeting-delete-confirmation").fill("wrong name")
+    expect(confirm).to_be_disabled()
+    page.locator("#meeting-delete-confirmation").fill(meeting_title)
+    expect(confirm).to_be_enabled()
+    confirm.click()
+
+
+def test_meeting_deletion_refreshes_recent_search_calendar_and_undated(live, browser_context):
+    dated = seed_meeting(live.settings.data_dir, "Dated deletion target", "2026-10-14")
+    undated = seed_meeting(live.settings.data_dir, "Undated item to remove")
+    seed_meeting(live.settings.data_dir, "Keep this calendar meeting", "2026-10-14")
+    context, page = browser_context
+    page.goto(f"{live.url}/", wait_until="domcontentloaded")
+    expect(page.locator("#recent-list a")).to_have_count(2)
+
+    page.locator("#recent-list a").filter(has_text="Dated deletion target").click()
+    expect(page.locator("#meeting-title")).to_have_text("Dated deletion target")
+    _confirm_meeting_deletion(page, "Dated deletion target")
+    page.wait_for_url(f"{live.url}/")
+    expect(page.locator("#recent-list a")).to_have_count(1)
+    expect(page.locator("#recent-list")).not_to_contain_text("Dated deletion target")
+    search = page.get_by_label("Tìm cuộc họp theo tên")
+    search.fill("Dated deletion target")
+    expect(page.locator("#search-empty")).to_be_visible()
+    search.fill("")
+    open_calendar(page)
+    expect(
+        page.locator('#large-calendar .cal-day[data-date="2026-10-14"] .cal-count')
+    ).to_have_text("1")
+    expect(page.locator("#large-calendar .cal-undated-count")).to_have_text("1")
+    page.get_by_role("button", name="Quay lại notes").click()
+
+    search.fill("Undated item to remove")
+    page.locator("#recent-list a").filter(has_text="Undated item to remove").click()
+    expect(page.locator("#meeting-title")).to_have_text("Undated item to remove")
+    _confirm_meeting_deletion(page, "Undated item to remove")
+    page.wait_for_url(f"{live.url}/")
+    search.fill("")
+    expect(page.locator("#recent-list a")).to_have_count(1)
+    expect(page.locator("#recent-list")).not_to_contain_text("Undated item to remove")
+    expect(page.locator("#recent-list")).to_contain_text("Keep this calendar meeting")
+    open_calendar(page)
+    expect(page.locator("#large-calendar .cal-undated-count")).to_have_text("0")
+    page.locator("#large-calendar .cal-undated").click()
+    expect(page.locator("#day-panel-list a")).to_have_count(0)
+    expect(page.locator("#day-panel-empty")).to_have_text("Mọi cuộc họp đều đã có ngày.")
+    assert context.request.get(f"{live.url}/api/meetings/{dated}").status == 404
+    assert context.request.get(f"{live.url}/api/meetings/{undated}").status == 404
+
+
+def test_delete_ui_guides_active_task_cancel_and_wait(live, browser_context, tmp_path):
+    from asr_en_vi.tasks import accept_transcription_task
+
+    meeting_id = seed_meeting(live.settings.data_dir, "Active deletion target", "2026-10-14")
+    model_path = _prepare_browser_asr_model(tmp_path / "whisper-model")
+    diarization_path = prepare_diarization_model(tmp_path / "diarization-model")
+    accept_transcription_task(
+        live.settings.data_dir,
+        meeting_id=meeting_id,
+        request_id="browser-delete-active-task",
+        model_path=model_path,
+        diarization_model_path=diarization_path,
+        device="cpu",
+        compute_type="int8",
+        worker_ready=True,
+    )
+    context, page = browser_context
+    page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
+    expect(page.locator("#meeting-title")).to_have_text("Active deletion target")
+
+    _confirm_meeting_deletion(page, "Active deletion target")
+
+    expect(page.locator("#meeting-delete-error")).to_contain_text("chờ trạng thái kết thúc")
+    expect(page.locator("#meeting-deletion-status")).to_be_hidden()
+    assert context.request.get(f"{live.url}/api/meetings/{meeting_id}").status == 200
+
+
+def test_delete_ui_keeps_failed_cleanup_visible_and_retries(live, browser_context, tmp_path):
+    meeting_id = seed_meeting(live.settings.data_dir, "Retry deletion target", "2026-10-14")
+    with sqlite3.connect(database_path(live.settings.data_dir)) as connection:
+        upload_id = connection.execute(
+            "SELECT upload_id FROM recordings WHERE meeting_id = ?", (meeting_id,)
+        ).fetchone()[0]
+    outside = tmp_path / "external-targets"
+    outside.mkdir()
+    external_file = outside / f"{upload_id}.part"
+    external_file.write_bytes(b"leave this outside data alone")
+    upload_dir = live.settings.data_dir / "uploads"
+    upload_dir.rmdir()
+    upload_dir.symlink_to(outside, target_is_directory=True)
+
+    context, page = browser_context
+    page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
+    _confirm_meeting_deletion(page, "Retry deletion target")
+    expect(page.locator("#meeting-delete-error")).to_contain_text("Yêu cầu đã được lưu")
+    expect(page.locator("#meeting-deletion-status")).to_be_visible()
+    expect(page.locator("#meeting-deletion-status")).to_contain_text("Dọn dẹp chưa hoàn tất")
+    expect(page.locator("#delete-meeting")).to_have_text("Thử dọn tiếp")
+    assert external_file.read_bytes() == b"leave this outside data alone"
+
+    upload_dir.unlink()
+    upload_dir.mkdir()
+    page.locator("#meeting-delete-confirmation").fill("Retry deletion target")
+    page.locator("#meeting-delete-confirm").click()
+    page.wait_for_url(f"{live.url}/")
+    expect(page.locator("#recent-list a")).to_have_count(0)
+    assert context.request.get(f"{live.url}/api/meetings/{meeting_id}").status == 404
+
+
 def test_wordmark_home_preserves_unsaved_transcript_draft(live, browser_context):
     _context, page = browser_context
     meeting_id = seed_meeting(

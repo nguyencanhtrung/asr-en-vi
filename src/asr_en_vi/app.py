@@ -18,6 +18,7 @@ from asr_en_vi.antigravity import (
 from asr_en_vi.auth import AuthStateError, AuthStore, session_is_valid
 from asr_en_vi.chatgpt import ChatGPTAdapter, ChatGPTHTTPAdapter, ChatGPTProvider
 from asr_en_vi.config import CHATGPT_CALLBACK_PATH, Settings
+from asr_en_vi.meeting_deletion import recover_pending_meeting_deletions
 from asr_en_vi.notes import assert_provider_mutation_allowed
 from asr_en_vi.recordings import recover_recordings
 from asr_en_vi.routes import SESSION_COOKIE, install_routes
@@ -146,6 +147,7 @@ def create_app(
             antigravity_provider.ensure()
             initialize(runtime_settings.data_dir)
             recover_recordings(runtime_settings.data_dir)
+            recover_pending_meeting_deletions(runtime_settings.data_dir)
             yield
         finally:
             os.umask(previous_umask)
