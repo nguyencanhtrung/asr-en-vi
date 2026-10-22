@@ -18,6 +18,7 @@ from asr_en_vi.auth import AuthStateError, create_session_cookie, token_matches
 from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
 from asr_en_vi.config import Settings
 from asr_en_vi.media import ALLOWED_EXTENSIONS, OUTPUT_BITRATE, OUTPUT_CODEC
+from asr_en_vi.meeting_deletion import MeetingDeletionError, delete_meeting
 from asr_en_vi.notes_routes import install_notes_routes
 from asr_en_vi.recordings import (
     RecordingError,
@@ -81,6 +82,13 @@ def _raise_recording_error(error: RecordingError) -> None:
 
 
 def _raise_task_error(error: TaskError) -> None:
+    raise HTTPException(
+        status_code=error.status_code,
+        detail={"code": error.code, "message": error.message},
+    ) from None
+
+
+def _raise_meeting_deletion_error(error: MeetingDeletionError) -> None:
     raise HTTPException(
         status_code=error.status_code,
         detail={"code": error.code, "message": error.message},
@@ -550,6 +558,13 @@ def install_routes(
             )
         except RecordingError as error:
             _raise_recording_error(error)
+
+    @app.delete("/api/meetings/{meeting_id}")
+    async def remove_meeting(meeting_id: str) -> dict[str, str]:
+        try:
+            return await run_in_threadpool(delete_meeting, settings.data_dir, meeting_id)
+        except MeetingDeletionError as error:
+            _raise_meeting_deletion_error(error)
 
     @app.get("/api/meetings/{meeting_id}")
     async def read_meeting(meeting_id: str) -> dict[str, object]:

@@ -102,6 +102,16 @@ trăm. Nút hủy ghi **Hủy chép lời**. Giao diện còn hiển thị thờ
 timestamp cuối cùng nhận được, không có ETA. Tiến độ đọc từ lần poll tác vụ hiện có, không thêm
 request.
 
+Trong trang cuộc họp, **Xóa cuộc họp** yêu cầu nhập đúng tên trước khi gửi yêu cầu xóa. Nếu
+transcript hoặc notes đang chạy, giao diện hướng dẫn hủy tác vụ và chờ trạng thái kết thúc rồi thử
+lại. Sau khi máy chủ chấp nhận xóa, ứng dụng đánh dấu cuộc họp trong SQLite trước, rồi xóa audio,
+upload và file tạm do workspace quản lý; file nguồn bên ngoài không bị thay đổi. Transcript, các
+thế hệ và người nói, snapshot nguồn notes cùng mọi phiên bản notes chỉ bị xóa khỏi cơ sở dữ liệu
+sau khi dọn file thành công. Nếu dọn dẹp lỗi hoặc tiến trình dừng giữa chừng, giao diện giữ cuộc họp
+ở trạng thái chờ/thất bại, cho phép thử lại, và ứng dụng tiếp tục xử lý các dấu xóa còn lại khi khởi
+động. Cuộc họp chỉ biến mất khỏi lịch sử, tìm kiếm, lịch và nhóm **Chưa đặt ngày** sau khi bước xóa
+cuối cùng được lưu thành công.
+
 Lựa chọn English hoặc Tiếng Việt khi import chỉ là gợi ý metadata. Runner luôn dùng tác vụ
 `transcribe`, tự phát hiện ngôn ngữ theo từng đoạn và không ép transcript sang ngôn ngữ đã chọn.
 

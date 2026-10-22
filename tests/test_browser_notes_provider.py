@@ -642,6 +642,113 @@ def test_pending_retry_resends_stored_body_while_preferences_fail(
     assert bodies[1] == bodies[0]
 
 
+def test_complete_pending_retry_survives_choice_reload_between_pointer_events(
+    live, signed_in, fake_notes_provider
+):
+    _context, page = signed_in()
+    meeting_id, _generation, _ = seed_completed_transcript(live.settings.data_dir)
+    save_preference(page, live, "chatgpt", CHATGPT_MODEL, "high")
+    mock_providers(page, live)
+    bodies: list[dict] = []
+
+    def notes_request(route):
+        bodies.append(json.loads(route.request.post_data or "{}"))
+        if len(bodies) == 1:
+            route.fulfill(status=503, json={"detail": {"code": "temporary", "message": "Retry."}})
+        else:
+            route.continue_()
+
+    page.route(f"{live.url}/api/meetings/{meeting_id}/notes-runs", notes_request)
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
+    button = page.locator("#notes-start")
+    expect(button).to_be_enabled()
+    button.click()
+    expect(button).to_have_text("Xác minh yêu cầu notes")
+    assert bodies[0]["expected_model"] == CHATGPT_MODEL
+    assert bodies[0]["expected_reasoning_effort"] == "high"
+
+    page.route(
+        f"{live.url}/api/notes-preferences",
+        lambda route: route.fulfill(status=500, json={"detail": {"code": "x", "message": "x"}}),
+    )
+    page.reload()
+    expect(button).to_have_text("Xác minh yêu cầu notes")
+    expect(button).to_be_enabled()
+
+    held = []
+    page.route(f"{live.url}/api/notes-preferences", lambda route: held.append(route))
+    bounds = button.bounding_box()
+    page.mouse.move(bounds["x"] + bounds["width"] / 2, bounds["y"] + bounds["height"] / 2)
+    page.mouse.down()
+    with page.expect_request(lambda request: request.url.endswith("/api/notes-preferences")):
+        announce_choice_change(page)
+    try:
+        with page.expect_response(
+            lambda response: (
+                response.url.endswith("/notes-runs") and response.request.method == "POST"
+            ),
+            timeout=2000,
+        ) as retry:
+            page.mouse.up()
+        assert retry.value.status == 202
+        assert len(bodies) == 2
+        assert bodies[1] == bodies[0]
+        assert bodies[1]["request_id"] == bodies[0]["request_id"]
+        assert bodies[1]["expected_model"] == CHATGPT_MODEL
+        assert bodies[1]["expected_reasoning_effort"] == "high"
+    finally:
+        for route in held:
+            route.fulfill(status=500, json={"detail": {"code": "x", "message": "x"}})
+
+
+def test_incomplete_pending_request_waits_for_choice_loading_before_completion(
+    live, signed_in, fake_notes_provider
+):
+    _context, page = signed_in()
+    meeting_id, generation_id, _ = seed_completed_transcript(live.settings.data_dir)
+    save_preference(page, live, "chatgpt", CHATGPT_MODEL, "high")
+    mock_providers(page, live)
+    bodies: list[dict] = []
+
+    def notes_request(route):
+        bodies.append(json.loads(route.request.post_data or "{}"))
+        route.continue_()
+
+    page.route(f"{live.url}/api/meetings/{meeting_id}/notes-runs", notes_request)
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
+    stored = {"request_id": "old-incomplete-request-2", "output_language": "en"}
+    page.evaluate(
+        "([key, value]) => localStorage.setItem(key, value)",
+        [f"asr-en-vi:notes-request-v2:{meeting_id}", json.dumps(stored)],
+    )
+
+    held = []
+    page.route(f"{live.url}/api/notes-preferences", lambda route: held.append(route))
+    button = page.locator("#notes-start")
+    with page.expect_request(lambda request: request.url.endswith("/api/notes-preferences")):
+        announce_choice_change(page)
+    try:
+        expect(button).to_have_text("Xác minh yêu cầu notes")
+        expect(button).to_be_disabled()
+    finally:
+        for route in held:
+            route.continue_()
+        held.clear()
+
+    expect(button).to_be_enabled()
+    with page.expect_response(
+        lambda response: response.url.endswith("/notes-runs") and response.request.method == "POST",
+        timeout=5000,
+    ) as accepted:
+        button.click()
+    assert accepted.value.status == 202
+    assert bodies[0]["request_id"] == stored["request_id"]
+    assert bodies[0]["provider"] == "chatgpt"
+    assert bodies[0]["expected_generation_id"] == generation_id
+    assert bodies[0]["expected_model"] == CHATGPT_MODEL
+    assert bodies[0]["expected_reasoning_effort"] == "high"
+
+
 def test_failed_reload_after_a_good_load_disables_start_despite_known_model(live, signed_in):
     _context, page = signed_in()
     meeting_id, _generation, _ = seed_completed_transcript(live.settings.data_dir)

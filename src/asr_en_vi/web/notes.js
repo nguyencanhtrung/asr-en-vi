@@ -339,6 +339,15 @@
     );
   }
 
+  function isCompletePendingRequest(pending) {
+    return Boolean(
+      pending
+      && typeof pending.expected_generation_id === "string"
+      && Number.isInteger(pending.expected_source_version)
+      && Number.isInteger(pending.expected_metadata_version)
+    );
+  }
+
   function savedModel(provider) {
     const model = state.choice.preferences.models[provider];
     return typeof model === "string" ? model : "";
@@ -621,19 +630,22 @@
 
   function canStartNotes(meeting, data) {
     const generation = currentGeneration(meeting);
+    if (
+      !meeting
+      || !data
+      || !generation
+      || transcriptionBusy(meeting)
+      || !hasRequestVersions(meeting, generation)
+      || !data.sourceLockKnown
+      || data.sourceLocked
+      || activeTask(data)
+      || data.requestInFlight
+      || state.choice.saving
+    ) return false;
+    const pending = getPendingRequest(meeting.id, false);
     return Boolean(
-      meeting
-      && data
-      && generation
-      && !transcriptionBusy(meeting)
-      && hasRequestVersions(meeting, generation)
-      && data.sourceLockKnown
-      && !data.sourceLocked
-      && !activeTask(data)
-      && !data.requestInFlight
-      && !state.choice.saving
-      && !state.choice.loading
-      && (getPendingRequest(meeting.id, false) || newRunChoiceReady(meeting)),
+      (!state.choice.loading || isCompletePendingRequest(pending))
+      && (pending || newRunChoiceReady(meeting)),
     );
   }
 
@@ -1397,11 +1409,7 @@
   }
 
   function requestPayload(pending, meeting, generation) {
-    if (
-      typeof pending.expected_generation_id === "string"
-      && Number.isInteger(pending.expected_source_version)
-      && Number.isInteger(pending.expected_metadata_version)
-    ) return pending;
+    if (isCompletePendingRequest(pending)) return pending;
     const complete = {
       request_id: pending.request_id,
       output_language: pending.output_language,

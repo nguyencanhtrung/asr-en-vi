@@ -642,6 +642,456 @@ def test_history_search_calendar_navigation_and_return(live, browser_context):
         anonymous.close()
 
 
+def _confirm_meeting_deletion(page, meeting_title):
+    page.locator("#delete-meeting").click()
+    dialog = page.locator("#meeting-delete-dialog")
+    expect(dialog).to_be_visible()
+    expect(dialog).to_contain_text("File nguồn bên ngoài không bị thay đổi")
+    expect(dialog).to_contain_text("Hủy chép lời")
+    expect(dialog).to_contain_text("Hủy tạo notes")
+    expect(dialog).to_contain_text("chờ tác vụ kết thúc")
+    expect(dialog.locator("#meeting-delete-cancel")).to_have_text("Đóng")
+    expect(dialog.locator("#meeting-delete-help")).to_contain_text(
+        "Đóng hộp thoại sau khi xác nhận không hủy yêu cầu xóa"
+    )
+    expect(dialog.locator("#meeting-delete-help")).to_contain_text("Nếu dọn dẹp bị gián đoạn")
+    expect(dialog.locator("#meeting-delete-help")).to_contain_text(
+        "có thể thử lại sau khi khắc phục lỗi lưu trữ"
+    )
+    confirm = page.locator("#meeting-delete-confirm")
+    expect(confirm).to_be_disabled()
+    page.locator("#meeting-delete-confirmation").fill("wrong name")
+    expect(confirm).to_be_disabled()
+    page.locator("#meeting-delete-confirmation").fill(meeting_title)
+    expect(confirm).to_be_enabled()
+    confirm.click()
+
+
+def test_meeting_deletion_refreshes_recent_search_calendar_and_undated(live, browser_context):
+    dated = seed_meeting(live.settings.data_dir, "Dated deletion target", "2026-10-14")
+    undated = seed_meeting(live.settings.data_dir, "Undated item to remove")
+    seed_meeting(live.settings.data_dir, "Keep this calendar meeting", "2026-10-14")
+    context, page = browser_context
+    page.goto(f"{live.url}/", wait_until="domcontentloaded")
+    expect(page.locator("#recent-list a")).to_have_count(2)
+
+    page.locator("#recent-list a").filter(has_text="Dated deletion target").click()
+    expect(page.locator("#meeting-title")).to_have_text("Dated deletion target")
+    _confirm_meeting_deletion(page, "Dated deletion target")
+    page.wait_for_url(f"{live.url}/")
+    expect(page.locator("#recent-list a")).to_have_count(1)
+    expect(page.locator("#recent-list")).not_to_contain_text("Dated deletion target")
+    search = page.get_by_label("Tìm cuộc họp theo tên")
+    search.fill("Dated deletion target")
+    expect(page.locator("#search-empty")).to_be_visible()
+    search.fill("")
+    open_calendar(page)
+    expect(
+        page.locator('#large-calendar .cal-day[data-date="2026-10-14"] .cal-count')
+    ).to_have_text("1")
+    expect(page.locator("#large-calendar .cal-undated-count")).to_have_text("1")
+    page.get_by_role("button", name="Quay lại notes").click()
+
+    search.fill("Undated item to remove")
+    page.locator("#recent-list a").filter(has_text="Undated item to remove").click()
+    expect(page.locator("#meeting-title")).to_have_text("Undated item to remove")
+    _confirm_meeting_deletion(page, "Undated item to remove")
+    page.wait_for_url(f"{live.url}/")
+    search.fill("")
+    expect(page.locator("#recent-list a")).to_have_count(1)
+    expect(page.locator("#recent-list")).not_to_contain_text("Undated item to remove")
+    expect(page.locator("#recent-list")).to_contain_text("Keep this calendar meeting")
+    open_calendar(page)
+    expect(page.locator("#large-calendar .cal-undated-count")).to_have_text("0")
+    page.locator("#large-calendar .cal-undated").click()
+    expect(page.locator("#day-panel-list a")).to_have_count(0)
+    expect(page.locator("#day-panel-empty")).to_have_text("Mọi cuộc họp đều đã có ngày.")
+    assert context.request.get(f"{live.url}/api/meetings/{dated}").status == 404
+    assert context.request.get(f"{live.url}/api/meetings/{undated}").status == 404
+
+
+@pytest.mark.parametrize("selected_after_other_delete", ["target", "other"])
+def test_concurrent_meeting_delete_reconciles_only_canonical_missing_response(
+    live, browser_context, selected_after_other_delete
+):
+    target_title = "Meeting A deleted from another client"
+    other_title = "Meeting B retained during deletion"
+    target_id = seed_meeting(live.settings.data_dir, target_title, "2026-10-14")
+    other_id = seed_meeting(live.settings.data_dir, other_title, "2026-10-14")
+    context, page = browser_context
+    page.goto(f"{live.url}/", wait_until="domcontentloaded")
+    expect(page.locator("#recent-list a")).to_have_count(2)
+    expect(page.locator('#mini-calendar .cal-day[data-date="2026-10-14"] .cal-count')).to_have_text(
+        "2"
+    )
+
+    page.locator("#recent-list a").filter(has_text=target_title).click()
+    expect(page.locator("#meeting-title")).to_have_text(target_title)
+    page.locator("#delete-meeting").click()
+    page.locator("#meeting-delete-confirmation").fill(target_title)
+    held = hold_first(page, rf"/api/meetings/{target_id}$", "DELETE")
+    page.locator("#meeting-delete-confirm").click()
+
+    deadline = time.monotonic() + 5
+    while not held and time.monotonic() < deadline:
+        page.wait_for_timeout(25)
+    assert held, "DELETE request did not reach the hold point"
+    expect(page.locator("#meeting-deletion-status")).to_be_visible()
+    expect(page.locator("#meeting-deletion-status")).to_contain_text("Đang dọn dữ liệu…")
+    expect(page.locator("#meeting-deletion-status")).not_to_contain_text("Dọn dẹp chưa hoàn tất")
+
+    audio_before = None
+    if selected_after_other_delete == "other":
+        page.locator("#meeting-delete-cancel").click()
+        page.locator("#recent-list a").filter(has_text=other_title).click()
+        page.wait_for_url(f"{live.url}/meetings/{other_id}")
+        expect(page.locator("#meeting-title")).to_have_text(other_title)
+        expect(page.locator("#recent-list a[aria-current='page']")).to_contain_text(other_title)
+        audio_before = page.locator("#meeting-audio").evaluate(
+            "audio => ({ meetingId: audio.dataset.meetingId, src: audio.src, "
+            "currentTime: Number.isFinite(audio.currentTime) ? audio.currentTime : null, "
+            "paused: audio.paused })"
+        )
+        assert audio_before["meetingId"] == other_id
+
+    other_delete = context.request.delete(
+        f"{live.url}/api/meetings/{target_id}", headers={"Origin": live.url}
+    )
+    assert other_delete.status == 200
+    assert other_delete.json()["status"] == "deleted"
+    assert context.request.get(f"{live.url}/api/meetings/{target_id}").status == 404
+    expect(page.locator("#recent-list a")).to_have_count(2)
+
+    with page.expect_response(
+        lambda response: (
+            response.request.method == "DELETE"
+            and response.url.endswith(f"/api/meetings/{target_id}")
+        )
+    ) as delayed_response:
+        held[0].continue_()
+    response = delayed_response.value
+    assert response.status == 404
+    assert response.json()["detail"]["code"] == "meeting_not_found"
+
+    if selected_after_other_delete == "target":
+        page.wait_for_url(f"{live.url}/")
+        expect(page.locator("#home-view")).to_be_visible()
+    else:
+        expect(page.locator("#meeting-title")).to_have_text(other_title)
+        expect(page.locator("#recent-list a[aria-current='page']")).to_contain_text(other_title)
+        audio_after = page.locator("#meeting-audio").evaluate(
+            "audio => ({ meetingId: audio.dataset.meetingId, src: audio.src, "
+            "currentTime: Number.isFinite(audio.currentTime) ? audio.currentTime : null, "
+            "paused: audio.paused })"
+        )
+        assert audio_after == audio_before
+
+    expect(page.locator("#recent-list a")).to_have_count(1)
+    expect(page.locator("#recent-list")).not_to_contain_text(target_title)
+    expect(page.locator("#recent-list")).to_contain_text(other_title)
+    expect(page.locator('#mini-calendar .cal-day[data-date="2026-10-14"] .cal-count')).to_have_text(
+        "1"
+    )
+    assert context.request.get(f"{live.url}/api/meetings/{other_id}").status == 200
+
+
+def test_delete_ui_keeps_unrelated_404_visible(live, browser_context):
+    meeting_id = seed_meeting(live.settings.data_dir, "Unrelated 404 deletion target", "2026-10-14")
+    context, page = browser_context
+    page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
+
+    def return_unrelated_404(route):
+        if route.request.method == "DELETE":
+            route.fulfill(
+                status=404,
+                content_type="application/json",
+                body=json.dumps(
+                    {
+                        "detail": {
+                            "code": "another_resource_not_found",
+                            "message": "The requested deletion target was not found.",
+                        }
+                    }
+                ),
+            )
+        else:
+            route.fallback()
+
+    page.route(re.compile(rf"/api/meetings/{meeting_id}$"), return_unrelated_404)
+    _confirm_meeting_deletion(page, "Unrelated 404 deletion target")
+
+    expect(page.locator("#meeting-delete-error")).to_be_visible()
+    expect(page.locator("#meeting-delete-error")).to_have_text(
+        "The requested deletion target was not found."
+    )
+    expect(page.locator("#meeting-title")).to_have_text("Unrelated 404 deletion target")
+    expect(page.locator("#recent-list a")).to_have_count(1)
+    assert context.request.get(f"{live.url}/api/meetings/{meeting_id}").status == 200
+
+
+def test_delete_ui_guides_active_task_cancel_and_wait(live, browser_context, tmp_path):
+    from asr_en_vi.tasks import accept_transcription_task
+
+    meeting_id = seed_meeting(live.settings.data_dir, "Active deletion target", "2026-10-14")
+    model_path = _prepare_browser_asr_model(tmp_path / "whisper-model")
+    diarization_path = prepare_diarization_model(tmp_path / "diarization-model")
+    accept_transcription_task(
+        live.settings.data_dir,
+        meeting_id=meeting_id,
+        request_id="browser-delete-active-task",
+        model_path=model_path,
+        diarization_model_path=diarization_path,
+        device="cpu",
+        compute_type="int8",
+        worker_ready=True,
+    )
+    context, page = browser_context
+    page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
+    expect(page.locator("#meeting-title")).to_have_text("Active deletion target")
+
+    _confirm_meeting_deletion(page, "Active deletion target")
+
+    expect(page.locator("#meeting-delete-error")).to_contain_text("chờ trạng thái kết thúc")
+    expect(page.locator("#meeting-deletion-status")).to_be_visible()
+    expect(page.locator("#meeting-deletion-status")).to_contain_text("chờ trạng thái kết thúc")
+    expect(page.locator("#meeting-deletion-status")).not_to_contain_text("khởi động")
+    expect(page.locator("#delete-meeting")).to_have_text("Xóa cuộc họp")
+    expect(page.locator("#meeting-delete-confirm")).to_have_text("Xóa dữ liệu đã lưu")
+    assert context.request.get(f"{live.url}/api/meetings/{meeting_id}").status == 200
+
+
+@pytest.mark.parametrize(
+    ("status_code", "error_code", "error_message", "expected_message"),
+    [
+        (
+            409,
+            "meeting_task_active",
+            "A task is still running.",
+            "chờ trạng thái kết thúc",
+        ),
+        (
+            503,
+            "storage_unavailable",
+            "Storage service is temporarily unavailable.",
+            "Storage service is temporarily unavailable.",
+        ),
+    ],
+)
+def test_delete_failure_after_dialog_close_is_persisted_for_origin_meeting(
+    live,
+    browser_context,
+    status_code,
+    error_code,
+    error_message,
+    expected_message,
+):
+    target_title = f"Delayed deletion failure {error_code}"
+    other_title = f"Unrelated meeting during {error_code}"
+    target_id = seed_meeting(live.settings.data_dir, target_title, "2026-10-14")
+    other_id = seed_meeting(live.settings.data_dir, other_title, "2026-10-14")
+    _context, page = browser_context
+    page.goto(f"{live.url}/meetings/{target_id}", wait_until="domcontentloaded")
+    expect(page.locator("#meeting-title")).to_have_text(target_title)
+
+    held = hold_first(page, rf"/api/meetings/{target_id}$", "DELETE")
+    _confirm_meeting_deletion(page, target_title)
+    deadline = time.monotonic() + 5
+    while not held and time.monotonic() < deadline:
+        page.wait_for_timeout(25)
+    assert held, "DELETE request did not reach the hold point"
+
+    page.locator("#meeting-delete-cancel").click()
+    expect(page.locator("#meeting-delete-dialog")).to_be_hidden()
+    page.locator("#recent-list a").filter(has_text=other_title).click()
+    page.wait_for_url(f"{live.url}/meetings/{other_id}")
+    expect(page.locator("#meeting-title")).to_have_text(other_title)
+    audio_before = page.locator("#meeting-audio").evaluate(
+        "audio => ({ meetingId: audio.dataset.meetingId, src: audio.src })"
+    )
+    assert audio_before["meetingId"] == other_id
+
+    held[0].fulfill(
+        status=status_code,
+        content_type="application/json",
+        body=json.dumps(
+            {"detail": {"code": error_code, "message": error_message}}, ensure_ascii=False
+        ),
+    )
+    expect(page.locator("#delete-meeting")).to_be_enabled(timeout=10_000)
+    expect(page.locator("#meeting-title")).to_have_text(other_title)
+    expect(page.locator("#meeting-deletion-status")).to_be_hidden()
+    audio_after = page.locator("#meeting-audio").evaluate(
+        "audio => ({ meetingId: audio.dataset.meetingId, src: audio.src })"
+    )
+    assert audio_after == audio_before
+
+    page.locator("#recent-list a").filter(has_text=target_title).click()
+    page.wait_for_url(f"{live.url}/meetings/{target_id}")
+    expect(page.locator("#meeting-title")).to_have_text(target_title)
+    status = page.locator("#meeting-deletion-status")
+    expect(status).to_be_visible()
+    expect(status).to_contain_text(expected_message)
+    expect(status).not_to_contain_text("khởi động")
+    expect(status).not_to_contain_text("Thử dọn tiếp")
+    expect(page.locator("#delete-meeting")).to_have_text("Xóa cuộc họp")
+
+    page.locator("#delete-meeting").click()
+    expect(page.locator("#meeting-delete-dialog")).to_be_visible()
+    expect(page.locator("#meeting-delete-confirm")).to_have_text("Xóa dữ liệu đã lưu")
+    page.locator("#meeting-delete-cancel").click()
+
+
+def test_delete_ui_keeps_failed_cleanup_visible_and_retries(live, browser_context, tmp_path):
+    meeting_id = seed_meeting(live.settings.data_dir, "Retry deletion target", "2026-10-14")
+    with sqlite3.connect(database_path(live.settings.data_dir)) as connection:
+        upload_id = connection.execute(
+            "SELECT upload_id FROM recordings WHERE meeting_id = ?", (meeting_id,)
+        ).fetchone()[0]
+    outside = tmp_path / "external-targets"
+    outside.mkdir()
+    external_file = outside / f"{upload_id}.part"
+    external_file.write_bytes(b"leave this outside data alone")
+    upload_dir = live.settings.data_dir / "uploads"
+    upload_dir.rmdir()
+    upload_dir.symlink_to(outside, target_is_directory=True)
+
+    context, page = browser_context
+    page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
+    _confirm_meeting_deletion(page, "Retry deletion target")
+    expect(page.locator("#meeting-delete-error")).to_contain_text("Yêu cầu đã được lưu")
+    expect(page.locator("#meeting-deletion-status")).to_be_visible()
+    expect(page.locator("#meeting-deletion-status")).to_have_text(
+        "Dọn dẹp chưa hoàn tất. Hệ thống sẽ tự thử lại khi khởi động; "
+        "sau khi xử lý sự cố, hãy chọn “Thử dọn tiếp”."
+    )
+    expect(page.locator("#delete-meeting")).to_have_text("Thử dọn tiếp")
+    assert external_file.read_bytes() == b"leave this outside data alone"
+
+    page.locator("#meeting-delete-cancel").click()
+    expect(page.locator("#meeting-delete-dialog")).to_be_hidden()
+    page.locator("#delete-meeting").click()
+    dialog = page.locator("#meeting-delete-dialog")
+    expect(dialog).to_be_visible()
+    expect(dialog.locator("#meeting-delete-cancel")).to_have_text("Đóng")
+    expect(dialog.locator("#meeting-delete-help")).to_contain_text(
+        "Đóng hộp thoại sau khi xác nhận không hủy yêu cầu xóa"
+    )
+    expect(dialog.locator("#meeting-delete-help")).to_contain_text("Nếu dọn dẹp bị gián đoạn")
+    expect(dialog.locator("#meeting-delete-help")).to_contain_text(
+        "có thể thử lại sau khi khắc phục lỗi lưu trữ"
+    )
+
+    upload_dir.unlink()
+    upload_dir.mkdir()
+    page.locator("#meeting-delete-confirmation").fill("Retry deletion target")
+    page.locator("#meeting-delete-confirm").click()
+    page.wait_for_url(f"{live.url}/")
+    expect(page.locator("#recent-list a")).to_have_count(0)
+    assert context.request.get(f"{live.url}/api/meetings/{meeting_id}").status == 404
+
+
+@pytest.mark.parametrize("outcome", ["success", "failure"])
+def test_pending_meeting_delete_is_scoped_across_navigation(
+    live, browser_context, tmp_path, outcome
+):
+    target_title = f"Pending deletion target {outcome}"
+    other_title = f"Other meeting during {outcome}"
+    target_id = seed_meeting(live.settings.data_dir, target_title, "2026-10-14")
+    other_id = seed_meeting(live.settings.data_dir, other_title, "2026-10-14")
+    upload_dir = None
+    external_file = None
+    if outcome == "failure":
+        with sqlite3.connect(database_path(live.settings.data_dir)) as connection:
+            upload_id = connection.execute(
+                "SELECT upload_id FROM recordings WHERE meeting_id = ?", (target_id,)
+            ).fetchone()[0]
+        outside = tmp_path / "external-targets"
+        outside.mkdir()
+        external_file = outside / f"{upload_id}.part"
+        external_file.write_bytes(b"leave this outside data alone")
+        upload_dir = live.settings.data_dir / "uploads"
+        upload_dir.rmdir()
+        upload_dir.symlink_to(outside, target_is_directory=True)
+
+    context, page = browser_context
+    try:
+        page.goto(f"{live.url}/meetings/{target_id}", wait_until="domcontentloaded")
+        expect(page.locator("#meeting-title")).to_have_text(target_title)
+        page.locator("#delete-meeting").click()
+        page.locator("#meeting-delete-confirmation").fill(target_title)
+        held = hold_first(page, rf"/api/meetings/{target_id}$", "DELETE")
+        page.locator("#meeting-delete-confirm").click()
+
+        deadline = time.monotonic() + 5
+        while not held and time.monotonic() < deadline:
+            page.wait_for_timeout(25)
+        assert held, "DELETE request did not reach the hold point"
+        expect(page.locator("#delete-meeting")).to_be_disabled()
+        expect(page.locator("#meeting-deletion-status")).to_be_visible()
+        expect(page.locator("#meeting-deletion-status")).to_contain_text("Đang dọn dữ liệu…")
+        expect(page.locator("#meeting-deletion-status")).not_to_contain_text(
+            "Dọn dẹp chưa hoàn tất"
+        )
+        expect(page.locator("#meeting-deletion-status")).to_contain_text("Thử dọn tiếp")
+        dialog = page.locator("#meeting-delete-dialog")
+        expect(dialog).to_be_visible()
+        expect(dialog.locator("#meeting-delete-cancel")).to_have_text("Đóng")
+        expect(dialog.locator("#meeting-delete-help")).to_contain_text(
+            "Đóng hộp thoại sau khi xác nhận không hủy yêu cầu xóa"
+        )
+        expect(dialog.locator("#meeting-delete-help")).to_contain_text("Nếu dọn dẹp bị gián đoạn")
+        expect(dialog.locator("#meeting-delete-help")).to_contain_text(
+            "có thể thử lại sau khi khắc phục lỗi lưu trữ"
+        )
+
+        page.locator("#meeting-delete-cancel").click()
+        expect(page.locator("#meeting-delete-dialog")).to_be_hidden()
+        page.locator("#recent-list a").filter(has_text=other_title).click()
+        page.wait_for_url(f"{live.url}/meetings/{other_id}")
+        expect(page.locator("#meeting-title")).to_have_text(other_title)
+        expect(page.locator("#meeting-audio")).to_have_attribute("data-meeting-id", other_id)
+        audio_before = page.locator("#meeting-audio").evaluate(
+            "audio => ({ meetingId: audio.dataset.meetingId, src: audio.src })"
+        )
+        expect(page.locator("#delete-meeting")).to_be_disabled()
+        expect(page.locator("#meeting-deletion-status")).to_be_hidden()
+        expect(page.locator("#meeting-delete-dialog")).to_be_hidden()
+
+        held[0].continue_()
+        expect(page.locator("#delete-meeting")).to_be_enabled(timeout=10_000)
+        expect(page.locator("#meeting-title")).to_have_text(other_title)
+        expect(page.locator("#meeting-audio")).to_have_attribute("data-meeting-id", other_id)
+        audio_after = page.locator("#meeting-audio").evaluate(
+            "audio => ({ meetingId: audio.dataset.meetingId, src: audio.src })"
+        )
+        assert audio_after == audio_before
+        expect(page.locator("#meeting-deletion-status")).to_be_hidden()
+        expect(page.locator("#meeting-delete-dialog")).to_be_hidden()
+
+        page.locator("#delete-meeting").click()
+        expect(page.locator("#meeting-delete-dialog")).to_be_visible()
+        expect(page.locator("#meeting-delete-name")).to_have_text(other_title)
+        expect(page.locator("#meeting-delete-confirm")).to_have_text("Xóa dữ liệu đã lưu")
+        page.locator("#meeting-delete-cancel").click()
+
+        if outcome == "success":
+            assert context.request.get(f"{live.url}/api/meetings/{target_id}").status == 404
+            assert context.request.get(f"{live.url}/api/meetings/{other_id}").status == 200
+        else:
+            assert external_file.read_bytes() == b"leave this outside data alone"
+            page.goto(f"{live.url}/meetings/{target_id}", wait_until="domcontentloaded")
+            expect(page.locator("#meeting-title")).to_have_text(target_title)
+            expect(page.locator("#meeting-deletion-status")).to_be_visible()
+            expect(page.locator("#meeting-deletion-status")).to_contain_text(
+                "Dọn dẹp chưa hoàn tất"
+            )
+            expect(page.locator("#delete-meeting")).to_have_text("Thử dọn tiếp")
+    finally:
+        if upload_dir is not None and upload_dir.is_symlink():
+            upload_dir.unlink()
+            upload_dir.mkdir()
+
+
 def test_wordmark_home_preserves_unsaved_transcript_draft(live, browser_context):
     _context, page = browser_context
     meeting_id = seed_meeting(

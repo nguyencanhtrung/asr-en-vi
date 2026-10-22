@@ -56,6 +56,15 @@
   font-size: 9px;
 }
 
+.meeting-link-deletion-state {
+  color: var(--warning);
+  font-size: 9px;
+}
+
+.meeting-link-deletion-state[data-state="failed"] {
+  color: var(--danger);
+}
+
 .recent-link[aria-current="page"] {
   border-color: var(--line-strong);
   background: var(--accent-soft);
@@ -412,6 +421,138 @@
 /* ---- metadata editor ---- */
 .edit-meeting-button {
   margin-top: 12px;
+}
+
+.delete-meeting-button {
+  margin: 12px 0 0 8px;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.delete-meeting-button:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.meeting-deletion-status {
+  margin: -12px 0 18px;
+  padding: 11px 14px;
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-md);
+  background: var(--warning-soft);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.meeting-deletion-status[data-state="failed"] {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.meeting-deletion-status p {
+  margin: 0;
+}
+
+.meeting-delete-dialog {
+  width: min(540px, calc(100% - 32px));
+  max-width: none;
+  max-height: min(700px, calc(100vh - 32px));
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.meeting-delete-dialog::backdrop {
+  background: var(--overlay);
+}
+
+.meeting-delete-shell {
+  overflow: auto;
+  border-radius: inherit;
+}
+
+.meeting-delete-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px 12px;
+}
+
+.meeting-delete-header h2 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 24px;
+  font-weight: 500;
+}
+
+.meeting-delete-body {
+  padding: 0 24px 24px;
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.meeting-delete-body > p:first-child {
+  margin: 0 0 14px;
+}
+
+.meeting-delete-name {
+  overflow-wrap: anywhere;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--danger);
+  background: var(--surface-subtle);
+  color: var(--text);
+  font-weight: 650;
+}
+
+.meeting-delete-body label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.meeting-delete-body input {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 11px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
+.meeting-delete-body .field-help {
+  margin: 7px 0 0;
+}
+
+.meeting-delete-error {
+  margin: 12px 0 0;
+  color: var(--danger);
+}
+
+.meeting-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.meeting-delete-confirm {
+  background: var(--danger);
+}
+
+.meeting-delete-confirm:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 84%, var(--text));
 }
 
 .edit-status {
