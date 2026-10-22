@@ -733,7 +733,7 @@
       ? "Thử dọn tiếp"
       : "Xóa cuộc họp";
     if (requestPending) {
-      message.textContent = "Dọn dẹp chưa hoàn tất. Nếu bị gián đoạn, hệ thống sẽ tự thử lại khi khởi động; nếu vẫn chưa xong, xử lý sự cố rồi chọn “Thử dọn tiếp”.";
+      message.textContent = "Đang dọn dữ liệu… Nếu bị gián đoạn, hệ thống sẽ tự thử lại khi khởi động; nếu vẫn chưa xong, xử lý sự cố rồi chọn “Thử dọn tiếp”.";
     } else if (markerStatus === "failed") {
       message.textContent = "Dọn dẹp chưa hoàn tất. Hệ thống sẽ tự thử lại khi khởi động; sau khi xử lý sự cố, hãy chọn “Thử dọn tiếp”.";
     } else if (markerStatus === "pending") {
@@ -3679,12 +3679,24 @@
     state.deletionMessages.delete(meetingId);
     renderMeetingDeletion(meeting);
     try {
-      const result = await requestJson(`/api/meetings/${encodeURIComponent(meetingId)}`, {
-        method: "DELETE",
-      });
-      if (result.meeting_id !== meetingId || result.status !== "deleted") {
-        throw new Error("Máy chủ chưa xác nhận việc xóa cuộc họp.");
+      try {
+        const result = await requestJson(`/api/meetings/${encodeURIComponent(meetingId)}`, {
+          method: "DELETE",
+        });
+        if (result.meeting_id !== meetingId || result.status !== "deleted") {
+          throw new Error("Máy chủ chưa xác nhận việc xóa cuộc họp.");
+        }
+      } catch (error) {
+        const code = error instanceof ApiError
+          && error.payload
+          && error.payload.detail
+          && error.payload.detail.code;
+        const alreadyAbsent = error instanceof ApiError
+          && error.status === 404
+          && code === "meeting_not_found";
+        if (!alreadyAbsent) throw error;
       }
+
       const dialog = $("#meeting-delete-dialog");
       if (dialog.open) dialog.close();
       state.deletionRequestPending = false;

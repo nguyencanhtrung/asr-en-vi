@@ -710,6 +710,125 @@ def test_meeting_deletion_refreshes_recent_search_calendar_and_undated(live, bro
     assert context.request.get(f"{live.url}/api/meetings/{undated}").status == 404
 
 
+@pytest.mark.parametrize("selected_after_other_delete", ["target", "other"])
+def test_concurrent_meeting_delete_reconciles_only_canonical_missing_response(
+    live, browser_context, selected_after_other_delete
+):
+    target_title = "Meeting A deleted from another client"
+    other_title = "Meeting B retained during deletion"
+    target_id = seed_meeting(live.settings.data_dir, target_title, "2026-10-14")
+    other_id = seed_meeting(live.settings.data_dir, other_title, "2026-10-14")
+    context, page = browser_context
+    page.goto(f"{live.url}/", wait_until="domcontentloaded")
+    expect(page.locator("#recent-list a")).to_have_count(2)
+    expect(page.locator('#mini-calendar .cal-day[data-date="2026-10-14"] .cal-count')).to_have_text(
+        "2"
+    )
+
+    page.locator("#recent-list a").filter(has_text=target_title).click()
+    expect(page.locator("#meeting-title")).to_have_text(target_title)
+    page.locator("#delete-meeting").click()
+    page.locator("#meeting-delete-confirmation").fill(target_title)
+    held = hold_first(page, rf"/api/meetings/{target_id}$", "DELETE")
+    page.locator("#meeting-delete-confirm").click()
+
+    deadline = time.monotonic() + 5
+    while not held and time.monotonic() < deadline:
+        page.wait_for_timeout(25)
+    assert held, "DELETE request did not reach the hold point"
+    expect(page.locator("#meeting-deletion-status")).to_be_visible()
+    expect(page.locator("#meeting-deletion-status")).to_contain_text("Đang dọn dữ liệu…")
+    expect(page.locator("#meeting-deletion-status")).not_to_contain_text("Dọn dẹp chưa hoàn tất")
+
+    audio_before = None
+    if selected_after_other_delete == "other":
+        page.locator("#meeting-delete-cancel").click()
+        page.locator("#recent-list a").filter(has_text=other_title).click()
+        page.wait_for_url(f"{live.url}/meetings/{other_id}")
+        expect(page.locator("#meeting-title")).to_have_text(other_title)
+        expect(page.locator("#recent-list a[aria-current='page']")).to_contain_text(other_title)
+        audio_before = page.locator("#meeting-audio").evaluate(
+            "audio => ({ meetingId: audio.dataset.meetingId, src: audio.src, "
+            "currentTime: Number.isFinite(audio.currentTime) ? audio.currentTime : null, "
+            "paused: audio.paused })"
+        )
+        assert audio_before["meetingId"] == other_id
+
+    other_delete = context.request.delete(
+        f"{live.url}/api/meetings/{target_id}", headers={"Origin": live.url}
+    )
+    assert other_delete.status == 200
+    assert other_delete.json()["status"] == "deleted"
+    assert context.request.get(f"{live.url}/api/meetings/{target_id}").status == 404
+    expect(page.locator("#recent-list a")).to_have_count(2)
+
+    with page.expect_response(
+        lambda response: (
+            response.request.method == "DELETE"
+            and response.url.endswith(f"/api/meetings/{target_id}")
+        )
+    ) as delayed_response:
+        held[0].continue_()
+    response = delayed_response.value
+    assert response.status == 404
+    assert response.json()["detail"]["code"] == "meeting_not_found"
+
+    if selected_after_other_delete == "target":
+        page.wait_for_url(f"{live.url}/")
+        expect(page.locator("#home-view")).to_be_visible()
+    else:
+        expect(page.locator("#meeting-title")).to_have_text(other_title)
+        expect(page.locator("#recent-list a[aria-current='page']")).to_contain_text(other_title)
+        audio_after = page.locator("#meeting-audio").evaluate(
+            "audio => ({ meetingId: audio.dataset.meetingId, src: audio.src, "
+            "currentTime: Number.isFinite(audio.currentTime) ? audio.currentTime : null, "
+            "paused: audio.paused })"
+        )
+        assert audio_after == audio_before
+
+    expect(page.locator("#recent-list a")).to_have_count(1)
+    expect(page.locator("#recent-list")).not_to_contain_text(target_title)
+    expect(page.locator("#recent-list")).to_contain_text(other_title)
+    expect(page.locator('#mini-calendar .cal-day[data-date="2026-10-14"] .cal-count')).to_have_text(
+        "1"
+    )
+    assert context.request.get(f"{live.url}/api/meetings/{other_id}").status == 200
+
+
+def test_delete_ui_keeps_unrelated_404_visible(live, browser_context):
+    meeting_id = seed_meeting(live.settings.data_dir, "Unrelated 404 deletion target", "2026-10-14")
+    context, page = browser_context
+    page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
+
+    def return_unrelated_404(route):
+        if route.request.method == "DELETE":
+            route.fulfill(
+                status=404,
+                content_type="application/json",
+                body=json.dumps(
+                    {
+                        "detail": {
+                            "code": "another_resource_not_found",
+                            "message": "The requested deletion target was not found.",
+                        }
+                    }
+                ),
+            )
+        else:
+            route.fallback()
+
+    page.route(re.compile(rf"/api/meetings/{meeting_id}$"), return_unrelated_404)
+    _confirm_meeting_deletion(page, "Unrelated 404 deletion target")
+
+    expect(page.locator("#meeting-delete-error")).to_be_visible()
+    expect(page.locator("#meeting-delete-error")).to_have_text(
+        "The requested deletion target was not found."
+    )
+    expect(page.locator("#meeting-title")).to_have_text("Unrelated 404 deletion target")
+    expect(page.locator("#recent-list a")).to_have_count(1)
+    assert context.request.get(f"{live.url}/api/meetings/{meeting_id}").status == 200
+
+
 def test_delete_ui_guides_active_task_cancel_and_wait(live, browser_context, tmp_path):
     from asr_en_vi.tasks import accept_transcription_task
 
@@ -824,7 +943,10 @@ def test_pending_meeting_delete_is_scoped_across_navigation(
         assert held, "DELETE request did not reach the hold point"
         expect(page.locator("#delete-meeting")).to_be_disabled()
         expect(page.locator("#meeting-deletion-status")).to_be_visible()
-        expect(page.locator("#meeting-deletion-status")).to_contain_text("Dọn dẹp chưa hoàn tất")
+        expect(page.locator("#meeting-deletion-status")).to_contain_text("Đang dọn dữ liệu…")
+        expect(page.locator("#meeting-deletion-status")).not_to_contain_text(
+            "Dọn dẹp chưa hoàn tất"
+        )
         expect(page.locator("#meeting-deletion-status")).to_contain_text("Thử dọn tiếp")
         dialog = page.locator("#meeting-delete-dialog")
         expect(dialog).to_be_visible()
