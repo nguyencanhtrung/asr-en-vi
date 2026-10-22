@@ -225,22 +225,25 @@
               <dt>Gợi ý ngôn ngữ</dt>
               <dd id="meeting-language"></dd>
             </div>
-            <div class="metadata-item metadata-status">
-              <dt>Trạng thái</dt>
-              <dd><span class="saved-badge"><span aria-hidden="true"></span><span id="meeting-status-text">Đã lưu, chưa xử lý</span></span></dd>
-            </div>
           </dl>
-          <div class="audio-panel">
-            <header class="audio-heading">
-              <h3 id="audio-heading">Bản ghi âm</h3>
-              <span class="source-label"><span aria-hidden="true"></span>Nguồn cuộc họp</span>
-            </header>
-            <p class="audio-hint">Dùng thanh điều khiển để phát, tạm dừng hoặc tua tới đoạn cần nghe lại.</p>
+          <ul class="meeting-status-strip" id="meeting-status-strip" aria-label="Trạng thái cuộc họp">
+            <li class="meeting-status-item" id="status-recording" data-state="done"><span aria-hidden="true"></span><span>Bản ghi · Đã lưu</span></li>
+            <li class="meeting-status-item" id="status-transcript" data-state="idle"><span aria-hidden="true"></span><span>Transcript · Chưa chép lời</span></li>
+            <li class="meeting-status-item" id="status-notes" data-state="idle"><span aria-hidden="true"></span><span>Notes · Đang kiểm tra</span></li>
+          </ul>
+          <div class="meeting-tabs" id="meeting-tabs" role="tablist" aria-label="Nội dung cuộc họp">
+            <button class="meeting-tab" id="meeting-tab-notes" type="button" role="tab" data-meeting-tab="notes" aria-selected="false" aria-controls="meeting-panel-notes" tabindex="0">Meeting notes</button>
+            <button class="meeting-tab" id="meeting-tab-transcript" type="button" role="tab" data-meeting-tab="transcript" aria-selected="false" aria-controls="meeting-panel-transcript" tabindex="-1"><span>Transcript &amp; bản ghi</span> <span class="meeting-tab-count" id="meeting-tab-count"></span></button>
           </div>
-          <section class="player-bar" aria-labelledby="audio-heading">
-            <audio id="meeting-audio" controls preload="metadata" aria-label="Trình phát bản ghi cuộc họp"></audio>
-          </section>
+          <!-- Tab: Meeting notes. Shown by history.js; hidden until a tab is chosen. -->
+          <div class="meeting-tabpanel" id="meeting-panel-notes" role="tabpanel" aria-labelledby="meeting-tab-notes" hidden>
           <section class="notes-panel" id="notes-panel" aria-labelledby="notes-heading">
+            <div class="notes-empty" id="notes-empty" hidden>
+              <h3 id="notes-empty-title">Cần transcript trước</h3>
+              <p id="notes-empty-copy"></p>
+              <button class="secondary-button" id="notes-empty-open-transcript" type="button" aria-controls="meeting-panel-transcript">Mở Transcript &amp; bản ghi</button>
+            </div>
+            <div class="notes-create" id="notes-create">
             <header class="notes-heading-row">
               <div>
                 <h3 id="notes-heading">Meeting notes</h3>
@@ -277,6 +280,7 @@
             <p class="notes-content-policy" id="notes-content-policy">
               Ngày họp, lời thoại, mốc thời gian và tên người nói được gửi tới ChatGPT bằng model và effort đã lưu. Với nguồn dài, các bản tóm tắt trung gian cũng được gửi để tổng hợp notes. File audio/video, tên cuộc họp và thông tin tài khoản không được gửi.
             </p>
+            </div>
             <p class="notes-lock-status" id="notes-lock-status" role="status" aria-live="polite" hidden></p>
             <p class="notes-status" id="notes-status" role="status" aria-live="polite">Đang kiểm tra trạng thái notes…</p>
             <div class="notes-task-details" id="notes-task-details" hidden>
@@ -344,6 +348,19 @@
               <button class="secondary-button" id="notes-source-seek" type="button">Tua bản ghi tới mốc này</button>
               <p class="notes-source-status" id="notes-source-status" role="status" aria-live="polite"></p>
             </section>
+          </section>
+          </div>
+          <!-- Tab: Transcript & bản ghi. The recording block, its sticky player and the transcript stay together. -->
+          <div class="meeting-tabpanel" id="meeting-panel-transcript" role="tabpanel" aria-labelledby="meeting-tab-transcript" hidden>
+          <div class="audio-panel">
+            <header class="audio-heading">
+              <h3 id="audio-heading">Bản ghi âm</h3>
+              <span class="source-label"><span aria-hidden="true"></span>Nguồn cuộc họp</span>
+            </header>
+            <p class="audio-hint">Dùng thanh điều khiển để phát, tạm dừng hoặc tua tới đoạn cần nghe lại.</p>
+          </div>
+          <section class="player-bar" aria-labelledby="audio-heading">
+            <audio id="meeting-audio" controls preload="metadata" aria-label="Trình phát bản ghi cuộc họp"></audio>
           </section>
           <section class="transcription-panel" id="transcription-panel" aria-labelledby="transcription-heading">
             <header class="transcription-heading">
@@ -428,6 +445,7 @@
               <ol class="transcript-segments" id="transcript-segments"></ol>
             </div>
           </section>
+          </div>
           <p class="meeting-language-reminder">Transcript giữ nguyên ngôn ngữ đã nói. Meeting notes viết bằng ngôn ngữ đầu ra đã chọn (English hoặc Tiếng Việt).</p>
         </section>
 

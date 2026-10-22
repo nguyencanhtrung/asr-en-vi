@@ -25,7 +25,7 @@ Các yêu cầu sản phẩm dưới đây tổng hợp những quyết định 
 | Thiết bị | Máy hiện có với Ryzen 9 và RTX 5080; không mua thêm phần cứng |
 | Máy chạy backend | Nghiệm thu trên Ubuntu 24.04 hiện tại; hỗ trợ cài mới trên Linux có NVIDIA GPU và cấu hình tương thích |
 | Hình thức ứng dụng | UI trên trình duyệt; backend đóng gói thành một bộ Docker Compose |
-| Hướng giao diện | Phương án A: lịch sử bên trái, transcript và notes song song; dark theme |
+| Hướng giao diện | Phương án A: lịch sử bên trái, trang cuộc họp hai tab Meeting notes và Transcript & bản ghi; dark theme |
 | Thiết bị dùng UI | Thiết bị chạy trình duyệt; không cần GPU để chạy model |
 | Trình duyệt nghiệm thu | Chrome và Firefox bản ổn định tại thời điểm kiểm thử, trên laptop/desktop; chưa tối ưu điện thoại/tablet trong v1 |
 | Truy cập | V1 chỉ localhost trên máy chạy backend; token bắt buộc, dùng lại nhiều lần, không tự hết hạn; khi khởi chạy cung cấp QR và link có thể bấm/copy |
@@ -158,8 +158,8 @@ Nếu đã đặt tên cho `Speaker 2`, bản notes được tạo sau đó dùn
 
 ## 5. Duyệt, sửa và tạo lại notes
 
-- GUI dùng bố cục A đã chọn: lịch sử cuộc họp bên trái, transcript và notes ở hai vùng cạnh nhau, trình phát dính ở mép trên vùng nội dung khi cuộn; dark theme cho màn hình chính và các hộp thoại.
-- Khi audio đang phát và còn thấy một phần danh sách đoạn bên dưới thanh trình phát, đoạn transcript đang phát tự cuộn vào tầm nhìn dưới thanh trình phát. Không tự cuộn khi audio tạm dừng, ngay sau khi người dùng cuộn tay, khi focus đang ở một ô sửa của transcript, hay khi cả danh sách đoạn nằm ngoài tầm nhìn (đang đọc notes).
+- GUI dùng bố cục A đã chọn: lịch sử cuộc họp bên trái; trang cuộc họp chia hai tab **Meeting notes** và **Transcript & bản ghi** (tab mở sẵn theo trạng thái cuộc họp, `#notes`/`#transcript` trên địa chỉ, Back quay lại tab trước), trình phát dính ở mép trên tab Transcript & bản ghi khi cuộn; dark theme cho màn hình chính và các hộp thoại.
+- Khi audio đang phát và còn thấy một phần danh sách đoạn bên dưới thanh trình phát, đoạn transcript đang phát tự cuộn vào tầm nhìn dưới thanh trình phát. Không tự cuộn khi audio tạm dừng, ngay sau khi người dùng cuộn tay, khi focus đang ở một ô sửa của transcript, hay khi cả danh sách đoạn nằm ngoài tầm nhìn (đang đọc notes ở tab Meeting notes).
 - Người dùng sửa trực tiếp được cả transcript và notes.
 - Khi ghi transcript, gán/đặt tên người nói, metadata cuộc họp hoặc một bản notes, backend kiểm tra phiên bản đã đọc. Nếu tab khác đã thay đổi cùng dữ liệu, từ chối ghi đè, giữ phần chưa lưu ở UI để người dùng đối chiếu với bản mới; không tự trộn nội dung.
 - Sau khi transcript, gán/tên người nói hoặc ngày họp thay đổi, ứng dụng báo rằng notes hiện tại chưa phản ánh thay đổi đó.
@@ -316,7 +316,7 @@ Người dùng đánh dấu trước các ý quan trọng, quyết định và c
 | AC-26 | Token giữ nguyên trong cùng bản cài và riêng biệt giữa các bản cài | Restart/tạo lại container với vùng dữ liệu cũ rồi đăng nhập bằng link cũ; khởi tạo bản cài khác với vùng dữ liệu mới và kiểm tra có token khác, không dùng chung token có sẵn trong source/image |
 | AC-27 | Thay token vô hiệu toàn bộ quyền truy cập cũ | Đăng nhập ở hai phiên trình duyệt độc lập, chạy lệnh local thay token, kiểm tra cả token cũ và cookie cũ bị từ chối ở backend; QR/link mới dùng được, dữ liệu giữ nguyên và tác vụ đã nhận tiếp tục |
 | AC-28 | Đặt tên người nói thủ công, riêng cho từng cuộc họp | Đặt/sửa/xóa tên và mở lại sau restart; kiểm tra nhãn gốc vẫn giữ, để trống thì dùng nhãn mặc định, cuộc họp khác không đổi tên; notes cũ được đánh dấu cần cập nhật nhưng giữ nguyên, bản tạo mới dùng tên đã đặt và copy/xuất đúng bản được chọn |
-| AC-29 | Giao diện A dùng dark theme | Duyệt trên laptop/desktop với lịch sử bên trái, transcript và notes cạnh nhau; kiểm tra chữ, trạng thái, focus bàn phím, trình phát và các hộp thoại đều đọc/thao tác được trên nền tối |
+| AC-29 | Giao diện A dùng dark theme | Duyệt trên laptop/desktop với lịch sử bên trái và trang cuộc họp hai tab (Meeting notes, Transcript & bản ghi); kiểm tra chữ, trạng thái, focus bàn phím, trình phát và các hộp thoại đều đọc/thao tác được trên nền tối |
 | AC-30 | Duyệt lịch sử bằng lịch tháng nhỏ và lớn | Kiểm tra ngày có/không có cuộc họp, nhiều cuộc họp cùng ngày, tháng trống, tháng 12 sang tháng 1, năm nhuận và chọn năm cũ; mở đúng cuộc họp từ lịch, tìm được cuộc họp chưa đặt ngày, dấu ngày cập nhật sau nhập/xóa và metadata/người nói/notes không bị đổi khi điều hướng |
 | AC-31 | Khóa nguồn của cuộc họp trong lúc tạo notes | Tạo notes rồi thử sửa transcript/tên người nói qua UI, tab khác và API trực tiếp; phải bị từ chối. Vẫn đọc được nguồn, sửa bản notes cũ và cuộc họp khác; sau khi tác vụ hoàn tất hoặc thực sự dừng vì lỗi/hủy/gián đoạn thì sửa nguồn được trở lại |
 | AC-32 | Giữ transcript hoàn tất khi tạo notes lỗi hoặc bị hủy | Gây lỗi/hủy ở bước notes sau khi transcript đã lưu đầy đủ; kiểm tra tác vụ không báo hoàn tất, transcript còn nguyên và sau khi tác vụ kết thúc có thể sửa rồi yêu cầu tạo notes riêng. Chạy lại toàn bộ bản ghi vẫn bắt đầu từ đầu |

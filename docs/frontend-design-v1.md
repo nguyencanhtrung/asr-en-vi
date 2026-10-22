@@ -8,7 +8,7 @@ Tài liệu này là chuẩn thiết kế frontend v1 để triển khai. [Đặ
 
 - Ứng dụng web dùng trên trình duyệt laptop/desktop; v1 truy cập qua localhost bằng token.
 - Giao diện điều khiển bằng tiếng Việt, giữ các nhãn quen thuộc như **Transcript**, **Meeting notes**, **Speaker 1** và **English**. Nội dung notes viết bằng ngôn ngữ đầu ra đã chọn (English hoặc Tiếng Việt); transcript giữ ngôn ngữ đã nói.
-- Bố cục chính gồm sidebar bên trái, transcript và notes cạnh nhau; trình phát là thanh dính ở mép trên vùng nội dung, luôn trong tầm nhìn khi cuộn.
+- Bố cục chính gồm sidebar bên trái và vùng làm việc. Trang cuộc họp chia hai tab, **Meeting notes** và **Transcript & bản ghi**; trình phát là thanh dính ở mép trên tab Transcript & bản ghi, luôn trong tầm nhìn khi cuộn transcript.
 - Light/dark theme áp dụng thống nhất cho màn hình duyệt, lịch, trang truy cập, các hộp thoại và thông báo. Mặc định theo hệ điều hành; lựa chọn thủ công được ghi nhớ trên trình duyệt.
 - Phương án B/C chỉ là các phương án so sánh trong prototype. Frontend v1 triển khai phương án A; không có bộ chuyển bố cục A/B/C.
 - Chưa chọn framework frontend, thư viện component hoặc cách tổ chức API trong tài liệu này.
@@ -20,7 +20,7 @@ Tài liệu này là chuẩn thiết kế frontend v1 để triển khai. [Đặ
 - URL khi chạy server prototype: `http://localhost:8765/prototype/meeting-notes/?variant=A`.
 - Hai ảnh dưới đây lưu trạng thái thiết kế đã duyệt ở viewport 1440 × 1000. Nội dung cuộc họp là dữ liệu mẫu. Thanh **PROTOTYPE** ở đáy ảnh là công cụ thử thiết kế, không thuộc frontend sản phẩm.
 
-**Màn hình duyệt transcript và notes:**
+**Màn hình duyệt transcript và notes** (prototype ban đầu: transcript và notes ở hai vùng cạnh nhau; sản phẩm tách thành hai tab, xem mục 6.0):
 
 ![Phương án A: sidebar, transcript, notes và trình phát trên dark theme](assets/frontend-v1/meeting-review.png)
 
@@ -33,13 +33,15 @@ Tài liệu này là chuẩn thiết kế frontend v1 để triển khai. [Đặ
 | Vùng | Nội dung và hành vi |
 | --- | --- |
 | Sidebar | Logo và tên phần mềm, chuyển theme, tìm kiếm, danh sách gần đây, lịch nhỏ, footer; cố định cao bằng viewport |
-| Đầu vùng duyệt | Tên cuộc họp, trạng thái kết nối **OpenAI** và **Google** (hai nút riêng), nút **Lịch** ở màn hình hẹp và điểm vào tạo cuộc họp toàn cục; khi mở cuộc họp có thêm ngày, ngôn ngữ chính, thời lượng, trạng thái và thao tác xóa |
-| Transcript | Danh sách đoạn ở chế độ đọc (timestamp, người nói, nội dung, dấu cần kiểm tra), danh sách người nói dạng chip và nút **Sửa** mở ô sửa của từng đoạn |
-| Meeting notes | Notes theo ngôn ngữ đầu ra đã chọn, chọn bản notes, chỉnh sửa, tạo lại, copy và xuất Markdown |
-| Trình phát | Phát/tạm dừng, vị trí hiện tại, tổng thời lượng và thanh tua; dùng chung cho cuộc họp đang mở. Thanh dính ở mép trên vùng nội dung khi cuộn, cao tối đa 72 px, chỉ gồm trình phát; tiêu đề và dòng hướng dẫn của khối bản ghi cuộn đi như bình thường |
+| Đầu vùng duyệt | Tiêu đề chung **Cuộc họp**, trạng thái kết nối **OpenAI** và **Google** (hai nút riêng), nút **Lịch** ở màn hình hẹp và điểm vào tạo cuộc họp toàn cục |
+| Đầu trang cuộc họp | Tên cuộc họp (chỉ hiện một lần, không lặp ở tiêu đề chung), nút **Sửa tên và ngày**, ngày họp, gợi ý ngôn ngữ và dải trạng thái ngắn **Bản ghi · Transcript · Notes** |
+| Hai tab | Danh sách tab **Meeting notes** và **Transcript & bản ghi** ngay dưới phần đầu trang (mục 6.0); mỗi lúc chỉ một tab hiện |
+| Tab Transcript & bản ghi: transcript | Khối chép lời (nút chép lời/hủy, tiến độ, lỗi), danh sách đoạn ở chế độ đọc (timestamp, người nói, nội dung, dấu cần kiểm tra), danh sách người nói dạng chip và nút **Sửa** mở ô sửa của từng đoạn |
+| Tab Meeting notes | Notes theo ngôn ngữ đầu ra đã chọn, tiến độ và lỗi tạo notes, chọn bản notes, **Xem \| Viết**, tạo lại, copy và xuất Markdown; khi chưa có transcript chỉ có trạng thái trống **Cần transcript trước** |
+| Trình phát | Phát/tạm dừng, vị trí hiện tại, tổng thời lượng và thanh tua; nằm trong tab Transcript & bản ghi. Thanh dính ở mép trên vùng nội dung khi cuộn, cao tối đa 72 px, chỉ gồm trình phát; tiêu đề và dòng hướng dẫn của khối bản ghi cuộn đi như bình thường |
 | Lịch lớn | Thay vùng duyệt khi mở lịch; sidebar vẫn giữ nguyên để điều hướng |
 
-Ở desktop, sidebar có chiều rộng tham chiếu **228 px** và cố định: cao đúng bằng viewport, đứng yên khi trang cuộn dù transcript dài, tự cuộn bên trong khi nội dung cao hơn viewport, với thanh cuộn mảnh và không bao giờ cuộn ngang; khi quá hẹp, lịch nhỏ đưa **Hôm nay** xuống hàng riêng để tên tháng luôn đọc đủ. Từ 680 px trở xuống nó là thanh trên cùng và cuộn cùng trang. Phần còn lại là vùng làm việc co giãn; trong màn hình duyệt, transcript chiếm khoảng **43%**, notes khoảng **57%** của vùng nội dung. Notes và transcript cuộn cùng trang; trình phát dính ở mép trên vùng nội dung (cao tối đa **72 px**, kể cả từ 680 px trở xuống) nên luôn nằm trong tầm nhìn và dùng được.
+Ở desktop, sidebar có chiều rộng tham chiếu **228 px** và cố định: cao đúng bằng viewport, đứng yên khi trang cuộn dù transcript dài, tự cuộn bên trong khi nội dung cao hơn viewport, với thanh cuộn mảnh và không bao giờ cuộn ngang; khi quá hẹp, lịch nhỏ đưa **Hôm nay** xuống hàng riêng để tên tháng luôn đọc đủ. Từ 680 px trở xuống nó là thanh trên cùng và cuộn cùng trang. Phần còn lại là vùng làm việc co giãn; trong màn hình duyệt, tab đang chọn dùng toàn bề rộng vùng nội dung. Tab cuộn cùng trang; trong tab Transcript & bản ghi, trình phát dính ở mép trên vùng nội dung (cao tối đa **72 px**, kể cả từ 680 px trở xuống) nên luôn nằm trong tầm nhìn và dùng được.
 
 Ở màn hình lịch, phần tháng chiếm diện tích chính, danh sách ngày được chọn nằm bên phải với chiều rộng tham chiếu **240 px**. Với viewport từ 1150 px trở xuống, danh sách ngày chuyển xuống dưới lịch. Đây là bố cục đã có trong prototype, không phải một màn hình mới.
 
@@ -110,13 +112,25 @@ Icon GitHub phải có tên truy cập và tooltip dù không có text hiển th
 
 ## 6. Duyệt transcript, người nói và notes
 
+### 6.0. Trang cuộc họp hai tab
+
+Trang cuộc họp có hai tab theo mẫu WAI-ARIA Tabs (`role` tablist/tab/tabpanel, `aria-selected`, `aria-controls`) ngay dưới phần đầu trang: **Meeting notes** (kết quả chính) và **Transcript & bản ghi** (trình phát và transcript đi cùng nhau để đối chiếu).
+
+- **Điều khiển:** chỉ tab đang chọn nằm trong thứ tự Tab; mũi tên trái/phải đổi tab (vòng qua đầu/cuối), Home và End nhảy tới tab đầu/cuối, và tab được chọn ngay khi nhận focus.
+- **Nội dung:** tab Transcript & bản ghi chứa khối bản ghi (trình phát dính), khối chép lời, người nói và các đoạn; khi đã có transcript, nhãn tab ghi số đoạn và số đoạn cần kiểm tra (đoạn hiện dấu **Cần kiểm tra** hoặc **Nên nghe lại**) của thế hệ transcript đang hiển thị. Tab Meeting notes chứa toàn bộ phần notes (tạo, tiến độ, lỗi, phiên bản, **Xem | Viết**, sao chép, tải về) cùng khung nguồn đã lưu.
+- **Tab mở sẵn:** không có hash thì chọn Meeting notes nếu cuộc họp có ít nhất một bản notes đã lưu hoặc đang tạo notes, ngược lại chọn Transcript & bản ghi. Link nguồn `?notes_source=…&segment=…` không kèm hash mở Meeting notes. Hash luôn thắng. Trước khi biết cuộc họp có notes hay không (tối đa bốn giây), chưa tab nào được chọn: khung notes ẩn còn khung transcript đã có đủ control nhưng trong suốt, để không khung nào bị nháy; cái giá là trong khoảng chờ ngắn đó các control trong suốt ấy vẫn nhận được focus bàn phím mà không có viền focus nhìn thấy.
+- **Địa chỉ:** `#notes` và `#transcript` chọn tab tương ứng. Đổi tab là một mục lịch sử mới (`pushState`, giữ đường dẫn và query), nên Back quay lại tab trước, Forward đi tiếp và tải lại trang giữ tab. Mục lịch sử bị rời đi nhớ tab đang hiện, nên Back đúng tab kể cả khi quy tắc mặc định đã đổi. Route `/meetings/{id}` và API không đổi.
+- **Chưa có transcript:** tab Meeting notes chỉ hiện **Cần transcript trước**, một dòng nói transcript đang được tạo hay chưa chạy, và nút chuyển sang tab Transcript & bản ghi; không có ô chọn hay nút tạo notes bị tắt.
+- **Tạo notes:** bấm tạo notes ở bất kỳ đâu đều chọn tab Meeting notes để theo dõi tiến độ. Nút **Tua bản ghi tới mốc này** của khung nguồn tua rồi mở tab Transcript & bản ghi (focus ở tab) vì trình phát nằm ở đó; mở nguồn từ link hoặc từ notes không đổi tab.
+- **Đầu trang:** tên cuộc họp chỉ hiện một lần; dải trạng thái ngắn **Bản ghi · Transcript · Notes** nằm trong phần đầu trang. Từ 680 px trở xuống, danh sách tab nằm ngay dưới phần đầu trang và hai nút trạng thái **OpenAI** và **Google** giữ nguyên.
+
 ### 6.1. Transcript và trình phát
 
 Transcript mặc định ở chế độ đọc để nghe và đọc nhanh. Mỗi đoạn gồm timestamp có thể bấm, tên người nói, nội dung (từ 13 px) và nút **Sửa** luôn hiện, không phụ thuộc hover; chưa có ô nhập, select hay nút lưu nào. Đoạn chưa rõ được đánh dấu bằng amber, nhãn **Cần kiểm tra** kèm lý do và chỉ dẫn nghe lại. Đoạn nguồn đang được đối chiếu phải nổi bật để người dùng định vị được trong danh sách. Mỗi đoạn ở chế độ đọc có tối đa hai điểm dừng Tab: timestamp và **Sửa**.
 
-Bấm timestamp trong transcript tua trình phát tới đoạn đó và phát; mở nguồn từ notes chỉ tua tới mốc nguồn, không tự phát. Trình phát là thanh dính ở mép trên vùng nội dung, có phát/tạm dừng, thanh tua, thời gian hiện tại và tổng thời lượng. Trong sản phẩm, phát âm thanh từ bản sao đã lưu tại backend; dạng sóng và chuyển động trong prototype không chứng minh đã có phát âm thanh thật.
+Bấm timestamp trong transcript tua trình phát tới đoạn đó và phát; mở nguồn từ notes chỉ tua tới mốc nguồn, không tự phát. Trình phát là thanh dính ở mép trên vùng nội dung của tab Transcript & bản ghi, có phát/tạm dừng, thanh tua, thời gian hiện tại và tổng thời lượng. Chọn tab Meeting notes ẩn thanh này nhưng không tạm dừng audio, để vừa nghe vừa đọc notes; muốn dừng thì quay lại tab Transcript & bản ghi. Trong sản phẩm, phát âm thanh từ bản sao đã lưu tại backend; dạng sóng và chuyển động trong prototype không chứng minh đã có phát âm thanh thật.
 
-Khi audio đang phát và đoạn đang phát (`aria-current`) đổi, nếu còn thấy một phần danh sách đoạn trong vùng nhìn thấy bên dưới thanh trình phát thì đoạn đó được đưa vào tầm nhìn bằng cuộn gần nhất (`block: "nearest"`), dưới thanh trình phát; khi người dùng bật giảm chuyển động, cuộn tức thì. Không tự cuộn khi audio tạm dừng, trong 2 giây sau khi người dùng cuộn tay (con lăn, chạm, phím cuộn hoặc kéo thanh cuộn), khi focus đang nằm trong một ô sửa của transcript, hay khi cả danh sách đoạn nằm ngoài vùng nhìn thấy đó. Nhờ vậy người đang đọc notes không bị kéo về transcript, và mở nguồn từ notes giữ nguyên chỗ đang đọc: chỉ tua tới mốc nguồn và đánh dấu đoạn tương ứng. Mọi đích cuộn trong cuộc họp (đoạn transcript, tiêu đề nguồn notes) đều dừng dưới thanh trình phát, không nằm dưới nó. Trình duyệt cũng cuộn control nhận focus bàn phím xuống dưới thanh; riêng ô nhập văn bản có thể chỉ lộ dòng chứa con trỏ, nên một phần của ô vẫn có thể nằm dưới thanh trình phát.
+Khi audio đang phát và đoạn đang phát (`aria-current`) đổi, nếu còn thấy một phần danh sách đoạn trong vùng nhìn thấy bên dưới thanh trình phát thì đoạn đó được đưa vào tầm nhìn bằng cuộn gần nhất (`block: "nearest"`), dưới thanh trình phát; khi người dùng bật giảm chuyển động, cuộn tức thì. Không tự cuộn khi audio tạm dừng, trong 2 giây sau khi người dùng cuộn tay (con lăn, chạm, phím cuộn hoặc kéo thanh cuộn), khi focus đang nằm trong một ô sửa của transcript, hay khi cả danh sách đoạn nằm ngoài vùng nhìn thấy đó, kể cả khi danh sách đang ẩn vì tab Meeting notes đang mở. Nhờ vậy người đang đọc notes không bị kéo về transcript, và mở nguồn từ notes giữ nguyên chỗ đang đọc: chỉ tua tới mốc nguồn và đánh dấu đoạn tương ứng. Mọi đích cuộn trong tab Transcript & bản ghi (đoạn transcript) đều dừng dưới thanh trình phát, không nằm dưới nó; tab Meeting notes không ghim thanh nào nên không để dành chỗ. Trình duyệt cũng cuộn control nhận focus bàn phím xuống dưới thanh; riêng ô nhập văn bản có thể chỉ lộ dòng chứa con trỏ, nên một phần của ô vẫn có thể nằm dưới thanh trình phát.
 
 Bấm **Sửa** mở ô sửa tại đoạn đó, gồm ô nội dung, select người nói, **Lưu đoạn** và **Hủy**; chỉ một ô sửa mở tại một lúc. Esc là hủy, Ctrl/⌘+Enter (từ bất kỳ control nào trong ô) là lưu; sau khi lưu hoặc hủy, focus quay lại nút **Sửa** của đoạn đó. Mở đoạn khác đóng ô đang mở nhưng giữ văn bản chưa lưu trong cơ chế bản nháp của transcript; đoạn có bản nháp hiện dấu **Bản nháp chưa lưu** (chữ cùng viền nét đứt, không chỉ màu). Mục **Chi tiết** trong ô sửa chứa **Gán ban đầu** và các chỉ số model (`avg_logprob`, `no_speech_prob`, `compression_ratio`); ở chế độ đọc chúng không hiện (thế hệ cũ chỉ đọc, không có ô sửa, nên giữ mục này đóng sẵn ở mỗi đoạn). Thông báo **Đã lưu** của mọi đoạn đi qua một vùng `aria-live` chung, không có vùng riêng cho từng đoạn. Sau khi lưu, notes hiện có được đánh dấu cần cập nhật; không tự thay nội dung notes.
 
@@ -202,7 +216,7 @@ Vị trí/nội dung hộp thoại kết nối chưa có trong prototype đã du
 
 - Nghiệm thu trên Chrome và Firefox bản ổn định ở laptop/desktop. Các mốc tham chiếu đã xem trong prototype là **1440 × 1000**, **1280 × 800** và **1024 × 768**.
 - Ở các kích thước đó, không tràn ngang toàn trang; sidebar và công cụ chính vẫn truy cập được. Nội dung dài cuộn cùng trang và không bị trình phát hoặc thanh cố định che mất: đoạn được cuộn tới luôn nằm dưới thanh trình phát, còn control nhận focus bàn phím được cuộn xuống dưới thanh (ô nhập văn bản có thể chỉ lộ dòng chứa con trỏ).
-- Giữ hai cột transcript/notes khi đủ chỗ. Với chiều rộng nhỏ hơn, xếp dọc và giữ đầy đủ control/trạng thái; mobile là viewport được nghiệm thu, không được tạo tràn ngang.
+- Trang cuộc họp giữ hai tab ở mọi chiều rộng; nhãn tab xuống dòng thay vì tràn, và từ 680 px trở xuống danh sách tab nằm ngay dưới phần đầu trang. Giữ đầy đủ control/trạng thái; mobile là viewport được nghiệm thu, không được tạo tràn ngang.
 - Nút chỉ có icon phải có tên truy cập. Ô nhập/select có label. Focus bàn phím rõ; thứ tự Tab hợp lý, hộp thoại giữ focus và có cách đóng bằng bàn phím.
 - Dùng chữ hoặc biểu tượng đi cùng màu để phân biệt ngày có cuộc họp, ngày được chọn, trạng thái tác vụ và cảnh báo.
 - Nội dung người dùng nhập phải được hiển thị an toàn. Tên dài, notes dài và nhiều cuộc họp cùng ngày không được làm vỡ bố cục hoặc mất đường truy cập nội dung đầy đủ.
@@ -224,7 +238,7 @@ Prototype hiện có không chứng minh các trạng thái backend trong mục 
 
 | Mã | Điều kiện đạt |
 | --- | --- |
-| FE-01 | Bố cục A và hệ editorial-engineering light/dark thống nhất, có sidebar, transcript/notes cạnh nhau và trình phát; đối chiếu AC-29 |
+| FE-01 | Bố cục A và hệ editorial-engineering light/dark thống nhất, có sidebar, trang cuộc họp hai tab (Meeting notes, Transcript & bản ghi) và trình phát; đối chiếu AC-29 |
 | FE-02 | Brand là ASR EN VI; footer chỉ có icon GitHub và dòng Version ngắn, đúng metadata bản chạy |
 | FE-03 | Danh sách gần đây gọn, tìm kiếm toàn lịch sử, lịch nhỏ ngay dưới danh sách và mở được lịch lớn |
 | FE-04 | Lịch nhỏ/lớn đồng bộ; xử lý tháng/năm cũ, tháng 12 sang tháng 1, năm nhuận, tháng trống, nhiều cuộc họp cùng ngày và thiếu ngày; đối chiếu AC-30 |
@@ -240,5 +254,6 @@ Prototype hiện có không chứng minh các trạng thái backend trong mục 
 | FE-14 | Chọn đúng thế hệ transcript, bản cũ chỉ đọc và không tự ghép tên người nói; chặn ngắt/đổi provider đang dùng, đối chiếu AC-43/44 |
 | FE-15 | Sửa tên/ngày và gán speaker từng đoạn theo version/khóa nguồn; bảo toàn snapshot, original assignment và lịch sử ngôn ngữ, đối chiếu AC-45/46 |
 | FE-16 | Báo lỗi mạng không tự retry, cho lưu link chỉnh tay hỏng có cảnh báo và chọn/nhớ model rõ ràng, đối chiếu AC-47/48/49 |
+| FE-17 | Trang cuộc họp hai tab theo WAI-ARIA: mũi tên, Home, End đổi tab và chỉ tab đang chọn nằm trong thứ tự Tab; tab mở sẵn theo trạng thái cuộc họp, `#notes`/`#transcript` với `pushState`, Back và tải lại giữ tab; trạng thái trống **Cần transcript trước**; tên cuộc họp một lần và dải trạng thái Bản ghi · Transcript · Notes; không tràn ngang ở 360 px, đúng ở theme sáng/tối, focus nhìn thấy và tôn trọng giảm chuyển động |
 
 Việc chốt tài liệu này xác nhận hướng thiết kế. Các tiêu chí trên là điều kiện kiểm tra frontend khi triển khai, không phải báo cáo nghiệm thu sản phẩm đã hoàn thành.

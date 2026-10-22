@@ -86,8 +86,11 @@
     transcriptMutationInFlight: false,
     notesSourceLocked: false,
     notesSourceLockKnown: false,
-    notesHasRevisions: false,
+    notesCount: 0, // saved notes revisions, as notes.js last counted them
+    notesKnown: false, // notes.js has answered for this meeting, so the count above means something
     notesTaskStatus: null,
+    tab: null, // "notes" | "transcript"; null while the default waits for notes.js
+    tabTimer: 0,
     editorBusy: false,
     transcriptMutationFocus: null,
     transcriptMutationFocusAfter: null,
@@ -170,9 +173,95 @@
     document.title = documentTitle;
   }
 
+  // ---- meeting tabs: Meeting notes | Transcript & bản ghi ----
+  const MEETING_TABS = ["notes", "transcript"];
+  const TAB_PENDING_MS = 4000; // if notes.js never answers, the page falls back to the transcript
+
+  // The tab the address names: a #notes or #transcript hash, the tab this history entry remembers (see
+  // pushMeetingUrl), or, for a saved-source link with no hash, the notes tab where the source view lives.
+  function locatedTab() {
+    const named = window.location.hash.slice(1);
+    if (MEETING_TABS.includes(named)) return named;
+    const remembered = window.history.state && window.history.state.meetingTab;
+    if (MEETING_TABS.includes(remembered)) return remembered;
+    const params = new URLSearchParams(window.location.search);
+    return params.has("notes_source") && params.has("segment") ? "notes" : null;
+  }
+
+  // With no tab in the address: notes when the meeting has saved notes or is making some, else transcript.
+  // Unknown until notes.js has read the notes.
+  function defaultTab() {
+    if (!state.notesKnown) return null;
+    return state.notesCount > 0 || ACTIVE_TASK_STATES.has(state.notesTaskStatus) ? "notes" : "transcript";
+  }
+
+  function resetTab() {
+    window.clearTimeout(state.tabTimer);
+    state.tabTimer = 0;
+    state.tab = null;
+  }
+
+  // Paint a tab, or none (null) while the default is still unknown. Then no tab is selected and the notes
+  // panel is hidden; the transcript panel, the likelier answer, is laid out but transparent, so the other
+  // panel never flashes and the transcript's controls are already in place when it is the one.
+  function setTab(tab) {
+    state.tab = tab;
+    for (const name of MEETING_TABS) {
+      const selected = name === tab;
+      $(`#meeting-tab-${name}`).setAttribute("aria-selected", String(selected));
+      // Roving tabindex: only the chosen tab is a Tab stop (the first one, before any is chosen).
+      $(`#meeting-tab-${name}`).tabIndex = selected || (tab === null && name === MEETING_TABS[0]) ? 0 : -1;
+    }
+    $("#meeting-panel-notes").hidden = tab !== "notes";
+    $("#meeting-panel-transcript").hidden = tab === "notes";
+    $("#meeting-panel-transcript").classList.toggle("is-pending", tab === null);
+    if (tab !== null) {
+      window.clearTimeout(state.tabTimer);
+      state.tabTimer = 0;
+    } else if (!state.tabTimer) {
+      state.tabTimer = window.setTimeout(() => {
+        state.tabTimer = 0;
+        if (state.tab === null) setTab("transcript");
+      }, TAB_PENDING_MS);
+    }
+  }
+
+  // Shown whenever the meeting view appears: the address wins, then what the page already shows, then the default.
+  function initMeetingTab() {
+    setTab(locatedTab() ?? state.tab ?? defaultTab());
+  }
+
+  // A new history entry for the meeting page. The entry being left remembers its tab, so Back restores it
+  // even if the default for an address without a hash has changed since.
+  function pushMeetingUrl(url, tab = null) {
+    if (state.tab && state.meeting && state.meeting.id === meetingIdFromPath()) {
+      window.history.replaceState({ ...window.history.state, meetingTab: state.tab }, "");
+    }
+    window.history.pushState(tab ? { meetingTab: tab } : {}, "", url);
+  }
+
+  // Choose a tab as the user does: a new history entry with #tab, so Back returns to the previous tab.
+  function selectTab(tab, { focus = false } = {}) {
+    if (!MEETING_TABS.includes(tab) || state.view !== "meeting") return;
+    if (tab !== state.tab) {
+      pushMeetingUrl(`${window.location.pathname}${window.location.search}#${tab}`, tab);
+      setTab(tab);
+    }
+    if (focus) $(`#meeting-tab-${tab}`).focus();
+  }
+
+  // The tab names what its panel holds: how many segments, and how many of them ask for a second look.
+  function renderTabCounts(generation) {
+    const segments = generation && Array.isArray(generation.segments) ? generation.segments : null;
+    $("#meeting-tab-count").textContent = segments
+      ? `${segments.length} đoạn · ${segments.filter(needsReview).length} cần kiểm tra`
+      : "";
+  }
+
   function showHome() {
     state.loadSeq += 1; // a meeting load still in flight must not repaint over home
     stopTaskPolling();
+    resetTab();
     showView("home");
     setHeading("Cuộc họp", "Workspace · ASR EN VI");
     renderSidebar();
@@ -568,7 +657,10 @@
     const path = `/meetings/${encodeURIComponent(meetingId)}`;
     const query = `?notes_source=${encodeURIComponent(snapshotId)}&segment=${encodeURIComponent(segmentId)}`;
     if (window.location.pathname !== path || window.location.search !== query) {
-      window.history.pushState({}, "", `${path}${query}`);
+      // Opening a source does not change the tab: the new entry keeps the address's hash and the tab shown.
+      const shown = state.meeting && state.meeting.id === meetingId && state.view === "meeting";
+      const hash = window.location.pathname === path ? window.location.hash : "";
+      pushMeetingUrl(`${path}${query}${hash}`, shown ? state.tab : null);
     }
     if (!state.meeting || state.meeting.id !== meetingId || state.view !== "meeting") {
       const painted = await loadMeeting(meetingId);
@@ -586,7 +678,8 @@
   }
 
   function renderMeeting(meeting) {
-    setHeading(meeting.title, `${meeting.title} · ASR EN VI`);
+    // The name shows once, in #meeting-title; the page heading above it stays generic.
+    setHeading("Cuộc họp", `${meeting.title} · ASR EN VI`);
     $("#meeting-title").textContent = meeting.title;
     const date = formatMeetingDate(meeting.meeting_date);
     const dateElement = $("#meeting-date");
@@ -721,24 +814,60 @@
     }
   }
 
+  // How a run that did not finish reads alone, and after "lần chạy mới" / "lần tạo mới".
+  const RUN_END_LABELS = { failed: "Thất bại", canceled: "Đã hủy", interrupted: "Bị gián đoạn" };
+  const NEW_RUN_END_WORDS = { failed: "thất bại", canceled: "bị hủy", interrupted: "bị gián đoạn" };
+
+  function setStatusItem(id, name, value, itemState) {
+    const item = $(`#status-${id}`);
+    item.dataset.state = itemState; // idle | active | done | warning | problem: only repeats the words
+    item.lastElementChild.textContent = `${name} · ${value}`;
+  }
+
+  // The header strip: one short line per stage. The words carry the state; the dot only repeats it.
   function renderMeetingProcessingStatus(task, generation) {
-    let status = "Đã lưu, chưa xử lý";
-    if (ACTIVE_TASK_STATES.has(state.notesTaskStatus)) {
-      status = state.notesTaskStatus === "stopping" ? "Đang dừng tạo notes" : "Đang tạo notes";
-    } else if (task && ACTIVE_TASK_STATES.has(task.status)) {
-      status = task.status === "stopping" ? "Đang dừng xử lý" : "Đang chép lời";
-    } else if (task && task.status === "succeeded") {
-      status = state.notesHasRevisions ? "Đã có transcript và notes" : "Đã có transcript · chưa có notes";
-    } else if (task && task.status === "failed") {
-      status = generation ? "Lần chạy mới thất bại · transcript trước vẫn còn" : "Xử lý thất bại";
-    } else if (task && task.status === "interrupted") {
-      status = generation ? "Bị gián đoạn · transcript trước vẫn còn" : "Bị gián đoạn";
-    } else if (task && task.status === "canceled") {
-      status = generation ? "Đã hủy · transcript trước vẫn còn" : "Đã hủy";
+    const meeting = state.meeting;
+    const seconds = Number(meeting && meeting.recording && meeting.recording.duration_seconds);
+    setStatusItem(
+      "recording",
+      "Bản ghi",
+      seconds > 0 ? `Đã lưu · ${formatRecordingDuration(seconds)}` : "Đã lưu",
+      "done",
+    );
+
+    const transcriptEnd = task && Object.hasOwn(RUN_END_LABELS, task.status) ? task.status : null;
+    if (task && ACTIVE_TASK_STATES.has(task.status)) {
+      setStatusItem("transcript", "Transcript", task.status === "stopping" ? "Đang dừng" : "Đang chép lời", "active");
     } else if (generation) {
-      status = state.notesHasRevisions ? "Đã có transcript và notes" : "Đã có transcript · chưa có notes";
+      setStatusItem(
+        "transcript",
+        "Transcript",
+        transcriptEnd ? `Hoàn tất · lần chạy mới ${NEW_RUN_END_WORDS[transcriptEnd]}` : "Hoàn tất",
+        transcriptEnd ? "warning" : "done",
+      );
+    } else if (transcriptEnd) {
+      setStatusItem("transcript", "Transcript", RUN_END_LABELS[transcriptEnd], transcriptEnd === "failed" ? "problem" : "warning");
+    } else {
+      setStatusItem("transcript", "Transcript", "Chưa chép lời", "idle");
     }
-    $("#meeting-status-text").textContent = status;
+
+    const notesEnd = Object.hasOwn(RUN_END_LABELS, state.notesTaskStatus) ? state.notesTaskStatus : null;
+    if (!state.notesKnown) {
+      setStatusItem("notes", "Notes", "Đang kiểm tra", "idle");
+    } else if (ACTIVE_TASK_STATES.has(state.notesTaskStatus)) {
+      setStatusItem("notes", "Notes", state.notesTaskStatus === "stopping" ? "Đang dừng" : "Đang tạo", "active");
+    } else if (state.notesCount > 0) {
+      setStatusItem(
+        "notes",
+        "Notes",
+        `${state.notesCount} bản${notesEnd ? ` · lần tạo mới ${NEW_RUN_END_WORDS[notesEnd]}` : ""}`,
+        notesEnd ? "warning" : "done",
+      );
+    } else if (notesEnd) {
+      setStatusItem("notes", "Notes", RUN_END_LABELS[notesEnd], notesEnd === "failed" ? "problem" : "warning");
+    } else {
+      setStatusItem("notes", "Notes", "Chưa có", "idle");
+    }
   }
 
   function generationsFor(transcription) {
@@ -1030,7 +1159,8 @@
   function installServerMeeting(meeting) {
     const previous = state.meeting;
     if (!previous || !meeting || previous.id !== meeting.id) {
-      state.notesHasRevisions = false;
+      state.notesCount = 0;
+      state.notesKnown = false;
       state.notesTaskStatus = null;
     }
     if (meeting && typeof meeting.notes_source_locked === "boolean") {
@@ -1729,9 +1859,14 @@
     return originalSpeaker;
   }
 
+  // A segment that shows the review cue is one the Transcript tab counts as "cần kiểm tra".
+  function needsReview(segment) {
+    return Boolean(segment.uncertain) || (Array.isArray(segment.review_reasons) && segment.review_reasons.length > 0);
+  }
+
   function buildReviewCue(segment) {
+    if (!needsReview(segment)) return null;
     const reasons = Array.isArray(segment.review_reasons) ? segment.review_reasons : [];
-    if (!segment.uncertain && reasons.length === 0) return null;
     const reviewCue = document.createElement("span");
     reviewCue.className = "segment-review-cue";
     reviewCue.textContent = reasons.length
@@ -3019,6 +3154,7 @@
     status.classList.toggle("is-checking-worker", workerChecking);
     renderMeetingProcessingStatus(task, generation);
     const selected = renderGenerationNavigation(transcription);
+    renderTabCounts(selected && selected.generation);
     renderTranscriptGeneration(selected && selected.generation, Boolean(selected && selected.editable));
     renderTranscriptDraftRecovery(transcription, selected && selected.generation.id);
     renderTranscriptMutationError();
@@ -3227,11 +3363,13 @@
       state.editingSegment = null;
       state.renamingSpeaker = null;
       clearSpeakerAddName();
+      resetTab();
     }
     if (!sameMeeting) closeEditor(); // drops the draft, which orphans any save still in flight
     if (sameMeeting) {
       renderMeeting(state.meeting); // show what we already know while the refresh runs
       showView("meeting");
+      initMeetingTab();
     } else {
       setHeading("Cuộc họp", "Cuộc họp · ASR EN VI");
       showView("loading");
@@ -3258,6 +3396,7 @@
         audio.load();
       }
       showView("meeting");
+      initMeetingTab(); // before notes.js hears of the meeting, so its source view can take focus
       notifyMeetingContext();
       startTaskPolling(meeting.id, meeting.transcription && meeting.transcription.task);
       renderSidebar();
@@ -3418,13 +3557,17 @@
   }
 
   window.ASRMeetingHistory = Object.freeze({
-    setNotesSummary(meetingId, hasRevisions, taskStatus) {
+    // `known` is false until notes.js has read this meeting's notes; the first answer settles the default tab.
+    setNotesSummary(meetingId, revisionCount, taskStatus, known = true) {
       if (!state.meeting || state.meeting.id !== meetingId) return;
-      state.notesHasRevisions = Boolean(hasRevisions);
+      state.notesCount = Number(revisionCount) || 0;
+      state.notesKnown = Boolean(known);
       state.notesTaskStatus = taskStatus || null;
       const transcription = state.meeting.transcription || {};
       renderMeetingProcessingStatus(transcription.task, transcription.generation);
+      if (state.notesKnown && state.view === "meeting" && state.tab === null) initMeetingTab();
     },
+    selectTab,
     currentContext() {
       return {
         meeting: state.view === "meeting" ? state.meeting : null,
@@ -3516,6 +3659,7 @@
     const editable = Boolean(
       generation && current && generation.id === current.id && generation.status === "complete",
     );
+    renderTabCounts(generation);
     renderTranscriptGeneration(generation, editable);
     renderTranscriptDraftRecovery(transcription, generation && generation.id);
     renderTranscriptMutationError();
@@ -3703,8 +3847,32 @@
 
   window.addEventListener("popstate", () => {
     const id = meetingIdFromPath();
-    if (id) void loadMeeting(id);
+    if (id) void loadMeeting(id); // for the same meeting this also paints the tab the address names
     else showHome();
+  });
+  window.addEventListener("hashchange", () => {
+    if (state.view === "meeting") initMeetingTab();
+  });
+
+  $("#meeting-tabs").addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-meeting-tab]");
+    if (tab) selectTab(tab.dataset.meetingTab);
+  });
+  // Arrow keys, Home and End move between the tabs and choose the one they land on.
+  $("#meeting-tabs").addEventListener("keydown", (event) => {
+    const tab = event.target.closest("[data-meeting-tab]");
+    if (!tab || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const index = MEETING_TABS.indexOf(tab.dataset.meetingTab);
+    const last = MEETING_TABS.length - 1;
+    const target = {
+      ArrowLeft: index === 0 ? last : index - 1,
+      ArrowRight: index === last ? 0 : index + 1,
+      Home: 0,
+      End: last,
+    }[event.key];
+    if (target === undefined) return;
+    event.preventDefault();
+    selectTab(MEETING_TABS[target], { focus: true });
   });
 
   renderCalendars();

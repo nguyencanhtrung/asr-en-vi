@@ -489,7 +489,8 @@ def test_notes_run_first_seen_after_it_ended_marks_no_step_done(live, signed_in,
     _context, page = signed_in()
     meeting_id, task_id, owner_id = running_notes(live)
     end_notes_run(live, task_id, owner_id, ending)
-    page.goto(f"{live.url}/meetings/{meeting_id}")
+    # A run that failed leaves no saved notes, so the meeting would open on its transcript.
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
 
     end = page.locator("#notes-step-end")
     expect(end).to_be_visible()

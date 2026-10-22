@@ -131,6 +131,7 @@
         task: null,
         sourceLocked: false,
         sourceLockKnown: false,
+        known: false, // the server has answered a notes read (or failed one) since the meeting opened
         selectedNoteId: null,
         requestInFlight: false,
         cancelInFlight: false,
@@ -243,6 +244,7 @@
     if (!state.choice.loaded && !state.choice.loading) void loadProviderChoice(meetingId);
     data.sourceLocked = notes.source_locked;
     data.sourceLockKnown = true;
+    data.known = true;
     data.readError = "";
     if (!data.selectedNoteId && revisions.length) data.selectedNoteId = revisions[0].id;
     const pending = getPendingRequest(meetingId, false);
@@ -894,14 +896,33 @@
     }
   }
 
+  // Without a complete transcript the tab offers no run controls at all, only the way to get one.
+  function renderTranscriptNeeded(meeting) {
+    const needed = Boolean(meeting) && !currentGeneration(meeting);
+    $("#notes-empty").hidden = !needed;
+    $("#notes-create").hidden = needed;
+    $("#notes-status").hidden = needed;
+    if (!needed) return;
+    const task = meeting.transcription && meeting.transcription.task;
+    $("#notes-empty-copy").textContent = transcriptionBusy(meeting)
+      ? "Đang chép lời. Notes tạo được sau khi transcript hoàn tất."
+      : task && ["failed", "canceled", "interrupted"].includes(task.status)
+        ? "Lần chép lời gần nhất chưa hoàn tất. Mở Transcript & bản ghi để xem chi tiết và chạy lại."
+        : "Notes được tạo từ transcript hoàn chỉnh. Chép lời bản ghi trước.";
+  }
+
   function render() {
     const data = currentNotes();
     const meeting = state.currentMeeting;
     if (meeting && window.ASRMeetingHistory) {
       window.ASRMeetingHistory.setNotesSummary(
-        meeting.id, Boolean(data && data.revisions.length), data && data.task && data.task.status,
+        meeting.id,
+        data ? data.revisions.length : 0,
+        data && data.task && data.task.status,
+        Boolean(data && data.known),
       );
     }
+    renderTranscriptNeeded(meeting);
     const runButton = $("#notes-start");
     const waitForTranscript = transcriptionBusy(meeting);
     const waitMessage = "Đang xử lý transcript. Chờ tác vụ kết thúc để tạo notes.";
@@ -965,6 +986,7 @@
         || (pollToken !== null && pollToken !== state.pollSeq)
       ) return;
       const notes = meetingNotes(meetingId);
+      notes.known = true;
       notes.readError = error && error.message ? error.message : "Không thể đọc notes đã lưu.";
       if (!notes.sourceLockKnown && window.ASRMeetingHistory) {
         window.ASRMeetingHistory.setNotesSourceLock(meetingId, false, false);
@@ -1227,6 +1249,8 @@
     const generation = currentGeneration(meeting);
     if (!canStartNotes(meeting, data) || !generation || !meetingId) return;
     const body = requestPayload(getPendingRequest(meetingId, true), meeting, generation);
+    // The run's progress, errors and result all live in the notes tab, wherever the run was started from.
+    if (window.ASRMeetingHistory) window.ASRMeetingHistory.selectTab("notes");
     data.requestInFlight = true;
     data.runError = "";
     data.runErrorUncertain = false;
@@ -1641,7 +1665,7 @@
     if (!clearLocation) return;
     const reference = sourceFromLocation();
     if (reference && window.location.search) {
-      window.history.replaceState({}, "", window.location.pathname);
+      window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.hash}`);
     }
   }
 
@@ -1652,6 +1676,8 @@
     $("#notes-source-status").textContent = sought
       ? `Đã tua bản ghi cuộc họp tới ${formatSeconds(source.startSeconds)}.`
       : "Chưa thể tua bản ghi tới mốc này. Hãy kiểm tra audio đã tải xong.";
+    // The player lives in the transcript tab: show it at the mark. A failed seek keeps its message in view.
+    if (sought) window.ASRMeetingHistory.selectTab("transcript", { focus: true });
   }
 
   function handleMeetingContext(event) {
@@ -1672,6 +1698,7 @@
     if (changed) {
       stopTaskPolling();
       data.sourceLockKnown = false;
+      data.known = false;
     }
     if (
       (changed || previousMeeting !== state.currentMeeting || !data.sourceLockKnown)
@@ -1690,6 +1717,9 @@
   }
 
   $("#notes-start").addEventListener("click", () => void startNotes());
+  $("#notes-empty-open-transcript").addEventListener("click", () => {
+    if (window.ASRMeetingHistory) window.ASRMeetingHistory.selectTab("transcript", { focus: true });
+  });
   $("#notes-choice-reload").addEventListener("click", () => {
     if (state.currentMeetingId) void loadProviderChoice(state.currentMeetingId);
   });

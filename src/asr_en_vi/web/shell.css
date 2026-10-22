@@ -614,7 +614,7 @@ textarea:focus-visible {
 
 .meeting-metadata {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1px;
   overflow: hidden;
   margin: 0 0 18px;
@@ -645,20 +645,122 @@ textarea:focus-visible {
   font-weight: 580;
 }
 
-.saved-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--success);
+/* Bản ghi · Transcript · Notes: one short line per stage. The words carry the state; the dot repeats it. */
+.meeting-status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 20px;
+  padding: 0;
+  list-style: none;
 }
 
-.saved-badge > span:first-child {
+.meeting-status-item {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 30px;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 11px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 580;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.meeting-status-item > span:first-child {
   width: 6px;
   height: 6px;
   flex: 0 0 auto;
   border-radius: 50%;
+  background: var(--ink-3);
+}
+
+.meeting-status-item[data-state="done"] > span:first-child {
   background: var(--success);
-  box-shadow: 0 0 0 3px var(--success-soft);
+}
+
+.meeting-status-item[data-state="active"] > span:first-child {
+  background: var(--accent);
+}
+
+.meeting-status-item[data-state="warning"] > span:first-child {
+  background: var(--warning);
+}
+
+.meeting-status-item[data-state="problem"] > span:first-child {
+  background: var(--danger);
+}
+
+/* WAI-ARIA tabs: the selected tab carries an accent underline and heavier type, so colour is never alone. */
+.meeting-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 16px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.meeting-tab {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 44px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+  row-gap: 2px;
+  margin-bottom: -1px;
+  padding: 8px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 620;
+  line-height: 1.4;
+  text-align: left;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.meeting-tab:hover {
+  background: var(--surface-subtle);
+  color: var(--ink);
+}
+
+.meeting-tab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.meeting-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.meeting-tab-count {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.meeting-tabpanel {
+  min-width: 0;
+}
+
+/* Until the default tab is known the transcript panel is in place but not painted. */
+.meeting-tabpanel.is-pending {
+  opacity: 0;
+}
+
+.meeting-tabpanel > :first-child {
+  margin-top: 0;
 }
 
 .source-label > span {
@@ -719,8 +821,9 @@ textarea:focus-visible {
   background: var(--surface);
 }
 
-/* Scrolling to a target or a focused control stops below the player instead of under it. */
-:root:has(#meeting-view:not([hidden])) {
+/* Scrolling to a target or a focused control stops below the player instead of under it. The player
+   sits in the Transcript tab, so the notes tab reserves nothing. */
+:root:has(#meeting-view:not([hidden]) #meeting-panel-transcript:not([hidden])) {
   scroll-padding-top: var(--player-height);
 }
 
@@ -1512,6 +1615,12 @@ textarea:focus-visible {
     display: inline;
   }
 
+  .meeting-tab {
+    flex: 1 1 0;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
   .audio-panel {
     padding: 16px 14px 14px;
   }
@@ -1793,6 +1902,21 @@ textarea:focus-visible {
 
 /* Forced colours paint author backgrounds as Canvas: outline the track, fill with Highlight. */
 @media (forced-colors: active) {
+  /* A transparent border is painted CanvasText: hide the unselected underline in Canvas, above the
+     tablist hairline so that stays unbroken. */
+  .meeting-tab {
+    margin-bottom: 0;
+    border-bottom-color: Canvas;
+  }
+
+  .meeting-tab[aria-selected="true"] {
+    border-bottom-color: Highlight;
+  }
+
+  .meeting-status-item > span:first-child {
+    background: CanvasText;
+  }
+
   .task-progress-bar {
     border: 1px solid CanvasText;
   }
