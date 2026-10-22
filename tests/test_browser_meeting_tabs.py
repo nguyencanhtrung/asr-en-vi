@@ -338,6 +338,7 @@ def test_notes_tab_holds_the_whole_notes_part(live, signed_in):
     panel = page.locator("#meeting-panel-notes")
     in_panel = (
         "#notes-panel",
+        "#notes-change",
         "#notes-output-language",
         "#notes-provider",
         "#notes-model",
@@ -359,6 +360,9 @@ def test_notes_tab_holds_the_whole_notes_part(live, signed_in):
     for selector in in_panel:
         assert panel.locator(selector).count() == 1, selector
         assert page.locator(f"#meeting-panel-transcript {selector}").count() == 0, selector
+    # The three selects sit behind "Đổi…".
+    expect(panel.locator("#notes-change")).to_be_visible()
+    panel.locator("#notes-change").click()
     for selector in (
         "#notes-output-language",
         "#notes-provider",
@@ -725,7 +729,13 @@ def test_notes_tab_without_a_transcript_says_so_and_offers_the_transcript_tab(li
     panel = page.locator("#meeting-panel-notes")
     expect(panel.locator("select:visible")).to_have_count(0)
     expect(panel.locator("button:visible")).to_have_count(1)
-    for selector in ("#notes-start", "#notes-output-language", "#notes-provider", "#notes-model"):
+    for selector in (
+        "#notes-start",
+        "#notes-change",
+        "#notes-output-language",
+        "#notes-provider",
+        "#notes-model",
+    ):
         expect(page.locator(selector)).to_be_hidden()
     expect(panel.get_by_role("button", name=re.compile("Transcript & bản ghi"))).to_be_visible()
 
@@ -753,7 +763,10 @@ def test_the_empty_state_gives_way_to_the_controls_once_there_is_a_transcript(li
     meeting_id, *_ = seed_completed_transcript(live.settings.data_dir)
     open_meeting(page, live, meeting_id, "#notes")
     expect(page.locator("#notes-empty")).to_be_hidden()
-    for selector in ("#notes-output-language", "#notes-provider", "#notes-model", "#notes-start"):
+    for selector in ("#notes-start", "#notes-change"):
+        expect(page.locator(selector)).to_be_visible()
+    page.locator("#notes-change").click()
+    for selector in ("#notes-output-language", "#notes-provider", "#notes-model"):
         expect(page.locator(selector)).to_be_visible()
     expect(page.locator("#notes-start")).to_be_enabled()
 

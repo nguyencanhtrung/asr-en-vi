@@ -247,39 +247,51 @@
             <header class="notes-heading-row">
               <div>
                 <h3 id="notes-heading">Meeting notes</h3>
-                <p class="notes-intro">Chọn ngôn ngữ đầu ra cho notes được tạo từ transcript hoàn chỉnh của cuộc họp.</p>
-              </div>
-              <div class="notes-run-actions">
-                <div class="notes-output-language-control">
-                  <label for="notes-output-language">Ngôn ngữ đầu ra</label>
-                  <select id="notes-output-language">
-                    <option value="en">English</option>
-                    <option value="vi">Tiếng Việt</option>
-                  </select>
-                </div>
-                <div class="notes-output-language-control">
-                  <label for="notes-provider">Nhà cung cấp</label>
-                  <select id="notes-provider" aria-describedby="notes-run-plan">
-                    <option value="chatgpt">ChatGPT</option>
-                    <option value="antigravity">Google Antigravity</option>
-                  </select>
-                </div>
-                <div class="notes-output-language-control">
-                  <label for="notes-model">Model</label>
-                  <select id="notes-model" aria-describedby="notes-run-plan">
-                    <option value="">Chưa có model</option>
-                  </select>
-                </div>
-                <button class="primary-button" id="notes-start" type="button" aria-describedby="notes-status" disabled>Tạo notes bằng ChatGPT</button>
-                <button class="secondary-button" id="notes-cancel" type="button" hidden>Hủy tạo notes</button>
+                <p class="notes-intro">Notes được tạo từ transcript hoàn chỉnh của cuộc họp theo lựa chọn đã lưu.</p>
               </div>
             </header>
-            <p class="notes-run-plan" id="notes-run-plan" role="status" aria-live="polite"></p>
-            <p class="notes-preference-status" id="notes-preference-status" role="status" aria-live="polite"></p>
-            <button type="button" class="secondary-button" id="notes-choice-reload" hidden>Tải lại lựa chọn</button>
-            <p class="notes-content-policy" id="notes-content-policy">
-              Ngày họp, lời thoại, mốc thời gian và tên người nói được gửi tới ChatGPT bằng model và effort đã lưu. Với nguồn dài, các bản tóm tắt trung gian cũng được gửi để tổng hợp notes. File audio/video, tên cuộc họp và thông tin tài khoản không được gửi.
-            </p>
+            <!-- Moved by notes.js into #notes-toolbar once notes exist, where the action turns secondary. -->
+            <div class="notes-run" id="notes-run">
+              <div class="notes-run-actions">
+                <button class="primary-button" id="notes-start" type="button" aria-describedby="notes-status" disabled>Tạo notes</button>
+                <button class="secondary-button" id="notes-cancel" type="button" hidden>Hủy tạo notes</button>
+                <button class="text-button" id="notes-change" type="button" aria-expanded="false" aria-controls="notes-choice">Đổi…</button>
+              </div>
+              <p class="notes-speaker-reminder" id="notes-speaker-reminder" hidden>
+                <span id="notes-speaker-names"></span>
+                <a class="text-link" id="notes-name-speakers" href="#transcript">Đặt tên trước</a>
+              </p>
+              <p class="notes-run-plan" id="notes-run-plan" role="status" aria-live="polite"></p>
+              <button type="button" class="secondary-button notes-choice-reload" id="notes-choice-reload" hidden>Tải lại lựa chọn</button>
+              <div class="notes-choice" id="notes-choice" hidden>
+                <div class="notes-choice-fields">
+                  <div class="notes-output-language-control">
+                    <label for="notes-output-language">Ngôn ngữ đầu ra</label>
+                    <select id="notes-output-language">
+                      <option value="en">English</option>
+                      <option value="vi">Tiếng Việt</option>
+                    </select>
+                  </div>
+                  <div class="notes-output-language-control">
+                    <label for="notes-provider">Nhà cung cấp</label>
+                    <select id="notes-provider" aria-describedby="notes-run-plan">
+                      <option value="chatgpt">ChatGPT</option>
+                      <option value="antigravity">Google Antigravity</option>
+                    </select>
+                  </div>
+                  <div class="notes-output-language-control">
+                    <label for="notes-model">Model</label>
+                    <select id="notes-model" aria-describedby="notes-run-plan">
+                      <option value="">Chưa có model</option>
+                    </select>
+                  </div>
+                </div>
+                <p class="notes-preference-status" id="notes-preference-status" role="status" aria-live="polite"></p>
+                <p class="notes-content-policy" id="notes-content-policy">
+                  Ngày họp, lời thoại, mốc thời gian và tên người nói được gửi tới ChatGPT bằng model và effort đã lưu. Với nguồn dài, các bản tóm tắt trung gian cũng được gửi để tổng hợp notes. File audio/video, tên cuộc họp và thông tin tài khoản không được gửi.
+                </p>
+              </div>
+            </div>
             </div>
             <p class="notes-lock-status" id="notes-lock-status" role="status" aria-live="polite" hidden></p>
             <p class="notes-status" id="notes-status" role="status" aria-live="polite">Đang kiểm tra trạng thái notes…</p>
@@ -430,7 +442,7 @@
               <p class="generation-mode" id="generation-mode" role="status"></p>
               <div class="transcript-draft-recovery" id="transcript-draft-recovery" hidden></div>
               <section class="speaker-catalog" id="speaker-catalog" aria-labelledby="speaker-catalog-title">
-                <h5 id="speaker-catalog-title">Người nói trong phiên bản này</h5>
+                <h5 id="speaker-catalog-title" tabindex="-1">Người nói trong phiên bản này</h5>
                 <ul class="speaker-catalog-list" id="speaker-catalog-list"></ul>
                 <form class="speaker-add-form" id="speaker-add-form" novalidate>
                   <label for="speaker-add-name">Thêm người nói <span class="optional-mark">Tùy chọn tên</span></label>

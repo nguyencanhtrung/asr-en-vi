@@ -904,6 +904,27 @@
   // The backend names a speaker nobody renamed "Speaker 3"; its chip invites a name.
   const DEFAULT_SPEAKER_NAME = /^Speaker \d+$/;
 
+  // The default names a transcript still carries, for the notes reminder to name them.
+  function defaultSpeakerNames(generation) {
+    const speakers = generation && Array.isArray(generation.speakers) ? generation.speakers : [];
+    return speakers.map((speaker) => speaker.display_name || "").filter((name) => DEFAULT_SPEAKER_NAME.test(name));
+  }
+
+  // Open the Transcript tab at the current transcript's speaker catalog, ready to name the speakers.
+  function focusSpeakerCatalog() {
+    if (state.view !== "meeting") return;
+    selectTab("transcript");
+    const transcription = state.meeting && state.meeting.transcription;
+    const current = transcription && transcription.generation;
+    // Only the current transcript takes names, so a past one on screen gives way to it.
+    if (current && state.selectedGenerationId !== current.id) {
+      const selector = $("#generation-selector");
+      selector.value = current.id;
+      selector.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    $("#speaker-catalog-title").focus();
+  }
+
   function isEditingSegment(generationId, segmentId) {
     const editing = state.editingSegment;
     return Boolean(editing && editing.generationId === generationId && editing.segmentId === segmentId);
@@ -3568,6 +3589,8 @@
       if (state.notesKnown && state.view === "meeting" && state.tab === null) initMeetingTab();
     },
     selectTab,
+    defaultSpeakerNames,
+    focusSpeakerCatalog,
     currentContext() {
       return {
         meeting: state.view === "meeting" ? state.meeting : null,

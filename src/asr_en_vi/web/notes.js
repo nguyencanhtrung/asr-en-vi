@@ -102,6 +102,7 @@
       saving: false,
       loading: false,
       message: "",
+      open: false, // "Đổi…" is showing the selects and the description of what is sent
     },
     // The step each notes task was last seen running, by task id: the backend overwrites
     // the stage when a run fails, is canceled or is interrupted.
@@ -531,7 +532,59 @@
     const preferenceStatus = $("#notes-preference-status");
     preferenceStatus.textContent = choice.message;
     $("#notes-content-policy").textContent = `Ngày họp, lời thoại, mốc thời gian và tên người nói được gửi tới ${name} bằng model đã chọn. Với nguồn dài, các bản tóm tắt trung gian cũng được gửi để tổng hợp notes. File audio/video, tên cuộc họp và thông tin tài khoản không được gửi.`;
+    // The plan line belongs to the open choice, except when the action cannot simply run and it says why.
+    const stuck = needsConnection(data, provider, readiness, pending) || (!choice.loaded && !choice.loading && !pending);
+    plan.hidden = !stuck && !choice.open;
+    $("#notes-choice").hidden = !choice.open;
+    $("#notes-change").setAttribute("aria-expanded", String(choice.open));
     return { provider, readiness };
+  }
+
+  // The chosen provider is not connected or has no usable model: Connections is the next step, not a run.
+  // A run in progress keeps its own button; the choice only matters again once it ends.
+  function needsConnection(data, provider, readiness, pending) {
+    const choice = state.choice;
+    return choice.loaded
+      && !pending
+      && !activeTask(data)
+      && !(data && data.requestInFlight)
+      && (choice.status[provider] !== "connected" || !readiness.ready || !readiness.model);
+  }
+
+  // What one press does, from the saved choice. Until that and the model names are read, only the rest.
+  function runLabel(verb, language, provider, readiness) {
+    const label = [verb, outputLanguageLabel(language)];
+    if (state.choice.loaded && !state.choice.loading) {
+      const model = readiness.model ? modelName(provider, readiness.model) : "";
+      label.push([providerLabel(provider), model].filter(Boolean).join(" "));
+    }
+    return label.join(" · ");
+  }
+
+  // Until notes exist the action is the primary one on the tab; afterwards it is one secondary tool in the
+  // notes toolbar. The whole group moves, so its choice and reminder stay beside the button.
+  function placeRunControls(inToolbar) {
+    const controls = $("#notes-run");
+    const host = inToolbar ? $("#notes-toolbar") : $("#notes-create");
+    if (controls.parentElement !== host) {
+      const focused = controls.contains(document.activeElement) ? document.activeElement : null;
+      host.append(controls);
+      if (focused) focused.focus({ preventScroll: true });
+    }
+    $("#notes-start").classList.toggle("primary-button", !inToolbar);
+    $("#notes-start").classList.toggle("secondary-button", inToolbar);
+  }
+
+  // A run copies the speaker names as they stand, so say which ones are still the system's own.
+  function renderSpeakerReminder(meeting, data) {
+    const history = window.ASRMeetingHistory;
+    const generation = currentGeneration(meeting);
+    const names = history && generation ? history.defaultSpeakerNames(generation) : [];
+    // While a run holds the source the names cannot change, so there is nothing to do first.
+    $("#notes-speaker-reminder").hidden = !names.length || activeTask(data) || Boolean(data && data.sourceLocked);
+    $("#notes-speaker-names").textContent = names.length
+      ? `Notes sẽ dùng tên người nói hiện tại: ${names.join(", ")}.`
+      : "";
   }
 
   // A new run needs the saved choice loaded for this meeting and a model to show for the provider.
@@ -901,6 +954,7 @@
     const needed = Boolean(meeting) && !currentGeneration(meeting);
     $("#notes-empty").hidden = !needed;
     $("#notes-create").hidden = needed;
+    $("#notes-run").hidden = needed; // it sits in the toolbar once notes exist
     $("#notes-status").hidden = needed;
     if (!needed) return;
     const task = meeting.transcription && meeting.transcription.task;
@@ -944,17 +998,26 @@
       || activeTask(data)
       || pending,
     );
-    const { provider } = renderChoice(data, pending);
-    runButton.disabled = !canStartNotes(meeting, data);
-    runButton.title = waitForTranscript ? waitMessage : "";
-    runButton.textContent = data && data.requestInFlight
-      ? "Đang gửi yêu cầu…"
-      : pending
-        ? "Xác minh yêu cầu notes"
-        : `${data && data.revisions.length ? "Tạo lại notes bằng" : "Tạo notes bằng"} ${providerLabel(provider)}`;
+    const { provider, readiness } = renderChoice(data, pending);
+    // The one action either starts a run or, when the provider cannot make one yet, opens Connections.
+    const connect = needsConnection(data, provider, readiness, pending);
+    runButton.dataset.action = connect ? "connect" : "start";
+    runButton.setAttribute("aria-describedby", connect ? "notes-run-plan" : "notes-status");
+    runButton.disabled = !connect && !canStartNotes(meeting, data);
+    runButton.title = !connect && waitForTranscript ? waitMessage : "";
+    runButton.textContent = connect
+      ? `Kết nối ${providerLabel(provider)} để tạo notes`
+      : data && data.requestInFlight
+        ? "Đang gửi yêu cầu…"
+        : pending
+          ? "Xác minh yêu cầu notes"
+          : runLabel(data && data.revisions.length ? "Tạo lại notes" : "Tạo notes", outputLanguage, provider, readiness);
+    renderSpeakerReminder(meeting, data);
     renderTask(data);
     renderError(data);
     renderSelectedRevision(data);
+    // After the saved-work block has settled, so a focused control is not moved while it is hidden.
+    placeRunControls(Boolean(data && data.revisions.some((item) => item.id === data.selectedNoteId)));
     if (waitForTranscript) {
       $("#notes-status").textContent = waitMessage;
     } else if (data && data.runErrorUncertain) {
@@ -1697,6 +1760,7 @@
     const data = meetingNotes(meetingId);
     if (changed) {
       stopTaskPolling();
+      state.choice.open = false;
       data.sourceLockKnown = false;
       data.known = false;
     }
@@ -1716,7 +1780,20 @@
     handleLocation();
   }
 
-  $("#notes-start").addEventListener("click", () => void startNotes());
+  $("#notes-start").addEventListener("click", (event) => {
+    // The header launcher already opens Connections at its own provider's section.
+    if (event.currentTarget.dataset.action === "connect") $(`#launcher-${selectedProvider(null)}`).click();
+    else void startNotes();
+  });
+  $("#notes-change").addEventListener("click", () => {
+    state.choice.open = !state.choice.open;
+    render();
+  });
+  $("#notes-name-speakers").addEventListener("click", (event) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (window.ASRMeetingHistory) window.ASRMeetingHistory.focusSpeakerCatalog();
+  });
   $("#notes-empty-open-transcript").addEventListener("click", () => {
     if (window.ASRMeetingHistory) window.ASRMeetingHistory.selectTab("transcript", { focus: true });
   });
