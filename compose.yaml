@@ -1,9 +1,11 @@
 services:
   app:
-    image: asr-en-vi:local
+    image: ${ASR_IMAGE:-asr-en-vi:local}
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        VCS_REF: ${ASR_SOURCE_REVISION:-unknown}
     command:
       - uvicorn
       - asr_en_vi.app:app
@@ -35,6 +37,12 @@ services:
       ASR_MAX_UPLOAD_BYTES: ${ASR_MAX_UPLOAD_BYTES:-4294967296}
       ASR_MAX_RECORDING_SECONDS: ${ASR_MAX_RECORDING_SECONDS:-14400}
       ASR_DIARIZATION_MODEL_PATH: ${ASR_DIARIZATION_MODEL_PATH:-/models/speaker-diarization-community-1}
+      DO_NOT_TRACK: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      HF_HUB_DISABLE_PROGRESS_BARS: "1"
+      PYANNOTE_METRICS_ENABLED: "0"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
     volumes:
       - data:/var/lib/asr-en-vi/data
       - auth:/var/lib/asr-en-vi/auth
@@ -49,7 +57,7 @@ services:
     stop_grace_period: 15s
 
   worker:
-    image: asr-en-vi:local
+    image: ${ASR_IMAGE:-asr-en-vi:local}
     command: ["python", "-m", "asr_en_vi.worker"]
     init: true
     restart: unless-stopped
@@ -71,6 +79,12 @@ services:
       ASR_GPU_COMPUTE_TYPE: ${ASR_GPU_COMPUTE_TYPE:-float16}
       ASR_CPU_COMPUTE_TYPE: ${ASR_CPU_COMPUTE_TYPE:-int8}
       ASR_DIARIZATION_MODEL_PATH: ${ASR_DIARIZATION_MODEL_PATH:-/models/speaker-diarization-community-1}
+      DO_NOT_TRACK: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      HF_HUB_DISABLE_PROGRESS_BARS: "1"
+      PYANNOTE_METRICS_ENABLED: "0"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
     volumes:
       - data:/var/lib/asr-en-vi/data
       - provider:/var/lib/asr-en-vi/provider

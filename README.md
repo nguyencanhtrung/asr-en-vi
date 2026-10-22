@@ -18,14 +18,72 @@ cp .env.example .env
 ./scripts/start.sh
 ```
 
-Script build image, khởi động cả app và worker, chờ hai service healthy, rồi kiểm tra từ trong app
-rằng worker đang chạy và cả model chép lời lẫn Community-1 đều đọc được qua mount chỉ đọc.
+Mặc định, script build `ASR_IMAGE` từ source trong checkout. Có thể dùng `--source` để ghi rõ
+chế độ này. `--pull` tải ảnh được chỉ định trong `ASR_IMAGE`; ảnh phải có tag version cụ thể như
+`ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1` hoặc digest `@sha256:...`, không dùng `local`,
+`latest` hay `edge`. Trước khi chạy service, script so sánh version ứng dụng và schema được hỗ trợ
+trong image với source checkout. `--offline` chỉ dùng image đã có trên máy và model đã chuẩn bị;
+chế độ này kiểm tra model local, không build, pull hoặc tải model. Mọi chế độ dùng cùng một giá trị
+`ASR_IMAGE` cho app và worker.
+
+Chế độ source và pull chạy bước chuẩn bị ASR riêng, chỉ cho phép truy cập model hub trong lệnh
+`model prepare` nếu model ASR còn thiếu. Khởi động offline chỉ kiểm tra model. Script chờ cả hai
+service healthy, rồi kiểm tra từ trong app rằng worker đang chạy và cả model chép lời lẫn
+Community-1 đều đọc được qua mount chỉ đọc.
 Chỉ sau khi kiểm tra này đạt, script mới in access link cùng QR trong terminal. Một container app
 chạy riêng bằng `docker run` không tự khởi động worker hoặc gắn model; dùng `./scripts/start.sh`
 cho bản cài mới. Có thể kiểm tra lại bản cài đang chạy bằng:
 
 ```sh
 docker compose exec -T app python -m asr_en_vi.cli installation check
+docker compose exec -T app python -m asr_en_vi.cli version --json
+```
+
+### Cài release candidate
+
+Các lệnh dưới đây dùng source tag và image cùng phiên bản `v0.1.0-rc.1` sau khi RC được phát hành.
+Giữ nguyên `COMPOSE_PROJECT_NAME` và `ASR_MODEL_HOST_PATH` khi chạy lại để Compose dùng đúng
+volume và thư mục model. Chuẩn bị ASR khi còn online; chỉ tải Community-1 sau khi người vận hành
+đã chấp thuận điều kiện ở mục [Model speaker diarization local](#model-speaker-diarization-local).
+
+Tải source checkout đúng tag và build image từ source:
+
+```sh
+git clone --branch v0.1.0-rc.1 --depth 1 https://github.com/nguyencanhtrung/asr-en-vi.git
+cd asr-en-vi
+export COMPOSE_PROJECT_NAME=asr-en-vi
+export ASR_MODEL_HOST_PATH="$PWD/models"
+export ASR_IMAGE=ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1
+./scripts/start.sh --source
+```
+
+Để cài từ image công khai, dùng checkout cùng tag và chạy:
+
+```sh
+export COMPOSE_PROJECT_NAME=asr-en-vi
+export ASR_MODEL_HOST_PATH="$PWD/models"
+export ASR_IMAGE=ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1
+./scripts/start.sh --pull
+```
+
+Sau khi chuẩn bị model và ngắt Internet, giữ các giá trị trên trong cùng checkout rồi chạy:
+
+```sh
+./scripts/start.sh --offline
+```
+
+Smoke tùy chọn cho máy Linux/NVIDIA dùng một Compose project riêng; cần Docker, Chromium với
+Playwright, model đã chuẩn bị và file WAV được phép dùng. Lệnh ghi JSON, log và báo cáo vào thư mục
+đầu ra. Thay đường dẫn WAV mẫu bằng file local hai người nói (2–90 giây, tối đa 25 MiB). Nó không
+xác nhận public pull hay smoke đã qua trước khi thực sự chạy:
+
+```sh
+./scripts/offline-smoke.py \
+  --image "$ASR_IMAGE" \
+  --models "$ASR_MODEL_HOST_PATH" \
+  --audio ./authorized-two-voice.wav \
+  --output /tmp/asr-offline-smoke-evidence \
+  --mode offline
 ```
 
 Nếu lệnh báo worker chưa sẵn sàng, kiểm tra service `worker` và volume `data` dùng chung. Nếu
@@ -66,7 +124,15 @@ PyAV được giữ dưới phiên bản 19 để tương thích với API giả
 Để cài dependencies phát triển, chạy `uv sync --all-groups --locked`; runtime-only dùng
 `uv sync --locked --no-dev`.
 
-Mặc định `./scripts/start.sh` tải model CTranslate2 còn thiếu từ bộ model công khai của Systran:
+| Thành phần | Nguồn và điều kiện | Mạng hoặc chấp thuận |
+| --- | --- | --- |
+| Runtime | Docker Engine, Docker Compose 2.30+, `faster-whisper` 1.2.1 và `pyannote.audio` 4.0.7; dependency Python được khóa trong `uv.lock` | Người vận hành cài Docker; GPU cần NVIDIA driver và Container Toolkit đã cấu hình trên host. |
+| ASR GPU | [Systran faster-whisper-large-v3](https://huggingface.co/Systran/faster-whisper-large-v3), MIT, tải công khai | Chế độ source/pull có thể tải ở bước `model prepare`; không cần chấp thuận điều khoản gated. |
+| ASR CPU | [Systran faster-whisper-small](https://huggingface.co/Systran/faster-whisper-small), MIT, tải công khai | Chế độ source/pull có thể tải ở bước `model prepare`; không cần chấp thuận điều khoản gated. |
+| Diarization | [pyannote Community-1](https://huggingface.co/pyannote/speaker-diarization-community-1), CC-BY-4.0, truy cập gated | Người vận hành phải tự chấp thuận điều kiện và tải model trên host. Ứng dụng không chấp thuận thay, không nhúng token, không tải model này. |
+| Giao diện | HTML, CSS, JavaScript và font được đóng gói trong wheel | Được phục vụ local; không tải UI động từ mạng. |
+
+Chế độ source/pull tải model CTranslate2 còn thiếu từ bộ model công khai của Systran:
 `faster-whisper-large-v3` cho GPU hoặc `faster-whisper-small` cho CPU. Các lần chạy sau dùng bản
 local trong `./models`; app và worker gắn thư mục này chỉ đọc khi phục vụ. Có thể chuẩn bị model
 thủ công trước khi chạy nếu máy cần setup offline:
@@ -455,8 +521,10 @@ không xuất lại cache image CUDA/PyTorch nhiều GB sau mỗi lần chạy. 
 cả quality gate và container build thành công:
 
 - Push lên `main` chỉ chạy kiểm tra; không phát hành image.
-- Push tag dạng `v1.2.3` phát hành image `ghcr.io/nguyencanhtrung/asr-en-vi` với các tag version,
-  `latest` và SHA.
+- Push tag dạng `v0.1.0-rc.1` phải khớp version trong source, metadata và lock; RC nhận tag version
+  cùng SHA, không cập nhật `latest` hoặc alias stable.
+- Tag stable dạng `v1.2.3` phát hành image `ghcr.io/nguyencanhtrung/asr-en-vi` với tag version,
+  major.minor, `latest` và SHA.
 - Image phát hành cho `linux/amd64` và `linux/arm64` trên runner native song song, sau đó ghép
   manifest đa kiến trúc kèm SBOM, provenance và attestation.
 

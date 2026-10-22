@@ -36,7 +36,18 @@ def _run_start(
     model_files: tuple[str, ...] = (),
     model_overrides: dict[str, bytes] | None = None,
     fail_install_check: bool = False,
+    *,
+    args: tuple[str, ...] = (),
+    image: str | None = None,
+    second_image: str | None = None,
+    device: str = "cpu",
+    image_present: bool = True,
+    version_matches: bool = True,
+    gpu_check_ok: bool = False,
+    model_check_ok: bool = True,
+    prepared_asr_model: bool = False,
 ) -> subprocess.CompletedProcess[str]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     model_root = tmp_path / "models"
     model_directory = model_root / "speaker-diarization-community-1"
     for relative_path in model_files:
@@ -47,28 +58,60 @@ def _run_start(
         target = model_directory / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
+    if prepared_asr_model:
+        asr_model = model_root / "whisper-small"
+        asr_model.mkdir(parents=True, exist_ok=True)
+        (asr_model / "model.bin").write_bytes(b"prepared")
 
     stub_directory = tmp_path / "bin"
     stub_directory.mkdir()
     command_log = tmp_path / "docker.log"
+    command_log.write_text("", encoding="utf-8")
     _write_executable(
         stub_directory / "docker",
         "#!/bin/sh\n"
         'printf \'%s\\n\' "$*" >> "$DOCKER_LOG"\n'
-        'case "$*" in *"asr_en_vi.cli installation check"*) '
-        '[ "${FAIL_INSTALL_CHECK:-0}" != 1 ] || exit 1 ;; esac\n'
         'if [ "$1" = compose ] && [ "$4" = config ]; then\n'
-        "  printf '%s\\n' \\\n"
-        f"    'ASR_DEVICE=cpu' 'ASR_MODEL_HOST_PATH={model_root}' \\\n"
-        "    'ASR_DIARIZATION_MODEL_PATH=/models/speaker-diarization-community-1'\n"
-        "fi\n",
+        '  if [ "$5" = --images ]; then\n'
+        '    printf \'%s\\n%s\\n\' "$COMPOSE_IMAGE" "$COMPOSE_SECOND_IMAGE"\n'
+        "  else\n"
+        "    printf 'ASR_DEVICE=%s\\nASR_MODEL_HOST_PATH=%s\\n"
+        "ASR_DIARIZATION_MODEL_PATH=/models/speaker-diarization-community-1\\n' "
+        '      "$REQUESTED_DEVICE" "$MODEL_ROOT"\n'
+        "  fi\n"
+        "  exit 0\n"
+        "fi\n"
+        'if [ "$1" = image ] && [ "$2" = inspect ]; then\n'
+        '  [ "$IMAGE_PRESENT" = 1 ] || exit 1\n'
+        "  exit 0\n"
+        "fi\n"
+        'case "$*" in\n'
+        '  pull*) [ "$PULL_OK" = 1 ] || exit 1 ;;\n'
+        '  *"version --json --expect-version"*) [ "$VERSION_MATCH" = 1 ] || exit 1 ;;\n'
+        '  *"--gpus all"*) [ "$GPU_CHECK_OK" = 1 ] || exit 1 ;;\n'
+        '  *"asr_en_vi.cli model check"*) [ "$MODEL_CHECK_OK" = 1 ] || exit 1 ;;\n'
+        '  *"asr_en_vi.cli installation check"*) [ "$FAIL_INSTALL_CHECK" = 0 ] || exit 1 ;;\n'
+        "esac\n",
     )
     environment = os.environ.copy()
+    environment.pop("ASR_IMAGE", None)
+    resolved_image = image or "asr-en-vi:local"
+    if image is not None:
+        environment["ASR_IMAGE"] = image
     environment["PATH"] = f"{stub_directory}:{environment['PATH']}"
     environment["DOCKER_LOG"] = str(command_log)
+    environment["MODEL_ROOT"] = str(model_root)
+    environment["COMPOSE_IMAGE"] = resolved_image
+    environment["COMPOSE_SECOND_IMAGE"] = second_image or resolved_image
+    environment["REQUESTED_DEVICE"] = device
     environment["FAIL_INSTALL_CHECK"] = "1" if fail_install_check else "0"
+    environment["IMAGE_PRESENT"] = "1" if image_present else "0"
+    environment["VERSION_MATCH"] = "1" if version_matches else "0"
+    environment["GPU_CHECK_OK"] = "1" if gpu_check_ok else "0"
+    environment["MODEL_CHECK_OK"] = "1" if model_check_ok else "0"
+    environment["PULL_OK"] = "1"
     result = subprocess.run(
-        ["sh", str(ROOT / "scripts" / "start.sh")],
+        ["sh", str(ROOT / "scripts" / "start.sh"), *args],
         cwd=ROOT,
         env=environment,
         text=True,
@@ -90,8 +133,13 @@ def test_pipeline_gates_pull_requests_main_and_version_tags():
 
     quality = pipeline["jobs"]["quality"]
     check_step = next(step for step in quality["steps"] if step["name"] == "Run repository checks")
+    release_check = next(
+        step for step in quality["steps"] if step["name"] == "Check release tag and package version"
+    )
     assert check_step["run"] == "./scripts/check.sh"
     assert check_step["env"]["ASR_RUN_BROWSER_TESTS"] == "1"
+    assert release_check["if"] == "startsWith(github.ref, 'refs/tags/v')"
+    assert "scripts/check-release.py" in release_check["run"]
     assert "container" in pipeline["jobs"]
     names = [step["name"] for step in quality["steps"]]
     media_step = quality["steps"][names.index("Install media tools")]
@@ -121,6 +169,7 @@ def test_container_job_runs_runtime_smoke_check_on_the_built_image():
 
     assert container["timeout-minutes"] >= 30
     assert build["with"]["load"] is True
+    assert build["with"]["build-args"] == "VCS_REF=${{ github.sha }}\n"
     assert build["with"]["cache-from"] == "type=gha,scope=container"
     assert "cache-to" not in build["with"]
     assert steps.index(smoke) > steps.index(build)
@@ -133,19 +182,23 @@ def test_container_job_runs_runtime_smoke_check_on_the_built_image():
     assert 'print("torchcodec decode ok")' in script
 
 
-def test_startup_detects_gpu_prepares_model_and_preflights_before_services():
-    script = (ROOT / "scripts" / "start.sh").read_text(encoding="utf-8")
+def test_startup_help_and_invalid_modes_exit_before_docker(tmp_path):
+    help_result = _run_start(tmp_path / "help", args=("--help",))
+    assert help_result.returncode == 0
+    assert "--source" in help_result.stdout
+    assert "--pull" in help_result.stdout
+    assert "--offline" in help_result.stdout
+    assert help_result.docker_log == ""
 
-    model_gate = script.index("for required_model_file")
-    build = script.index("compose_build build")
-    detect = script.index("docker run --rm --gpus all")
-    model_prepare = script.index("python -m asr_en_vi.cli model prepare")
-    runtime_check = script.index("python -m asr_en_vi.cli runtime check")
-    start = script.index("compose_runtime up")
+    conflict = _run_start(tmp_path / "conflict", args=("--source", "--offline"))
+    assert conflict.returncode == 2
+    assert "Choose only one startup mode" in conflict.stderr
+    assert conflict.docker_log == ""
 
-    assert "compose.gpu.yaml" in script
-    assert "nvidia-smi" in script
-    assert model_gate < build < detect < model_prepare < runtime_check < start
+    unknown = _run_start(tmp_path / "unknown", args=("--build",))
+    assert unknown.returncode == 2
+    assert "Unknown startup option" in unknown.stderr
+    assert unknown.docker_log == ""
 
 
 def test_startup_rejects_incomplete_community_model_before_image_build(tmp_path):
@@ -160,18 +213,36 @@ def test_startup_rejects_incomplete_community_model_before_image_build(tmp_path)
     assert "anonymous" not in guidance.casefold()
 
 
-def test_startup_checks_complete_community_model_then_preflights_before_services(tmp_path):
-    result = _run_start(tmp_path, COMMUNITY_1_FILES)
+@pytest.mark.parametrize("args", [(), ("--source",)], ids=["default-source", "explicit-source"])
+def test_startup_checks_complete_community_model_then_preflights_before_services(tmp_path, args):
+    result = _run_start(tmp_path, COMMUNITY_1_FILES, args=args)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    commands = result.docker_log
-    build = commands.index("compose -f compose.yaml build")
-    model_prepare = commands.index("python -m asr_en_vi.cli model prepare")
-    runtime_check = commands.index("python -m asr_en_vi.cli runtime check")
-    services = commands.index("compose -f compose.yaml up")
-    install_check = commands.index("python -m asr_en_vi.cli installation check")
-    access_link = commands.index("python -m asr_en_vi.cli access show")
-    assert build < model_prepare < runtime_check < services < install_check < access_link
+    commands = result.docker_log.splitlines()
+
+    def command_index(marker):
+        return next(i for i, line in enumerate(commands) if marker in line)
+
+    build = command_index("compose -f compose.yaml build")
+    image_version = command_index("version --json --expect-version 0.1.0-rc.1")
+    model_prepare = command_index("asr_en_vi.cli model prepare")
+    runtime_check = command_index("asr_en_vi.cli runtime check")
+    services = command_index("compose -f compose.yaml up --pull never --no-build")
+    install_check = command_index("asr_en_vi.cli installation check")
+    access_link = command_index("asr_en_vi.cli access show")
+    assert (
+        build
+        < image_version
+        < model_prepare
+        < runtime_check
+        < services
+        < install_check
+        < access_link
+    )
+    assert "--network none" in commands[image_version]
+    assert "HF_HUB_OFFLINE=0" in commands[model_prepare]
+    assert "TRANSFORMERS_OFFLINE=0" in commands[model_prepare]
+    assert all("--pull never" in line for line in commands if "compose" in line and "run " in line)
 
 
 def test_startup_does_not_print_access_link_when_app_cannot_see_worker_or_models(tmp_path):
@@ -199,6 +270,175 @@ def test_startup_rejects_git_lfs_pointer_before_image_build(tmp_path):
     assert "unresolved Git LFS pointer" in result.stderr
     assert "hf auth login --add-to-git-credential" in result.stderr
     assert "compose -f compose.yaml build" not in result.docker_log
+
+
+def test_pull_mode_pulls_the_resolved_versioned_image_without_building(tmp_path):
+    image = "ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1"
+    result = _run_start(tmp_path, COMMUNITY_1_FILES, args=("--pull",), image=image)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    commands = result.docker_log.splitlines()
+    pull = commands.index(f"pull {image}")
+    version_check = next(
+        index for index, line in enumerate(commands) if "version --json --expect-version" in line
+    )
+    service_run = next(
+        index for index, line in enumerate(commands) if " compose" in line and " run " in line
+    )
+    assert pull < version_check < service_run
+    assert not any(" compose " in f" {line} " and " build" in line for line in commands)
+    assert image in commands[version_check]
+
+
+def test_pull_mode_accepts_an_immutable_digest_reference(tmp_path):
+    image = f"ghcr.io/nguyencanhtrung/asr-en-vi@sha256:{'a' * 64}"
+    result = _run_start(tmp_path, COMMUNITY_1_FILES, args=("--pull",), image=image)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"pull {image}" in result.docker_log
+    assert image in result.docker_log
+    assert " compose -f compose.yaml build" not in result.docker_log
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        "asr-en-vi:local",
+        "ghcr.io/nguyencanhtrung/asr-en-vi:latest",
+        "ghcr.io/nguyencanhtrung/asr-en-vi:edge",
+        "ghcr.io/nguyencanhtrung/asr-en-vi:nightly",
+    ],
+)
+def test_pull_mode_rejects_non_versioned_image_references(tmp_path, image):
+    result = _run_start(tmp_path, COMMUNITY_1_FILES, args=("--pull",), image=image)
+
+    assert result.returncode == 2
+    assert "Pull mode" in result.stderr
+    assert "pull " not in result.docker_log
+    assert " version --json " not in result.docker_log
+
+
+def test_pull_version_mismatch_stops_before_any_service_volume_is_mounted(tmp_path):
+    image = "ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1"
+    result = _run_start(
+        tmp_path,
+        COMMUNITY_1_FILES,
+        args=("--pull",),
+        image=image,
+        version_matches=False,
+    )
+
+    assert result.returncode != 0
+    assert "does not match source version 0.1.0-rc.1 and schema 12" in result.stderr
+    commands = result.docker_log.splitlines()
+    assert f"pull {image}" in commands
+    assert any("version --json --expect-version" in line for line in commands)
+    assert not any(
+        " compose " in f" {line} "
+        and any(command in line for command in (" build", " run ", " up "))
+        for line in commands
+    )
+    assert not any("asr_en_vi.cli model prepare" in line for line in commands)
+
+
+def test_offline_mode_uses_existing_image_and_models_without_preparation(tmp_path):
+    result = _run_start(
+        tmp_path,
+        COMMUNITY_1_FILES,
+        args=("--offline",),
+        prepared_asr_model=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    commands = result.docker_log.splitlines()
+    assert "image inspect asr-en-vi:local" in commands
+    assert any("version --json --expect-version" in line for line in commands)
+    assert any("asr_en_vi.cli model check" in line for line in commands)
+    assert any("asr_en_vi.cli runtime check" in line for line in commands)
+    assert not any(line.startswith("pull ") for line in commands)
+    assert not any(" compose " in f" {line} " and " build" in line for line in commands)
+    assert not any("asr_en_vi.cli model prepare" in line for line in commands)
+    assert any(" up --pull never --no-build " in f" {line} " for line in commands)
+    assert all(
+        "--pull never" in line
+        for line in commands
+        if " compose " in f" {line} " and " run " in line
+    )
+
+
+def test_offline_mode_fails_for_missing_image_or_unprepared_asr_without_fetching(tmp_path):
+    missing_image = _run_start(
+        tmp_path / "missing-image",
+        COMMUNITY_1_FILES,
+        args=("--offline",),
+        image_present=False,
+    )
+    assert missing_image.returncode != 0
+    assert "requires the image already present locally" in missing_image.stderr
+    assert "image inspect asr-en-vi:local" in missing_image.docker_log
+    assert " version --json " not in missing_image.docker_log
+    assert not any(
+        " compose " in f" {line} "
+        and any(command in line for command in (" build", " run ", " up "))
+        for line in missing_image.docker_log.splitlines()
+    )
+
+    missing_model = _run_start(
+        tmp_path / "missing-model",
+        COMMUNITY_1_FILES,
+        args=("--offline",),
+        model_check_ok=False,
+    )
+    assert missing_model.returncode != 0
+    assert "asr_en_vi.cli model check" in missing_model.docker_log
+    assert "asr_en_vi.cli model prepare" not in missing_model.docker_log
+    assert "asr_en_vi.cli runtime check" not in missing_model.docker_log
+    assert " up " not in missing_model.docker_log
+
+
+def test_offline_mode_does_not_create_a_missing_model_directory(tmp_path):
+    result = _run_start(tmp_path, args=("--offline",))
+
+    assert result.returncode != 0
+    assert "requires an existing prepared model directory" in result.stderr
+    assert not (tmp_path / "models").exists()
+    assert result.docker_log
+
+
+def test_nvidia_preflight_uses_selected_image_and_reports_actionable_failure(tmp_path):
+    image = "ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1"
+    result = _run_start(
+        tmp_path,
+        COMMUNITY_1_FILES,
+        args=("--pull",),
+        image=image,
+        device="cuda",
+    )
+
+    assert result.returncode != 0
+    assert "Docker cannot expose it" in result.stderr
+    assert "NVIDIA Container Toolkit" in result.stderr
+    assert any(
+        line.startswith(
+            f"run --pull=never --rm --gpus all --network none --entrypoint python {image}"
+        )
+        for line in result.docker_log.splitlines()
+    )
+    assert "asr_en_vi.cli model prepare" not in result.docker_log
+    assert " up " not in result.docker_log
+
+
+def test_compose_image_resolution_must_be_shared_by_app_and_worker(tmp_path):
+    result = _run_start(
+        tmp_path,
+        args=("--pull",),
+        image="ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1",
+        second_image="ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0",
+    )
+
+    assert result.returncode != 0
+    assert "same single ASR_IMAGE" in result.stderr
+    assert not any(line.startswith("pull ") for line in result.docker_log.splitlines())
 
 
 def test_repository_checks_have_shell_syntax_and_pytest_timeout_guardrails():
@@ -260,6 +500,7 @@ def test_platform_images_publish_only_on_version_tags_with_native_runners():
         if step["name"] == "Build and push platform image"
     )
     assert build_step["with"]["platforms"] == "${{ matrix.platform }}"
+    assert build_step["with"]["build-args"] == "VCS_REF=${{ github.sha }}\n"
     assert "push-by-digest=true" in build_step["with"]["outputs"]
     assert "name-canonical=true" in build_step["with"]["outputs"]
     assert "push=true" in build_step["with"]["outputs"]
@@ -328,8 +569,10 @@ def test_manifest_publish_waits_for_platform_images_and_attests_manifest_digest(
         "type=ref,event=tag",
         "type=semver,pattern={{version}}",
         "type=semver,pattern={{major}}.{{minor}}",
-        "type=raw,value=latest",
+        "type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}",
     ]
+    assert metadata["with"]["flavor"] == "latest=false"
+    assert metadata["with"]["labels"] == "org.opencontainers.image.revision=${{ github.sha }}\n"
 
 
 def test_every_action_is_pinned_to_an_immutable_commit():

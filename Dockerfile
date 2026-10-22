@@ -48,13 +48,21 @@ RUN apt-get update \
         --output /usr/local/share/licenses/omp/THIRD-PARTY-NOTICES.txt
 
 FROM python-base AS runtime
+ARG VCS_REF=unknown
 ENV PATH="/app/.venv/bin:${PATH}" \
     MPLCONFIGDIR=/tmp/matplotlib \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     XDG_CACHE_HOME=/tmp/cache \
+    DO_NOT_TRACK=1 \
+    HF_HUB_DISABLE_TELEMETRY=1 \
+    HF_HUB_DISABLE_PROGRESS_BARS=1 \
+    PYANNOTE_METRICS_ENABLED=0 \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
     ASR_DATA_DIR=/var/lib/asr-en-vi/data \
     ASR_AUTH_DIR=/var/lib/asr-en-vi/auth
+LABEL org.opencontainers.image.revision="${VCS_REF}"
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=omp-bin /usr/local/bin/omp /usr/local/bin/omp

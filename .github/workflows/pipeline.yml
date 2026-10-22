@@ -52,6 +52,9 @@ jobs:
           ffprobe -version | head -n 1
       - name: Install Chromium
         run: uv run --locked playwright install --with-deps chromium
+      - name: Check release tag and package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: uv run --locked python scripts/check-release.py "${GITHUB_REF_NAME}"
       - name: Install actionlint
         run: |
           mkdir -p "${RUNNER_TEMP}/actionlint-bin"
@@ -79,6 +82,8 @@ jobs:
           push: false
           load: true
           tags: asr-en-vi:ci
+          build-args: |
+            VCS_REF=${{ github.sha }}
           cache-from: type=gha,scope=container
       - name: Smoke-test container runtime
         run: ./scripts/container-smoke.sh asr-en-vi:ci
@@ -120,12 +125,16 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.IMAGE_NAME }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
       - name: Build and push platform image
         id: publish
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: ${{ matrix.platform }}
+          build-args: |
+            VCS_REF=${{ github.sha }}
           tags: ${{ env.IMAGE_NAME }}
           labels: ${{ steps.metadata.outputs.labels }}
           outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
@@ -182,7 +191,10 @@ jobs:
             type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+          flavor: latest=false
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
       - name: Create and publish multi-platform manifest
         id: publish
         working-directory: ${{ runner.temp }}/digests

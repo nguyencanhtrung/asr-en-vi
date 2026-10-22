@@ -4,7 +4,51 @@ set -eu
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$script_dir"
 
-compose_build() {
+usage() {
+    cat <<'HELP'
+Usage: ./scripts/start.sh [--source | --pull | --offline]
+
+Start the app and worker with one resolved Compose image.
+
+  --source   Build ASR_IMAGE from this checkout, then prepare local models.
+  --pull     Pull the versioned/digest ASR_IMAGE, verify it, then prepare models.
+  --offline  Use an existing local ASR_IMAGE and prepared models only.
+  -h, --help Show this help.
+
+With no mode, --source is used. Set ASR_IMAGE in .env to select the image.
+Pull mode requires a registry reference with a version tag or sha256 digest.
+HELP
+}
+
+fail() {
+    printf '%s\n' "$1" >&2
+    exit "${2:-1}"
+}
+
+mode=source
+mode_selected=0
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --source|--pull|--offline)
+            if [ "$mode_selected" -eq 1 ]; then
+                fail "Choose only one startup mode." 2
+            fi
+            mode=${1#--}
+            mode_selected=1
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            fail "Unknown startup option: $1" 2
+            ;;
+    esac
+done
+
+compose_base() {
     docker compose -f compose.yaml "$@"
 }
 
@@ -13,32 +57,68 @@ compose_runtime() {
     if [ -n "$gpu_compose_file" ]; then
         docker compose -f compose.yaml -f "$gpu_compose_file" "$@"
     else
-        docker compose -f compose.yaml "$@"
+        compose_base "$@"
     fi
 }
 
-compose_environment=$(compose_build config --environment)
+compose_environment=$(compose_base config --environment)
+compose_images=$(compose_base config --images)
+selected_image=$(printf '%s\n' "$compose_images" | sed -n '1p')
+second_image=$(printf '%s\n' "$compose_images" | sed -n '2p')
+extra_image=$(printf '%s\n' "$compose_images" | sed -n '3p')
+if [ -z "$selected_image" ] || [ "$selected_image" != "$second_image" ] || \
+    [ -n "$extra_image" ]; then
+    fail "Compose app and worker must resolve to the same single ASR_IMAGE."
+fi
+
+source_version=$(sed -n 's/^__version__ = "\([^"]*\)"$/\1/p' src/asr_en_vi/__init__.py)
+source_schema=$(sed -n 's/^SCHEMA_VERSION = \([0-9][0-9]*\)$/\1/p' src/asr_en_vi/storage.py)
+if [ -z "$source_version" ] || [ -z "$source_schema" ]; then
+    fail "Could not read source application version and supported schema."
+fi
+
+if [ -z "${ASR_SOURCE_REVISION:-}" ]; then
+    ASR_SOURCE_REVISION=$(git rev-parse --verify HEAD 2>/dev/null || true)
+    ASR_SOURCE_REVISION=${ASR_SOURCE_REVISION:-unknown}
+    export ASR_SOURCE_REVISION
+fi
+
 requested_device=$(printf '%s\n' "$compose_environment" | sed -n 's/^ASR_DEVICE=//p')
 requested_device=${requested_device:-auto}
+case "$requested_device" in
+    auto|cpu|cuda) ;;
+    *) fail "ASR_DEVICE must be auto, cpu, or cuda." 2 ;;
+esac
+
 model_host_path=$(printf '%s\n' "$compose_environment" | sed -n 's/^ASR_MODEL_HOST_PATH=//p')
 model_host_path=${model_host_path:-./models}
-mkdir -p "$model_host_path"
-model_host_path=$(CDPATH= cd -- "$model_host_path" && pwd)
-diarization_container_path=$(printf '%s\n' "$compose_environment" | sed -n 's/^ASR_DIARIZATION_MODEL_PATH=//p')
+case "$model_host_path" in
+    /*) ;;
+    *) model_host_path="$script_dir/$model_host_path" ;;
+esac
+if [ "$mode" = offline ]; then
+    if [ ! -d "$model_host_path" ]; then
+        fail "Offline mode requires an existing prepared model directory: $model_host_path"
+    fi
+else
+    mkdir -p "$model_host_path"
+fi
+model_host_path=$(CDPATH= cd -- "$model_host_path" && pwd -P)
+
+diarization_container_path=$(printf '%s\n' "$compose_environment" | \
+    sed -n 's/^ASR_DIARIZATION_MODEL_PATH=//p')
 diarization_container_path=${diarization_container_path:-/models/speaker-diarization-community-1}
 case "$diarization_container_path" in
     /models/*)
         diarization_relative_path=${diarization_container_path#/models/}
         ;;
     *)
-        echo "ASR_DIARIZATION_MODEL_PATH must be below /models inside the container." >&2
-        exit 1
+        fail "ASR_DIARIZATION_MODEL_PATH must be below /models inside the container."
         ;;
 esac
 case "$diarization_relative_path" in
     ""|..|../*|*/..|*/../*)
-        echo "ASR_DIARIZATION_MODEL_PATH must not escape /models." >&2
-        exit 1
+        fail "ASR_DIARIZATION_MODEL_PATH must not escape /models."
         ;;
 esac
 diarization_model_path="$model_host_path/$diarization_relative_path"
@@ -82,15 +162,75 @@ do
     fi
 done
 
-compose_build build
-if [ "$requested_device" = "cpu" ]; then
+validate_pull_image() {
+    image_repository=${selected_image%@*}
+    case "$selected_image" in
+        *@sha256:*)
+            image_digest=${selected_image##*@sha256:}
+            case "$image_repository" in
+                */*) ;;
+                *) fail "Pull mode requires a registry image reference, not a local image name." 2 ;;
+            esac
+            case "$image_digest" in
+                ''|*[!0123456789abcdef]*)
+                    fail "ASR_IMAGE must use a lowercase sha256 digest." 2
+                    ;;
+            esac
+            if [ "${#image_digest}" -ne 64 ]; then
+                fail "ASR_IMAGE sha256 digest must contain 64 hexadecimal characters." 2
+            fi
+            ;;
+        *)
+            case "$image_repository" in
+                */*) ;;
+                *) fail "Pull mode requires a registry image reference, not a local image name." 2 ;;
+            esac
+            image_leaf=${selected_image##*/}
+            case "$image_leaf" in
+                *:*) image_tag=${image_leaf##*:} ;;
+                *) fail "Pull mode requires ASR_IMAGE to include an explicit version tag or sha256 digest." 2 ;;
+            esac
+            case "$image_tag" in
+                local|latest|edge|'')
+                    fail "Pull mode does not accept local, latest, or edge image tags." 2
+                    ;;
+            esac
+            if ! printf '%s\n' "$image_tag" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+                fail "Pull mode requires an explicit version tag (for example v0.1.0-rc.1) or sha256 digest." 2
+            fi
+            ;;
+    esac
+}
+
+case "$mode" in
+    source)
+        compose_base build
+        ;;
+    pull)
+        validate_pull_image
+        docker pull "$selected_image"
+        ;;
+    offline)
+        if ! docker image inspect "$selected_image" >/dev/null 2>&1; then
+            fail "Offline mode requires the image already present locally: $selected_image"
+        fi
+        ;;
+esac
+
+if ! docker run --pull=never --rm --network none --entrypoint python "$selected_image" \
+    -m asr_en_vi.cli version --json --expect-version "$source_version" \
+    --expect-schema "$source_schema"; then
+    fail "Image $selected_image does not match source version $source_version and schema $source_schema."
+fi
+
+if [ "$requested_device" = cpu ]; then
     echo "CPU backend requested; selecting whisper-small."
-elif docker run --rm --gpus all --entrypoint python asr-en-vi:local -c \
-    'import ctranslate2; raise SystemExit(0 if ctranslate2.get_cuda_device_count() else 1)' \
+elif docker run --pull=never --rm --gpus all --network none --entrypoint python "$selected_image" \
+    -c 'import ctranslate2; raise SystemExit(0 if ctranslate2.get_cuda_device_count() else 1)' \
     >/dev/null 2>&1; then
     gpu_compose_file="compose.gpu.yaml"
     echo "Detected NVIDIA GPU; selecting CUDA and whisper-large-v3."
-elif [ "$requested_device" = "cuda" ] || \
+elif [ "$requested_device" = cuda ] || \
     { command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; }; then
     echo "NVIDIA GPU requested or detected, but Docker cannot expose it." >&2
     echo "Check the NVIDIA driver and NVIDIA Container Toolkit." >&2
@@ -99,10 +239,15 @@ else
     echo "No NVIDIA GPU detected; selecting CPU and whisper-small."
 fi
 
-compose_runtime run --rm --no-deps --user "$(id -u):$(id -g)" \
-    -e HF_HOME=/tmp/huggingface -v "$model_host_path:/models:rw" \
-    worker python -m asr_en_vi.cli model prepare
-compose_runtime run --rm --no-deps worker python -m asr_en_vi.cli runtime check
-compose_runtime up --detach --wait --wait-timeout "${ASR_STARTUP_TIMEOUT:-120}"
+if [ "$mode" = offline ]; then
+    compose_runtime run --pull never --rm --no-deps worker python -m asr_en_vi.cli model check
+else
+    compose_runtime run --pull never --rm --no-deps --user "$(id -u):$(id -g)" \
+        -e HF_HOME=/tmp/huggingface -e HF_HUB_OFFLINE=0 -e TRANSFORMERS_OFFLINE=0 \
+        -v "$model_host_path:/models:rw" worker python -m asr_en_vi.cli model prepare
+fi
+compose_runtime run --pull never --rm --no-deps worker python -m asr_en_vi.cli runtime check
+compose_runtime up --pull never --no-build --detach --wait \
+    --wait-timeout "${ASR_STARTUP_TIMEOUT:-120}"
 compose_runtime exec -T app python -m asr_en_vi.cli installation check
 compose_runtime exec -T app python -m asr_en_vi.cli access show

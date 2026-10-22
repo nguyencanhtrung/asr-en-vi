@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import AsyncIterator
+from html import escape as escape_html
 from pathlib import Path
 from typing import Any, Literal
 
@@ -13,6 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
+from asr_en_vi import __version__
 from asr_en_vi.antigravity import AntigravityError, AntigravityProvider
 from asr_en_vi.auth import AuthStateError, create_session_cookie, token_matches
 from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
@@ -70,7 +72,11 @@ _MEDIA_VALIDATION_CONCURRENCY = 2
 _RangeResult = tuple[int, int] | Literal["ignore", "unsatisfiable"]
 
 
-def _asset_response(filename: str, media_type: str) -> FileResponse:
+def _asset_response(filename: str, media_type: str) -> Response:
+    if filename == "shell.html":
+        content = (WEB_DIR / filename).read_text(encoding="utf-8")
+        content = content.replace("{{ASR_EN_VI_VERSION}}", escape_html(__version__))
+        return HTMLResponse(content, media_type=media_type)
     return FileResponse(WEB_DIR / filename, media_type=media_type)
 
 
@@ -205,7 +211,7 @@ def install_routes(
         return _asset_response(f"fonts/{filename}", media_type)
 
     @app.get("/", include_in_schema=False)
-    async def workspace() -> FileResponse:
+    async def workspace() -> HTMLResponse:
         return _asset_response("shell.html", "text/html")
 
     @app.get("/assets/shell.css", include_in_schema=False)
@@ -249,7 +255,7 @@ def install_routes(
         return _asset_response("history.js", "text/javascript")
 
     @app.get("/meetings/{meeting_id}", include_in_schema=False)
-    async def meeting_page(meeting_id: str) -> FileResponse:
+    async def meeting_page(meeting_id: str) -> HTMLResponse:
         return _asset_response("shell.html", "text/html")
 
     @app.get("/api/uploads/policy")
