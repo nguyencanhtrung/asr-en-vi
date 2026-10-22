@@ -344,22 +344,6 @@
                 <textarea id="notes-markdown" rows="20" spellcheck="true" aria-describedby="notes-draft-status" hidden></textarea>
               </div>
             </section>
-            <section class="notes-source-view" id="notes-source-view" aria-labelledby="notes-source-heading" hidden>
-              <header>
-                <div>
-                  <h4 id="notes-source-heading" tabindex="-1">Nguồn transcript đã lưu</h4>
-                  <p id="notes-source-context"></p>
-                </div>
-                <button class="text-button" id="notes-source-close" type="button">Đóng nguồn</button>
-              </header>
-              <dl class="notes-source-metadata">
-                <div><dt>Mốc thời gian</dt><dd><time id="notes-source-time"></time></dd></div>
-                <div><dt>Người nói</dt><dd id="notes-source-speaker"></dd></div>
-              </dl>
-              <p class="notes-source-text" id="notes-source-text"></p>
-              <button class="secondary-button" id="notes-source-seek" type="button">Tua bản ghi tới mốc này</button>
-              <p class="notes-source-status" id="notes-source-status" role="status" aria-live="polite"></p>
-            </section>
           </section>
           </div>
           <!-- Tab: Transcript & bản ghi. The recording block, its sticky player and the transcript stay together. -->
@@ -373,6 +357,24 @@
           </div>
           <section class="player-bar" aria-labelledby="audio-heading">
             <audio id="meeting-audio" controls preload="metadata" aria-label="Trình phát bản ghi cuộc họp"></audio>
+          </section>
+          <!-- A notes citation opens here, under the player: the transcript as saved when the notes were made. -->
+          <section class="notes-source-view" id="notes-source-view" aria-labelledby="notes-source-heading" hidden>
+            <header>
+              <div>
+                <h4 id="notes-source-heading" tabindex="-1">Nguồn đã lưu lúc tạo notes</h4>
+                <p id="notes-source-context"></p>
+              </div>
+              <button class="text-button" id="notes-source-close" type="button">Đóng nguồn</button>
+            </header>
+            <dl class="notes-source-metadata">
+              <div><dt>Mốc thời gian</dt><dd><time id="notes-source-time"></time></dd></div>
+              <div><dt>Người nói</dt><dd id="notes-source-speaker"></dd></div>
+            </dl>
+            <p class="notes-source-text" id="notes-source-text"></p>
+            <p class="notes-source-difference" id="notes-source-difference" hidden></p>
+            <button class="secondary-button" id="notes-source-seek" type="button">Tua bản ghi tới mốc này</button>
+            <p class="notes-source-status" id="notes-source-status" role="status" aria-live="polite"></p>
           </section>
           <section class="transcription-panel" id="transcription-panel" aria-labelledby="transcription-heading">
             <header class="transcription-heading">

@@ -95,8 +95,15 @@ def test_notes_runner_uses_the_durable_language_pin_for_provider_and_render(
         render_calls.append(output_language)
         return "## Tổng quan\n\nBản tóm tắt.\n"
 
+    cite_calls = []
+
+    def cite(_document, _snapshot, *, output_language):
+        cite_calls.append(output_language)
+        return [{"section": "Tổng quan", "text": "Bản tóm tắt\\.", "sources": []}]
+
     monkeypatch.setattr(notes_runner, "ChatGPTProvider", StubProvider)
     monkeypatch.setattr(notes_runner, "render_markdown", render)
+    monkeypatch.setattr(notes_runner, "build_citations", cite)
 
     assert notes_runner.run_notes_task(data_dir, accepted["id"], "notes-runner-language-owner") == 0
     output = json.loads(capsys.readouterr().out.splitlines()[-1])
@@ -104,9 +111,71 @@ def test_notes_runner_uses_the_durable_language_pin_for_provider_and_render(
         "type": "result",
         "markdown": "## Tổng quan\n\nBản tóm tắt.\n",
         "coverage": _COVERAGE,
+        "citations": [{"section": "Tổng quan", "text": "Bản tóm tắt\\.", "sources": []}],
     }
     assert provider_calls[0]["output_language"] == "vi"
-    assert render_calls == ["vi"]
+    assert render_calls == ["vi"] and cite_calls == ["vi"]
+
+
+def test_notes_runner_emits_the_citations_of_the_document_it_rendered(
+    tmp_path, monkeypatch, capsys
+):
+    from asr_en_vi import notes_runner
+
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, segment_ids = seed_completed_transcript(data_dir)
+    accepted = _accept(data_dir, meeting_id, generation_id, "notes-runner-citations")
+    claim_next_task(data_dir, owner_id="citations-owner")
+    monkeypatch.setenv("ASR_PROVIDER_DIR", str(tmp_path / "provider"))
+
+    class StubProvider:
+        def __init__(self, _directory, *, callback_url):
+            pass
+
+        def generate_notes_document(self, *, snapshot, **kwargs):
+            kwargs["on_coverage"](_COVERAGE)
+            ids = [segment["id"] for segment in snapshot["segments"]]
+            empty = {key: [] for key in ("overview", "key_topics", "open_questions")}
+            return {
+                "schema_version": 1,
+                **empty,
+                "decisions": [{"text": "Ship it.", "source_ids": ids}],
+                "action_items": [
+                    {
+                        "text": "Send the draft",
+                        "source_ids": ids[1:],
+                        "owner": "Morgan",
+                        "deadline_text": None,
+                        "deadline_date": None,
+                    }
+                ],
+                "confirmation_items": [],
+            }
+
+    monkeypatch.setattr(notes_runner, "ChatGPTProvider", StubProvider)
+
+    assert notes_runner.run_notes_task(data_dir, accepted["id"], "citations-owner") == 0
+
+    event = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert event["citations"] == [
+        {
+            "section": "Decisions",
+            "text": r"Ship it\.",
+            "sources": [
+                {"id": segment_ids[0], "start_seconds": 1.0},
+                {"id": segment_ids[1], "start_seconds": 4.0},
+            ],
+        },
+        {
+            "section": "Confirmed Action Items",
+            "text": "Send the draft — Owner: Morgan; Deadline: Undetermined.",
+            "sources": [{"id": segment_ids[1], "start_seconds": 4.0}],
+        },
+    ]
+    # The Markdown names the same bullets and carries no reference to a source.
+    assert "- Ship it\\.\n" in event["markdown"]
+    assert "- Send the draft — Owner: Morgan; Deadline: Undetermined.\n" in event["markdown"]
+    assert "notes_source" not in event["markdown"] and segment_ids[0] not in event["markdown"]
 
 
 def test_notes_worker_keeps_stopping_slot_until_local_child_is_reaped(tmp_path, monkeypatch):
@@ -248,14 +317,16 @@ def test_notes_task_deadline_reaps_child_and_publishes_no_partial_revision(tmp_p
 
 def _run_child_through_worker(tmp_path, monkeypatch, request_id, *events):
     data_dir = tmp_path / "data"
-    meeting_id, generation_id, _ = seed_completed_transcript(data_dir)
+    meeting_id, generation_id, segment_ids = seed_completed_transcript(data_dir)
     accepted = _accept(data_dir, meeting_id, generation_id, request_id)
     task = claim_next_task(data_dir, owner_id="worker-coverage-owner")
     assert task is not None and task["id"] == accepted["id"]
     settings = Settings(data_dir=data_dir, auth_dir=tmp_path / "auth")
     lock_fd = acquire_worker_lock(data_dir)
     assert lock_fd is not None
-    monkeypatch.setattr(worker, "_notes_command", _child_printing(*events))
+    # An event may be a function of the seeded segment IDs, which are random per run.
+    resolved = [event(segment_ids) if callable(event) else event for event in events]
+    monkeypatch.setattr(worker, "_notes_command", _child_printing(*resolved))
     try:
         worker._run_notes_task(settings, lock_fd, task, threading.Event())
     finally:
@@ -293,6 +364,108 @@ def test_notes_worker_publishes_no_revision_for_a_result_without_proven_coverage
         "notes-worker-coverage-002",
         {"type": "stage", "stage": "generating_notes"},
         result,
+    )
+
+    state = notes_state(data_dir, meeting_id)
+    assert state["task"]["status"] == "failed"
+    assert state["revisions"] == []
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        assert connection.execute(
+            "SELECT active_task_id FROM processing_slot WHERE slot_id = 1"
+        ).fetchone() == (None,)
+
+
+def _result_with_citations(emitted, citations_for):
+    """A result event whose citations are built once the seeded segment IDs are known."""
+
+    def build(segment_ids):
+        emitted.append(citations_for(segment_ids))
+        return {
+            "type": "result",
+            "markdown": "## Decisions\n\n- Ship it\\.\n",
+            "coverage": _COVERAGE,
+            "citations": emitted[0],
+        }
+
+    return build
+
+
+def test_notes_worker_publishes_the_result_with_its_citations(tmp_path, monkeypatch):
+    emitted = []
+    data_dir, meeting_id = _run_child_through_worker(
+        tmp_path,
+        monkeypatch,
+        "notes-worker-citations-001",
+        {"type": "stage", "stage": "generating_notes"},
+        _result_with_citations(
+            emitted,
+            lambda ids: [
+                {
+                    "section": "Decisions",
+                    "text": r"Ship it\.",
+                    "sources": [{"id": ids[0], "start_seconds": 1.0}],
+                }
+            ],
+        ),
+    )
+
+    state = notes_state(data_dir, meeting_id)
+    assert state["task"]["status"] == "succeeded"
+    assert state["revisions"][0]["citations"] == emitted[0]
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        stored = connection.execute("SELECT citations_json FROM notes_revisions").fetchone()[0]
+    assert json.loads(stored) == emitted[0]
+
+
+def test_notes_worker_keeps_a_result_without_citations_as_a_legacy_revision(tmp_path, monkeypatch):
+    data_dir, meeting_id = _run_child_through_worker(
+        tmp_path,
+        monkeypatch,
+        "notes-worker-citations-002",
+        {"type": "stage", "stage": "generating_notes"},
+        {"type": "result", "markdown": "## Overview\n\nDone.\n", "coverage": _COVERAGE},
+    )
+
+    revision = notes_state(data_dir, meeting_id)["revisions"][0]
+    assert revision["citations"] == []
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        assert connection.execute("SELECT citations_json FROM notes_revisions").fetchone() == (
+            None,
+        )
+
+
+@pytest.mark.parametrize(
+    "citations_for",
+    [
+        lambda ids: "all",
+        lambda ids: {"section": "Decisions"},
+        lambda ids: [{"section": "Decisions", "text": "x", "sources": [{"id": "f" * 32}]}],
+        lambda ids: [
+            {
+                "section": "Decisions",
+                "text": "x",
+                "sources": [{"id": "f" * 32, "start_seconds": 1.0}],  # not in the saved source
+            }
+        ],
+        lambda ids: [
+            {
+                "section": "Decisions",
+                "text": "x",
+                "sources": [{"id": ids[0], "start_seconds": 99.0}],  # not when it starts
+            }
+        ],
+    ],
+    ids=["text", "object", "source-shape", "unknown-source", "wrong-start"],
+)
+def test_notes_worker_publishes_no_revision_for_citations_its_source_does_not_back(
+    tmp_path, monkeypatch, citations_for
+):
+    data_dir, meeting_id = _run_child_through_worker(
+        tmp_path,
+        monkeypatch,
+        "notes-worker-citations-003",
+        {"type": "stage", "stage": "generating_notes"},
+        _result_with_citations([], citations_for),
     )
 
     state = notes_state(data_dir, meeting_id)
@@ -342,6 +515,7 @@ def test_notes_runner_runs_only_the_current_prompt_and_the_legacy_english_contra
 
     monkeypatch.setattr(notes_runner, "ChatGPTProvider", StubProvider)
     monkeypatch.setattr(notes_runner, "render_markdown", lambda *_args, **_kwargs: "## Notes\n")
+    monkeypatch.setattr(notes_runner, "build_citations", lambda *_args, **_kwargs: [])
 
     code = notes_runner.run_notes_task(data_dir, accepted["id"], "prompt-contract-owner")
 

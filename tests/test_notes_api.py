@@ -27,7 +27,7 @@ async def test_notes_routes_enforce_auth_and_preserve_saved_revision_contract(
     )
     app = create_app(settings)
     async with app.router.lifespan_context(app):
-        meeting_id, generation_id, _ = seed_completed_transcript(settings.data_dir)
+        meeting_id, generation_id, segment_ids = seed_completed_transcript(settings.data_dir)
         monkeypatch.setattr("asr_en_vi.notes_routes.worker_is_healthy", lambda _path: True)
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url=settings.public_url
@@ -138,12 +138,20 @@ async def test_notes_routes_enforce_auth_and_preserve_saved_revision_contract(
 
             claimed = claim_next_task(settings.data_dir, owner_id="api-notes-worker")
             assert claimed is not None and claimed["id"] == task["id"]
+            citations = [
+                {
+                    "section": "Overview",
+                    "text": "Saved, complete text\\.",
+                    "sources": [{"id": segment_ids[0], "start_seconds": 1.0}],
+                }
+            ]
             saved = publish_notes_revision(
                 settings.data_dir,
                 task["id"],
                 owner_id="api-notes-worker",
                 markdown="# Notes\n\nSaved, complete text.\n",
                 elapsed_seconds=2.0,
+                citations=citations,
             )
             assert saved is not None
             assert saved["output_language"] == "en"
@@ -154,6 +162,7 @@ async def test_notes_routes_enforce_auth_and_preserve_saved_revision_contract(
             detail = await client.get(f"/api/notes/{saved['id']}")
             assert detail.status_code == 200
             assert detail.json()["source_state"] == "current"
+            assert detail.json()["citations"] == citations
             export = await client.get(f"/api/notes/{saved['id']}/export")
             assert export.status_code == 200
             assert export.text == "# Notes\n\nSaved, complete text.\n"
@@ -173,6 +182,7 @@ async def test_notes_routes_enforce_auth_and_preserve_saved_revision_contract(
             assert updated.status_code == 200
             assert updated.json()["edit_version"] == 2
             assert updated.json()["markdown"] == "# Edited locally\n"
+            assert updated.json()["citations"] == citations  # an edit never rewrites them
 
             vietnamese = await client.post(
                 f"/api/meetings/{meeting_id}/notes-runs",
@@ -199,4 +209,6 @@ async def test_notes_routes_enforce_auth_and_preserve_saved_revision_contract(
             assert vietnamese_revision["output_language"] == "vi"
             history = await client.get(f"/api/meetings/{meeting_id}/notes")
             assert history.json()["revisions"][0]["output_language"] == "vi"
+            assert history.json()["revisions"][0]["citations"] == []  # none were kept for it
+            assert history.json()["revisions"][1]["citations"] == citations
             assert history.json()["task"]["output_language"] == "vi"

@@ -17,6 +17,7 @@ from asr_en_vi.notes_document import (
     PROMPT_VERSION,
     SCHEMA_VERSION,
     NotesDocumentError,
+    build_citations,
     render_markdown,
 )
 from asr_en_vi.tasks import TaskError
@@ -85,7 +86,12 @@ def run_notes_task(data_dir: Path, task_id: str, owner_id: str) -> int:
         markdown = render_markdown(
             document, snapshot, output_language=task["notes_output_language"]
         )
-        _emit({"type": "result", "markdown": markdown, "coverage": coverage})
+        citations = build_citations(
+            document, snapshot, output_language=task["notes_output_language"]
+        )
+        _emit(
+            {"type": "result", "markdown": markdown, "coverage": coverage, "citations": citations}
+        )
         return 0
     except (ChatGPTError, AntigravityError) as error:
         _emit({"type": "error", "code": error.code, "message": error.public_message})

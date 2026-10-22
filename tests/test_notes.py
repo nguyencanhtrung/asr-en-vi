@@ -610,6 +610,144 @@ def test_publication_refuses_coverage_that_does_not_show_every_request_processed
         ).fetchone() == (accepted["id"],)
 
 
+def _stored_citations(data_dir: Path, revision_id: str) -> str | None:
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        return connection.execute(
+            "SELECT citations_json FROM notes_revisions WHERE id = ?", (revision_id,)
+        ).fetchone()[0]
+
+
+def _citations(segment_ids: list[str]) -> list[dict[str, object]]:
+    """Two bullets, the second citing both seeded segments (they start at 1.0 s and 4.0 s)."""
+    return [
+        {
+            "section": "Decisions",
+            "text": r"Prepare the launch plan\.",
+            "sources": [{"id": segment_ids[0], "start_seconds": 1.0}],
+        },
+        {
+            "section": "Confirmed Action Items",
+            "text": "Send the draft.",
+            "sources": [
+                {"id": segment_ids[1], "start_seconds": 4.0},
+                {"id": segment_ids[0], "start_seconds": 1.0},
+            ],
+        },
+    ]
+
+
+def test_publication_stores_citations_apart_from_the_markdown_and_serves_them(tmp_path):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, segment_ids = seed_completed_transcript(data_dir)
+    accepted = _accept(data_dir, meeting_id, generation_id)
+    claim_next_task(data_dir, owner_id="notes-worker")
+    citations = _citations(segment_ids)
+
+    revision = publish_notes_revision(
+        data_dir,
+        accepted["id"],
+        owner_id="notes-worker",
+        markdown=_markdown(),
+        elapsed_seconds=1.0,
+        citations=citations,
+    )
+
+    assert revision is not None and revision["citations"] == citations
+    assert json.loads(_stored_citations(data_dir, revision["id"])) == citations
+    assert "notes_source=" not in revision["markdown"]
+    assert notes_state(data_dir, meeting_id)["revisions"][0]["citations"] == citations
+    assert get_note(data_dir, revision["id"])["citations"] == citations
+
+    # Editing the Markdown never touches the citations: a changed bullet just stops matching.
+    edited = update_note(
+        data_dir, revision["id"], expected_edit_version=1, markdown="## Decisions\n\n- Changed.\n"
+    )
+    assert edited["edit_version"] == 2 and edited["citations"] == citations
+    assert json.loads(_stored_citations(data_dir, revision["id"])) == citations
+    assert export_note(data_dir, revision["id"]) == "## Decisions\n\n- Changed.\n"
+
+
+def test_a_revision_without_stored_citations_reads_an_empty_list(tmp_path):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, _ = seed_completed_transcript(data_dir)
+    accepted = _accept(data_dir, meeting_id, generation_id)
+    claim_next_task(data_dir, owner_id="notes-worker")
+
+    revision = publish_notes_revision(
+        data_dir, accepted["id"], owner_id="notes-worker", markdown=_markdown(), elapsed_seconds=1
+    )
+
+    assert revision is not None and revision["citations"] == []
+    assert _stored_citations(data_dir, revision["id"]) is None
+    assert notes_state(data_dir, meeting_id)["revisions"][0]["citations"] == []
+    assert (
+        update_note(data_dir, revision["id"], expected_edit_version=1, markdown="x")["citations"]
+        == []
+    )
+
+
+def _bad_citations(segment_ids: list[str]) -> dict[str, object]:
+    first, second = segment_ids
+    good = _citations(segment_ids)[0]
+    return {
+        "not a list": {"section": "Decisions"},
+        "entry is not an object": ["Decisions"],
+        "missing sources": [{"section": "Decisions", "text": "x"}],
+        "extra field": [{**good, "extra": 1}],
+        "section is not text": [{**good, "section": 1}],
+        "text is not text": [{**good, "text": None}],
+        "sources is not a list": [{**good, "sources": {"id": first, "start_seconds": 1.0}}],
+        "source is not an object": [{**good, "sources": [first]}],
+        "source has an extra field": [
+            {**good, "sources": [{"id": first, "start_seconds": 1.0, "end": 2}]}
+        ],
+        "source id is not text": [{**good, "sources": [{"id": 1, "start_seconds": 1.0}]}],
+        "source id is not in the snapshot": [
+            {**good, "sources": [{"id": "f" * 32, "start_seconds": 1.0}]}
+        ],
+        "source id repeats": [
+            {**good, "sources": [{"id": first, "start_seconds": 1.0}] * 2},
+        ],
+        "start differs from the snapshot": [
+            {**good, "sources": [{"id": first, "start_seconds": 1.5}]}
+        ],
+        "start is a string": [{**good, "sources": [{"id": first, "start_seconds": "1.0"}]}],
+        "start is a boolean": [{**good, "sources": [{"id": first, "start_seconds": True}]}],
+        "start is not finite": [
+            {**good, "sources": [{"id": first, "start_seconds": float("nan")}]}
+        ],
+        "too many entries": [{**good, "sources": []}] * 1_201,
+        "too many sources": [{**good, "sources": [{"id": second, "start_seconds": 4.0}] * 201}],
+        "too large": [{**good, "text": "x" * 1_100_000}],
+    }
+
+
+@pytest.mark.parametrize("case", tuple(_bad_citations(["a" * 32, "b" * 32])))  # names only
+def test_publication_refuses_citations_the_saved_source_does_not_back(tmp_path, case):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, segment_ids = seed_completed_transcript(data_dir)
+    accepted = _accept(data_dir, meeting_id, generation_id)
+    claim_next_task(data_dir, owner_id="notes-worker")
+
+    with pytest.raises(TaskError) as refused:
+        publish_notes_revision(
+            data_dir,
+            accepted["id"],
+            owner_id="notes-worker",
+            markdown=_markdown(),
+            elapsed_seconds=1.0,
+            citations=_bad_citations(segment_ids)[case],
+        )
+
+    assert refused.value.code in {"invalid_citations", "citations_too_large"}
+    state = notes_state(data_dir, meeting_id)
+    assert state["revisions"] == [] and state["task"]["status"] == "running"
+    with sqlite3.connect(database_path(data_dir)) as connection:
+        assert connection.execute(
+            "SELECT active_task_id FROM processing_slot WHERE slot_id = 1"
+        ).fetchone() == (accepted["id"],)
+
+
 class _UntouchedProvider:
     """Any use means the replay went on to pin a provider, that is, to start another run."""
 

@@ -17,8 +17,10 @@ from asr_en_vi.antigravity import AntigravityError, AntigravityProvider
 from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
 from asr_en_vi.notes_document import (
     MAX_OUTPUT_BYTES,
+    MAX_SOURCE_REFS_PER_ITEM,
     PROMPT_VERSION,
     SCHEMA_VERSION,
+    SECTIONS,
     NotesDocumentError,
     plan_source,
 )
@@ -27,6 +29,9 @@ from asr_en_vi.tasks import TaskError, _request_id, _task_summary
 
 _MAX_MARKDOWN_BYTES = MAX_OUTPUT_BYTES * 4
 _MAX_COVERAGE_BYTES = 65_536
+# Texts repeat the Markdown bullets and each source adds an ID and a time, so a document at its
+# output limit stays well below this.
+_MAX_CITATIONS_BYTES = MAX_OUTPUT_BYTES * 8
 _ACTIVE_STATES = ("accepted", "running", "stopping")
 _SEGMENT_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 NOTES_PROVIDERS = ("chatgpt", "antigravity")
@@ -530,6 +535,12 @@ def _summary_markdown(row: sqlite3.Row) -> str:
     )
 
 
+def _stored_citations(row: sqlite3.Row) -> list[object]:
+    """The citations saved with a revision; none for one made before they were kept."""
+    citations = json.loads(row["citations_json"]) if row["citations_json"] else []
+    return citations if isinstance(citations, list) else []
+
+
 def _revision_payload(
     connection: sqlite3.Connection,
     row: sqlite3.Row,
@@ -554,6 +565,7 @@ def _revision_payload(
         "meeting_id": row["meeting_id"],
         "source_snapshot_id": row["source_snapshot_id"],
         "markdown": _summary_markdown(row),
+        "citations": _stored_citations(row),
         "edit_version": row["edit_version"],
         "source_state": source_state,
         "provider": row["provider"],
@@ -799,6 +811,62 @@ def _coverage_json(coverage: object) -> str | None:
     return encoded
 
 
+def _citations_json(
+    connection: sqlite3.Connection, source_id: str, citations: object
+) -> str | None:
+    """Serialize a revision's citations, refusing any that its source snapshot does not back.
+
+    Each entry is {"section", "text", "sources": [{"id", "start_seconds"}]}; every source names a
+    segment of the snapshot with the start time the snapshot records for it. None is stored as NULL.
+    """
+    if citations is None:
+        return None
+    invalid = TaskError(400, "invalid_citations", "The notes citations are invalid.")
+    snapshot = connection.execute(
+        "SELECT snapshot_json FROM notes_sources WHERE id = ?", (source_id,)
+    ).fetchone()
+    try:
+        segments = json.loads(snapshot["snapshot_json"])["segments"]
+        starts = {segment["id"]: segment["start_seconds"] for segment in segments}
+    except (TypeError, KeyError, json.JSONDecodeError):
+        raise TaskError(
+            500, "notes_source_unavailable", "The saved notes source is unavailable."
+        ) from None
+    if not isinstance(citations, list) or len(citations) > len(SECTIONS) * MAX_SOURCE_REFS_PER_ITEM:
+        raise invalid
+    for entry in citations:
+        if (
+            not isinstance(entry, dict)
+            or set(entry) != {"section", "text", "sources"}
+            or not isinstance(entry["section"], str)
+            or not isinstance(entry["text"], str)
+            or not isinstance(entry["sources"], list)
+            or len(entry["sources"]) > MAX_SOURCE_REFS_PER_ITEM
+        ):
+            raise invalid
+        seen = set()
+        for source in entry["sources"]:
+            if (
+                not isinstance(source, dict)
+                or set(source) != {"id", "start_seconds"}
+                or not isinstance(source["id"], str)
+                or source["id"] in seen
+                or source["id"] not in starts
+                or type(source["start_seconds"]) not in {int, float}
+                or source["start_seconds"] != starts[source["id"]]
+            ):
+                raise invalid
+            seen.add(source["id"])
+    try:
+        encoded = json.dumps(citations, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        size = len(encoded.encode("utf-8"))
+    except (TypeError, ValueError):
+        raise invalid from None
+    if size > _MAX_CITATIONS_BYTES:
+        raise TaskError(413, "citations_too_large", "The notes citations exceed the size limit.")
+    return encoded
+
+
 def publish_notes_revision(
     data_dir: Path,
     task_id: str,
@@ -807,6 +875,7 @@ def publish_notes_revision(
     markdown: object,
     elapsed_seconds: float,
     coverage: object = None,
+    citations: object = None,
 ) -> dict[str, object] | None:
     if not isinstance(markdown, str) or "\x00" in markdown:
         raise TaskError(400, "invalid_markdown", "The generated notes document is invalid.")
@@ -826,12 +895,13 @@ def publish_notes_revision(
         ).fetchone()
         if slot is None or slot["active_task_id"] != task_id:
             return None
+        citations_json = _citations_json(connection, task["notes_source_id"], citations)
         revision_id = uuid.uuid4().hex
         connection.execute(
             "INSERT INTO notes_revisions(id, meeting_id, source_snapshot_id, task_id, markdown, "
             "provider, model, reasoning_effort, connection_version, prompt_version, "
-            "schema_version, output_language, coverage_json) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "schema_version, output_language, coverage_json, citations_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 revision_id,
                 task["meeting_id"],
@@ -846,6 +916,7 @@ def publish_notes_revision(
                 task["notes_schema_version"],
                 task["notes_output_language"],
                 coverage_json,
+                citations_json,
             ),
         )
         connection.execute(

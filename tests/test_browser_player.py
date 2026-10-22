@@ -63,8 +63,8 @@ ROOM_AFTER_LIST = """() => {
 }"""
 
 
-# No notes are seeded, so only the page's own spacing separates the source view from the list.
-# Real notes fill that gap with a screen or more; this keeps the list off screen at the source.
+# Only the page's own spacing separates the source card from the list here. Real pages put the
+# task details and the speaker list between them; this keeps the list off screen at the card.
 NOTES_BELOW_SOURCE = """() => {
   const notes = document.createElement("div");
   notes.style.height = "800px";
@@ -612,10 +612,8 @@ def test_opening_a_notes_source_while_playing_leaves_the_page_on_the_source(live
     page = open_meeting(live, signed_in, reduced_motion="reduce")
     freeze_clock(page)
     play_at(page, 0)
-    # The reader is on the Notes tab and opened a source: its view is on screen, and the transcript
-    # list, in the other tab, is not rendered at all.
-    page.locator("#meeting-tab-notes").click()
-    expect(page.locator("#transcript-segments")).to_be_hidden()
+    # The reader opened a source: its card is on screen under the player, and the transcript list
+    # lies below the fold.
     page.evaluate("document.querySelector('#notes-source-view').hidden = false")
     page.evaluate(NOTES_BELOW_SOURCE)
     heading = page.locator("#notes-source-heading")

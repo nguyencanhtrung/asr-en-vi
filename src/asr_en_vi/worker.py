@@ -505,6 +505,7 @@ def _run_notes_task(
         "stage": "starting_notes",
         "markdown": None,
         "coverage": None,
+        "citations": None,
         "error": None,
     }
 
@@ -533,15 +534,18 @@ def _run_notes_task(
         if event_type == "result" and state["markdown"] is None:
             markdown = event.get("markdown")
             coverage = event.get("coverage")
+            citations = event.get("citations")
             if (
                 not isinstance(markdown, str)
                 or "\x00" in markdown
                 or not isinstance(coverage, dict)
                 or not coverage
+                or not (citations is None or isinstance(citations, list))
             ):
                 return False
             state["markdown"] = markdown
             state["coverage"] = coverage
+            state["citations"] = citations
             return True
         if event_type == "error" and state["error"] is None:
             code = event.get("code")
@@ -625,6 +629,7 @@ def _run_notes_task(
             markdown=state["markdown"],
             elapsed_seconds=elapsed,
             coverage=state["coverage"],
+            citations=state["citations"],
         )
         if revision is None:
             _finish_after_child_stop(settings, task_id, owner_id, stop_event, elapsed)
