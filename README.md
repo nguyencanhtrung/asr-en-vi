@@ -228,7 +228,9 @@ Lệnh in link và QR mới. Việc này chỉ thay auth state; SQLite và worke
 
 Thanh đầu workspace có hai nút trạng thái riêng: **OpenAI** (ChatGPT) và **Google**
 (Antigravity). Mỗi nút hiện chấm màu cùng chữ **Đã kết nối**, **Chưa kết nối**, **Cần đăng nhập
-lại** hoặc **Không khả dụng**, và cả hai mở cùng hộp thoại kết nối.
+lại** hoặc **Không khả dụng**, và cả hai mở cùng hộp thoại kết nối. Nút tạo notes trong tab
+**Meeting notes** cũng mở hộp thoại này, ở đúng phần của nhà cung cấp đã chọn, khi bên đó chưa
+kết nối hoặc chưa có model dùng được.
 
 Mở **OpenAI**, rồi chọn **Continue with ChatGPT** để đăng nhập và cấp quyền dùng gói. Kết nối này
 độc lập với token truy cập localhost. Ứng dụng lưu phiên trong volume `provider` với quyền truy
@@ -302,9 +304,23 @@ kết nối không ảnh hưởng ChatGPT, token truy cập localhost, transcrip
 
 ## Tạo và đối chiếu notes
 
-Mở cuộc họp đã có transcript hoàn chỉnh, lưu lựa chọn ChatGPT/model trong phần kết nối, rồi bấm
-**Tạo notes** trong tab **Meeting notes**. Worker gửi transcript cùng ID, timestamp, tên người nói và ngày họp cần thiết;
-không gửi audio. Nguồn dài được chia tại ranh giới đoạn, tạo các tóm tắt có trích dẫn đã kiểm tra
+Mở cuộc họp đã có transcript hoàn chỉnh, kết nối nhà cung cấp và lưu model trong phần kết nối, rồi
+bấm nút tạo notes trong tab **Meeting notes**. Tab chỉ có một nút chính, tên nút nêu lựa chọn đã
+lưu: **Tạo notes · English · ChatGPT GPT 6.1 Sol** (ngôn ngữ đầu ra, nhà cung cấp, model).
+**Đổi…** mở vùng chứa ba ô chọn ngôn ngữ đầu ra, nhà cung cấp và model cùng mô tả dữ liệu được
+gửi đi; vùng này đóng sẵn, lựa chọn lưu ngay và hệ thống không tự đổi nhà cung cấp hay model. Nếu
+nhà cung cấp đã chọn chưa kết nối hoặc model chưa sẵn sàng, nút thành **Kết nối ChatGPT để tạo
+notes** (hoặc **Kết nối Google Antigravity để tạo notes**) và mở hộp thoại kết nối ở đúng phần của
+nhà cung cấp đó; khi tác vụ đang chạy, nút giữ nguyên chỗ, bị tắt, cạnh **Hủy tạo notes**.
+
+Notes dùng tên người nói tại thời điểm tạo. Nếu transcript hiện tại còn người nói mang tên mặc
+định do hệ thống đặt (**Speaker N**), khu vực tạo notes hiện **Notes sẽ dùng tên người nói hiện
+tại: Speaker 1, Speaker 2.** kèm link **Đặt tên trước**, chuyển sang tab **Transcript & bản ghi**
+và đưa focus tới danh mục người nói. Lời nhắc không chặn việc tạo notes, và ẩn đi khi tác vụ đang
+giữ nguồn vì tên không đổi được.
+
+Worker gửi transcript cùng ID, timestamp, tên người nói và ngày họp cần thiết; không gửi audio.
+Nguồn dài được chia tại ranh giới đoạn, tạo các tóm tắt có trích dẫn đã kiểm tra
 riêng theo từng phần, rồi tổng hợp theo thứ tự transcript để xử lý quyết định hoặc đề xuất thay
 đổi về sau. Mỗi phần sau chỉ mở đầu bằng các đoạn cuối nguyên vẹn của phần trước (tối đa 2.000
 byte) làm ngữ cảnh khi chúng vừa; đoạn đầu của phần mới được ưu tiên chỗ, còn phần trước kết thúc
@@ -323,7 +339,8 @@ Mỗi lượt gọi dành tối đa 25.000 token cho reasoning và đầu ra; ph
 giữ ngân sách context an toàn. Toàn tác vụ có giới hạn 60 phút, không tự đổi model/effort hoặc
 tự gửi lại inference nếu hết ngân sách, lỗi hay bị hủy.
 
-Chọn **English** hoặc **Tiếng Việt** trước khi bấm tạo notes; mặc định là English.
+Chọn **English** hoặc **Tiếng Việt** trong **Đổi…** trước khi bấm tạo notes; mặc định là English
+và tên nút luôn nêu ngôn ngữ đang chọn.
 Ngôn ngữ được giữ cố định cho từng tác vụ và bản notes, độc lập với ngôn ngữ transcript.
 Notes gồm tổng quan, chủ đề chính và lập luận, quyết định, câu hỏi còn mở, công việc đã xác nhận
 và các mục cần xác nhận; tiêu đề và nội dung theo ngôn ngữ đã chọn. Backend kiểm tra cấu trúc và
@@ -343,8 +360,9 @@ hủy hoặc restart giữ transcript và các notes đã lưu; không công b�
 inference. Đầu ra đã nhận đầy đủ nhưng không hợp lệ được phép sửa tối đa một lượt.
 
 Notes đã lưu nằm trong tab **Meeting notes**, trong một khung toàn bề rộng với thanh công cụ chung: chọn phiên bản, nút chuyển
-**Xem | Viết**, **Lưu bản nháp**, **Sao chép bản đã lưu** và **Tải Markdown đã lưu**. **Xem** là
-mặc định và hiển thị bản render của bản nháp hiện tại; **Viết** là ô soạn thảo Markdown. Trình
+**Xem | Viết**, **Lưu bản nháp**, **Sao chép bản đã lưu** và **Tải Markdown đã lưu**; hàng cuối
+của thanh công cụ là nút phụ **Tạo lại notes · …** cùng **Đổi…** (tạo lại luôn sinh một phiên bản
+mới và giữ các phiên bản trước). **Xem** là mặc định và hiển thị bản render của bản nháp hiện tại; **Viết** là ô soạn thảo Markdown. Trình
 duyệt nhớ chế độ cuối cùng; đổi chế độ không đổi bản nháp hay gọi API. Lưu dùng kiểm tra phiên bản
 (Ctrl/⌘+Enter trong ô soạn thảo cũng lưu); xung đột giữ bản nháp để đối chiếu và hiện ở cả hai
 chế độ. Khi còn thay đổi chưa lưu, nút **Viết** có chấm báo, **Xem** ghi “Đang xem bản nháp chưa

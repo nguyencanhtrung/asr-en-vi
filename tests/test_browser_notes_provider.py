@@ -194,7 +194,9 @@ def test_saved_provider_and_model_are_preselected(
     expect(page.locator("#notes-provider")).to_have_value(provider)
     expect(page.locator("#notes-model")).to_have_value(model)
     expect(page.locator("#notes-run-plan")).to_contain_text(f"{label} · {model_label}")
-    expect(page.locator("#notes-start")).to_have_text(f"Tạo notes bằng {label}")
+    expect(page.locator("#notes-start")).to_have_text(
+        f"Tạo notes · English · {label} {model_label}"
+    )
     expect(page.locator("#notes-start")).to_be_enabled()
     expect(page.locator("#notes-content-policy")).to_contain_text(f"tới {label}")
     if provider == "chatgpt":
@@ -216,9 +218,18 @@ def test_missing_saved_model_requires_an_explicit_choice(live, signed_in):
     expect(page.locator("#notes-model")).to_have_value("")
     expect(page.locator("#notes-run-plan")).to_contain_text("model-that-was-removed")
     expect(page.locator("#notes-run-plan")).to_contain_text("không tự chọn thay")
-    expect(page.locator("#notes-start")).to_be_disabled()
+    expect(page.locator("#notes-start")).to_have_text("Kết nối Google Antigravity để tạo notes")
+    # Pressing it connects; it cannot start a run while the model is missing.
+    page.locator("#notes-start").click()
+    expect(page.locator("#connections-dialog")).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(page.locator("#connections-dialog")).to_be_hidden()
+    page.locator("#notes-change").click()
     page.locator("#notes-model").select_option(ANTIGRAVITY_MODEL)
     expect(page.locator("#notes-preference-status")).to_contain_text("lần chạy tiếp theo")
+    expect(page.locator("#notes-start")).to_have_text(
+        "Tạo notes · English · Google Antigravity Gemini 3 Pro High"
+    )
     expect(page.locator("#notes-start")).to_be_enabled()
     assert runs == []
 
@@ -268,13 +279,18 @@ def test_antigravity_run_produces_labelled_revision_and_regeneration_keeps_edits
     expect(page.locator("#notes-revision-meta")).to_contain_text(
         f"Google Antigravity · {ANTIGRAVITY_MODEL}"
     )
-    expect(page.locator("#notes-start")).to_have_text("Tạo lại notes bằng Google Antigravity")
+    expect(page.locator("#notes-start")).to_have_text(
+        "Tạo lại notes · English · Google Antigravity Gemini 3 Pro High"
+    )
 
     edited = "# First\n\nAn operator edit that must survive.\n"
     update_note(live.settings.data_dir, first["id"], expected_edit_version=1, markdown=edited)
 
+    page.locator("#notes-change").click()
     page.locator("#notes-provider").select_option("chatgpt")
-    expect(page.locator("#notes-start")).to_have_text("Tạo lại notes bằng ChatGPT")
+    expect(page.locator("#notes-start")).to_have_text(
+        "Tạo lại notes · English · ChatGPT GPT 6.1 Sol"
+    )
     with page.expect_response(
         lambda response: response.url.endswith("/notes-runs") and response.request.method == "POST"
     ) as second_response:
@@ -315,6 +331,7 @@ def test_preference_change_during_active_run_applies_to_next_run(
     )
     expect(page.locator("#notes-start")).to_be_disabled()
     expect(page.locator("#notes-provider")).to_be_enabled()
+    page.locator("#notes-change").click()
     page.locator("#notes-provider").select_option("chatgpt")
     expect(page.locator("#notes-preference-status")).to_contain_text(
         "chỉ áp dụng cho lần chạy tiếp theo"
@@ -392,6 +409,7 @@ def test_failed_run_is_reported_and_new_run_can_use_other_provider(
     expect(page.locator("#notes-provider")).to_be_enabled()
     expect(page.locator("#notes-model")).to_be_enabled()
 
+    page.locator("#notes-change").click()
     page.locator("#notes-provider").select_option(other)
     expect(page.locator("#notes-start")).to_be_enabled()
     with page.expect_response(
@@ -427,7 +445,9 @@ def test_start_rejection_names_the_chosen_provider(live, signed_in):
         "Google Antigravity cần được kết nối lại"
     )
     expect(page.locator("#notes-error-message")).to_contain_text("không tự đổi")
-    expect(page.locator("#notes-start")).to_have_text("Tạo notes bằng Google Antigravity")
+    expect(page.locator("#notes-start")).to_have_text(
+        "Tạo notes · English · Google Antigravity Gemini 3 Pro High"
+    )
     expect(page.locator("#notes-start")).to_be_enabled()
 
 
@@ -556,7 +576,7 @@ def test_preference_changed_conflict_reloads_the_choice_without_retry(live, sign
     page.locator("#notes-start").click()
     expect(page.locator("#notes-error-message")).to_contain_text("xác nhận lại")
     expect(page.locator("#notes-model")).to_have_value("gpt-6-luna")
-    expect(page.locator("#notes-start")).to_have_text("Tạo notes bằng ChatGPT")
+    expect(page.locator("#notes-start")).to_have_text("Tạo notes · English · ChatGPT GPT 6 Luna")
     page.wait_for_timeout(300)
     assert len(bodies) == 1
 

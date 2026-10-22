@@ -13,6 +13,7 @@ from notes_helpers import StubNotesProvider, seed_completed_transcript
 from playwright.sync_api import expect
 from test_browser_history import live as live
 from test_browser_history import signed_in as browser_signed_in  # noqa: F401
+from test_browser_notes_provider import mock_providers
 
 from asr_en_vi import notes_routes
 from asr_en_vi.media import normalize_media
@@ -31,8 +32,8 @@ pytestmark = pytest.mark.browser
 
 
 @pytest.fixture
-def signed_in(browser_signed_in):  # noqa: F811
-    """Signed-in pages with a saved ChatGPT model, which a new Notes run requires."""
+def signed_in(browser_signed_in, live):  # noqa: F811
+    """Signed-in pages with a saved model on a connected ChatGPT, which a new Notes run requires."""
 
     def make(*args, **kwargs):
         context, page = browser_signed_in(*args, **kwargs)
@@ -47,6 +48,8 @@ def signed_in(browser_signed_in):  # noqa: F811
             })).status"""
         )
         assert status == 200
+        # A provider that is not connected turns the action into "Kết nối …", and none is in a test.
+        mock_providers(page, live)
         return context, page
 
     return make
@@ -377,6 +380,7 @@ def test_notes_language_pending_request_survives_reload_and_saved_language_is_re
     page.route(f"{live.url}/api/meetings/{meeting_id}/notes-runs", notes_request)
     page.goto(f"{live.url}/meetings/{meeting_id}#notes")
     expect(page.locator("#notes-output-language")).to_have_value("en")
+    page.locator("#notes-change").click()
     page.locator("#notes-output-language").select_option("vi")
     expect(page.locator("#notes-output-language")).to_have_value("vi")
     page.locator("#notes-start").click()
@@ -420,6 +424,7 @@ def test_notes_language_pending_request_survives_reload_and_saved_language_is_re
         "Ngôn ngữ: Tiếng Việt", timeout=10_000
     )
     expect(page.locator("#notes-output-language")).to_be_enabled()
+    page.locator("#notes-change").click()  # a reload closed it
     page.locator("#notes-output-language").select_option("en")
     expect(page.locator("#notes-revision-meta")).to_contain_text("Ngôn ngữ: Tiếng Việt")
     expect(page.locator("#notes-revision-meta")).not_to_contain_text("Ngôn ngữ: English")

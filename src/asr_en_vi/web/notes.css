@@ -75,8 +75,54 @@
   gap: 8px;
 }
 
-.notes-run-actions {
-  justify-content: flex-end;
+/* The action and its choice sit under the heading until notes exist, then close the notes toolbar. */
+.notes-create > .notes-run {
+  margin-top: 14px;
+}
+
+.notes-toolbar > .notes-run {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+/* A long label ("Tạo lại notes · Tiếng Việt · Google Antigravity …") wraps inside the button. */
+.notes-run-actions > .primary-button,
+.notes-run-actions > .secondary-button {
+  min-width: 0;
+  padding-block: 8px;
+  text-align: center;
+}
+
+.notes-run-actions > .text-button {
+  min-height: 40px;
+  font-size: 12px;
+}
+
+.notes-speaker-reminder {
+  margin: 10px 0 0;
+  color: var(--ink-2);
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.notes-speaker-reminder .text-link {
+  margin-left: 4px; /* keeps the focus ring off the full stop before it */
+  font-size: inherit;
+  white-space: nowrap;
+}
+
+.notes-choice {
+  margin-top: 12px;
+}
+
+.notes-choice-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.notes-choice-reload {
+  margin-top: 10px;
 }
 
 .notes-output-language-control {
@@ -583,10 +629,6 @@
     flex-direction: column;
   }
 
-  .notes-run-actions {
-    justify-content: flex-start;
-  }
-
   .notes-revision-select-wrap,
   .notes-mode-toggle,
   .notes-toolbar-actions {
@@ -609,14 +651,14 @@
     padding: 16px 14px;
   }
 
-  .notes-run-actions,
   .notes-toolbar-actions,
   .notes-conflict-actions {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .notes-run-actions > button,
+  .notes-run-actions > .primary-button,
+  .notes-run-actions > .secondary-button,
   .notes-toolbar-actions > button,
   .notes-conflict-actions > button {
     width: 100%;
