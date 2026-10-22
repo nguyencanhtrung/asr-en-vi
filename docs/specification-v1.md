@@ -293,13 +293,13 @@ Người dùng đánh dấu trước các ý quan trọng, quyết định và c
 | AC-02 | Notes ghi đủ các ý quan trọng đã đánh dấu | So sánh notes với nội dung nguồn và các mục đã xác định trước |
 | AC-03 | Không bịa quyết định, người phụ trách hoặc deadline trong bộ mẫu | Đối chiếu từng quyết định/action item; kiểm tra riêng trường hợp thiếu thông tin và phát biểu mơ hồ |
 | AC-04 | Dùng đúng nhãn người nói tại các đoạn quan trọng | Kiểm tra đoạn đổi người nói và action item dùng đại từ “tôi”; không yêu cầu tự nhận diện tên |
-| AC-05 | Mốc thời gian tìm được đúng bằng chứng | Bấm mốc của quyết định/action item và nghe đoạn nguồn; timestamp theo đoạn là đủ |
+| AC-05 | Mốc thời gian tìm được đúng bằng chứng | Bấm chip mốc thời gian của mục notes (chế độ Xem) và nghe đoạn nguồn; timestamp theo đoạn là đủ. Chip chỉ gắn vào mục còn nguyên nội dung như lúc tạo; Markdown, copy và tải về không có link |
 | AC-06 | Xử lý deadline tương đối đúng điều kiện | Kiểm tra có/không có ngày họp, “tomorrow” và “next week” |
 | AC-07 | Giữ chỉnh sửa và các bản notes | Sửa transcript, kiểm tra cảnh báo notes cũ; tạo lại, rồi mở lại bản notes đã sửa trước đó |
 | AC-08 | Lịch sử không phụ thuộc vị trí file nguồn | Di chuyển file nguồn sau khi nhập; mở lại cuộc họp và phát âm thanh từ bản sao |
 | AC-09 | Xóa đúng phạm vi | Xóa cuộc họp; kiểm tra dữ liệu ứng dụng được xóa và file nguồn bên ngoài vẫn còn |
 | AC-10 | ASR/phân biệt người nói và duyệt dữ liệu local; notes mới qua provider đã chọn | Ngắt Internet, nhập bản ghi qua UI, chạy ASR/phân biệt người nói rồi xem/sửa transcript; nghe lại/đọc/sửa/copy/xuất dữ liệu đã lưu. Notes mới báo thiếu kết nối. Khi có mạng, kiểm tra kết nối xác thực/inference chỉ theo provider đã chọn, không gửi audio, telemetry local hoặc tải UI/model local lúc runtime |
-| AC-11 | Copy và Markdown phản ánh bản notes được chọn | Đối chiếu kết quả xuất với bản đã sửa, gồm action items và timestamp |
+| AC-11 | Copy và Markdown phản ánh bản notes được chọn | Đối chiếu kết quả xuất với bản đã sửa, gồm action items; Markdown và bản xuất không chứa link timestamp |
 | AC-12 | Tiến độ, hủy và lỗi được thể hiện đúng | Hủy tác vụ, thử đầu vào không hỗ trợ và lỗi xử lý; không báo hoàn thành đầy đủ cho tác vụ thất bại |
 | AC-13 | Mục tiêu xử lý bản ghi 2 giờ trong tối đa 30 phút | Đo trên máy đích sau thiết lập và kết nối provider; tính từ bắt đầu xử lý đến khi cả transcript và notes sẵn để duyệt, gồm nạp model, tiền xử lý và thời gian gọi provider; ghi provider/model, điều kiện mạng/quota và các lượt retry |
 | AC-14 | Mục tiêu duyệt/sửa khoảng 5–10 phút mỗi giờ họp | Người dùng đo thời gian thực tế để đưa bản nháp về mức dùng được trên từng bản ghi |

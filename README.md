@@ -134,9 +134,10 @@ Community-1 trả về regular turns để phát hiện chồng lấn và exclus
 người nói có thời lượng giao nhau lớn nhất. Văn bản và timestamp ASR không bị chia hoặc dịch chuyển.
 Đoạn có nhiều người nói, overlap, speaker dominance thấp, không có speaker match hoặc tín hiệu ASR
 không chắc được giữ và đánh dấu để rà soát. Khi phát lại, mọi đoạn transcript chứa thời gian phát
-được tô sáng; nút timestamp tua và phát cùng nguồn audio đã lưu, còn mở nguồn từ notes chỉ tua tới
-mốc nguồn. Người nói do model gán ban đầu và timestamp được lưu riêng, nên sửa người nói không làm
-mất chúng.
+được tô sáng; nút timestamp tua và phát cùng nguồn audio đã lưu. Chip mốc thời gian của notes cũng
+tua, phát và đánh dấu đoạn nguồn trong transcript, còn nút **Tua bản ghi tới mốc này** của thẻ nguồn
+chỉ tua. Người nói do model gán ban đầu và timestamp được lưu riêng, nên sửa người nói không làm mất
+chúng.
 
 Trang cuộc họp chia thành hai tab theo mẫu WAI-ARIA Tabs, ngay dưới phần đầu trang: **Meeting notes**
 và **Transcript & bản ghi**. Phần đầu trang hiện tên cuộc họp đúng một lần (tiêu đề chung phía trên
@@ -152,13 +153,13 @@ Transcript, không có ô chọn hay nút tạo notes bị tắt.
 Mở `/meetings/{id}` không kèm hash chọn **Meeting notes** nếu cuộc họp có ít nhất một bản notes đã
 lưu hoặc đang tạo notes, ngược lại chọn **Transcript & bản ghi**. `#notes` và `#transcript` chọn
 tab tương ứng và thắng quy tắc mặc định; link nguồn `?notes_source=…&segment=…` không kèm hash mở
-tab **Meeting notes**, nơi có khung nguồn đã lưu. Đổi tab (bấm, hoặc mũi tên trái/phải, Home, End
-khi focus ở một tab) thêm một mục lịch sử bằng `pushState` với hash mới và giữ nguyên đường dẫn
-cùng query, nên Back quay lại tab trước và tải lại trang giữ tab; chỉ tab đang chọn nằm trong thứ tự
-Tab. Bấm tạo notes từ bất kỳ đâu đều chọn tab **Meeting notes** để theo dõi tiến độ. Nút **Tua bản
-ghi tới mốc này** của khung nguồn mở tab **Transcript & bản ghi** tại mốc đó, vì trình phát nằm ở
-tab này. Từ 680 px trở xuống, danh sách tab nằm ngay dưới phần đầu trang; hai nút trạng thái
-**OpenAI** và **Google** giữ nguyên.
+tab **Transcript & bản ghi**, nơi có thẻ nguồn đã lưu (`#notes` vẫn hiện tab notes và giữ nguồn đã
+nạp cho lần chuyển tab sau). Đổi tab (bấm, hoặc mũi tên trái/phải, Home, End khi focus ở một tab)
+thêm một mục lịch sử bằng `pushState` với hash mới và giữ nguyên đường dẫn cùng query, nên Back quay
+lại tab trước và tải lại trang giữ tab; chỉ tab đang chọn nằm trong thứ tự Tab. Bấm tạo notes từ bất
+kỳ đâu đều chọn tab **Meeting notes** để theo dõi tiến độ. Thẻ nguồn nằm ngay dưới trình phát, cùng
+tab với nó, nên nút **Tua bản ghi tới mốc này** của thẻ không đổi tab. Từ 680 px trở xuống, danh
+sách tab nằm ngay dưới phần đầu trang; hai nút trạng thái **OpenAI** và **Google** giữ nguyên.
 
 Transcript mở ở chế độ đọc: mỗi đoạn chỉ hiện nút timestamp, tên người nói, nội dung (13 px) và,
 nếu có, dấu rà soát (**Cần kiểm tra** kèm lý do, hoặc **Nên nghe lại**); chưa có ô nhập, select hay
@@ -368,10 +369,34 @@ duyệt nhớ chế độ cuối cùng; đổi chế độ không đổi bản n
 chế độ. Khi còn thay đổi chưa lưu, nút **Viết** có chấm báo, **Xem** ghi “Đang xem bản nháp chưa
 lưu”, và trình duyệt cảnh báo trước khi đóng hoặc tải lại trang còn bản nháp notes hoặc transcript
 chưa lưu. Sao chép và tải Markdown lấy cùng nội dung đã lưu của phiên bản đang chọn; cần lưu hoặc
-giải quyết bản nháp trước. Notes hiển thị, copy và export chỉ chứa nội dung tóm tắt, không kèm
-liên kết timestamp. Bản chụp nguồn vẫn được giữ để kiểm tra nội bộ và lưu lịch sử. Notes cũ hiển
-thị nguồn lịch sử hoặc cần cập nhật khi nguồn thay đổi; đổi riêng tên cuộc họp không làm notes cần
-cập nhật.
+giải quyết bản nháp trước. Markdown đã lưu, chế độ **Viết**, bản sao chép và file tải về chỉ chứa
+nội dung tóm tắt, không kèm liên kết timestamp.
+
+Trích dẫn nguồn là dữ liệu riêng của từng bản notes, lưu trong cột `notes_revisions.citations_json`
+(migration schema SQLite v10, chỉ thêm cột nên bản v9 đang chạy được nâng cấp nguyên vẹn). Với mỗi
+mục, bản notes giữ tiêu đề phần và văn bản mục đúng như đã render cùng các đoạn nguồn (`id` và
+`start_seconds`) lấy từ `source_ids` của document; cùng một đoạn mã dựng cả dòng Markdown lẫn trích
+dẫn nên hai bên không lệch nhau. Khi công bố, backend kiểm tra hình dạng, kích thước và việc mọi ID
+đoạn cùng mốc đều thuộc bản chụp nguồn của bản notes; sửa Markdown về sau không đổi trích dẫn, và
+`GET /api/notes/{id}` trả thêm `citations` (danh sách rỗng khi chưa có). Ở chế độ **Xem**, mục có
+nguồn hiện sau nội dung một chip cho mỗi đoạn nguồn: `mm:ss` (`h:mm:ss` từ một giờ), là link `<a>` tới
+`/meetings/{id}?notes_source={snapshot}&segment={segment}#transcript` với tên truy cập “Nghe lại đoạn
+nguồn lúc …”. Chip chỉ gắn vào mục còn đúng tiêu đề phần và nội dung như lúc tạo: mục đã sửa hoặc
+chuyển sang phần khác không có chip, và sửa một mục không làm mất chip của mục khác, trừ các mục
+trùng tiêu đề phần và nội dung. Markdown không cho biết mục nào trong nhóm trùng là bản gốc, nên
+nhóm chỉ giữ chip (mỗi mục đúng chip của mình, theo thứ tự) khi số mục của nhóm bằng lúc tạo; sửa
+hay xoá một mục trong nhóm, hoặc thêm bản sao của chúng (kể cả sửa mục khác thành bản sao), làm cả
+nhóm mất chip thay vì có chip gắn nhầm. Bản notes tạo trước khi có trích dẫn (cột NULL) không
+hiện chip.
+
+Bấm chip, hoặc dán link của chip, chọn tab **Transcript & bản ghi** bằng một mục lịch sử mới nên
+Back quay lại **Meeting notes**. Thẻ **Nguồn đã lưu lúc tạo notes** hiện ngay dưới trình phát với văn
+bản, người nói và mốc của bản chụp; trình phát tua tới mốc và phát (trình duyệt có thể chặn phát
+với link vừa dán, khi đó thẻ nhắc bấm phát); đoạn tương ứng trong transcript được đánh dấu bằng
+nhãn **Nguồn của mục notes** và đưa vào tầm nhìn, cuộn tức thì khi người dùng chọn giảm chuyển
+động. Khi transcript hiện tại đã khác bản chụp, thẻ vẫn hiện văn bản của bản chụp kèm ghi chú nói
+khác ở đâu. Bản chụp nguồn vẫn được giữ để kiểm tra nội bộ và lưu lịch sử. Notes cũ hiển thị nguồn
+lịch sử hoặc cần cập nhật khi nguồn thay đổi; đổi riêng tên cuộc họp không làm notes cần cập nhật.
 
 ## Phát triển và kiểm tra
 
@@ -447,5 +472,6 @@ Trong production image, Docker build context chỉ chứa `pyproject.toml`, `REA
 - [Giữ các thế hệ transcript khi chạy lại](docs/adr/0006-transcript-generations.md)
 - [Tạo notes bằng ChatGPT hoặc OMP + Google Antigravity](docs/adr/0007-cloud-notes-providers.md)
 - [Giữ bản chụp nguồn bất biến của notes](docs/adr/0008-notes-source-snapshots.md)
+- [Lưu trích dẫn mốc thời gian tách khỏi Markdown](docs/adr/0009-notes-citations-apart-from-markdown.md)
 - [Từ vựng dự án](CONTEXT.md)
 - [Nghiên cứu ban đầu](docs/ASR-initial-deep-research-vi.pdf)
