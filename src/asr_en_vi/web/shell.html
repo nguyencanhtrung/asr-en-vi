@@ -326,10 +326,6 @@
                   <label for="notes-revision-selector">Phiên bản notes đã lưu</label>
                   <select id="notes-revision-selector" aria-label="Chọn phiên bản notes đã lưu"></select>
                 </div>
-                <div class="notes-mode-toggle" role="group" aria-label="Chế độ notes">
-                  <button class="notes-mode-button" id="notes-mode-view" type="button" aria-pressed="true" aria-label="Xem" title="Xem"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10Z" /><circle cx="10" cy="10" r="2.5" /></svg></button>
-                  <button class="notes-mode-button" id="notes-mode-write" type="button" aria-pressed="false" aria-label="Viết" title="Viết"><span class="notes-mode-label"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m13.5 3.5 3 3L7 16H4v-3l9.5-9.5Z" /></svg><span class="notes-unsaved-dot" id="notes-unsaved-dot" title="Có thay đổi chưa lưu" aria-hidden="true" hidden></span></span></button>
-                </div>
                 <div class="notes-toolbar-actions">
                   <button class="icon-button" id="notes-save" type="button" aria-label="Lưu bản nháp" title="Lưu bản nháp"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 3h10l2 2v12H4V3Z" /><path d="M7 3v4h6V3M7 17v-5h6v5" /></svg></button>
                   <button class="icon-button" id="notes-copy" type="button" aria-label="Sao chép bản đã lưu" title="Sao chép bản đã lưu"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5" /><path d="M13 7V4.5A1.5 1.5 0 0 0 11.5 3h-7A1.5 1.5 0 0 0 3 4.5v7A1.5 1.5 0 0 0 4.5 13H7" /></svg></button>
@@ -345,7 +341,14 @@
                   <button class="text-button" id="notes-use-latest" type="button">Tải bản đã lưu mới nhất</button>
                 </div>
               </div>
-              <p class="notes-revision-meta" id="notes-revision-meta"></p>
+              <!-- The view/write switch sits at the right of the line describing the text below it. -->
+              <div class="notes-meta-row">
+                <p class="notes-revision-meta" id="notes-revision-meta"></p>
+                <div class="notes-mode-toggle" role="group" aria-label="Chế độ notes">
+                  <button class="notes-mode-button" id="notes-mode-view" type="button" aria-pressed="true" aria-label="Xem" title="Xem"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10Z" /><circle cx="10" cy="10" r="2.5" /></svg></button>
+                  <button class="notes-mode-button" id="notes-mode-write" type="button" aria-pressed="false" aria-label="Viết" title="Viết"><span class="notes-mode-label"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m13.5 3.5 3 3L7 16H4v-3l9.5-9.5Z" /></svg><span class="notes-unsaved-dot" id="notes-unsaved-dot" title="Có thay đổi chưa lưu" aria-hidden="true" hidden></span></span></button>
+                </div>
+              </div>
               <p class="notes-link-warning" id="notes-link-warning" role="status" aria-live="polite" hidden></p>
               <div class="notes-frame">
                 <p class="notes-draft-banner" id="notes-view-draft" hidden>Đang xem bản nháp chưa lưu</p>
