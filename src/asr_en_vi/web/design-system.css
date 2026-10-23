@@ -205,7 +205,9 @@ a {
   text-underline-offset: 3px;
 }
 
-.theme-toggle {
+/* The language switch shares the theme toggle's box, as on the portfolio header. */
+.theme-toggle,
+.lang-toggle {
   display: grid;
   width: 2.25rem;
   height: 2.25rem;
@@ -221,14 +223,22 @@ a {
     transform 150ms ease;
 }
 
-.theme-toggle:hover {
+.theme-toggle:hover,
+.lang-toggle:hover {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent);
 }
 
-.theme-toggle:active {
+.theme-toggle:active,
+.lang-toggle:active {
   transform: translateY(1px);
+}
+
+.lang-toggle {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
 }
 
 .theme-icon {

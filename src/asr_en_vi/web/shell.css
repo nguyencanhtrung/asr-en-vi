@@ -293,6 +293,12 @@ textarea:focus-visible {
   gap: 11px;
 }
 
+/* The rail masthead has no room beside the theme toggle, so the language switch leads the header actions. */
+.header-actions .lang-toggle {
+  width: 40px;
+  height: 40px;
+}
+
 .primary-button,
 .secondary-button {
   display: inline-flex;

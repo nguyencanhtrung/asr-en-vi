@@ -44,19 +44,19 @@ const antigravityLoginStorageKey = "asr.antigravity.pendingLogin";
 
 function antigravityErrorMessage(error) {
   const known = {
-    omp_unavailable: "Bản cài này chưa có OMP 18.5.0. Hãy dựng lại image có runner đã pin.",
-    omp_invalid_runtime: "OMP không đáp ứng cấu hình cô lập bắt buộc.",
-    reconnect_required: "Phiên Google Antigravity không còn hiệu lực. Hãy kết nối lại.",
-    provider_disconnected: "Hãy kết nối Google Antigravity trước.",
-    provider_quota: "Tài khoản hoặc model Antigravity đã chạm giới hạn hiện tại.",
-    model_unavailable: "Model này không còn khả dụng với tài khoản Antigravity.",
-    provider_timeout: "OMP hoặc Google Antigravity không phản hồi trong thời gian cho phép.",
-    provider_busy: "Một thao tác Antigravity khác đang chạy.",
+    omp_unavailable: t("Bản cài này chưa có OMP 18.5.0. Hãy dựng lại image có runner đã pin."),
+    omp_invalid_runtime: t("OMP không đáp ứng cấu hình cô lập bắt buộc."),
+    reconnect_required: t("Phiên Google Antigravity không còn hiệu lực. Hãy kết nối lại."),
+    provider_disconnected: t("Hãy kết nối Google Antigravity trước."),
+    provider_quota: t("Tài khoản hoặc model Antigravity đã chạm giới hạn hiện tại."),
+    model_unavailable: t("Model này không còn khả dụng với tài khoản Antigravity."),
+    provider_timeout: t("OMP hoặc Google Antigravity không phản hồi trong thời gian cho phép."),
+    provider_busy: t("Một thao tác Antigravity khác đang chạy."),
   };
   if (error && known[error.code]) return known[error.code];
   if (error && error.status === 429) return known.provider_quota;
-  if (error && error.status >= 500) return "Không hoàn tất được thao tác Antigravity. Yêu cầu không được tự động gửi lại.";
-  return (error && error.message) || "Không hoàn tất được thao tác Antigravity.";
+  if (error && error.status >= 500) return t("Không hoàn tất được thao tác Antigravity. Yêu cầu không được tự động gửi lại.");
+  return (error && error.message) || t("Không hoàn tất được thao tác Antigravity.");
 }
 
 function clearAntigravityError() {
@@ -70,10 +70,10 @@ function showAntigravityError(error) {
 }
 
 function antigravityStatusCopy(status) {
-  if (status === "connected") return "Đã kết nối";
-  if (status === "reconnect_required") return "Cần kết nối lại";
-  if (status === "disconnected") return "Chưa kết nối";
-  return "Không khả dụng";
+  if (status === "connected") return t("Đã kết nối");
+  if (status === "reconnect_required") return t("Cần kết nối lại");
+  if (status === "disconnected") return t("Chưa kết nối");
+  return t("Không khả dụng");
 }
 
 function antigravityModelName(modelId) {
@@ -108,7 +108,7 @@ function renderAntigravityProvider() {
   setLauncherState("antigravity", state, provider.account?.label);
   antigravityElements.badge.textContent = antigravityStatusCopy(status);
   antigravityElements.status.textContent = antigravityStatusCopy(status);
-  antigravityElements.account.textContent = provider.account?.label || "Chưa có thông tin";
+  antigravityElements.account.textContent = provider.account?.label || t("Chưa có thông tin");
   const verification = provider.verification;
   if (verification?.model && verification?.verified_at) {
     antigravityElements.verificationSummary.textContent = `${antigravityModelName(verification.model)} · ${formatTimestamp(verification.verified_at)}`;
@@ -134,17 +134,17 @@ function renderAntigravityModels(catalog) {
     const placeholder = document.createElement("option");
     placeholder.value = "";
     placeholder.textContent = antigravityState.models.length
-      ? "Chọn mô hình Antigravity" : "Không có mô hình Antigravity khả dụng";
+      ? t("Chọn mô hình Antigravity") : t("Không có mô hình Antigravity khả dụng");
     antigravityElements.modelSelect.append(placeholder);
   } else if (!antigravityState.models.some((model) => model.id === antigravityState.savedModel)) {
     const unavailable = document.createElement("option");
     unavailable.value = antigravityState.savedModel;
-    unavailable.textContent = `${antigravityState.savedModel} — không còn khả dụng`;
+    unavailable.textContent = t("{model} — không còn khả dụng", { model: antigravityState.savedModel });
     unavailable.disabled = true;
     unavailable.selected = true;
     antigravityElements.modelSelect.append(unavailable);
     antigravityElements.modelStatus.dataset.state = "error";
-    antigravityElements.modelStatus.textContent = "Model đã lưu không còn trong catalog. Hãy chọn model khác.";
+    antigravityElements.modelStatus.textContent = t("Model đã lưu không còn trong catalog. Hãy chọn model khác.");
   }
   for (const model of antigravityState.models) {
     const option = document.createElement("option");
@@ -163,7 +163,7 @@ function clearAntigravityModels() {
   antigravityElements.modelSelect.replaceChildren();
   const placeholder = document.createElement("option");
   placeholder.value = "";
-  placeholder.textContent = "Kết nối Antigravity để tải model";
+  placeholder.textContent = t("Kết nối Antigravity để tải model");
   antigravityElements.modelSelect.append(placeholder);
 }
 
@@ -200,7 +200,7 @@ async function loadAntigravity() {
     const payload = await connectionRequest("/api/providers");
     const provider = Array.isArray(payload.providers)
       ? payload.providers.find((item) => item?.id === "antigravity") : null;
-    if (!provider) throw new ConnectionApiError("Thiếu trạng thái Antigravity.", "INVALID_PROVIDER_STATUS");
+    if (!provider) throw new ConnectionApiError(t("Thiếu trạng thái Antigravity."), "INVALID_PROVIDER_STATUS");
     antigravityState.provider = provider;
     renderAntigravityProvider();
     if (provider.status === "connected") {
@@ -214,7 +214,7 @@ async function loadAntigravity() {
     showAntigravityError(error);
     if (!["reconnect_required", "provider_disconnected"].includes(error.code)) {
       antigravityElements.badge.dataset.state = "error";
-      antigravityElements.badge.textContent = "Không khả dụng";
+      antigravityElements.badge.textContent = t("Không khả dụng");
       setLauncherState("antigravity", "error");
     }
   }
@@ -233,17 +233,17 @@ function setAntigravityLogin(session) {
   antigravityState.activeLogin = { id: session.id, expiresAt: session.expires_at };
   persistAntigravityLogin(antigravityState.activeLogin);
   antigravityElements.loginCopy.textContent = session.instructions
-    || "Hoàn tất đăng nhập Google trong trang do OMP cung cấp.";
+    || t("Hoàn tất đăng nhập Google trong trang do OMP cung cấp.");
   if (typeof session.authorization_url === "string" && session.authorization_url) {
     let url;
     try {
       url = new URL(session.authorization_url);
     } catch {
-      throw new ConnectionApiError("OMP trả về URL đăng nhập không hợp lệ.", "INVALID_AUTHORIZATION_URL");
+      throw new ConnectionApiError(t("OMP trả về URL đăng nhập không hợp lệ."), "INVALID_AUTHORIZATION_URL");
     }
     if (!(["https:"].includes(url.protocol) || (url.protocol === "http:"
       && ["127.0.0.1", "localhost"].includes(url.hostname))) || url.username || url.password) {
-      throw new ConnectionApiError("OMP trả về URL đăng nhập không an toàn.", "INVALID_AUTHORIZATION_URL");
+      throw new ConnectionApiError(t("OMP trả về URL đăng nhập không an toàn."), "INVALID_AUTHORIZATION_URL");
     }
     antigravityElements.loginLink.href = url.href;
     antigravityElements.loginLink.hidden = false;
@@ -263,11 +263,11 @@ function finishAntigravityLogin(status, error = null) {
   antigravityElements.loginLink.hidden = true;
   antigravityElements.inputForm.hidden = true;
   if (status === "connected") {
-    antigravityElements.message.textContent = "Đã kết nối Google Antigravity qua OMP.";
+    antigravityElements.message.textContent = t("Đã kết nối Google Antigravity qua OMP.");
     void loadAntigravity();
     window.dispatchEvent(new CustomEvent("asr:provider-choice-changed"));
   } else if (status === "cancelled") {
-    antigravityElements.message.textContent = "Đã hủy đăng nhập Antigravity.";
+    antigravityElements.message.textContent = t("Đã hủy đăng nhập Antigravity.");
   } else if (status === "expired") {
     showAntigravityError({ code: "provider_timeout" });
   } else if (status === "failed") {
@@ -365,7 +365,10 @@ async function saveAntigravityModel(event) {
     antigravityState.savedModel = model;
     antigravityState.savedEffort = reasoningEffort;
     antigravityElements.modelStatus.dataset.state = "saved";
-    antigravityElements.modelStatus.textContent = `Đã lưu ${antigravityModelName(model)} · mức suy nghĩ ${reasoningEffort === "medium" ? "Medium" : "High"} cho Antigravity.`;
+    antigravityElements.modelStatus.textContent = t("Đã lưu {model} · mức suy nghĩ {effort} cho Antigravity.", {
+      model: antigravityModelName(model),
+      effort: reasoningEffort === "medium" ? "Medium" : "High",
+    });
     window.dispatchEvent(new CustomEvent("asr:provider-choice-changed"));
   } catch (error) {
     await handleAntigravityReconnect(error);
@@ -381,21 +384,21 @@ async function verifyAntigravity() {
   if (!model || antigravityState.busy) return;
   antigravityState.busy = true;
   antigravityElements.verificationResult.dataset.state = "";
-  antigravityElements.verificationResult.textContent = "Đang gửi một yêu cầu tổng hợp qua model đã chọn…";
+  antigravityElements.verificationResult.textContent = t("Đang gửi một yêu cầu tổng hợp qua model đã chọn…");
   updateAntigravityActions();
   try {
     const result = await connectionRequest("/api/providers/antigravity/verify", {
       method: "POST", body: { model },
     });
     antigravityElements.verificationResult.dataset.state = "success";
-    antigravityElements.verificationResult.textContent = `Đã xác minh ${antigravityModelName(model)} lúc ${formatTimestamp(result.verified_at)}.`;
+    antigravityElements.verificationResult.textContent = t("Đã xác minh {model} lúc {time}.", { model: antigravityModelName(model), time: formatTimestamp(result.verified_at) });
     if (antigravityState.provider) {
       antigravityState.provider.verification = result;
       renderAntigravityProvider();
     }
   } catch (error) {
     antigravityElements.verificationResult.dataset.state = "error";
-    antigravityElements.verificationResult.textContent = "Kiểm tra thất bại; yêu cầu không được tự động gửi lại.";
+    antigravityElements.verificationResult.textContent = t("Kiểm tra thất bại; yêu cầu không được tự động gửi lại.");
     await handleAntigravityReconnect(error);
     showAntigravityError(error);
   } finally {
@@ -410,7 +413,7 @@ async function disconnectAntigravity() {
   updateAntigravityActions();
   try {
     await connectionRequest("/api/providers/antigravity/connection", { method: "DELETE" });
-    antigravityElements.message.textContent = "Đã ngắt kết nối Antigravity và vô hiệu hóa credential OMP đã lưu.";
+    antigravityElements.message.textContent = t("Đã ngắt kết nối Antigravity và vô hiệu hóa credential OMP đã lưu.");
     await loadAntigravity();
     window.dispatchEvent(new CustomEvent("asr:provider-choice-changed"));
   } catch (error) {
@@ -426,7 +429,7 @@ function markAntigravityChoiceEdited() {
   antigravityElements.modelStatus.dataset.state = "";
   antigravityElements.modelStatus.textContent = antigravityState.selectedModel === antigravityState.savedModel
     && antigravityElements.effortSelect.value === antigravityState.savedEffort
-    ? "" : "Lựa chọn mới chưa được lưu.";
+    ? "" : t("Lựa chọn mới chưa được lưu.");
   updateAntigravityActions();
 }
 

@@ -24,7 +24,7 @@
     root.dataset.themePreference = safePreference;
     root.dataset.theme = effectiveTheme(safePreference);
     const nextTheme = root.dataset.theme === "dark" ? "light" : "dark";
-    const label = nextTheme === "light" ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối";
+    const label = nextTheme === "light" ? t("Chuyển sang giao diện sáng") : t("Chuyển sang giao diện tối");
     for (const button of document.querySelectorAll("[data-theme-toggle]")) {
       button.setAttribute("aria-label", label);
       button.setAttribute("title", label);

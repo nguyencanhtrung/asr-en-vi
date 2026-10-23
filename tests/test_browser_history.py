@@ -321,6 +321,8 @@ def test_design_system_theme_fonts_focus_and_offline_assets(live, signed_in, tmp
 
     page.keyboard.press("Tab")
     page.keyboard.press("Tab")
+    expect(page.get_by_role("button", name="Switch to English")).to_be_focused()
+    page.keyboard.press("Tab")
     theme_toggle = page.get_by_role("button", name="Chuyển sang giao diện sáng")
     expect(theme_toggle).to_be_focused()
     expect(page.locator(".access-header .theme-icon-sun")).to_be_visible()
