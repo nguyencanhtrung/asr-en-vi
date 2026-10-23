@@ -5,15 +5,70 @@ import subprocess
 import sys
 
 import huggingface_hub
+import pytest
 
-from asr_en_vi import cli
+from asr_en_vi import __version__, cli
 from asr_en_vi.cli import main
 from asr_en_vi.diarization_runner import (
     DIARIZATION_ERROR_MESSAGES,
     DiarizationConfigurationError,
 )
 from asr_en_vi.runtime import RuntimeProfile
+from asr_en_vi.storage import SCHEMA_VERSION
 from asr_en_vi.tasks import TASK_ERROR_MESSAGES
+
+
+def test_version_json_reports_application_version_and_supported_schema(capsys):
+    assert main(["version", "--json"]) == 0
+
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == {
+        "version": __version__,
+        "supported_schema_version": SCHEMA_VERSION,
+    }
+    assert captured.err == ""
+
+
+def test_version_json_checks_expected_version_and_schema(capsys):
+    assert (
+        main(
+            [
+                "version",
+                "--json",
+                "--expect-version",
+                __version__,
+                "--expect-schema",
+                str(SCHEMA_VERSION),
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["version"] == __version__
+
+    assert (
+        main(
+            [
+                "version",
+                "--json",
+                "--expect-version",
+                __version__,
+                "--expect-schema",
+                str(SCHEMA_VERSION + 1),
+            ]
+        )
+        == 1
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Version/schema mismatch" in captured.err
+
+
+def test_legacy_version_flag_keeps_its_output(capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--version"])
+
+    assert exit_info.value.code == 0
+    assert f"asr-en-vi {__version__}" in capsys.readouterr().out
 
 
 def _prepared_model(path):

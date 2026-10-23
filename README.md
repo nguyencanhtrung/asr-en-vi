@@ -76,6 +76,11 @@ git clone https://hf.co/pyannote/speaker-diarization-community-1 \
 services. It then prints an access link and a QR code. Open that exact link (the default address
 is `http://127.0.0.1:8765`), then connect ChatGPT or Google from the workspace header.
 
+To install a release, check out its tag and run `./scripts/start.sh --pull` with a versioned
+`ASR_IMAGE` such as `ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1`, or `--source` to build it.
+After setup, `--offline` starts without network access. See
+[Cài release candidate](docs/user-guide.md#cài-release-candidate).
+
 ## Documentation
 
 The project documentation is written in Vietnamese.

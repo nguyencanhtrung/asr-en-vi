@@ -33,6 +33,7 @@ from asr_en_vi.runtime import (
     read_runtime_profile,
     select_runtime,
 )
+from asr_en_vi.storage import SCHEMA_VERSION
 from asr_en_vi.tasks import TASK_ERROR_MESSAGES, TaskError, get_task
 from asr_en_vi.worker import is_healthy as worker_is_healthy
 
@@ -288,6 +289,10 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="asr-en-vi")
     parser.add_argument("--version", action="version", version=f"asr-en-vi {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
+    version_parser = commands.add_parser("version", help="report application and schema versions")
+    version_parser.add_argument("--json", action="store_true", help="print a JSON version report")
+    version_parser.add_argument("--expect-version")
+    version_parser.add_argument("--expect-schema", type=int)
     access_parser = commands.add_parser("access", help="manage the local access token")
     access_commands = access_parser.add_subparsers(dest="access_command", required=True)
     access_commands.add_parser("show", help="print the current access link and QR code")
@@ -319,6 +324,30 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
+    if arguments.command == "version":
+        if (arguments.expect_version is None) != (arguments.expect_schema is None):
+            print(
+                "Both --expect-version and --expect-schema are required together.", file=sys.stderr
+            )
+            return 2
+        report = {
+            "version": __version__,
+            "supported_schema_version": SCHEMA_VERSION,
+        }
+        if arguments.expect_version is not None and (
+            arguments.expect_version != __version__ or arguments.expect_schema != SCHEMA_VERSION
+        ):
+            print(
+                f"Version/schema mismatch: image reports {__version__} / schema {SCHEMA_VERSION}.",
+                file=sys.stderr,
+            )
+            return 1
+        if arguments.json:
+            print(json.dumps(report, separators=(",", ":")))
+        else:
+            print(f"asr-en-vi {__version__} (supported schema {SCHEMA_VERSION})")
+        return 0
+
     settings = Settings.from_env()
     if arguments.command == "health":
         return check_health(settings)

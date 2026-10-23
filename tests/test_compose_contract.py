@@ -23,7 +23,9 @@ def test_compose_separates_services_volumes_and_loopback_publish():
     assert app["environment"]["ASR_PROVIDER_DIR"] == "/var/lib/asr-en-vi/provider"
     assert worker["environment"]["ASR_PROVIDER_DIR"] == "/var/lib/asr-en-vi/provider"
     assert "--no-access-log" in app["command"]
+    assert app["image"] == "${ASR_IMAGE:-asr-en-vi:local}"
     assert app["image"] == worker["image"]
+    assert app["build"]["args"]["VCS_REF"] == "${ASR_SOURCE_REVISION:-unknown}"
     assert app["environment"]["ASR_MAX_UPLOAD_BYTES"] == "${ASR_MAX_UPLOAD_BYTES:-4294967296}"
     assert app["environment"]["ASR_MAX_RECORDING_SECONDS"] == (
         "${ASR_MAX_RECORDING_SECONDS:-14400}"
@@ -39,6 +41,12 @@ def test_compose_separates_services_volumes_and_loopback_publish():
         "speaker-diarization-community-1}"
     )
     assert "HF_TOKEN" not in app["environment"] and "HF_TOKEN" not in worker["environment"]
+    for service in (app, worker):
+        assert service["environment"]["DO_NOT_TRACK"] == "1"
+        assert service["environment"]["HF_HUB_DISABLE_TELEMETRY"] == "1"
+        assert service["environment"]["PYANNOTE_METRICS_ENABLED"] == "0"
+        assert service["environment"]["HF_HUB_OFFLINE"] == "1"
+        assert service["environment"]["TRANSFORMERS_OFFLINE"] == "1"
     assert "gpus" not in worker
     gpu_override = yaml.safe_load((ROOT / "compose.gpu.yaml").read_text(encoding="utf-8"))
     assert gpu_override["services"]["worker"]["gpus"] == "all"
@@ -56,6 +64,12 @@ def test_provider_volume_is_created_for_runtime_uid_and_default_server_suppresse
         in dockerfile
     )
     assert '"--no-access-log"]' in dockerfile
+    assert "ARG VCS_REF=unknown" in dockerfile
+    assert 'LABEL org.opencontainers.image.revision="${VCS_REF}"' in dockerfile
+    assert "HF_HUB_DISABLE_TELEMETRY=1" in dockerfile
+    assert "PYANNOTE_METRICS_ENABLED=0" in dockerfile
+    assert "HF_HUB_OFFLINE=1" in dockerfile
+    assert "TRANSFORMERS_OFFLINE=1" in dockerfile
     assert "ARG OMP_VERSION=18.5.0" in dockerfile
     assert "b8413e6e085a423c7a9b1d7bc025c2af794923b6b6c57330a309639b6176c8a1" in dockerfile
     assert "1244860c58bb68a3a45390d4932e5c7983183ec8c12cb6848c1afd709de38a07" in dockerfile
