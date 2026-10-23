@@ -91,6 +91,23 @@ def test_locator_value_wait_raises_a_fixed_failure_at_its_deadline(monkeypatch):
         )
 
 
+def test_offline_smoke_harness_avoids_csp_sensitive_wait_for_function():
+    tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "wait_for_function"
+    ]
+
+    locations = ", ".join(f"line {node.lineno}" for node in calls)
+    assert not calls, (
+        "scripts/offline-smoke.py must avoid CSP-sensitive wait_for_function calls; "
+        f"found {locations}"
+    )
+
+
 def test_project_names_are_unique_and_prefix_is_bounded():
     first = offline_smoke.unique_project_name("asr-offline-smoke")
     second = offline_smoke.unique_project_name("asr-offline-smoke")
