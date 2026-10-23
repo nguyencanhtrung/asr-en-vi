@@ -539,6 +539,7 @@ def edit_meeting_title(page: Any, title: str, *, timeout_ms: int = 15_000) -> No
     """Edit a meeting title and wait for the rendered value through Playwright locators."""
     from playwright.sync_api import expect
 
+    page.locator("#meeting-actions").click()
     page.locator("#edit-meeting").click()
     page.locator("#edit-title").fill(title)
     page.locator("#edit-save").click()
