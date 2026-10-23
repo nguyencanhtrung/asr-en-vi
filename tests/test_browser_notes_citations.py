@@ -720,8 +720,8 @@ def test_a_chip_takes_keyboard_focus_with_a_visible_ring_and_opens_on_enter(live
     meeting_id, *_ = seed_cited_notes(live.settings.data_dir)
     open_notes(live, page, meeting_id)
 
-    # The notes action closes the toolbar, so its Đổi… is the Tab stop before the chips.
-    page.locator("#notes-change").focus()
+    # The view/write switch sits above the frame, so its Viết is the Tab stop before the chips.
+    page.locator("#notes-mode-write").focus()
     page.keyboard.press("Tab")
     focused = page.locator(CHIP).first
     expect(focused).to_be_focused()

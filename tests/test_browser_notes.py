@@ -1292,7 +1292,8 @@ def test_notes_frame_fits_360px_with_visible_focus_and_readable_colors(live, sig
     for name, (foreground, background) in pairs.items():
         assert _contrast(foreground, background) >= 4.5, (name, foreground, background)
 
-    page.locator("#notes-revision-selector").focus()
+    # The switch sits above the frame, so the notes action's last control comes right before it.
+    page.locator("#notes-change").focus()
     for button in ("view", "write"):
         page.keyboard.press("Tab")
         focused = page.locator(f"#notes-mode-{button}")

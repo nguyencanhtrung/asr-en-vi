@@ -464,8 +464,17 @@
   margin-left: auto;
 }
 
+.notes-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
 .notes-revision-meta {
-  margin: 12px 0 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
   font-family: var(--font-mono);
   font-size: 10px;
   overflow-wrap: anywhere;
@@ -714,12 +723,10 @@
   }
 
   .notes-revision-select-wrap,
-  .notes-mode-toggle,
   .notes-toolbar-actions {
     flex: 1 1 100%;
   }
 
-  .notes-mode-button,
   .notes-toolbar-actions > button {
     flex: 1 1 auto;
   }
