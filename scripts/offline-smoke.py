@@ -869,21 +869,34 @@ class SmokeHarness:
 
     def _anonymous_pull(self) -> None:
         """Pull the image with an empty Docker config so ambient registry logins cannot count."""
-        # ponytail: an empty config also drops Docker contexts; set DOCKER_HOST if the daemon needs one.
+        # ponytail: the empty config drops the context store, so only the active context's
+        # endpoint carries over as DOCKER_HOST; a TLS context also needs DOCKER_CERT_PATH and
+        # DOCKER_TLS_VERIFY set by hand.
+        env = self._environment()
+        if not env.get("DOCKER_HOST"):
+            context = self.run_command(
+                ["docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"],
+                label="read the ambient Docker context endpoint",
+                timeout=30,
+                env=env,
+                allow_failure=True,
+            )
+            endpoint = context.stdout.strip()
+            if endpoint:
+                env["DOCKER_HOST"] = endpoint
         with tempfile.TemporaryDirectory(prefix="asr-smoke-docker-config-") as config_dir:
-            env = self._environment()
             env["DOCKER_CONFIG"] = config_dir
             result = self.run_command(
                 ["docker", "pull", self.options.image],
                 label="anonymous image pull with an empty Docker config",
                 timeout=max(self.options.startup_timeout * 3, 900),
                 env=env,
-                sensitive_output=True,
                 allow_failure=True,
             )
         if result.returncode != 0:
             raise SmokeFailure(
-                "Anonymous pull failed: the image must be public and pullable without a registry login."
+                "Anonymous pull failed (image not public, registry unreachable, or Docker daemon "
+                "unreachable without the Docker config; set DOCKER_HOST). See smoke.log."
             )
         self.evidence["anonymous_pull"] = {
             "performed": True,

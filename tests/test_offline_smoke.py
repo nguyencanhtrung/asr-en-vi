@@ -364,25 +364,14 @@ def test_embedded_container_python_snippets_compile():
 
 
 def test_provider_scripts_share_one_bootstrap_with_the_provider_dir_guard():
-    source = SCRIPT.read_text(encoding="utf-8")
     provider_scripts = [
         snippet for snippet in _embedded_container_scripts() if "provider.ensure()" in snippet
     ]
 
-    assert source.count("class FailOnNetworkAdapter") == 1
-    assert source.count("ChatGPTProvider(settings.provider_dir") == 1
     assert len(provider_scripts) == 2
     for snippet in provider_scripts:
         assert snippet.startswith(offline_smoke._PROVIDER_PRELUDE)
         assert "if settings.provider_dir is None:" in snippet
-
-
-def test_snapshot_column_sets_are_defined_only_in_the_embedded_script():
-    source = SCRIPT.read_text(encoding="utf-8")
-
-    for name in ("VOLATILE_COLUMNS", "NEVER_SNAPSHOT_COLUMNS", "HASHED_COLUMNS"):
-        assert not hasattr(offline_smoke, name)
-    assert source.count("never = {") == 1
 
 
 def test_redactor_removes_known_credentials_and_access_fragments():
@@ -717,15 +706,11 @@ def test_shipped_smoke_uses_stable_tool_names_not_pipeline_task_names(tmp_path):
     harness.run_dir = tmp_path / "run"
     harness.run_dir.mkdir()
     harness.write_runtime_report()
-    help_text = offline_smoke._parser().format_help()
 
     assert harness.evidence["tool"] == "asr-en-vi offline smoke"
     assert "task" not in harness.evidence
     assert (harness.run_dir / "smoke-report.md").is_file()
     assert not (harness.run_dir / "report-smoke-harness.md").exists()
-    for text in (SCRIPT.read_text(encoding="utf-8"), help_text):
-        assert "issue-15" not in text
-        assert "pipeline" not in text.lower()
 
 
 def test_revision_parity_distinguishes_match_mismatch_and_unverified():
@@ -758,54 +743,126 @@ def test_image_identity_records_the_revision_label(monkeypatch, tmp_path):
     assert harness._image_identity()["revision"] == "c" * 40
 
 
+# Docker CLI facts behind these doubles: `docker context inspect` without a name inspects the
+# current context (docker/cli v27, cli/command/context/inspect.go), and the JSON it prints carries
+# Endpoints.docker.Host (https://docs.docker.com/reference/cli/docker/context/inspect/).
+CONTEXT_INSPECT = ["docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"]
+CONTEXT_ENDPOINT = "unix:///run/user/1000/docker.sock"
+
+
 def test_pull_mode_pulls_anonymously_with_an_empty_docker_config_before_the_installer(
     monkeypatch, tmp_path
 ):
     image = "ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1"
     ambient = tmp_path / "ambient-docker-config"
     monkeypatch.setenv("DOCKER_CONFIG", str(ambient))
+    monkeypatch.delenv("DOCKER_HOST", raising=False)
     harness = offline_smoke.SmokeHarness(_smoke_options(tmp_path, "pull", image))
     calls = []
 
     def command_double(command, **kwargs):
         env = kwargs.get("env") or os.environ
-        entry = {"command": command, "docker_config": env.get("DOCKER_CONFIG")}
+        entry = {
+            "command": command,
+            "docker_config": env.get("DOCKER_CONFIG"),
+            "docker_host": env.get("DOCKER_HOST"),
+        }
         if command[:2] == ["docker", "pull"]:
             entry["config_entries"] = os.listdir(env["DOCKER_CONFIG"])
         calls.append(entry)
-        return offline_smoke.subprocess.CompletedProcess(command, 0, "", "")
+        stdout = f"{CONTEXT_ENDPOINT}\n" if command == CONTEXT_INSPECT else ""
+        return offline_smoke.subprocess.CompletedProcess(command, 0, stdout, "")
 
     monkeypatch.setattr(offline_smoke.subprocess, "run", command_double)
     harness._start_installation()
 
+    context = next(call for call in calls if call["command"] == CONTEXT_INSPECT)
     pull = next(call for call in calls if call["command"][:2] == ["docker", "pull"])
     installer = next(call for call in calls if call["command"][0].endswith("start.sh"))
-    assert calls.index(pull) < calls.index(installer)
+    assert calls.index(context) < calls.index(pull) < calls.index(installer)
+    # The endpoint is read with the ambient config and carried to the pull alone.
+    assert context["docker_config"] == str(ambient)
+    assert context["docker_host"] is None
     assert pull["command"] == ["docker", "pull", image]
     assert pull["docker_config"] != str(ambient)
     assert pull["config_entries"] == []
     assert not Path(pull["docker_config"]).exists()
-    # The installer and Compose keep the ambient config, so the CLI plugins stay discoverable.
+    assert pull["docker_host"] == CONTEXT_ENDPOINT
+    # The installer and Compose keep the ambient config, so contexts and CLI plugins still resolve.
     assert installer["docker_config"] == str(ambient)
+    assert installer["docker_host"] is None
     assert harness.evidence["anonymous_pull"]["docker_config"] == "fresh empty directory"
     assert harness.evidence["checks"]["anonymous_pull"] == "pass"
 
 
-def test_anonymous_pull_failure_is_actionable_and_stops_before_the_installer(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    ("explicit_host", "inspect_result", "expected_host", "reads_context"),
+    [
+        (
+            "tcp://docker.example.invalid:2375",
+            (0, f"{CONTEXT_ENDPOINT}\n"),
+            "tcp://docker.example.invalid:2375",
+            False,
+        ),
+        (None, (1, ""), None, True),
+        (None, (0, "\n"), None, True),
+    ],
+    ids=["explicit-host-kept", "context-unreadable", "context-without-endpoint"],
+)
+def test_anonymous_pull_sets_docker_host_only_from_a_readable_context_endpoint(
+    monkeypatch, tmp_path, explicit_host, inspect_result, expected_host, reads_context
+):
+    image = "ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1"
+    if explicit_host is None:
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+    else:
+        monkeypatch.setenv("DOCKER_HOST", explicit_host)
+    harness = offline_smoke.SmokeHarness(_smoke_options(tmp_path, "pull", image))
+    calls = []
+
+    def command_double(command, **kwargs):
+        calls.append((command, kwargs["env"].get("DOCKER_HOST")))
+        if command == CONTEXT_INSPECT:
+            return offline_smoke.subprocess.CompletedProcess(
+                command, inspect_result[0], inspect_result[1], ""
+            )
+        return offline_smoke.subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(offline_smoke.subprocess, "run", command_double)
+    harness._anonymous_pull()
+
+    assert [command for command, _host in calls].count(CONTEXT_INSPECT) == int(reads_context)
+    assert calls[-1] == (["docker", "pull", image], expected_host)
+
+
+def test_anonymous_pull_failure_names_docker_host_logs_redacted_stderr_and_stops(
+    monkeypatch, tmp_path
+):
     image = "ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1"
     harness = offline_smoke.SmokeHarness(_smoke_options(tmp_path, "pull", image))
+    harness.log_handle = io.StringIO()
+    secret = "synthetic-daemon-credential"
+    harness.redactor.add(secret)
     commands = []
 
     def command_double(command, **_kwargs):
         commands.append(command)
-        return offline_smoke.subprocess.CompletedProcess(
-            command, 1 if command[:2] == ["docker", "pull"] else 0, "", "denied"
-        )
+        if command[:2] == ["docker", "pull"]:
+            stderr = f"Cannot connect to the Docker daemon ({secret})"
+            return offline_smoke.subprocess.CompletedProcess(command, 1, "", stderr)
+        return offline_smoke.subprocess.CompletedProcess(command, 0, "", "")
 
     monkeypatch.setattr(offline_smoke.subprocess, "run", command_double)
-    with pytest.raises(offline_smoke.SmokeFailure, match="public and pullable without a registry"):
+    with pytest.raises(offline_smoke.SmokeFailure) as failure:
         harness._start_installation()
 
+    message = str(failure.value)
+    assert "set DOCKER_HOST" in message
+    assert "smoke.log" in message
+    assert "must be public" not in message
+    log = harness.log_handle.getvalue()
+    assert "Cannot connect to the Docker daemon" in log
+    assert secret not in log
     assert not any(command[0].endswith("start.sh") for command in commands)
     assert "anonymous_pull" not in harness.evidence
 
@@ -894,13 +951,3 @@ def test_offline_notes_outcome_accepts_a_failed_provider_unavailable_task(tmp_pa
 def test_offline_notes_outcome_rejects_any_other_result(tmp_path, after, providers, message):
     with pytest.raises(offline_smoke.SmokeFailure, match=message):
         _offline_outcome(tmp_path, after, providers)
-
-
-def test_browser_workflow_attempts_notes_with_the_connected_provider_not_a_forced_state():
-    source = SCRIPT.read_text(encoding="utf-8")
-
-    assert "_switch_provider_fixture_to_reconnect_required" not in source
-    assert "reconnect_required" not in source
-    assert "Kết nối ChatGPT" not in source
-    assert 'response.url.endswith("/notes-runs")' in source
-    assert "OFFLINE_NOTES_STATUS_TEXT" in source

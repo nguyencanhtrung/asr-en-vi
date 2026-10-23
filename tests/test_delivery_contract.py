@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import tomllib
 from pathlib import Path
@@ -32,6 +33,44 @@ def _write_executable(path: Path, content: str) -> None:
     path.chmod(0o755)
 
 
+def _environment_without_git() -> dict[str, str]:
+    # A caller such as a git hook exports GIT_DIR and friends; they would redirect git to its repo.
+    return {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+
+
+def _checkout_copy(destination: Path) -> Path:
+    """Copy the files start.sh reads from a checkout, without git metadata."""
+    for relative_path in (
+        "scripts/start.sh",
+        "src/asr_en_vi/__init__.py",
+        "src/asr_en_vi/storage.py",
+    ):
+        target = destination / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative_path, target)
+    return destination
+
+
+def _commit_in_new_repository(path: Path) -> str:
+    """Make `path` a repository root with one empty commit and return that commit."""
+    path.mkdir(parents=True, exist_ok=True)
+
+    def git(*args: str) -> str:
+        identity = ("-c", "user.name=test", "-c", "user.email=test@example.invalid")
+        return subprocess.run(
+            ["git", *identity, "-c", "commit.gpgsign=false", *args],
+            cwd=path,
+            env=_environment_without_git(),
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout.strip()
+
+    git("init", "--quiet")
+    git("commit", "--quiet", "--allow-empty", "--no-verify", "--message", "checkout")
+    return git("rev-parse", "HEAD")
+
+
 def _run_start(
     tmp_path: Path,
     model_files: tuple[str, ...] = (),
@@ -47,8 +86,9 @@ def _run_start(
     gpu_check_ok: bool = False,
     model_check_ok: bool = True,
     prepared_asr_model: bool = False,
-    source_revision: str = CHECKOUT_REVISION,
+    source_revision: str | None = CHECKOUT_REVISION,
     image_revision: str = "match",
+    checkout: Path = ROOT,
 ) -> subprocess.CompletedProcess[str]:
     tmp_path.mkdir(parents=True, exist_ok=True)
     model_root = tmp_path / "models"
@@ -97,7 +137,7 @@ def _run_start(
         '  *"asr_en_vi.cli installation check"*) [ "$FAIL_INSTALL_CHECK" = 0 ] || exit 1 ;;\n'
         "esac\n",
     )
-    environment = os.environ.copy()
+    environment = _environment_without_git()
     environment.pop("ASR_IMAGE", None)
     resolved_image = image or "asr-en-vi:local"
     if image is not None:
@@ -114,11 +154,14 @@ def _run_start(
     environment["GPU_CHECK_OK"] = "1" if gpu_check_ok else "0"
     environment["MODEL_CHECK_OK"] = "1" if model_check_ok else "0"
     environment["PULL_OK"] = "1"
-    environment["ASR_SOURCE_REVISION"] = source_revision
+    if source_revision is None:
+        environment.pop("ASR_SOURCE_REVISION", None)
+    else:
+        environment["ASR_SOURCE_REVISION"] = source_revision
     environment["IMAGE_REVISION"] = source_revision if image_revision == "match" else image_revision
     result = subprocess.run(
-        ["sh", str(ROOT / "scripts" / "start.sh"), *args],
-        cwd=ROOT,
+        ["sh", str(checkout / "scripts" / "start.sh"), *args],
+        cwd=checkout,
         env=environment,
         text=True,
         capture_output=True,
@@ -405,6 +448,49 @@ def test_unknown_revision_warns_with_guidance_and_continues(
     assert f"Checkout revision: {source_revision}" in result.stderr
     assert "release tag" in result.stderr
     assert " up --pull never --no-build " in result.docker_log
+
+
+@pytest.mark.parametrize("through_symlink", [False, True], ids=["plain-path", "symlinked-path"])
+def test_checkout_revision_comes_from_git_when_this_directory_is_the_repository_root(
+    tmp_path, through_symlink
+):
+    checkout = _checkout_copy(tmp_path / "checkout")
+    head = _commit_in_new_repository(checkout)
+    if through_symlink:
+        (tmp_path / "link").symlink_to(checkout)
+        checkout = tmp_path / "link"
+
+    result = _run_start(
+        tmp_path / "run",
+        COMMUNITY_1_FILES,
+        args=("--offline",),
+        prepared_asr_model=True,
+        source_revision=None,
+        image_revision=head,
+        checkout=checkout,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Cannot verify" not in result.stderr
+
+
+def test_checkout_inside_another_repository_does_not_borrow_its_revision(tmp_path):
+    outer_head = _commit_in_new_repository(tmp_path / "outer")
+    checkout = _checkout_copy(tmp_path / "outer" / "asr-en-vi-archive")
+
+    result = _run_start(
+        tmp_path / "run",
+        COMMUNITY_1_FILES,
+        args=("--offline",),
+        prepared_asr_model=True,
+        source_revision=None,
+        image_revision=CHECKOUT_REVISION,
+        checkout=checkout,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Checkout revision: unknown" in result.stderr
+    assert outer_head not in result.stderr
 
 
 def test_offline_mode_uses_existing_image_and_models_without_preparation(tmp_path):

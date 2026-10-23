@@ -79,7 +79,11 @@ if [ -z "$source_version" ] || [ -z "$source_schema" ]; then
 fi
 
 if [ -z "${ASR_SOURCE_REVISION:-}" ]; then
-    ASR_SOURCE_REVISION=$(git rev-parse --verify HEAD 2>/dev/null || true)
+    # Only a repository rooted in this directory names this checkout, not an enclosing one.
+    git_toplevel=$(git rev-parse --show-toplevel 2>/dev/null || true)
+    if [ -n "$git_toplevel" ] && [ "$git_toplevel" = "$(pwd -P)" ]; then
+        ASR_SOURCE_REVISION=$(git rev-parse --verify HEAD 2>/dev/null || true)
+    fi
     ASR_SOURCE_REVISION=${ASR_SOURCE_REVISION:-unknown}
     export ASR_SOURCE_REVISION
 fi
