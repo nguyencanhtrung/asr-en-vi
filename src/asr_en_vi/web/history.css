@@ -419,18 +419,53 @@
 }
 
 /* ---- metadata editor ---- */
-.edit-meeting-button {
-  margin-top: 12px;
+.meeting-actions-menu {
+  position: fixed;
+  inset: auto;
+  min-width: 180px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+  color: var(--ink);
 }
 
-.delete-meeting-button {
-  margin: 12px 0 0 8px;
-  border-color: var(--danger);
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+
+.menu-item[hidden] {
+  display: none;
+}
+
+.menu-item:hover:not(:disabled),
+.menu-item:focus-visible {
+  background: var(--surface-subtle);
+  outline: none;
+}
+
+.menu-item:disabled {
+  color: var(--ink-3);
+  cursor: not-allowed;
+}
+
+.menu-item-danger:not(:disabled) {
   color: var(--danger);
 }
 
-.delete-meeting-button:hover:not(:disabled) {
-  border-color: var(--danger);
+.menu-item-danger:hover:not(:disabled) {
   background: var(--danger-soft);
 }
 

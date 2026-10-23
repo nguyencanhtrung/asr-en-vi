@@ -187,10 +187,8 @@ def test_only_the_selected_tab_is_in_the_tab_order(live, signed_in):
         expect_tab(page, selected)
         assert page.locator(f"#meeting-tab-{selected}").get_attribute("tabindex") == "0"
         assert page.locator(f"#meeting-tab-{other}").get_attribute("tabindex") == "-1"
-        page.locator("#edit-meeting").focus()
-        page.keyboard.press("Tab")
-        assert focused_id(page) == "delete-meeting"
-        page.keyboard.press("Tab")
+        page.locator("#meeting-actions").focus()
+        page.keyboard.press("Tab")  # the closed actions menu holds no tab stops
         assert focused_id(page) == f"meeting-tab-{selected}"
         page.keyboard.press("Tab")  # the next stop is inside the panel, never the other tab
         assert focused_id(page) != f"meeting-tab-{other}"
@@ -200,9 +198,7 @@ def test_only_the_selected_tab_is_in_the_tab_order(live, signed_in):
         )
         page.keyboard.press("Shift+Tab")
         page.keyboard.press("Shift+Tab")
-        assert focused_id(page) == "delete-meeting"
-        page.keyboard.press("Shift+Tab")
-        assert focused_id(page) == "edit-meeting"
+        assert focused_id(page) == "meeting-actions"
         page.locator(f"#meeting-tab-{other}").click()
 
 
@@ -846,6 +842,8 @@ def test_the_meeting_name_shows_once_on_the_meeting_page(live, signed_in):
     # The one place is the focus target of the page.
     assert page.locator("#meeting-title").get_attribute("tabindex") == "-1"
 
+    page.locator("#meeting-actions").click()
+
     page.locator("#edit-meeting").click()
     page.locator("#edit-title").fill("Renamed planning")
     page.get_by_role("button", name="Lưu thay đổi").click()
@@ -1002,10 +1000,8 @@ def test_tab_focus_is_visible_and_the_selected_tab_is_marked_by_more_than_colour
     )
     accent, muted = rgb(tokens["--accent"]), rgb(tokens["--ink-2"])
 
-    page.locator("#edit-meeting").focus()
+    page.locator("#meeting-actions").focus()
     page.keyboard.press("Tab")  # keyboard focus, so :focus-visible applies
-    assert focused_id(page) == "delete-meeting"
-    page.keyboard.press("Tab")
     assert focused_id(page) == "meeting-tab-transcript"
     ring = page.locator(TRANSCRIPT_TAB).evaluate(
         """element => {

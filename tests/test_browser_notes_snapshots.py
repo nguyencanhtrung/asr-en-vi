@@ -80,6 +80,8 @@ def test_only_a_date_edit_marks_the_notes_as_changed_never_the_title(
     meta = page.locator("#notes-revision-meta")
     expect(meta).to_contain_text("Nguồn hiện tại")
 
+    page.locator("#meeting-actions").click()
+
     page.get_by_role("button", name="Sửa tên và ngày").click()
     if "title" in fields:
         page.locator("#edit-title").fill(fields["title"])
@@ -384,6 +386,8 @@ def test_the_lock_holds_through_a_cancel_request_until_the_run_has_stopped(live,
     expect(cancel).to_be_visible()  # the running task was read, so the lock state is known
     expect(lock).to_be_visible()
     expect(lock).to_contain_text("tạm thời bị khóa")
+
+    page.locator("#meeting-actions").click()
 
     page.get_by_role("button", name="Sửa tên và ngày").click()
     date, clear_date, title = (
