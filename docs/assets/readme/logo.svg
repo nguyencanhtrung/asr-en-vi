@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="160" viewBox="0 0 560 160" role="img" aria-label="ASR EN VI Meeting Notes">
+  <rect x="1" y="1" width="558" height="158" rx="28" fill="#faf9f7" stroke="#e5e2dc" stroke-width="2"/>
+  <!-- Mark: speech waveform on the left turns into lines of notes on the right -->
+  <rect x="28" y="24" width="112" height="112" rx="24" fill="#8e2433"/>
+  <g stroke="#faf9f7" stroke-width="7" stroke-linecap="round" fill="none">
+    <path d="M48 70v20M60 54v52M72 64v32"/>
+    <path d="M90 60h28M90 80h20M90 100h24"/>
+  </g>
+  <text x="168" y="88" font-family="Newsreader, Georgia, 'Times New Roman', serif" font-size="54" font-weight="500" fill="#1c1c21">ASR <tspan fill="#8e2433">/</tspan> EN VI</text>
+  <text x="171" y="122" font-family="'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace" font-size="15" letter-spacing="4.5" fill="#70707c">MEETING NOTES · LOCAL ASR</text>
+</svg>
