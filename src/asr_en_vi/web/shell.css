@@ -598,7 +598,15 @@ textarea:focus-visible {
 }
 
 .meeting-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
   padding: 0 0 23px;
+}
+
+.meeting-intro > :not(h2, .meeting-actions-toggle) {
+  grid-column: 1 / -1;
 }
 
 .meeting-intro h2 {
@@ -925,9 +933,15 @@ textarea:focus-visible {
   transition: background-color 150ms ease, color 150ms ease;
 }
 
-.icon-button:hover {
+.icon-button:hover:not(:disabled) {
   background: var(--hairline);
   color: var(--text);
+}
+
+.icon-button:disabled {
+  border-color: var(--hairline);
+  color: var(--ink-3);
+  cursor: not-allowed;
 }
 
 .icon-button svg {

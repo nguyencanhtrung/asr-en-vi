@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import socket
 import threading
@@ -613,14 +614,15 @@ def test_chatgpt_login_model_verification_and_disconnect(browser_runtime):
 
 
 def assert_launcher_statuses_whole(page, width):
-    """At this phone width both status texts show in full inside their buttons, with no overflow."""
+    """At this phone width both launchers show their dot and name in full, with no overflow."""
     page.set_viewport_size({"width": width, "height": 780})
     for launcher in ("#launcher-chatgpt", "#launcher-antigravity"):
         button = page.locator(launcher)
-        status = button.locator(".connection-launcher-status")
-        expect(status).to_be_visible()
-        assert status.evaluate("element => element.scrollWidth <= element.clientWidth")
-        box, text = button.bounding_box(), status.bounding_box()
+        expect(button.locator(".connection-launcher-dot")).to_be_visible()
+        name = button.locator(".connection-launcher-name")
+        expect(name).to_be_visible()
+        assert name.evaluate("element => element.scrollWidth <= element.clientWidth")
+        box, text = button.bounding_box(), name.bounding_box()
         assert box and box["x"] >= 0 and box["x"] + box["width"] <= width
         assert text
         assert box["x"] <= text["x"] and text["x"] + text["width"] <= box["x"] + box["width"]
@@ -643,24 +645,24 @@ def test_header_shows_openai_and_google_status_separately(browser_runtime):
 
     # The page-load read sets both buttons; nothing is opened or clicked.
     expect(google).to_have_attribute("data-state", "connected")
-    expect(google).to_contain_text("Google")
-    expect(google).to_contain_text("Đã kết nối")
+    expect(google).to_have_text("Google")
+    expect(google).to_have_attribute("title", "Google: Đã kết nối")
     expect(google).to_have_attribute(
         "aria-label", "Kết nối Google: đã kết nối với Google Antigravity"
     )
     expect(openai).to_have_attribute("data-state", "disconnected")
-    expect(openai).to_contain_text("OpenAI")
-    expect(openai).to_contain_text("Chưa kết nối")
+    expect(openai).to_have_text("OpenAI")
+    expect(openai).to_have_attribute("title", "OpenAI: Chưa kết nối")
     expect(openai).to_have_attribute("aria-label", "Kết nối OpenAI: chưa kết nối")
 
-    # Names and status text stay readable beside "Lịch" without overflowing a phone screen.
+    # The dot and name stay readable beside "Lịch" without overflowing a phone screen.
     for width in (360, 320):
         assert_launcher_statuses_whole(page, width)
         expect(page.locator("#open-calendar")).to_be_visible()
     context.close()
 
 
-def test_launcher_status_wraps_instead_of_being_cut_when_both_providers_need_reconnecting(
+def test_launchers_fit_when_both_providers_need_reconnecting(
     browser_runtime,
 ):
     live, browser = browser_runtime
@@ -672,8 +674,9 @@ def test_launcher_status_wraps_instead_of_being_cut_when_both_providers_need_rec
     )
     for launcher in ("#launcher-chatgpt", "#launcher-antigravity"):
         expect(page.locator(launcher)).to_have_attribute("data-state", "reconnect_required")
-        status = page.locator(launcher).locator(".connection-launcher-status")
-        expect(status).to_have_text("Cần đăng nhập lại")
+        expect(page.locator(launcher)).to_have_attribute(
+            "title", re.compile(r": Cần đăng nhập lại$")
+        )
     for width in (360, 320):
         assert_launcher_statuses_whole(page, width)
     context.close()
@@ -764,7 +767,7 @@ def test_slow_page_load_status_cannot_overwrite_state_read_through_the_dialog(br
     google = page.locator("#launcher-antigravity")
     stale = api.provider_payload()  # both connected: what the slow page-load read will answer
     slow_read = reload_holding_status_read(page)
-    expect(google.locator(".connection-launcher-status")).to_have_text("Đang kiểm tra")
+    expect(google).to_have_attribute("aria-label", "Kết nối Google: đang kiểm tra trạng thái")
 
     # The user opens the dialog and disconnects both providers while that read is pending.
     open_connection_dialog(page, "#launcher-antigravity")
@@ -832,7 +835,7 @@ def test_google_button_shows_an_error_when_its_status_cannot_be_read(browser_run
 
     expect(google).to_have_attribute("data-state", "error")
     expect(google).to_have_attribute("aria-label", "Kết nối Google: không đọc được trạng thái")
-    expect(google.locator(".connection-launcher-status")).to_have_text("Không khả dụng")
+    expect(google).to_have_attribute("title", "Google: Không khả dụng")
     expect(page.locator("#launcher-chatgpt")).to_have_attribute("data-state", "disconnected")
     context.close()
 

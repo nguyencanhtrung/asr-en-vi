@@ -256,8 +256,8 @@ function setLauncherState(provider, status, accountLabel = "") {
   const [label, spoken] = launcherCopy[status] || launcherCopy.error;
   const account = status === "connected" ? ` với ${accountLabel || "tài khoản"}` : "";
   button.dataset.state = status;
-  button.querySelector(".connection-launcher-status").textContent = label;
   button.setAttribute("aria-label", `Kết nối ${name}: ${spoken}${account}`);
+  button.title = `${name}: ${label}`;
 }
 
 function modelIsAvailable(modelId) {

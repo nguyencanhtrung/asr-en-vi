@@ -518,6 +518,7 @@ def test_following_continues_while_focus_is_in_a_field_outside_the_transcript(
     page = open_meeting(live, signed_in, reduced_motion="reduce")
     freeze_clock(page)
     if opener:  # the title field is on the page only while the meeting editor is open
+        page.locator("#meeting-actions").click()
         page.locator(opener).click()
     show_list(page)
     play_at(page, 0, paused=True)
@@ -750,9 +751,7 @@ def test_player_bar_fits_narrow_screens_and_is_an_opaque_themed_surface(
 @pytest.mark.parametrize("scheme", ["light", "dark"])
 def test_player_shows_a_keyboard_focus_ring(live, signed_in, scheme):
     page = open_meeting(live, signed_in, color_scheme=scheme)
-    page.locator("#edit-meeting").focus()
-    page.keyboard.press("Tab")
-    assert page.evaluate("document.activeElement.id") == "delete-meeting"
+    page.locator("#meeting-actions").focus()
     page.keyboard.press("Tab")
     assert page.evaluate("document.activeElement.id") == "meeting-tab-transcript"
     page.keyboard.press("Tab")

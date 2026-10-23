@@ -643,6 +643,7 @@ def test_history_search_calendar_navigation_and_return(live, browser_context):
 
 
 def _confirm_meeting_deletion(page, meeting_title):
+    page.locator("#meeting-actions").click()
     page.locator("#delete-meeting").click()
     dialog = page.locator("#meeting-delete-dialog")
     expect(dialog).to_be_visible()
@@ -727,6 +728,7 @@ def test_concurrent_meeting_delete_reconciles_only_canonical_missing_response(
 
     page.locator("#recent-list a").filter(has_text=target_title).click()
     expect(page.locator("#meeting-title")).to_have_text(target_title)
+    page.locator("#meeting-actions").click()
     page.locator("#delete-meeting").click()
     page.locator("#meeting-delete-confirmation").fill(target_title)
     held = hold_first(page, rf"/api/meetings/{target_id}$", "DELETE")
@@ -935,6 +937,8 @@ def test_delete_failure_after_dialog_close_is_persisted_for_origin_meeting(
     expect(status).not_to_contain_text("Thử dọn tiếp")
     expect(page.locator("#delete-meeting")).to_have_text("Xóa cuộc họp")
 
+    page.locator("#meeting-actions").click()
+
     page.locator("#delete-meeting").click()
     expect(page.locator("#meeting-delete-dialog")).to_be_visible()
     expect(page.locator("#meeting-delete-confirm")).to_have_text("Xóa dữ liệu đã lưu")
@@ -969,6 +973,7 @@ def test_delete_ui_keeps_failed_cleanup_visible_and_retries(live, browser_contex
 
     page.locator("#meeting-delete-cancel").click()
     expect(page.locator("#meeting-delete-dialog")).to_be_hidden()
+    page.locator("#meeting-actions").click()
     page.locator("#delete-meeting").click()
     dialog = page.locator("#meeting-delete-dialog")
     expect(dialog).to_be_visible()
@@ -1017,6 +1022,7 @@ def test_pending_meeting_delete_is_scoped_across_navigation(
     try:
         page.goto(f"{live.url}/meetings/{target_id}", wait_until="domcontentloaded")
         expect(page.locator("#meeting-title")).to_have_text(target_title)
+        page.locator("#meeting-actions").click()
         page.locator("#delete-meeting").click()
         page.locator("#meeting-delete-confirmation").fill(target_title)
         held = hold_first(page, rf"/api/meetings/{target_id}$", "DELETE")
@@ -1067,6 +1073,8 @@ def test_pending_meeting_delete_is_scoped_across_navigation(
         assert audio_after == audio_before
         expect(page.locator("#meeting-deletion-status")).to_be_hidden()
         expect(page.locator("#meeting-delete-dialog")).to_be_hidden()
+
+        page.locator("#meeting-actions").click()
 
         page.locator("#delete-meeting").click()
         expect(page.locator("#meeting-delete-dialog")).to_be_visible()
@@ -1453,11 +1461,13 @@ def test_edit_metadata_conflict_keeps_draft_and_persists_across_restart(live, br
     )
 
     # Tab A starts a draft but does not save yet.
+    page_a.locator("#meeting-actions").click()
     page_a.get_by_role("button", name="Sửa tên và ngày").click()
     page_a.locator("#edit-title").fill("Draft from A")
     page_a.locator("#edit-clear-date").click()
 
     # Tab B saves a title-only edit; it must not carry a date or language.
+    page_b.locator("#meeting-actions").click()
     page_b.get_by_role("button", name="Sửa tên và ngày").click()
     page_b.locator("#edit-title").fill("Saved from B")
     page_b.get_by_role("button", name="Lưu thay đổi").click()
@@ -1505,6 +1515,7 @@ def test_edit_metadata_conflict_keeps_draft_and_persists_across_restart(live, br
     assert final["language_hint"] == "vi"
 
     # Re-adding a date from the editor moves it back onto the calendar.
+    page_a.locator("#meeting-actions").click()
     page_a.get_by_role("button", name="Sửa tên và ngày").click()
     page_a.locator("#edit-date").fill("2026-02-28")
     page_a.get_by_role("button", name="Lưu thay đổi").click()
@@ -1532,6 +1543,8 @@ def test_partial_date_is_not_treated_as_clearing_the_date(live, browser_context)
     meeting_id = seed_meeting(live.settings.data_dir, "Keep my date", "2026-10-14")
     page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
     patches = record_patches(page)
+
+    page.locator("#meeting-actions").click()
 
     page.get_by_role("button", name="Sửa tên và ngày").click()
     date = page.locator("#edit-date")
@@ -1568,8 +1581,11 @@ def test_conflict_resends_only_fields_the_user_edited(live, browser_context):
     patches_a = record_patches(page_a)
     patches_b = record_patches(page_b)
 
+    page_a.locator("#meeting-actions").click()
+
     page_a.get_by_role("button", name="Sửa tên và ngày").click()
     page_a.locator("#edit-title").fill("Title from A")
+    page_b.locator("#meeting-actions").click()
     page_b.get_by_role("button", name="Sửa tên và ngày").click()
     page_b.locator("#edit-date").fill("2026-11-02")
     page_b.get_by_role("button", name="Lưu thay đổi").click()
@@ -1594,8 +1610,10 @@ def test_conflict_resends_only_fields_the_user_edited(live, browser_context):
     # The same field edited in both tabs may be overwritten, but only after confirmation.
     page_b.reload(wait_until="domcontentloaded")
     expect(page_b.locator("#meeting-title")).to_have_text("Title from A")
+    page_a.locator("#meeting-actions").click()
     page_a.get_by_role("button", name="Sửa tên và ngày").click()
     page_a.locator("#edit-title").fill("A wins")
+    page_b.locator("#meeting-actions").click()
     page_b.get_by_role("button", name="Sửa tên và ngày").click()
     page_b.locator("#edit-title").fill("B first")
     page_b.get_by_role("button", name="Lưu thay đổi").click()
@@ -1672,6 +1690,7 @@ def test_negative_utc_offset_keeps_date_only_values_and_local_today(live, signed
     expect(page.locator("#meeting-date")).to_have_attribute("datetime", "2026-10-14")
     expect(page.locator("#meeting-date")).to_contain_text("14 tháng 10")
     expect(page.locator("#recent-list .link-date").first).to_have_text("14/10/2026 · 1 giây")
+    page.locator("#meeting-actions").click()
     page.get_by_role("button", name="Sửa tên và ngày").click()
     expect(page.locator("#edit-date")).to_have_value("2026-10-14")
     page.locator("#edit-cancel").click()
@@ -1780,6 +1799,7 @@ def test_slow_save_never_repaints_after_navigating_elsewhere(live, browser_conte
 
     # Save A, then open B before the PATCH returns.
     held = hold_first(page, rf"/api/meetings/{a}$", "PATCH")
+    page.locator("#meeting-actions").click()
     page.get_by_role("button", name="Sửa tên và ngày").click()
     page.locator("#edit-title").fill("A renamed")
     page.get_by_role("button", name="Lưu thay đổi").click()
@@ -1801,6 +1821,7 @@ def test_slow_save_never_repaints_after_navigating_elsewhere(live, browser_conte
 
     # Save B, then open the calendar before the PATCH returns.
     held = hold_first(page, rf"/api/meetings/{b}$", "PATCH")
+    page.locator("#meeting-actions").click()
     page.get_by_role("button", name="Sửa tên và ngày").click()
     page.locator("#edit-title").fill("B renamed")
     page.get_by_role("button", name="Lưu thay đổi").click()
@@ -1825,6 +1846,7 @@ def test_slow_conflict_lookup_never_repaints_after_navigating_elsewhere(live, br
     b = seed_meeting(live.settings.data_dir, "Conflict B", "2026-10-13")
     page.goto(f"{live.url}/meetings/{a}", wait_until="domcontentloaded")
     expect(page.locator("#meeting-title")).to_have_text("Conflict A")
+    page.locator("#meeting-actions").click()
     page.get_by_role("button", name="Sửa tên và ngày").click()
     page.locator("#edit-title").fill("Draft A")
 
@@ -2031,6 +2053,7 @@ def test_save_released_after_a_calendar_round_trip_is_rendered_and_saved(live, b
     expect(page.locator("#meeting-title")).to_have_text("Round trip")
 
     held = hold_first(page, rf"/api/meetings/{meeting_id}$", "PATCH")
+    page.locator("#meeting-actions").click()
     page.get_by_role("button", name="Sửa tên và ngày").click()
     page.locator("#edit-title").fill("After round trip")
     page.locator("#edit-date").fill("2026-10-20")
@@ -2057,6 +2080,7 @@ def test_save_result_arriving_while_the_calendar_is_open_shows_after_leaving(liv
     meeting_id = seed_meeting(live.settings.data_dir, "Quiet save", "2026-10-14")
     page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
     held = hold_first(page, rf"/api/meetings/{meeting_id}$", "PATCH")
+    page.locator("#meeting-actions").click()
     page.get_by_role("button", name="Sửa tên và ngày").click()
     page.locator("#edit-title").fill("Saved in background")
     page.get_by_role("button", name="Lưu thay đổi").click()
@@ -2087,6 +2111,7 @@ def test_conflict_arriving_around_a_calendar_round_trip_is_not_lost(live, browse
 
     # Conflict lands after returning from the calendar.
     held = hold_first(page, rf"/api/meetings/{meeting_id}$", "PATCH")
+    page.locator("#meeting-actions").click()
     page.get_by_role("button", name="Sửa tên và ngày").click()
     page.locator("#edit-title").fill("My draft")
     page.get_by_role("button", name="Lưu thay đổi").click()
@@ -2103,6 +2128,7 @@ def test_conflict_arriving_around_a_calendar_round_trip_is_not_lost(live, browse
     # Conflict lands while the calendar is open: it is waiting after leaving.
     page.get_by_role("button", name="Hủy và bỏ bản nháp").click()
     held = hold_first(page, rf"/api/meetings/{meeting_id}$", "PATCH")
+    page.locator("#meeting-actions").click()
     page.get_by_role("button", name="Sửa tên và ngày").click()
     page.locator("#edit-title").fill("Second draft")
     page.get_by_role("button", name="Lưu thay đổi").click()
@@ -2147,6 +2173,7 @@ def test_stale_meeting_read_answering_after_a_save_cannot_roll_the_ui_back(live,
 
     # 1. Start a save (version 1 -> 2) and keep its PATCH from reaching the server.
     held_patch = hold_first(page, meeting_path, "PATCH")
+    page.locator("#meeting-actions").click()
     page.get_by_role("button", name="Sửa tên và ngày").click()
     page.locator("#edit-title").fill("After save")
     page.locator("#edit-date").fill("2026-10-20")
@@ -2181,6 +2208,7 @@ def test_stale_meeting_read_answering_after_a_save_cannot_roll_the_ui_back(live,
     assert page.title() == "After save · ASR EN VI"
 
     # The model kept version 2: the next edit saves cleanly instead of conflicting.
+    page.locator("#meeting-actions").click()
     page.get_by_role("button", name="Sửa tên và ngày").click()
     expect(page.locator("#edit-title")).to_have_value("After save")
     expect(page.locator("#edit-date")).to_have_value("2026-10-20")
@@ -3792,6 +3820,8 @@ def test_meeting_install_preserves_newer_transcript_after_metadata_and_same_meet
     )
     page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
 
+    page.locator("#meeting-actions").click()
+
     page.get_by_role("button", name="Sửa tên và ngày").click()
     page.locator("#edit-title").fill("Metadata saved during transcript edit")
     page.get_by_role("button", name="Lưu thay đổi").click()
@@ -3832,6 +3862,8 @@ def test_meeting_install_preserves_newer_transcript_after_metadata_and_same_meet
     expect(page.locator(".segment-text")).to_have_text("Follow-up saved from the newest version.")
     assert [body["expected_source_version"] for body in text_saves] == [1, 2]
     assert server_generation["source_version"] == 3
+
+    page.locator("#meeting-actions").click()
 
     page.get_by_role("button", name="Sửa tên và ngày").click()
     page.locator("#edit-title").fill("Keep this metadata conflict draft")

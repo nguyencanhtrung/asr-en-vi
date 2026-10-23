@@ -3861,7 +3861,7 @@
         $("#edit-status").textContent = "Đã lưu tên và ngày họp.";
         if (state.view === "meeting") {
           renderMeeting(updated);
-          $("#edit-meeting").focus();
+          $("#meeting-actions").focus();
         }
       }
       void refreshHistory();
@@ -3991,8 +3991,22 @@
   });
   $("#open-calendar").addEventListener("click", openCalendar);
   $("#calendar-back").addEventListener("click", leaveCalendar);
-  $("#edit-meeting").addEventListener("click", openEditor);
-  $("#delete-meeting").addEventListener("click", openMeetingDeletion);
+  const actionsMenu = $("#meeting-actions-menu");
+  // ponytail: fixed position from the toggle's rect; it does not follow scroll while open (light dismiss closes it on click)
+  actionsMenu.addEventListener("toggle", (event) => {
+    if (event.newState !== "open") return;
+    const rect = $("#meeting-actions").getBoundingClientRect();
+    actionsMenu.style.top = `${rect.bottom + 6}px`;
+    actionsMenu.style.right = `${document.documentElement.clientWidth - rect.right}px`;
+  });
+  $("#edit-meeting").addEventListener("click", () => {
+    actionsMenu.hidePopover();
+    openEditor();
+  });
+  $("#delete-meeting").addEventListener("click", () => {
+    actionsMenu.hidePopover();
+    openMeetingDeletion();
+  });
   $("#meeting-delete-form").addEventListener("submit", (event) => void deleteCurrentMeeting(event));
   $("#meeting-delete-confirmation").addEventListener("input", (event) => {
     const meeting = state.meeting;
@@ -4003,13 +4017,15 @@
   $("#meeting-delete-cancel").addEventListener("click", () => $("#meeting-delete-dialog").close());
   $("#meeting-delete-close").addEventListener("click", () => $("#meeting-delete-dialog").close());
   $("#meeting-delete-dialog").addEventListener("close", () => {
+    // The opener sits in the closed actions menu, so focus falls back to the menu toggle.
+    if (state.view === "meeting" && document.activeElement === document.body) $("#meeting-actions").focus();
     $("#meeting-delete-confirmation").value = "";
     $("#meeting-delete-confirm").textContent = "Xóa dữ liệu đã lưu";
     $("#meeting-delete-confirm").disabled = true;
   });
   $("#edit-cancel").addEventListener("click", () => {
     closeEditor();
-    $("#edit-meeting").focus();
+    $("#meeting-actions").focus();
   });
   $("#edit-clear-date").addEventListener("click", () => {
     $("#edit-date").value = "";

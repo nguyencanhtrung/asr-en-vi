@@ -992,8 +992,7 @@
     $("#notes-unsaved-dot").hidden = !dirty;
     $("#notes-view-draft").hidden = !dirty || state.mode !== "view";
     const write = $("#notes-mode-write");
-    if (dirty) write.setAttribute("aria-label", "Viết, có thay đổi chưa lưu");
-    else write.removeAttribute("aria-label");
+    write.setAttribute("aria-label", dirty ? "Viết, có thay đổi chưa lưu" : "Viết");
   }
 
   function setViewMode(mode) {

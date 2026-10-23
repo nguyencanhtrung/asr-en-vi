@@ -830,7 +830,9 @@ def test_saved_notes_are_one_full_width_frame_with_a_view_write_group(live, sign
     group = page.get_by_role("group", name="Chế độ notes")
     expect(group).to_have_count(1)
     buttons = group.get_by_role("button")
-    expect(buttons).to_have_text(["Xem", "Viết"])
+    expect(buttons).to_have_count(2)
+    expect(buttons.nth(0)).to_have_accessible_name("Xem")
+    expect(buttons.nth(1)).to_have_accessible_name("Viết")
     for index in range(2):
         expect(buttons.nth(index)).to_have_attribute("aria-pressed", re.compile("^(true|false)$"))
 
@@ -1007,7 +1009,7 @@ def test_unsaved_changes_mark_the_write_button_and_the_view(live, signed_in):
     write, dot = page.locator("#notes-mode-write"), page.locator("#notes-unsaved-dot")
     line = page.get_by_text("Đang xem bản nháp chưa lưu", exact=True)
 
-    expect(write).not_to_have_attribute("aria-label", re.compile("."))
+    expect(write).to_have_attribute("aria-label", "Viết")
     expect(dot).to_be_hidden()
     expect(line).to_be_hidden()
 
@@ -1029,7 +1031,7 @@ def test_unsaved_changes_mark_the_write_button_and_the_view(live, signed_in):
     )
     expect(line).to_be_hidden()
     expect(dot).to_be_hidden()
-    expect(write).not_to_have_attribute("aria-label", re.compile("."))
+    expect(write).to_have_attribute("aria-label", "Viết")
 
 
 def test_one_toolbar_serves_both_modes_and_keeps_the_enable_rules(live, signed_in):
@@ -1068,9 +1070,9 @@ def test_one_toolbar_serves_both_modes_and_keeps_the_enable_rules(live, signed_i
           });
         }"""
     ) == [True, True]
-    expect(save).to_have_text("Lưu bản nháp")
-    expect(copy).to_have_text("Sao chép bản đã lưu")
-    expect(export).to_have_text("Tải Markdown đã lưu")
+    expect(save).to_have_accessible_name("Lưu bản nháp")
+    expect(copy).to_have_accessible_name("Sao chép bản đã lưu")
+    expect(export).to_have_accessible_name("Tải Markdown đã lưu")
 
     page.locator("#notes-markdown").fill("# Draft")
     for mode in ("write", "view"):
