@@ -533,6 +533,43 @@ def open_undated_history_meeting(
     page.locator("#meeting-title").wait_for(state="visible", timeout=10_000)
 
 
+def edit_meeting_title(page: Any, title: str, *, timeout_ms: int = 15_000) -> None:
+    """Edit a meeting title and wait for the rendered value through Playwright locators."""
+    from playwright.sync_api import expect
+
+    page.locator("#edit-meeting").click()
+    page.locator("#edit-title").fill(title)
+    page.locator("#edit-save").click()
+    expect(page.locator("#meeting-title")).to_have_text(title, timeout=timeout_ms)
+
+
+def wait_for_locator_value(
+    page: Any,
+    locator: Any,
+    expression: str,
+    *,
+    predicate: Callable[[Any], bool],
+    timeout_ms: int,
+    failure_message: str,
+    argument: Any = None,
+) -> Any:
+    """Poll a locator evaluation without using CSP-sensitive page wait functions."""
+    deadline = time.monotonic() + timeout_ms / 1000
+    while True:
+        remaining_seconds = deadline - time.monotonic()
+        if remaining_seconds <= 0:
+            raise SmokeFailure(failure_message)
+        remaining_ms = max(1, int(remaining_seconds * 1000))
+        value = locator.evaluate(expression, argument, timeout=remaining_ms)
+        if predicate(value):
+            return value
+
+        remaining_seconds = deadline - time.monotonic()
+        if remaining_seconds <= 0:
+            raise SmokeFailure(failure_message)
+        page.wait_for_timeout(min(50, max(1, int(remaining_seconds * 1000))))
+
+
 class SmokeHarness:
     def __init__(self, options: SmokeOptions) -> None:
         self.options = options
@@ -1630,7 +1667,7 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
         report_stage(current_stage)
         try:
             try:
-                from playwright.sync_api import sync_playwright
+                from playwright.sync_api import expect, sync_playwright
             except ImportError:
                 raise SmokeFailure(
                     "Playwright is required for the offline browser acceptance checks."
@@ -1686,22 +1723,26 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
                     complete_check("history_read")
 
                     report_stage("edit_meeting_title")
-                    page.locator("#edit-meeting").click()
-                    editor = page.locator("#edit-title")
-                    editor.fill("Offline browser smoke review")
-                    page.locator("#edit-save").click()
-                    page.wait_for_function(
-                        "document.querySelector('#meeting-title')?.textContent === 'Offline browser smoke review'",
-                        timeout=15_000,
-                    )
+                    edited_title = "Offline browser smoke review"
+                    edit_meeting_title(page, edited_title)
+                    assert self.api is not None
+                    saved_meeting = self.api.json("GET", f"/api/meetings/{meeting_id}")
+                    if saved_meeting.get("title") != edited_title:
+                        raise SmokeFailure(
+                            "Browser meeting title was not persisted through the API."
+                        )
                     complete_check("history_edit")
 
                     report_stage("playback_and_seek")
                     page.locator("#meeting-tab-transcript").click()
                     audio = page.locator("#meeting-audio")
-                    page.wait_for_function(
-                        "document.querySelector('#meeting-audio')?.readyState >= 1",
-                        timeout=20_000,
+                    wait_for_locator_value(
+                        page,
+                        audio,
+                        "element => element.readyState",
+                        predicate=lambda ready_state: ready_state >= 1,
+                        timeout_ms=20_000,
+                        failure_message="Browser audio did not become ready in offline mode.",
                     )
                     playback = audio.evaluate(
                         "async element => { element.currentTime = Math.min(1, element.duration / 3); "
@@ -1717,10 +1758,14 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
                     audio.evaluate(
                         "(element, target) => { element.currentTime = target; }", seek_target
                     )
-                    page.wait_for_function(
-                        "target => Math.abs(document.querySelector('#meeting-audio').currentTime - target) < 0.25",
-                        arg=seek_target,
-                        timeout=5_000,
+                    wait_for_locator_value(
+                        page,
+                        audio,
+                        "(element, target) => Math.abs(element.currentTime - target) < 0.25",
+                        argument=seek_target,
+                        predicate=bool,
+                        timeout_ms=5_000,
+                        failure_message="Browser audio did not reach the requested seek position.",
                     )
                     complete_check("playback_and_seeking")
 
@@ -1731,17 +1776,14 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
                         "Offline browser smoke text edit."
                     )
                     first_row.locator("button[type='submit']").click()
-                    page.wait_for_function(
-                        "!document.querySelector('.segment-edit-form')", timeout=15_000
-                    )
+                    expect(page.locator(".segment-edit-form")).to_have_count(0, timeout=15_000)
                     speaker = page.locator("#speaker-catalog-list > li").first
                     speaker.locator(".speaker-chip").click()
                     speaker_input = speaker.locator("input")
                     speaker_input.fill("Offline Browser Speaker")
                     speaker_input.press("Enter")
-                    page.wait_for_function(
-                        "document.querySelector('#speaker-catalog-list')?.textContent.includes('Offline Browser Speaker')",
-                        timeout=15_000,
+                    expect(page.locator("#speaker-catalog-list")).to_contain_text(
+                        "Offline Browser Speaker", timeout=15_000
                     )
                     complete_check("local_transcript_and_speaker_edits")
 
@@ -1749,12 +1791,14 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
                     page.locator("#meeting-tab-notes").click()
                     page.locator("#notes-saved-work").wait_for(state="visible", timeout=20_000)
                     page.locator("#notes-copy").click()
-                    page.wait_for_function(
-                        "async expected => await navigator.clipboard.readText() === expected",
-                        arg=note_markdown,
-                        timeout=10_000,
+                    copied = wait_for_locator_value(
+                        page,
+                        page.locator("body"),
+                        "async body => await navigator.clipboard.readText()",
+                        predicate=lambda copied_text: copied_text == note_markdown,
+                        timeout_ms=10_000,
+                        failure_message="Saved notes copy did not match the stored Markdown.",
                     )
-                    copied = page.evaluate("navigator.clipboard.readText()")
                     if copied != note_markdown:
                         raise SmokeFailure("Saved notes copy did not match the stored Markdown.")
                     with page.expect_download(timeout=15_000) as download_info:
@@ -1769,13 +1813,12 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
 
                     report_stage("open_provider_required_dialog")
                     self._configure_notes_preference_in_browser_api(context)
-                    page.evaluate(
-                        "meetingId => window.ASRMeetingHistory.refreshMeeting(meetingId)",
+                    page.locator("body").evaluate(
+                        "(body, meetingId) => window.ASRMeetingHistory.refreshMeeting(meetingId)",
                         meeting_id,
                     )
-                    page.wait_for_function(
-                        "document.querySelector('#notes-start')?.textContent.includes('Kết nối ChatGPT')",
-                        timeout=15_000,
+                    expect(page.locator("#notes-start")).to_contain_text(
+                        "Kết nối ChatGPT", timeout=15_000
                     )
                     page.on(
                         "request",

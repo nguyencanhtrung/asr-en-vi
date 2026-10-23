@@ -33,6 +33,64 @@ def test_browser_check_is_recorded_as_soon_as_it_completes():
     assert "browser check history_read: pass" in harness.log_handle.getvalue()
 
 
+def test_locator_value_wait_polls_until_the_predicate_matches():
+    class Locator:
+        def __init__(self):
+            self.values = iter((0, 1))
+            self.calls = []
+
+        def evaluate(self, expression, argument, *, timeout):
+            self.calls.append((expression, argument, timeout))
+            return next(self.values)
+
+    class Page:
+        def __init__(self):
+            self.waits = []
+
+        def wait_for_timeout(self, timeout):
+            self.waits.append(timeout)
+
+    locator = Locator()
+    page = Page()
+    result = offline_smoke.wait_for_locator_value(
+        page,
+        locator,
+        "element => element.readyState",
+        predicate=lambda value: value >= 1,
+        timeout_ms=1_000,
+        failure_message="fixed timeout",
+    )
+
+    assert result == 1
+    assert len(locator.calls) == 2
+    assert all(0 < call[2] <= 1_000 for call in locator.calls)
+    assert page.waits and all(0 < timeout <= 50 for timeout in page.waits)
+
+
+def test_locator_value_wait_raises_a_fixed_failure_at_its_deadline(monkeypatch):
+    monotonic_values = iter((0.0, 0.0, 0.002, 0.01))
+    monkeypatch.setattr(offline_smoke.time, "monotonic", lambda: next(monotonic_values))
+
+    class Locator:
+        def evaluate(self, _expression, _argument, *, timeout):
+            assert 0 < timeout <= 10
+            return False
+
+    class Page:
+        def wait_for_timeout(self, timeout):
+            assert timeout == 8
+
+    with pytest.raises(offline_smoke.SmokeFailure, match="^fixed timeout$"):
+        offline_smoke.wait_for_locator_value(
+            Page(),
+            Locator(),
+            "element => element.readyState",
+            predicate=bool,
+            timeout_ms=10,
+            failure_message="fixed timeout",
+        )
+
+
 def test_project_names_are_unique_and_prefix_is_bounded():
     first = offline_smoke.unique_project_name("asr-offline-smoke")
     second = offline_smoke.unique_project_name("asr-offline-smoke")

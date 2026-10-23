@@ -22,7 +22,7 @@ SPEC.loader.exec_module(offline_smoke)
 pytestmark = pytest.mark.browser
 
 
-def test_undated_history_fixture_uses_calendar_group_to_open(live, signed_in):
+def test_undated_history_fixture_supports_title_edit_and_save(live, signed_in):
     meeting_title = "Offline smoke undated history target"
     meeting_id = seed_meeting(live.settings.data_dir, meeting_title)
     _context, page = signed_in()
@@ -53,3 +53,18 @@ def test_undated_history_fixture_uses_calendar_group_to_open(live, signed_in):
         "wait_for_meeting_view",
     ]
     expect(page.locator("#meeting-title")).to_have_text(meeting_title, timeout=5_000)
+
+    edited_title = "Offline smoke title edit saved"
+    offline_smoke.edit_meeting_title(page, edited_title)
+    polled_title = offline_smoke.wait_for_locator_value(
+        page,
+        page.locator("#meeting-title"),
+        "element => element.textContent",
+        predicate=lambda value: value == edited_title,
+        timeout_ms=1_000,
+        failure_message="Browser title locator did not return the rendered title.",
+    )
+    assert polled_title == edited_title
+    persisted = _context.request.get(f"{live.url}/api/meetings/{meeting_id}")
+    assert persisted.status == 200
+    assert persisted.json()["title"] == edited_title
