@@ -4,6 +4,7 @@ import ast
 import importlib.util
 import io
 import json
+import os
 import sys
 import wave
 from pathlib import Path
@@ -332,21 +333,56 @@ def test_source_or_pull_refuses_to_update_an_image_used_by_a_container(monkeypat
     assert "ancestor=ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1" in commands[0]
 
 
-def test_embedded_container_python_snippets_compile():
+def _embedded_container_scripts():
     tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
-    snippets = []
+    scripts = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Constant):
-            continue
-        if isinstance(node.value.value, str) and any(
+        if not isinstance(node, ast.Assign) or not any(
             isinstance(target, ast.Name) and target.id in {"script", "probe"}
             for target in node.targets
         ):
-            snippets.append(node.value.value)
+            continue
+        value = node.value
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            scripts.append(value.value)
+        elif (
+            isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Name)
+            and value.func.id == "_provider_script"
+            and isinstance(value.args[0], ast.Constant)
+        ):
+            scripts.append(offline_smoke._provider_script(value.args[0].value))
+    return scripts
+
+
+def test_embedded_container_python_snippets_compile():
+    snippets = _embedded_container_scripts()
 
     assert len(snippets) >= 4
     for snippet in snippets:
         compile(snippet, "<offline-smoke-container-script>", "exec")
+
+
+def test_provider_scripts_share_one_bootstrap_with_the_provider_dir_guard():
+    source = SCRIPT.read_text(encoding="utf-8")
+    provider_scripts = [
+        snippet for snippet in _embedded_container_scripts() if "provider.ensure()" in snippet
+    ]
+
+    assert source.count("class FailOnNetworkAdapter") == 1
+    assert source.count("ChatGPTProvider(settings.provider_dir") == 1
+    assert len(provider_scripts) == 2
+    for snippet in provider_scripts:
+        assert snippet.startswith(offline_smoke._PROVIDER_PRELUDE)
+        assert "if settings.provider_dir is None:" in snippet
+
+
+def test_snapshot_column_sets_are_defined_only_in_the_embedded_script():
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    for name in ("VOLATILE_COLUMNS", "NEVER_SNAPSHOT_COLUMNS", "HASHED_COLUMNS"):
+        assert not hasattr(offline_smoke, name)
+    assert source.count("never = {") == 1
 
 
 def test_redactor_removes_known_credentials_and_access_fragments():
@@ -646,3 +682,225 @@ def test_pull_mode_rejects_noncanonical_public_refs(image):
 def test_pull_mode_accepts_versioned_public_tag_and_sha256_digest():
     offline_smoke.validate_pull_image("ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1")
     offline_smoke.validate_pull_image("ghcr.io/nguyencanhtrung/asr-en-vi@sha256:" + "a" * 64)
+
+
+def _smoke_options(tmp_path, mode="offline", image="asr-en-vi:local"):
+    return offline_smoke.SmokeOptions(
+        image=image,
+        models=tmp_path / "models",
+        audio=tmp_path / "synthetic.wav",
+        output=tmp_path / "output",
+        mode=mode,
+        project_prefix="asr-offline-smoke",
+        task_timeout=60,
+        startup_timeout=30,
+    )
+
+
+def test_host_environment_does_not_carry_ineffective_telemetry_keys(tmp_path):
+    environment = offline_smoke.SmokeHarness(_smoke_options(tmp_path))._environment()
+
+    for key in (
+        "PYANNOTE_METRICS_ENABLED",
+        "DO_NOT_TRACK",
+        "HF_HUB_DISABLE_TELEMETRY",
+        "HF_HUB_DISABLE_PROGRESS_BARS",
+        "HF_HUB_OFFLINE",
+        "TRANSFORMERS_OFFLINE",
+    ):
+        assert environment.get(key) == os.environ.get(key)
+    assert environment["ASR_DEVICE"] == "cuda"
+
+
+def test_shipped_smoke_uses_stable_tool_names_not_pipeline_task_names(tmp_path):
+    harness = offline_smoke.SmokeHarness(_smoke_options(tmp_path))
+    harness.run_dir = tmp_path / "run"
+    harness.run_dir.mkdir()
+    harness.write_runtime_report()
+    help_text = offline_smoke._parser().format_help()
+
+    assert harness.evidence["tool"] == "asr-en-vi offline smoke"
+    assert "task" not in harness.evidence
+    assert (harness.run_dir / "smoke-report.md").is_file()
+    assert not (harness.run_dir / "report-smoke-harness.md").exists()
+    for text in (SCRIPT.read_text(encoding="utf-8"), help_text):
+        assert "issue-15" not in text
+        assert "pipeline" not in text.lower()
+
+
+def test_revision_parity_distinguishes_match_mismatch_and_unverified():
+    commit = "a" * 40
+
+    assert offline_smoke.revision_parity(commit, commit) == "match"
+    assert offline_smoke.revision_parity(commit, "b" * 40) == "mismatch"
+    assert offline_smoke.revision_parity(commit, "unknown") == "unverified"
+    assert offline_smoke.revision_parity(commit, None) == "unverified"
+    assert offline_smoke.revision_parity(commit, "") == "unverified"
+
+
+def test_image_identity_records_the_revision_label(monkeypatch, tmp_path):
+    harness = offline_smoke.SmokeHarness(_smoke_options(tmp_path))
+    inspected = [
+        {
+            "Id": "sha256:image",
+            "RepoDigests": [],
+            "Config": {"Labels": {offline_smoke.IMAGE_REVISION_LABEL: "c" * 40}},
+        }
+    ]
+    monkeypatch.setattr(
+        offline_smoke.subprocess,
+        "run",
+        lambda command, **_kwargs: offline_smoke.subprocess.CompletedProcess(
+            command, 0, json.dumps(inspected), ""
+        ),
+    )
+
+    assert harness._image_identity()["revision"] == "c" * 40
+
+
+def test_pull_mode_pulls_anonymously_with_an_empty_docker_config_before_the_installer(
+    monkeypatch, tmp_path
+):
+    image = "ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1"
+    ambient = tmp_path / "ambient-docker-config"
+    monkeypatch.setenv("DOCKER_CONFIG", str(ambient))
+    harness = offline_smoke.SmokeHarness(_smoke_options(tmp_path, "pull", image))
+    calls = []
+
+    def command_double(command, **kwargs):
+        env = kwargs.get("env") or os.environ
+        entry = {"command": command, "docker_config": env.get("DOCKER_CONFIG")}
+        if command[:2] == ["docker", "pull"]:
+            entry["config_entries"] = os.listdir(env["DOCKER_CONFIG"])
+        calls.append(entry)
+        return offline_smoke.subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(offline_smoke.subprocess, "run", command_double)
+    harness._start_installation()
+
+    pull = next(call for call in calls if call["command"][:2] == ["docker", "pull"])
+    installer = next(call for call in calls if call["command"][0].endswith("start.sh"))
+    assert calls.index(pull) < calls.index(installer)
+    assert pull["command"] == ["docker", "pull", image]
+    assert pull["docker_config"] != str(ambient)
+    assert pull["config_entries"] == []
+    assert not Path(pull["docker_config"]).exists()
+    # The installer and Compose keep the ambient config, so the CLI plugins stay discoverable.
+    assert installer["docker_config"] == str(ambient)
+    assert harness.evidence["anonymous_pull"]["docker_config"] == "fresh empty directory"
+    assert harness.evidence["checks"]["anonymous_pull"] == "pass"
+
+
+def test_anonymous_pull_failure_is_actionable_and_stops_before_the_installer(monkeypatch, tmp_path):
+    image = "ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1"
+    harness = offline_smoke.SmokeHarness(_smoke_options(tmp_path, "pull", image))
+    commands = []
+
+    def command_double(command, **_kwargs):
+        commands.append(command)
+        return offline_smoke.subprocess.CompletedProcess(
+            command, 1 if command[:2] == ["docker", "pull"] else 0, "", "denied"
+        )
+
+    monkeypatch.setattr(offline_smoke.subprocess, "run", command_double)
+    with pytest.raises(offline_smoke.SmokeFailure, match="public and pullable without a registry"):
+        harness._start_installation()
+
+    assert not any(command[0].endswith("start.sh") for command in commands)
+    assert "anonymous_pull" not in harness.evidence
+
+
+@pytest.mark.parametrize("mode", ["source", "offline"])
+def test_source_and_offline_modes_do_not_run_the_anonymous_pull(monkeypatch, tmp_path, mode):
+    harness = offline_smoke.SmokeHarness(_smoke_options(tmp_path, mode))
+    commands = []
+
+    def command_double(command, **_kwargs):
+        commands.append(command)
+        return offline_smoke.subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(offline_smoke.subprocess, "run", command_double)
+    harness._start_installation()
+
+    assert not any(command[:2] == ["docker", "pull"] for command in commands)
+    assert "anonymous_pull" not in harness.evidence
+
+
+class _FakeNotesApi:
+    def __init__(self, after, providers=None):
+        self.after = after
+        self.providers = providers or {"providers": [{"id": "chatgpt", "status": "connected"}]}
+
+    def json(self, _method, path, **_kwargs):
+        if path == "/api/providers":
+            return self.providers
+        return self.after
+
+
+def _notes_state(task_id, status="succeeded", error_code=None, revisions=("note-1",)):
+    return {
+        "revisions": [{"id": item, "markdown": "saved", "edit_version": 1} for item in revisions],
+        "task": {"id": task_id, "status": status, "error_code": error_code},
+        "source_locked": False,
+    }
+
+
+def _offline_outcome(tmp_path, after, providers=None):
+    harness = offline_smoke.SmokeHarness(_smoke_options(tmp_path))
+    before = _notes_state("seed-task")
+    harness.api = _FakeNotesApi(after, providers)
+    harness._assert_offline_notes_outcome("meeting", before)
+    return harness
+
+
+def test_offline_notes_outcome_accepts_a_failed_provider_unavailable_task(tmp_path):
+    harness = _offline_outcome(tmp_path, _notes_state("new", "failed", "provider_unavailable"))
+
+    assert harness.evidence["offline_notes_attempt"] == {
+        "provider_status": "connected",
+        "run_accepted_status": 202,
+        "task_status": "failed",
+        "task_error_code": "provider_unavailable",
+        "saved_notes_unchanged": True,
+        "source_locked": False,
+        "external_call": "none; container egress denied",
+    }
+
+
+@pytest.mark.parametrize(
+    ("after", "providers", "message"),
+    [
+        (_notes_state("seed-task"), None, "did not create a task"),
+        (_notes_state("new", "running"), None, "ended running"),
+        (_notes_state("new", "failed", "provider_timeout"), None, "provider_timeout"),
+        (_notes_state("new", "succeeded"), None, "ended succeeded"),
+        (
+            _notes_state("new", "failed", "provider_unavailable", ("note-1", "note-2")),
+            None,
+            "changed the saved notes",
+        ),
+        (
+            _notes_state("new", "failed", "provider_unavailable"),
+            {"providers": [{"id": "chatgpt", "status": "reconnect_required"}]},
+            "disconnected the persisted provider",
+        ),
+        (
+            {**_notes_state("new", "failed", "provider_unavailable"), "source_locked": True},
+            None,
+            "still holds the notes source",
+        ),
+    ],
+)
+def test_offline_notes_outcome_rejects_any_other_result(tmp_path, after, providers, message):
+    with pytest.raises(offline_smoke.SmokeFailure, match=message):
+        _offline_outcome(tmp_path, after, providers)
+
+
+def test_browser_workflow_attempts_notes_with_the_connected_provider_not_a_forced_state():
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert "_switch_provider_fixture_to_reconnect_required" not in source
+    assert "reconnect_required" not in source
+    assert "Kết nối ChatGPT" not in source
+    assert 'response.url.endswith("/notes-runs")' in source
+    assert "OFFLINE_NOTES_STATUS_TEXT" in source

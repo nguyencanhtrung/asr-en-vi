@@ -53,7 +53,7 @@ git clone --branch v0.1.0-rc.1 --depth 1 https://github.com/nguyencanhtrung/asr-
 cd asr-en-vi
 export COMPOSE_PROJECT_NAME=asr-en-vi
 export ASR_MODEL_HOST_PATH="$PWD/models"
-export ASR_IMAGE=ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1
+export ASR_IMAGE=asr-en-vi:v0.1.0-rc.1
 ./scripts/start.sh --source
 ```
 
@@ -66,6 +66,12 @@ export ASR_IMAGE=ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1
 ./scripts/start.sh --pull
 ```
 
+Image build từ source dùng tag local `asr-en-vi:v0.1.0-rc.1`, khác với image công khai trên GHCR, nên
+tên image cho biết nó đến từ đâu. Mọi chế độ của `start.sh` so nhãn
+`org.opencontainers.image.revision` của image với commit của checkout và dừng nếu hai giá trị khác
+nhau; hãy checkout đúng tag hoặc chọn đúng image. Nếu checkout hoặc image không có revision
+(`unknown`), script chỉ cảnh báo vì không thể xác minh.
+
 Sau khi chuẩn bị model và ngắt Internet, giữ các giá trị trên trong cùng checkout rồi chạy:
 
 ```sh
@@ -75,7 +81,12 @@ Sau khi chuẩn bị model và ngắt Internet, giữ các giá trị trên tron
 Smoke tùy chọn cho máy Linux/NVIDIA dùng một Compose project riêng; cần Docker, Chromium với
 Playwright, model đã chuẩn bị và file WAV được phép dùng. Lệnh ghi JSON, log và báo cáo vào thư mục
 đầu ra. Thay đường dẫn WAV mẫu bằng file local hai người nói (2–90 giây, tối đa 25 MiB). Nó không
-xác nhận public pull hay smoke đã qua trước khi thực sự chạy:
+xác nhận public pull hay smoke đã qua trước khi thực sự chạy. Với `--mode pull`, smoke tự pull
+image bằng một `DOCKER_CONFIG` rỗng mới và ghi `anonymous_pull` vào evidence, nên đăng nhập registry
+có sẵn trên máy không thể che việc image chưa công khai. Khi có thể, nó cũng ghi
+`image_revision_parity`. Ở pha ngắt mạng, smoke giữ phiên ChatGPT đã kết nối, bấm tạo notes và
+kiểm tra tác vụ kết thúc `failed` với mã `provider_unavailable`, notes đã lưu không đổi và không có
+lời gọi ra ngoài:
 
 ```sh
 ./scripts/offline-smoke.py \

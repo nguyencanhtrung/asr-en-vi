@@ -17,6 +17,7 @@ Start the app and worker with one resolved Compose image.
 
 With no mode, --source is used. Set ASR_IMAGE in .env to select the image.
 Pull mode requires a registry reference with a version tag or sha256 digest.
+Every mode stops when the image revision label differs from this checkout's commit.
 HELP
 }
 
@@ -202,6 +203,22 @@ validate_pull_image() {
     esac
 }
 
+check_image_revision() {
+    image_revision=$(docker image inspect \
+        --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+        "$selected_image" 2>/dev/null || true)
+    case "$image_revision" in
+        ''|unknown|'<no value>') image_revision=unknown ;;
+    esac
+    if [ "$ASR_SOURCE_REVISION" = unknown ] || [ "$image_revision" = unknown ]; then
+        echo "Cannot verify that $selected_image was built from this checkout." >&2
+        echo "Checkout revision: $ASR_SOURCE_REVISION; image revision: $image_revision." >&2
+        echo "Use a git checkout of the release tag and an image built from it to verify parity." >&2
+    elif [ "$image_revision" != "$ASR_SOURCE_REVISION" ]; then
+        fail "Image $selected_image was built from revision $image_revision, but this checkout is $ASR_SOURCE_REVISION. Check out the matching tag or select the matching image."
+    fi
+}
+
 case "$mode" in
     source)
         compose_base build
@@ -222,6 +239,7 @@ if ! docker run --pull=never --rm --network none --entrypoint python "$selected_
     --expect-schema "$source_schema"; then
     fail "Image $selected_image does not match source version $source_version and schema $source_schema."
 fi
+check_image_revision
 
 if [ "$requested_device" = cpu ]; then
     echo "CPU backend requested; selecting whisper-small."

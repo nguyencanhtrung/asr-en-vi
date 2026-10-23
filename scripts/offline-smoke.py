@@ -45,6 +45,8 @@ DEFAULT_PROJECT_PREFIX = "asr-offline-smoke"
 PUBLIC_IMAGE = "ghcr.io/nguyencanhtrung/asr-en-vi"
 MAX_AUDIO_BYTES = 25 * 1024 * 1024
 MAX_STDERR_DIAGNOSTIC_CHARS = 1200
+OFFLINE_NOTES_STATUS_TEXT = "tạm thời không khả dụng"
+OFFLINE_NOTES_TIMEOUT_MS = 120_000
 MIN_AUDIO_SECONDS = 2
 ASR_MODEL_NAME = "whisper-large-v3"
 DIARIZATION_MODEL_NAME = "speaker-diarization-community-1"
@@ -61,40 +63,33 @@ DIARIZATION_REQUIRED_FILES = (
     "plda/xvec_transform.npz",
     "segmentation/pytorch_model.bin",
 )
-VOLATILE_COLUMNS = frozenset(
-    {
-        "created_at",
-        "updated_at",
-        "accepted_at",
-        "started_at",
-        "heartbeat_at",
-        "cancel_requested_at",
-        "completed_at",
-        "applied_at",
-        "elapsed_seconds",
-    }
-)
-NEVER_SNAPSHOT_COLUMNS = frozenset(
-    {
-        "owner_id",
-        "request_hash",
-        "error_message",
-        "raw_key",
-        "managed_key",
-    }
-)
-HASHED_COLUMNS = frozenset(
-    {
-        "text",
-        "markdown",
-        "snapshot_json",
-        "coverage_json",
-        "citations_json",
-        "review_reasons",
-    }
-)
+IMAGE_REVISION_LABEL = "org.opencontainers.image.revision"
 ACCESS_LINK_RE = re.compile(r"/access#([A-Za-z0-9_-]{40,512})")
 SAFE_PROJECT_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,34}\Z")
+
+
+# One bootstrap for every container script that opens the provider store without network access.
+_PROVIDER_PRELUDE = r"""import json, time
+from asr_en_vi.chatgpt import ChatGPTProvider, DIRECT_SCOPE
+from asr_en_vi.config import Settings
+
+class FailOnNetworkAdapter:
+    def __getattr__(self, name):
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("unexpected provider adapter operation: " + name)
+        return fail
+
+settings = Settings.from_env()
+if settings.provider_dir is None:
+    raise RuntimeError("provider directory unavailable")
+provider = ChatGPTProvider(settings.provider_dir,
+    callback_url=settings.chatgpt_callback_url or "", adapter=FailOnNetworkAdapter())
+provider.ensure()
+"""
+
+
+def _provider_script(body: str) -> str:
+    return _PROVIDER_PRELUDE + body
 
 
 class SmokeFailure(RuntimeError):
@@ -226,6 +221,13 @@ def owned_compose_resources(
         if labels.get("com.docker.compose.project") != project:
             return False
     return True
+
+
+def revision_parity(source_commit: str, image_revision: str | None) -> str:
+    """Compare the checkout revision with the image revision label."""
+    if not image_revision or image_revision == "unknown":
+        return "unverified"
+    return "match" if image_revision == source_commit else "mismatch"
 
 
 def _sha256_file(path: Path) -> str:
@@ -590,7 +592,7 @@ class SmokeHarness:
         self.redactor.add(str(options.models.expanduser()))
         self.redactor.add(str(options.audio.expanduser()))
         self.evidence: dict[str, Any] = {
-            "task": "issue-15-smoke-harness",
+            "tool": "asr-en-vi offline smoke",
             "status": "running",
             "project": self.project,
             "mode": options.mode,
@@ -820,12 +822,6 @@ class SmokeHarness:
                 "ASR_GPU_MODEL_PATH": f"/models/{ASR_MODEL_NAME}",
                 "ASR_DIARIZATION_MODEL_PATH": f"/models/{DIARIZATION_MODEL_NAME}",
                 "ASR_GPU_COMPUTE_TYPE": "float16",
-                "PYANNOTE_METRICS_ENABLED": "0",
-                "DO_NOT_TRACK": "1",
-                "HF_HUB_DISABLE_TELEMETRY": "1",
-                "HF_HUB_DISABLE_PROGRESS_BARS": "1",
-                "HF_HUB_OFFLINE": "1",
-                "TRANSFORMERS_OFFLINE": "1",
             }
         )
         return env
@@ -871,10 +867,37 @@ class SmokeHarness:
             raise SmokeFailure("Selected image returned an incomplete version/schema report.")
         return value
 
+    def _anonymous_pull(self) -> None:
+        """Pull the image with an empty Docker config so ambient registry logins cannot count."""
+        # ponytail: an empty config also drops Docker contexts; set DOCKER_HOST if the daemon needs one.
+        with tempfile.TemporaryDirectory(prefix="asr-smoke-docker-config-") as config_dir:
+            env = self._environment()
+            env["DOCKER_CONFIG"] = config_dir
+            result = self.run_command(
+                ["docker", "pull", self.options.image],
+                label="anonymous image pull with an empty Docker config",
+                timeout=max(self.options.startup_timeout * 3, 900),
+                env=env,
+                sensitive_output=True,
+                allow_failure=True,
+            )
+        if result.returncode != 0:
+            raise SmokeFailure(
+                "Anonymous pull failed: the image must be public and pullable without a registry login."
+            )
+        self.evidence["anonymous_pull"] = {
+            "performed": True,
+            "docker_config": "fresh empty directory",
+            "image": self.options.image,
+        }
+        self.evidence["checks"]["anonymous_pull"] = "pass"
+
     def _start_installation(self) -> None:
         self._assert_project_unused()
         self._assert_image_not_in_use()
         self.owned_project_started = True
+        if self.options.mode == "pull":
+            self._anonymous_pull()
         mode_argument = f"--{self.options.mode}"
         result = self.run_command(
             [str(ROOT / "scripts" / "start.sh"), mode_argument],
@@ -908,9 +931,11 @@ class SmokeHarness:
             image = images[0]
         except (json.JSONDecodeError, IndexError, TypeError):
             raise SmokeFailure("Could not inspect the selected local image.") from None
+        labels = (image.get("Config") or {}).get("Labels") or {}
         return {
             "id": image.get("Id"),
             "repo_digests": sorted(image.get("RepoDigests") or []),
+            "revision": labels.get(IMAGE_REVISION_LABEL),
         }
 
     def _read_access_token(self) -> str:
@@ -1104,22 +1129,7 @@ class SmokeHarness:
         self.log("local transcript text and speaker edits through the public API: pass")
 
     def _seed_provider_fixture(self) -> dict[str, Any]:
-        script = r"""import json, time, uuid
-from asr_en_vi.chatgpt import ChatGPTProvider, DIRECT_SCOPE
-from asr_en_vi.config import Settings
-
-class FailOnNetworkAdapter:
-    def __getattr__(self, name):
-        def fail(*_args, **_kwargs):
-            raise RuntimeError("unexpected provider adapter operation: " + name)
-        return fail
-
-settings = Settings.from_env()
-if settings.provider_dir is None:
-    raise RuntimeError("provider directory unavailable")
-provider = ChatGPTProvider(settings.provider_dir,
-    callback_url=settings.chatgpt_callback_url or "", adapter=FailOnNetworkAdapter())
-provider.ensure()
+        script = _provider_script(r"""import uuid
 now = time.time()
 client_id = "oaiapp_smoke-" + uuid.uuid4().hex[:12]
 session_id = uuid.uuid4().hex
@@ -1156,7 +1166,7 @@ if not provider._issued_client_id(client_id):
 session_id_present = session_id in state["sessions"]
 print(json.dumps({"seeded": True, "client_id_valid": True,
                   "session_id_present": session_id_present}))
-"""
+""")
         result = self.container_python(
             "app", script, label="seed valid synthetic connected provider session"
         )
@@ -1254,22 +1264,7 @@ print(json.dumps({"note_id": revision["id"], "source_snapshot_id": source_id,
         self.log("saved ChatGPT notes preference without a provider request")
 
     def _provider_fixture_state(self) -> dict[str, Any]:
-        script = r"""import hashlib, json, time
-from asr_en_vi.chatgpt import ChatGPTProvider, DIRECT_SCOPE
-from asr_en_vi.config import Settings
-
-class FailOnNetworkAdapter:
-    def __getattr__(self, name):
-        def fail(*_args, **_kwargs):
-            raise RuntimeError("unexpected provider adapter operation: " + name)
-        return fail
-
-settings = Settings.from_env()
-if settings.provider_dir is None:
-    raise RuntimeError("provider directory unavailable")
-provider = ChatGPTProvider(settings.provider_dir,
-    callback_url=settings.chatgpt_callback_url or "", adapter=FailOnNetworkAdapter())
-provider.ensure()
+        script = _provider_script(r"""import hashlib
 with provider.store.locked() as state:
     client_id = state.get("active_client_id")
     registration = state.get("registrations", {}).get(client_id) if client_id else None
@@ -1313,62 +1308,12 @@ print(json.dumps({
     "selected_reasoning_effort": selected_reasoning_effort,
     "notes_task_pin": notes_task_pin,
 }))
-"""
+""")
         fixture = self.container_python(
             "app", script, label="verify local connected provider session and credentials"
         )
         validate_connected_provider_fixture(fixture)
         return fixture
-
-    def _switch_provider_fixture_to_reconnect_required(self) -> None:
-        script = r"""import json
-from asr_en_vi.chatgpt import ChatGPTProvider, DIRECT_SCOPE
-from asr_en_vi.config import Settings
-
-class FailOnNetworkAdapter:
-    def __getattr__(self, name):
-        def fail(*_args, **_kwargs):
-            raise RuntimeError("unexpected provider adapter operation: " + name)
-        return fail
-
-settings = Settings.from_env()
-provider = ChatGPTProvider(settings.provider_dir,
-    callback_url=settings.chatgpt_callback_url or "", adapter=FailOnNetworkAdapter())
-provider.ensure()
-with provider.store.locked(write=True) as state:
-    client_id = state.get("active_client_id")
-    registration = state.get("registrations", {}).get(client_id) if client_id else None
-    if (state.get("connection_status") != "connected" or not isinstance(registration, dict)
-            or DIRECT_SCOPE not in registration.get("scopes", [])):
-        raise RuntimeError("connected lifecycle proof is missing before provider-required phase")
-    state["connection_status"] = "reconnect_required"
-    registration["scopes"] = []
-    state["last_provider_error"] = "scope_not_authorized"
-print(json.dumps({"connection_status": state["connection_status"],
-                  "direct_scope_present": DIRECT_SCOPE in registration["scopes"],
-                  "last_provider_error": state["last_provider_error"]}))
-"""
-        result = self.container_python(
-            "app", script, label="switch synthetic fixture for provider-required offline UI"
-        )
-        if (
-            result.get("connection_status") != "reconnect_required"
-            or result.get("direct_scope_present") is not False
-            or result.get("last_provider_error") != "scope_not_authorized"
-        ):
-            raise SmokeFailure("Could not switch the synthetic fixture to reconnect-required.")
-        fixture = self.evidence.get("provider_fixture")
-        if not isinstance(fixture, dict):
-            raise SmokeFailure("Connected provider lifecycle evidence is missing.")
-        fixture["offline_provider_required_phase"] = {
-            "transition": "connected to reconnect_required",
-            "after_connected_restart_recreate_proof": True,
-            "connection_status": "reconnect_required",
-            "direct_scope_present": False,
-            "last_provider_error": "scope_not_authorized",
-            "external_account_validity": "not assessed",
-        }
-        self.evidence["checks"]["provider_required_fixture_transition"] = "pass"
 
     def _semantic_snapshot(self, client: ApiClient, meeting_id: str) -> dict[str, Any]:
         meeting = client.json("GET", f"/api/meetings/{meeting_id}")
@@ -1650,9 +1595,42 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
         if response.status != 200:
             raise SmokeFailure("Browser-context notes preference setup failed.")
 
+    def _assert_offline_notes_outcome(self, meeting_id: str, before: dict[str, Any]) -> None:
+        """A connected provider accepts the run; with egress denied it must end provider_unavailable."""
+        assert self.api is not None
+        previous = before.get("task") or {}
+        after = self.api.json("GET", f"/api/meetings/{meeting_id}/notes")
+        task = after.get("task")
+        if not isinstance(task, dict) or task.get("id") == previous.get("id"):
+            raise SmokeFailure("The offline notes attempt did not create a task.")
+        if task.get("status") != "failed" or task.get("error_code") != "provider_unavailable":
+            raise SmokeFailure(
+                f"The offline notes attempt ended {task.get('status')} "
+                f"(code {task.get('error_code')}), not failed with provider_unavailable."
+            )
+        if after.get("source_locked") is not False:
+            raise SmokeFailure("The failed offline notes task still holds the notes source.")
+        if after.get("revisions") != before.get("revisions"):
+            raise SmokeFailure("The failed offline notes attempt changed the saved notes.")
+        providers = self.api.json("GET", "/api/providers").get("providers", [])
+        chatgpt = next(
+            (view for view in providers if isinstance(view, dict) and view.get("id") == "chatgpt"),
+            {},
+        )
+        if chatgpt.get("status") != "connected":
+            raise SmokeFailure("The offline notes attempt disconnected the persisted provider.")
+        self.evidence["offline_notes_attempt"] = {
+            "provider_status": "connected",
+            "run_accepted_status": 202,
+            "task_status": "failed",
+            "task_error_code": "provider_unavailable",
+            "saved_notes_unchanged": True,
+            "source_locked": False,
+            "external_call": "none; container egress denied",
+        }
+
     def _browser_workflow(self, meeting_id: str, note_markdown: str) -> dict[str, Any]:
         blocked_hosts: list[str] = []
-        calls: list[str] = []
         browser_checks: dict[str, Any] = {}
         current_stage = "load_playwright"
 
@@ -1811,30 +1789,32 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
                         raise SmokeFailure("Saved notes export did not match the stored Markdown.")
                     complete_check("saved_notes_copy_export")
 
-                    report_stage("open_provider_required_dialog")
+                    report_stage("create_notes_without_provider_egress")
                     self._configure_notes_preference_in_browser_api(context)
+                    notes_before = self.api.json("GET", f"/api/meetings/{meeting_id}/notes")
                     page.locator("body").evaluate(
                         "(body, meetingId) => window.ASRMeetingHistory.refreshMeeting(meetingId)",
                         meeting_id,
                     )
-                    expect(page.locator("#notes-start")).to_contain_text(
-                        "Kết nối ChatGPT", timeout=15_000
-                    )
-                    page.on(
-                        "request",
-                        lambda request: (
-                            calls.append(request.url)
-                            if request.method == "POST" and request.url.endswith("/notes-runs")
-                            else None
+                    # The provider session stays connected; only the model catalog cannot load offline.
+                    start_button = page.locator("#notes-start")
+                    expect(start_button).to_be_enabled(timeout=90_000)
+                    expect(start_button).to_contain_text("Tạo lại notes", timeout=15_000)
+                    with page.expect_response(
+                        lambda response: (
+                            response.request.method == "POST"
+                            and response.url.endswith("/notes-runs")
                         ),
+                        timeout=30_000,
+                    ) as run_response:
+                        start_button.click()
+                    if run_response.value.status != 202:
+                        raise SmokeFailure("The connected provider did not accept the notes run.")
+                    expect(page.locator("#notes-status")).to_contain_text(
+                        OFFLINE_NOTES_STATUS_TEXT, timeout=OFFLINE_NOTES_TIMEOUT_MS
                     )
-                    page.locator("#notes-start").click()
-                    page.locator("#connections-dialog").wait_for(state="visible", timeout=10_000)
-                    if calls:
-                        raise SmokeFailure(
-                            "Provider-required action unexpectedly submitted a notes run."
-                        )
-                    complete_check("provider_required_without_cloud_call")
+                    self._assert_offline_notes_outcome(meeting_id, notes_before)
+                    complete_check("offline_notes_provider_unavailable")
 
                     report_stage("close_browser_context")
                     page.close()
@@ -1869,6 +1849,10 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
         image_runtime = self._selected_runtime(from_image=True)
         image_identity = self._image_identity()
         self.evidence["image"] = image_identity
+        parity = revision_parity(self.evidence["source_commit"], image_identity.get("revision"))
+        if parity == "mismatch":
+            raise SmokeFailure("The image revision label differs from the checkout revision.")
+        self.evidence["checks"]["image_revision_parity"] = parity
         self.evidence["runtime"] = image_runtime
         self.log(
             f"selected image version={image_runtime.get('version')} "
@@ -1937,7 +1921,6 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
         markdown = note.get("markdown")
         if not isinstance(markdown, str) or not markdown:
             raise SmokeFailure("Saved notes fixture could not be read through the API.")
-        self._switch_provider_fixture_to_reconnect_required()
         browser_result = self._browser_workflow(first_meeting, markdown)
         self.evidence["checks"].update(browser_result)
         self.evidence["checks"]["offline_browser_external_requests"] = "none attempted"
@@ -2081,7 +2064,7 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
                 "",
             ]
         )
-        report = self.run_dir / "report-smoke-harness.md"
+        report = self.run_dir / "smoke-report.md"
         report.write_text("\n".join(lines), encoding="utf-8")
         os.chmod(report, 0o600)
 
@@ -2172,7 +2155,7 @@ def _parser() -> argparse.ArgumentParser:
         "--startup-timeout", type=int, default=180, help="Bound service readiness in seconds."
     )
     parser.add_argument(
-        "--state-ref", help="Optional frozen pipeline state_ref for evidence correlation."
+        "--state-ref", help="Optional caller-supplied correlation id recorded in the evidence."
     )
     return parser
 

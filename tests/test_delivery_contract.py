@@ -13,6 +13,7 @@ from media_tools import require_media_tools
 ROOT = Path(__file__).parents[1]
 PIPELINE_PATH = ROOT / ".github" / "workflows" / "pipeline.yml"
 DEPENDABOT_PATH = ROOT / ".github" / "dependabot.yml"
+CHECKOUT_REVISION = "a" * 40
 COMMUNITY_1_FILES = (
     "config.yaml",
     "embedding/pytorch_model.bin",
@@ -46,6 +47,8 @@ def _run_start(
     gpu_check_ok: bool = False,
     model_check_ok: bool = True,
     prepared_asr_model: bool = False,
+    source_revision: str = CHECKOUT_REVISION,
+    image_revision: str = "match",
 ) -> subprocess.CompletedProcess[str]:
     tmp_path.mkdir(parents=True, exist_ok=True)
     model_root = tmp_path / "models"
@@ -83,6 +86,7 @@ def _run_start(
         "fi\n"
         'if [ "$1" = image ] && [ "$2" = inspect ]; then\n'
         '  [ "$IMAGE_PRESENT" = 1 ] || exit 1\n'
+        '  [ "$3" = --format ] && printf \'%s\\n\' "$IMAGE_REVISION"\n'
         "  exit 0\n"
         "fi\n"
         'case "$*" in\n'
@@ -110,6 +114,8 @@ def _run_start(
     environment["GPU_CHECK_OK"] = "1" if gpu_check_ok else "0"
     environment["MODEL_CHECK_OK"] = "1" if model_check_ok else "0"
     environment["PULL_OK"] = "1"
+    environment["ASR_SOURCE_REVISION"] = source_revision
+    environment["IMAGE_REVISION"] = source_revision if image_revision == "match" else image_revision
     result = subprocess.run(
         ["sh", str(ROOT / "scripts" / "start.sh"), *args],
         cwd=ROOT,
@@ -339,6 +345,66 @@ def test_pull_version_mismatch_stops_before_any_service_volume_is_mounted(tmp_pa
         for line in commands
     )
     assert not any("asr_en_vi.cli model prepare" in line for line in commands)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [(), ("--source",), ("--pull",), ("--offline",)],
+    ids=["default-source", "source", "pull", "offline"],
+)
+def test_image_revision_must_match_the_checkout_in_every_mode(tmp_path, args):
+    image = "ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1" if args == ("--pull",) else None
+    result = _run_start(
+        tmp_path,
+        COMMUNITY_1_FILES,
+        args=args,
+        image=image,
+        image_revision="b" * 40,
+        prepared_asr_model=True,
+    )
+
+    assert result.returncode != 0
+    assert f"built from revision {'b' * 40}, but this checkout is {CHECKOUT_REVISION}" in (
+        result.stderr
+    )
+    assert "Check out the matching tag" in result.stderr
+    assert "asr_en_vi.cli model" not in result.docker_log
+    assert " up " not in result.docker_log
+
+
+def test_matching_image_revision_starts_without_a_warning(tmp_path):
+    result = _run_start(tmp_path, COMMUNITY_1_FILES, args=("--offline",), prepared_asr_model=True)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Cannot verify" not in result.stderr
+    assert any(
+        line.startswith("image inspect --format") and "org.opencontainers.image.revision" in line
+        for line in result.docker_log.splitlines()
+    )
+
+
+@pytest.mark.parametrize(
+    ("source_revision", "image_revision"),
+    [(CHECKOUT_REVISION, "unknown"), (CHECKOUT_REVISION, ""), ("unknown", CHECKOUT_REVISION)],
+    ids=["image-unknown", "image-unlabeled", "checkout-unknown"],
+)
+def test_unknown_revision_warns_with_guidance_and_continues(
+    tmp_path, source_revision, image_revision
+):
+    result = _run_start(
+        tmp_path,
+        COMMUNITY_1_FILES,
+        args=("--offline",),
+        prepared_asr_model=True,
+        source_revision=source_revision,
+        image_revision=image_revision,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Cannot verify that asr-en-vi:local was built from this checkout" in result.stderr
+    assert f"Checkout revision: {source_revision}" in result.stderr
+    assert "release tag" in result.stderr
+    assert " up --pull never --no-build " in result.docker_log
 
 
 def test_offline_mode_uses_existing_image_and_models_without_preparation(tmp_path):
