@@ -64,45 +64,45 @@ class ConnectionApiError extends Error {
 
 function defaultErrorMessage(code, status) {
   const known = {
-    revocation_unconfirmed: "Chưa xác nhận thu hồi phiên ChatGPT cũ. Hãy thử lại hoặc thu hồi quyền trong ChatGPT → Cài đặt → Mức sử dụng.",
-    provider_busy: "Một thao tác ChatGPT khác đang chạy. Hãy đợi một chút rồi thử lại.",
-    provider_timeout: "ChatGPT chưa phản hồi trong thời gian cho phép. Bạn có thể thử lại.",
-    NETWORK_ERROR: "Không kết nối được với máy chủ trên máy này.",
-    INVALID_AUTHORIZATION_URL: "Máy chủ trả về địa chỉ đăng nhập không hợp lệ.",
-    UNSAFE_AUTHORIZATION_URL: "Máy chủ không được gửi thông tin nhận dạng nhạy cảm đến trình duyệt.",
-    INVALID_LOGIN_SESSION: "Máy chủ trả về phiên đăng nhập không hợp lệ.",
-    INVALID_LOGIN_STATUS: "Máy chủ trả về trạng thái phiên đăng nhập không hợp lệ.",
-    CANCEL_NOT_CONFIRMED: "Máy chủ chưa hủy được phiên đăng nhập.",
-    POPUP_BLOCKED: "Trình duyệt đang chặn cửa sổ đăng nhập. Cho phép mở cửa sổ cho không gian làm việc này rồi thử lại.",
-    SIGN_IN_FAILED: "Không thể hoàn tất đăng nhập ChatGPT.",
-    INVALID_PROVIDER_STATUS: "Máy chủ chưa công bố trạng thái kết nối ChatGPT hợp lệ.",
-    DISCONNECT_NOT_CONFIRMED: "Máy chủ chưa xác nhận đã ngắt kết nối ChatGPT.",
-    provider_reconnect_required: "Tài khoản ChatGPT cần đăng nhập lại trước khi tiếp tục.",
-    chatgpt_reconnect_required: "Tài khoản ChatGPT cần đăng nhập lại trước khi tiếp tục.",
-    reconnect_required: "Tài khoản ChatGPT cần đăng nhập lại trước khi tiếp tục.",
-    provider_auth_error: "ChatGPT không chấp nhận thông tin đăng nhập hiện tại. Hãy kết nối lại tài khoản.",
-    subscription_sharing_invalid_user: "ChatGPT không chấp nhận thông tin đăng nhập hiện tại. Hãy kết nối lại tài khoản.",
-    chatpass_v2_scope_not_authorized: "Tài khoản chưa cấp quyền dùng gói ChatGPT. Hãy kết nối lại và cấp quyền cần thiết.",
-    chatpass_v2_invalid_authorization_context: "Cấu hình cấp quyền ChatGPT không hợp lệ. Hãy kiểm tra cấu hình kết nối trước khi đăng nhập lại.",
-    scope_not_authorized: "Tài khoản chưa cấp quyền dùng gói ChatGPT. Hãy kết nối lại và cấp quyền cần thiết.",
-    invalid_grant: "Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản.",
-    invalid_refresh_token: "Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản.",
-    token_expired: "Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản.",
-    refresh_token_expired: "Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản.",
-    refresh_token_invalidated: "Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản.",
-    refresh_token_reused: "Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản.",
-    model_not_available: "Mô hình đã chọn không khả dụng với tài khoản ChatGPT này. Hãy chọn mô hình khác.",
-    model_unavailable: "Mô hình đã chọn không khả dụng với tài khoản ChatGPT này. Hãy chọn mô hình khác.",
-    invalid_reasoning_effort: "Mức suy luận này không được mô hình đã chọn hỗ trợ.",
+    revocation_unconfirmed: t("Chưa xác nhận thu hồi phiên ChatGPT cũ. Hãy thử lại hoặc thu hồi quyền trong ChatGPT → Cài đặt → Mức sử dụng."),
+    provider_busy: t("Một thao tác ChatGPT khác đang chạy. Hãy đợi một chút rồi thử lại."),
+    provider_timeout: t("ChatGPT chưa phản hồi trong thời gian cho phép. Bạn có thể thử lại."),
+    NETWORK_ERROR: t("Không kết nối được với máy chủ trên máy này."),
+    INVALID_AUTHORIZATION_URL: t("Máy chủ trả về địa chỉ đăng nhập không hợp lệ."),
+    UNSAFE_AUTHORIZATION_URL: t("Máy chủ không được gửi thông tin nhận dạng nhạy cảm đến trình duyệt."),
+    INVALID_LOGIN_SESSION: t("Máy chủ trả về phiên đăng nhập không hợp lệ."),
+    INVALID_LOGIN_STATUS: t("Máy chủ trả về trạng thái phiên đăng nhập không hợp lệ."),
+    CANCEL_NOT_CONFIRMED: t("Máy chủ chưa hủy được phiên đăng nhập."),
+    POPUP_BLOCKED: t("Trình duyệt đang chặn cửa sổ đăng nhập. Cho phép mở cửa sổ cho không gian làm việc này rồi thử lại."),
+    SIGN_IN_FAILED: t("Không thể hoàn tất đăng nhập ChatGPT."),
+    INVALID_PROVIDER_STATUS: t("Máy chủ chưa công bố trạng thái kết nối ChatGPT hợp lệ."),
+    DISCONNECT_NOT_CONFIRMED: t("Máy chủ chưa xác nhận đã ngắt kết nối ChatGPT."),
+    provider_reconnect_required: t("Tài khoản ChatGPT cần đăng nhập lại trước khi tiếp tục."),
+    chatgpt_reconnect_required: t("Tài khoản ChatGPT cần đăng nhập lại trước khi tiếp tục."),
+    reconnect_required: t("Tài khoản ChatGPT cần đăng nhập lại trước khi tiếp tục."),
+    provider_auth_error: t("ChatGPT không chấp nhận thông tin đăng nhập hiện tại. Hãy kết nối lại tài khoản."),
+    subscription_sharing_invalid_user: t("ChatGPT không chấp nhận thông tin đăng nhập hiện tại. Hãy kết nối lại tài khoản."),
+    chatpass_v2_scope_not_authorized: t("Tài khoản chưa cấp quyền dùng gói ChatGPT. Hãy kết nối lại và cấp quyền cần thiết."),
+    chatpass_v2_invalid_authorization_context: t("Cấu hình cấp quyền ChatGPT không hợp lệ. Hãy kiểm tra cấu hình kết nối trước khi đăng nhập lại."),
+    scope_not_authorized: t("Tài khoản chưa cấp quyền dùng gói ChatGPT. Hãy kết nối lại và cấp quyền cần thiết."),
+    invalid_grant: t("Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản."),
+    invalid_refresh_token: t("Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản."),
+    token_expired: t("Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản."),
+    refresh_token_expired: t("Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản."),
+    refresh_token_invalidated: t("Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản."),
+    refresh_token_reused: t("Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản."),
+    model_not_available: t("Mô hình đã chọn không khả dụng với tài khoản ChatGPT này. Hãy chọn mô hình khác."),
+    model_unavailable: t("Mô hình đã chọn không khả dụng với tài khoản ChatGPT này. Hãy chọn mô hình khác."),
+    invalid_reasoning_effort: t("Mức suy luận này không được mô hình đã chọn hỗ trợ."),
   };
   if (known[code]) return known[code];
-  if (status === 401) return "Phiên truy cập không gian làm việc không còn hợp lệ. Hãy mở lại liên kết trong terminal.";
-  if (status === 403) return "ChatGPT đã từ chối yêu cầu. Hãy kiểm tra quyền truy cập tài khoản rồi thử lại.";
-  if (status === 404) return "Không tìm thấy phiên hoặc dữ liệu yêu cầu.";
-  if (status === 409) return "Trạng thái đã thay đổi. Hãy tải lại thông tin rồi thử lại.";
-  if (status === 429) return "Yêu cầu đã chạm giới hạn hiện tại. Hãy kiểm tra mức sử dụng ChatGPT.";
-  if (status >= 500) return "Máy chủ chưa thể hoàn tất yêu cầu. Hãy thử lại sau.";
-  return "Không thể hoàn tất thao tác. Hãy kiểm tra trạng thái rồi thử lại.";
+  if (status === 401) return t("Phiên truy cập không gian làm việc không còn hợp lệ. Hãy mở lại liên kết trong terminal.");
+  if (status === 403) return t("ChatGPT đã từ chối yêu cầu. Hãy kiểm tra quyền truy cập tài khoản rồi thử lại.");
+  if (status === 404) return t("Không tìm thấy phiên hoặc dữ liệu yêu cầu.");
+  if (status === 409) return t("Trạng thái đã thay đổi. Hãy tải lại thông tin rồi thử lại.");
+  if (status === 429) return t("Yêu cầu đã chạm giới hạn hiện tại. Hãy kiểm tra mức sử dụng ChatGPT.");
+  if (status >= 500) return t("Máy chủ chưa thể hoàn tất yêu cầu. Hãy thử lại sau.");
+  return t("Không thể hoàn tất thao tác. Hãy kiểm tra trạng thái rồi thử lại.");
 }
 
 function localizedErrorMessage(code, message, status) {
@@ -152,7 +152,7 @@ async function connectionRequest(path, options = {}) {
     response = await fetch(path, requestOptions);
   } catch (error) {
     if (error && error.name === "AbortError") throw error;
-    throw new ConnectionApiError("Không kết nối được với máy chủ trên máy này.", "NETWORK_ERROR");
+    throw new ConnectionApiError(t("Không kết nối được với máy chủ trên máy này."), "NETWORK_ERROR");
   }
 
   let payload = null;
@@ -171,7 +171,7 @@ async function connectionRequest(path, options = {}) {
 function formatTimestamp(value) {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return String(value || "");
-  return new Intl.DateTimeFormat("vi-VN", {
+  return new Intl.DateTimeFormat(UI_LOCALE, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
@@ -236,27 +236,27 @@ async function refreshProviderAfterAuthFailure(error) {
 }
 
 function providerStatusCopy(status) {
-  if (status === "connected") return "Đã kết nối";
-  if (status === "reconnect_required") return "Cần đăng nhập lại";
-  if (status === "disconnected") return "Chưa kết nối";
-  return "Chưa rõ trạng thái";
+  if (status === "connected") return t("Đã kết nối");
+  if (status === "reconnect_required") return t("Cần đăng nhập lại");
+  if (status === "disconnected") return t("Chưa kết nối");
+  return t("Chưa rõ trạng thái");
 }
 
 // Visible status text and the spoken equivalent for each launcher state.
 const launcherCopy = {
-  loading: ["Đang kiểm tra", "đang kiểm tra trạng thái"],
-  connected: ["Đã kết nối", "đã kết nối"],
-  reconnect_required: ["Cần đăng nhập lại", "cần đăng nhập lại"],
-  disconnected: ["Chưa kết nối", "chưa kết nối"],
-  error: ["Không khả dụng", "không đọc được trạng thái"],
+  loading: [t("Đang kiểm tra"), t("đang kiểm tra trạng thái")],
+  connected: [t("Đã kết nối"), t("đã kết nối")],
+  reconnect_required: [t("Cần đăng nhập lại"), t("cần đăng nhập lại")],
+  disconnected: [t("Chưa kết nối"), t("chưa kết nối")],
+  error: [t("Không khả dụng"), t("không đọc được trạng thái")],
 };
 
 function setLauncherState(provider, status, accountLabel = "") {
   const { button, name } = launcherElements[provider];
   const [label, spoken] = launcherCopy[status] || launcherCopy.error;
-  const account = status === "connected" ? ` với ${accountLabel || "tài khoản"}` : "";
+  const account = status === "connected" ? t(" với {account}", { account: accountLabel || t("tài khoản") }) : "";
   button.dataset.state = status;
-  button.setAttribute("aria-label", `Kết nối ${name}: ${spoken}${account}`);
+  button.setAttribute("aria-label", t("Kết nối {name}: {state}", { name, state: spoken + account }));
   button.title = `${name}: ${label}`;
 }
 
@@ -268,18 +268,18 @@ function renderEfforts(modelId, selectedEffort = "default") {
   const model = connectionState.models.find((item) => item.id === modelId);
   const supported = Array.isArray(model?.reasoning_efforts) ? model.reasoning_efforts : [];
   const labels = {
-    none: "Không suy luận (none)",
-    low: "Thấp (low)",
-    medium: "Trung bình (medium)",
+    none: t("Không suy luận (none)"),
+    low: t("Thấp (low)"),
+    medium: t("Trung bình (medium)"),
     high: "Cao (high)",
-    xhigh: "Rất cao (xhigh)",
-    max: "Tối đa (max)",
+    xhigh: t("Rất cao (xhigh)"),
+    max: t("Tối đa (max)"),
   };
   const select = connectionElements.effortSelect;
   select.replaceChildren();
   const fallback = document.createElement("option");
   fallback.value = "default";
-  fallback.textContent = "Mặc định của mô hình";
+  fallback.textContent = t("Mặc định của mô hình");
   select.append(fallback);
   for (const effort of supported) {
     if (!Object.hasOwn(labels, effort)) continue;
@@ -327,7 +327,7 @@ function renderProvider() {
   connectionElements.badge.dataset.state = badgeState;
   connectionElements.badge.textContent = statusCopy;
   connectionElements.status.textContent = statusCopy;
-  connectionElements.account.textContent = provider.account?.label || "Chưa có thông tin";
+  connectionElements.account.textContent = provider.account?.label || t("Chưa có thông tin");
 
   if (provider.verification && provider.verification.model && provider.verification.verified_at) {
     const name = modelName(provider.verification.model);
@@ -335,7 +335,7 @@ function renderProvider() {
     connectionElements.verificationSummary.textContent = `${name} · effort ${effort} · ${formatTimestamp(provider.verification.verified_at)}`;
     connectionElements.verificationRow.hidden = false;
   } else {
-    connectionElements.verificationSummary.textContent = "Chưa kiểm tra";
+    connectionElements.verificationSummary.textContent = t("Chưa kiểm tra");
     connectionElements.verificationRow.hidden = true;
   }
 
@@ -376,12 +376,12 @@ function renderModels(catalog, preferences) {
   if (!selectedModel) {
     const placeholder = document.createElement("option");
     placeholder.value = "";
-    placeholder.textContent = connectionState.models.length ? "Chọn mô hình" : "Chưa có mô hình khả dụng";
+    placeholder.textContent = connectionState.models.length ? t("Chọn mô hình") : t("Chưa có mô hình khả dụng");
     select.append(placeholder);
   } else if (!modelIsAvailable(selectedModel)) {
     const unavailable = document.createElement("option");
     unavailable.value = selectedModel;
-    unavailable.textContent = `${selectedModel} — không khả dụng với tài khoản này`;
+    unavailable.textContent = t("{model} — không khả dụng với tài khoản này", { model: selectedModel });
     unavailable.disabled = true;
     unavailable.selected = true;
     select.append(unavailable);
@@ -397,13 +397,13 @@ function renderModels(catalog, preferences) {
   renderEfforts(selectedModel, connectionState.savedEffort);
   if (selectedModel && !modelIsAvailable(selectedModel)) {
     connectionElements.modelStatus.dataset.state = "error";
-    connectionElements.modelStatus.textContent = `Mô hình đã lưu “${selectedModel}” hiện không khả dụng. Hãy chọn mô hình khác để thay đổi lựa chọn.`;
+    connectionElements.modelStatus.textContent = t("Mô hình đã lưu “{model}” hiện không khả dụng. Hãy chọn mô hình khác để thay đổi lựa chọn.", { model: selectedModel });
   } else if (selectedModel) {
     connectionElements.modelStatus.dataset.state = "";
     connectionElements.modelStatus.textContent = "";
   } else {
     connectionElements.modelStatus.dataset.state = "";
-    connectionElements.modelStatus.textContent = "Chọn mô hình rồi lưu để dùng cho ghi chú cuộc họp.";
+    connectionElements.modelStatus.textContent = t("Chọn mô hình rồi lưu để dùng cho ghi chú cuộc họp.");
   }
   updateConnectionActions();
 }
@@ -413,13 +413,13 @@ function validateAuthorizationUrl(value) {
   try {
     url = new URL(value);
   } catch {
-    throw new ConnectionApiError("Máy chủ trả về địa chỉ đăng nhập không hợp lệ.", "INVALID_AUTHORIZATION_URL");
+    throw new ConnectionApiError(t("Máy chủ trả về địa chỉ đăng nhập không hợp lệ."), "INVALID_AUTHORIZATION_URL");
   }
   if (url.protocol !== "https:" || url.hostname !== "auth.openai.com" || url.username || url.password) {
-    throw new ConnectionApiError("Địa chỉ đăng nhập không thuộc dịch vụ ChatGPT chính thức.", "INVALID_AUTHORIZATION_URL");
+    throw new ConnectionApiError(t("Địa chỉ đăng nhập không thuộc dịch vụ ChatGPT chính thức."), "INVALID_AUTHORIZATION_URL");
   }
   if (url.searchParams.has("id_token_hint")) {
-    throw new ConnectionApiError("Máy chủ không được gửi thông tin nhận dạng nhạy cảm đến trình duyệt.", "UNSAFE_AUTHORIZATION_URL");
+    throw new ConnectionApiError(t("Máy chủ không được gửi thông tin nhận dạng nhạy cảm đến trình duyệt."), "UNSAFE_AUTHORIZATION_URL");
   }
   return url.href;
 }
@@ -430,7 +430,7 @@ function reserveSignInWindow() {
     if (!popup) return null;
     popup.opener = null;
     popup.document.title = "Continue with ChatGPT";
-    popup.document.body.textContent = "Đang chuẩn bị đăng nhập ChatGPT…";
+    popup.document.body.textContent = t("Đang chuẩn bị đăng nhập ChatGPT…");
     return popup;
   } catch {
     return null;
@@ -473,7 +473,7 @@ function setPendingLogin(session) {
     expiresAt: session.expires_at,
   };
   persistPendingLogin(connectionState.activeLogin);
-  connectionElements.pendingCopy.textContent = "Đang chờ bạn hoàn tất đăng nhập trong cửa sổ ChatGPT…";
+  connectionElements.pendingCopy.textContent = t("Đang chờ bạn hoàn tất đăng nhập trong cửa sổ ChatGPT…");
   updateConnectionActions();
 }
 
@@ -487,26 +487,26 @@ function finishLogin(status, payload = null) {
   updateConnectionActions();
 
   if (status === "connected") {
-    setConnectionMessage("Đã xác thực tài khoản ChatGPT.");
+    setConnectionMessage(t("Đã xác thực tài khoản ChatGPT."));
     void loadAccountData();
     window.dispatchEvent(new CustomEvent("asr:provider-choice-changed"));
     return;
   }
   if (status === "cancelled") {
-    setConnectionMessage("Đã hủy đăng nhập ChatGPT.");
+    setConnectionMessage(t("Đã hủy đăng nhập ChatGPT."));
     return;
   }
   if (status === "expired") {
-    setConnectionMessage("Phiên đăng nhập đã hết hạn. Hãy bắt đầu lại để kết nối ChatGPT.");
+    setConnectionMessage(t("Phiên đăng nhập đã hết hạn. Hãy bắt đầu lại để kết nối ChatGPT."));
     return;
   }
   if (status === "failed") {
     const error = payload && payload.error ? payload.error : {};
     showConnectionError({
       code: typeof error.code === "string" ? error.code : "SIGN_IN_FAILED",
-      message: typeof error.message === "string" ? error.message : "Không thể hoàn tất đăng nhập ChatGPT.",
+      message: typeof error.message === "string" ? error.message : t("Không thể hoàn tất đăng nhập ChatGPT."),
     });
-    setConnectionMessage("Đăng nhập ChatGPT chưa hoàn tất.");
+    setConnectionMessage(t("Đăng nhập ChatGPT chưa hoàn tất."));
   }
 }
 
@@ -539,7 +539,7 @@ async function pollLoginSession(generation) {
       if (loginExpired(login)) {
         finishLogin("expired");
       } else {
-        connectionElements.pendingCopy.textContent = "Đang chờ bạn hoàn tất đăng nhập trong cửa sổ ChatGPT…";
+        connectionElements.pendingCopy.textContent = t("Đang chờ bạn hoàn tất đăng nhập trong cửa sổ ChatGPT…");
         scheduleLoginPoll(generation);
       }
       return;
@@ -548,11 +548,11 @@ async function pollLoginSession(generation) {
       finishLogin(session.status, session);
       return;
     }
-    throw new ConnectionApiError("Máy chủ trả về trạng thái phiên đăng nhập không hợp lệ.", "INVALID_LOGIN_STATUS");
+    throw new ConnectionApiError(t("Máy chủ trả về trạng thái phiên đăng nhập không hợp lệ."), "INVALID_LOGIN_STATUS");
   } catch (error) {
     if (generation !== connectionState.pollGeneration || !connectionState.activeLogin) return;
     showConnectionError(error, { retryPoll: true });
-    connectionElements.pendingCopy.textContent = "Chưa đọc được trạng thái đăng nhập. Bạn có thể thử kiểm tra lại.";
+    connectionElements.pendingCopy.textContent = t("Chưa đọc được trạng thái đăng nhập. Bạn có thể thử kiểm tra lại.");
   }
 }
 
@@ -573,13 +573,13 @@ async function startLogin() {
       body: {},
     });
     if (!session || session.status !== "pending" || !session.id || !session.expires_at) {
-      throw new ConnectionApiError("Máy chủ trả về phiên đăng nhập không hợp lệ.", "INVALID_LOGIN_SESSION");
+      throw new ConnectionApiError(t("Máy chủ trả về phiên đăng nhập không hợp lệ."), "INVALID_LOGIN_SESSION");
     }
     const authorizationUrl = validateAuthorizationUrl(session.authorization_url);
     setPendingLogin(session);
     if (session.replaced_previous === true) {
       setConnectionMessage(
-        "Đã thay thế phiên đăng nhập đang chờ. Hãy tiếp tục ở cửa sổ ChatGPT mới; phản hồi từ cửa sổ cũ sẽ bị bỏ qua.",
+        t("Đã thay thế phiên đăng nhập đang chờ. Hãy tiếp tục ở cửa sổ ChatGPT mới; phản hồi từ cửa sổ cũ sẽ bị bỏ qua."),
       );
     }
     const generation = ++connectionState.pollGeneration;
@@ -594,7 +594,7 @@ async function startLogin() {
     } else {
       showConnectionError({
         code: "POPUP_BLOCKED",
-        message: "Cửa sổ đăng nhập đã đóng. Hãy hủy phiên này rồi bắt đầu lại.",
+        message: t("Cửa sổ đăng nhập đã đóng. Hãy hủy phiên này rồi bắt đầu lại."),
       });
     }
     scheduleLoginPoll(generation, 500);
@@ -622,7 +622,7 @@ async function cancelLogin() {
       finishLogin(session.status, session);
       return;
     }
-    throw new ConnectionApiError("Máy chủ chưa hủy được phiên đăng nhập.", "CANCEL_NOT_CONFIRMED");
+    throw new ConnectionApiError(t("Máy chủ chưa hủy được phiên đăng nhập."), "CANCEL_NOT_CONFIRMED");
   } catch (error) {
     if (generation !== connectionState.pollGeneration) return;
     showConnectionError(error);
@@ -635,7 +635,7 @@ async function loadAccountData() {
   const generation = ++connectionState.loadGeneration;
   clearConnectionError();
   connectionElements.badge.dataset.state = "loading";
-  connectionElements.badge.textContent = "Đang kiểm tra";
+  connectionElements.badge.textContent = t("Đang kiểm tra");
   setLauncherState("chatgpt", "loading");
 
   try {
@@ -644,7 +644,7 @@ async function loadAccountData() {
     const providers = Array.isArray(payload.providers) ? payload.providers : [];
     const provider = providers.find((item) => item && item.id === "chatgpt");
     if (!provider || !["connected", "disconnected", "reconnect_required"].includes(provider.status)) {
-      throw new ConnectionApiError("Máy chủ chưa công bố trạng thái kết nối ChatGPT hợp lệ.", "INVALID_PROVIDER_STATUS");
+      throw new ConnectionApiError(t("Máy chủ chưa công bố trạng thái kết nối ChatGPT hợp lệ."), "INVALID_PROVIDER_STATUS");
     }
     connectionState.provider = provider;
     renderProvider();
@@ -669,7 +669,7 @@ async function loadAccountData() {
       connectionElements.modelSelect.replaceChildren();
       const placeholder = document.createElement("option");
       placeholder.value = "";
-      placeholder.textContent = "Kết nối ChatGPT để tải mô hình";
+      placeholder.textContent = t("Kết nối ChatGPT để tải mô hình");
       connectionElements.modelSelect.append(placeholder);
       renderEfforts("");
       connectionElements.modelStatus.textContent = "";
@@ -682,8 +682,8 @@ async function loadAccountData() {
     if (!connectionState.provider) {
       setLauncherState("chatgpt", "error");
       connectionElements.badge.dataset.state = "error";
-      connectionElements.badge.textContent = "Không khả dụng";
-      connectionElements.status.textContent = "Không đọc được trạng thái";
+      connectionElements.badge.textContent = t("Không khả dụng");
+      connectionElements.status.textContent = t("Không đọc được trạng thái");
     } else {
       renderProvider(); // the last known status stands; drop the "loading" state
     }
@@ -729,7 +729,7 @@ async function saveModel(event) {
   if (!modelIsAvailable(model) || connectionState.savingModel) return;
   clearConnectionError();
   connectionElements.modelStatus.dataset.state = "";
-  connectionElements.modelStatus.textContent = "Đang lưu mô hình…";
+  connectionElements.modelStatus.textContent = t("Đang lưu mô hình…");
   connectionState.savingModel = true;
   updateConnectionActions();
   try {
@@ -751,12 +751,15 @@ async function saveModel(event) {
     connectionElements.modelSelect.value = connectionState.selectedModel;
     renderEfforts(connectionState.selectedModel, connectionState.savedEffort);
     connectionElements.modelStatus.dataset.state = "saved";
-    connectionElements.modelStatus.textContent = `Đã lưu ${modelName(connectionState.selectedModel)} · effort ${connectionState.savedEffort} cho ghi chú cuộc họp.`;
+    connectionElements.modelStatus.textContent = t("Đã lưu {model} · effort {effort} cho ghi chú cuộc họp.", {
+      model: modelName(connectionState.selectedModel),
+      effort: connectionState.savedEffort,
+    });
     window.dispatchEvent(new CustomEvent("asr:provider-choice-changed"));
   } catch (error) {
     await refreshProviderAfterAuthFailure(error);
     connectionElements.modelStatus.dataset.state = "error";
-    connectionElements.modelStatus.textContent = "Chưa lưu được mô hình. Lựa chọn đã lưu trước đó vẫn được giữ nguyên.";
+    connectionElements.modelStatus.textContent = t("Chưa lưu được mô hình. Lựa chọn đã lưu trước đó vẫn được giữ nguyên.");
     showConnectionError(error);
   } finally {
     connectionState.savingModel = false;
@@ -770,7 +773,7 @@ async function verifyConnection() {
   if (!modelIsAvailable(model) || connectionState.verifying) return;
   clearConnectionError();
   connectionElements.verificationResult.dataset.state = "";
-  connectionElements.verificationResult.textContent = "Đang chạy một yêu cầu kiểm tra tổng hợp…";
+  connectionElements.verificationResult.textContent = t("Đang chạy một yêu cầu kiểm tra tổng hợp…");
   connectionState.verifying = true;
   updateConnectionActions();
   try {
@@ -779,7 +782,11 @@ async function verifyConnection() {
       body: { model, reasoning_effort: reasoningEffort },
     });
     connectionElements.verificationResult.dataset.state = "success";
-    connectionElements.verificationResult.textContent = `Đã xác minh ${modelName(result.model)} · effort ${result.reasoning_effort || reasoningEffort} lúc ${formatTimestamp(result.verified_at)}.`;
+    connectionElements.verificationResult.textContent = t("Đã xác minh {model} · effort {effort} lúc {time}.", {
+      model: modelName(result.model),
+      effort: result.reasoning_effort || reasoningEffort,
+      time: formatTimestamp(result.verified_at),
+    });
     if (connectionState.provider) {
       connectionState.provider.verification = {
         model: result.model,
@@ -791,7 +798,7 @@ async function verifyConnection() {
   } catch (error) {
     await refreshProviderAfterAuthFailure(error);
     connectionElements.verificationResult.dataset.state = "error";
-    connectionElements.verificationResult.textContent = "Không xác minh được kết nối. Yêu cầu không được tự động gửi lại.";
+    connectionElements.verificationResult.textContent = t("Không xác minh được kết nối. Yêu cầu không được tự động gửi lại.");
     showConnectionError(error);
   } finally {
     connectionState.verifying = false;
@@ -810,12 +817,12 @@ async function disconnectConnection() {
   if (connectionState.disconnecting) return;
   clearConnectionError();
   connectionState.disconnecting = true;
-  connectionElements.disconnectConfirmButton.textContent = "Đang ngắt kết nối…";
+  connectionElements.disconnectConfirmButton.textContent = t("Đang ngắt kết nối…");
   updateConnectionActions();
   try {
     const result = await connectionRequest("/api/providers/chatgpt/connection", { method: "DELETE" });
     if (result.status !== "disconnected") {
-      throw new ConnectionApiError("Máy chủ chưa xác nhận đã ngắt kết nối ChatGPT.", "DISCONNECT_NOT_CONFIRMED");
+      throw new ConnectionApiError(t("Máy chủ chưa xác nhận đã ngắt kết nối ChatGPT."), "DISCONNECT_NOT_CONFIRMED");
     }
     connectionState.provider = {
       ...(connectionState.provider || {}),
@@ -830,23 +837,23 @@ async function disconnectConnection() {
     connectionElements.modelSelect.replaceChildren();
     const placeholder = document.createElement("option");
     placeholder.value = "";
-      placeholder.textContent = "Kết nối ChatGPT để tải mô hình";
+      placeholder.textContent = t("Kết nối ChatGPT để tải mô hình");
     connectionElements.modelSelect.append(placeholder);
     connectionElements.disconnectConfirm.hidden = true;
     connectionElements.disconnectTrigger.hidden = false;
     renderProvider();
     window.dispatchEvent(new CustomEvent("asr:provider-choice-changed"));
     if (result.remote_revocation_confirmed === true) {
-      setConnectionMessage("Đã xóa thông tin đăng nhập trong không gian làm việc và xác nhận thu hồi quyền truy cập từ xa.");
+      setConnectionMessage(t("Đã xóa thông tin đăng nhập trong không gian làm việc và xác nhận thu hồi quyền truy cập từ xa."));
     } else {
-      setConnectionMessage("Đã ngắt kết nối trong không gian làm việc. ChatGPT chưa xác nhận thu hồi quyền từ xa; hãy kiểm tra ChatGPT → Cài đặt → Mức sử dụng.");
+      setConnectionMessage(t("Đã ngắt kết nối trong không gian làm việc. ChatGPT chưa xác nhận thu hồi quyền từ xa; hãy kiểm tra ChatGPT → Cài đặt → Mức sử dụng."));
     }
     connectionElements.signIn.focus();
   } catch (error) {
     showConnectionError(error);
   } finally {
     connectionState.disconnecting = false;
-    connectionElements.disconnectConfirmButton.textContent = "Ngắt kết nối";
+    connectionElements.disconnectConfirmButton.textContent = t("Ngắt kết nối");
     updateConnectionActions();
   }
 }
@@ -886,13 +893,13 @@ connectionElements.modelSelect.addEventListener("change", () => {
   );
   if (connectionState.selectedModel !== connectionState.savedModel) {
     connectionElements.modelStatus.dataset.state = "";
-    connectionElements.modelStatus.textContent = "Lựa chọn mới chưa được lưu.";
+    connectionElements.modelStatus.textContent = t("Lựa chọn mới chưa được lưu.");
   }
   updateConnectionActions();
 });
 connectionElements.effortSelect.addEventListener("change", () => {
   connectionElements.modelStatus.dataset.state = "";
-  connectionElements.modelStatus.textContent = "Mức suy luận mới chưa được lưu.";
+  connectionElements.modelStatus.textContent = t("Mức suy luận mới chưa được lưu.");
   updateConnectionActions();
 });
 connectionElements.modelForm.addEventListener("submit", saveModel);

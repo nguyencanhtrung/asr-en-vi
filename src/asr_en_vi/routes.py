@@ -199,6 +199,10 @@ def install_routes(
     async def design_system_css() -> FileResponse:
         return _asset_response("design-system.css", "text/css")
 
+    @app.get("/assets/i18n.js", include_in_schema=False)
+    async def i18n_js() -> FileResponse:
+        return _asset_response("i18n.js", "text/javascript")
+
     @app.get("/assets/theme.js", include_in_schema=False)
     async def theme_js() -> FileResponse:
         return _asset_response("theme.js", "text/javascript")
@@ -389,14 +393,17 @@ def install_routes(
                 '<!doctype html><html lang="vi"><meta charset="utf-8">'
                 '<meta name="viewport" content="width=device-width,initial-scale=1">'
                 "<title>ChatGPT sign-in</title><p>Không thể hoàn tất đăng nhập ChatGPT. "
-                "Trở về ASR EN VI để xem chi tiết.</p></html>"
+                "Trở về ASR EN VI để xem chi tiết.</p>"
+                '<p lang="en">Could not complete the ChatGPT sign-in. '
+                "Return to ASR EN VI for details.</p></html>"
             )
             return HTMLResponse(page, status_code=error.status_code)
         return HTMLResponse(
             '<!doctype html><html lang="vi"><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
             "<title>ChatGPT sign-in</title>"
-            "<p>Đăng nhập ChatGPT đã hoàn tất. Bạn có thể đóng thẻ này.</p></html>"
+            "<p>Đăng nhập ChatGPT đã hoàn tất. Bạn có thể đóng thẻ này.</p>"
+            '<p lang="en">ChatGPT sign-in is complete. You can close this tab.</p></html>'
         )
 
     @app.post("/api/uploads", status_code=201)

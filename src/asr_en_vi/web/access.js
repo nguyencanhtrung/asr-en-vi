@@ -18,7 +18,7 @@ const statusMessage = document.querySelector("#access-status");
 
 async function exchangeToken(token) {
   submitButton.disabled = true;
-  statusMessage.textContent = "Đang xác thực…";
+  statusMessage.textContent = t("Đang xác thực…");
   try {
     const response = await fetch("/api/access/session", {
       method: "POST",
@@ -33,10 +33,10 @@ async function exchangeToken(token) {
     }
     statusMessage.textContent =
       response.status === 401
-        ? "Token không hợp lệ. Hãy dùng link mới nhất trong terminal."
-        : "Không thể xác thực. Hãy thử lại từ link trong terminal.";
+        ? t("Token không hợp lệ. Hãy dùng link mới nhất trong terminal.")
+        : t("Không thể xác thực. Hãy thử lại từ link trong terminal.");
   } catch {
-    statusMessage.textContent = "Không kết nối được với ứng dụng trên máy này.";
+    statusMessage.textContent = t("Không kết nối được với ứng dụng trên máy này.");
   } finally {
     submitButton.disabled = false;
   }
@@ -47,7 +47,7 @@ form.addEventListener("submit", (event) => {
   const token = tokenInput.value.trim();
   tokenInput.value = "";
   if (!token) {
-    statusMessage.textContent = "Nhập access token để tiếp tục.";
+    statusMessage.textContent = t("Nhập access token để tiếp tục.");
     tokenInput.focus();
     return;
   }

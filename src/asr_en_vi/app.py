@@ -31,6 +31,7 @@ PUBLIC_ROUTES = frozenset(
         ("GET", "/assets/access.css"),
         ("GET", "/assets/access.js"),
         ("GET", "/assets/design-system.css"),
+        ("GET", "/assets/i18n.js"),
         ("GET", "/assets/theme.js"),
         ("GET", "/healthz"),
         ("HEAD", "/healthz"),

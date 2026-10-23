@@ -4,13 +4,13 @@
   const $ = (selector) => document.querySelector(selector);
   const ACTIVE_TASK_STATES = new Set(["accepted", "running", "stopping"]);
   const TASK_STATE_LABELS = {
-    accepted: "Đã nhận",
-    running: "Đang xử lý",
-    stopping: "Đang dừng",
-    succeeded: "Đã lưu",
-    failed: "Thất bại",
-    canceled: "Đã hủy",
-    interrupted: "Bị gián đoạn",
+    accepted: t("Đã nhận"),
+    running: t("Đang xử lý"),
+    stopping: t("Đang dừng"),
+    succeeded: t("Đã lưu"),
+    failed: t("Thất bại"),
+    canceled: t("Đã hủy"),
+    interrupted: t("Bị gián đoạn"),
   };
   // Position of each backend stage among the steps listed in #notes-steps (shell.html).
   const TASK_STEP_OF_STAGE = {
@@ -26,45 +26,45 @@
     saving: 3,
   };
   const STEP_STATE_LABELS = {
-    done: "Đã xong",
-    current: "Đang chạy",
-    upcoming: "Chưa tới",
+    done: t("Đã xong"),
+    current: t("Đang chạy"),
+    upcoming: t("Chưa tới"),
     unknown: "",
     failed: TASK_STATE_LABELS.failed,
     canceled: TASK_STATE_LABELS.canceled,
     interrupted: TASK_STATE_LABELS.interrupted,
   };
   const SOURCE_STATE_LABELS = {
-    current: "Nguồn hiện tại",
-    stale: "Nguồn đã thay đổi",
-    historical: "Nguồn lịch sử",
+    current: t("Nguồn hiện tại"),
+    stale: t("Nguồn đã thay đổi"),
+    historical: t("Nguồn lịch sử"),
   };
   const OUTPUT_LANGUAGE_LABELS = {
     en: "English",
-    vi: "Tiếng Việt",
+    vi: t("Tiếng Việt"),
   };
   const VIEW_MODE_KEY = "asr-en-vi:notes-view-mode";
 
   const PROVIDER_LABELS = { chatgpt: "ChatGPT", antigravity: "Google Antigravity" };
   const PROVIDER_IDS = ["chatgpt", "antigravity"];
-  const NEXT_STEP = "Hệ thống không tự đổi nhà cung cấp, tài khoản hay model. Bạn có thể chọn nhà cung cấp hoặc model khác rồi bắt đầu một lần chạy mới.";
+  const NEXT_STEP = t("Hệ thống không tự đổi nhà cung cấp, tài khoản hay model. Bạn có thể chọn nhà cung cấp hoặc model khác rồi bắt đầu một lần chạy mới.");
   // Each entry names the pinned provider; the operator decides what to do next.
   const FAILURE_MESSAGES = {
-    provider_disconnected: (name) => `${name} chưa được kết nối. Hãy kết nối lại trong phần Kết nối.`,
-    reconnect_required: (name) => `${name} cần được kết nối lại trước khi tạo notes.`,
-    connection_changed: (name) => `Kết nối ${name} đã đổi trong lúc chạy nên tác vụ dừng lại.`,
-    provider_quota: (name) => `${name} đã hết hạn mức sử dụng.`,
-    model_unavailable: (name) => `Model đã chọn không dùng được với ${name}; gói hiện tại có thể không bao gồm model này.`,
-    thinking_level_unavailable: (name) => `${name} không áp dụng được mức suy nghĩ đã chọn; tác vụ đã dừng trước khi gửi yêu cầu tiếp theo.`,
-    provider_unavailable: (name) => `${name} tạm thời không khả dụng.`,
-    provider_invalid_response: (name) => `${name} dừng mà không trả về kết quả dùng được nên không có notes mới nào được lưu.`,
-    provider_timeout: (name) => `${name} không phản hồi kịp thời gian.`,
-    notes_invalid_output: (name) => `${name} trả về notes không hợp lệ, kể cả sau một lần sửa tự động.`,
-    provider_in_use: (name) => `${name} đang được một tác vụ notes khác sử dụng.`,
-    notes_model_unselected: (name) => `Chưa chọn model cho ${name}.`,
-    notes_preference_changed: () => "Lựa chọn nhà cung cấp hoặc model đã đổi ở nơi khác nên yêu cầu chưa được gửi. Hãy xác nhận lại nhà cung cấp và model đang hiển thị rồi bấm tạo notes lần nữa.",
-    login_in_progress: (name) => `Phiên đăng nhập ${name} đang chờ. Hãy hoàn tất hoặc hủy đăng nhập trước khi tạo notes; hệ thống chưa đổi gì.`,
-    provider_busy: (name) => `${name} đang bận với một thao tác kết nối hoặc đăng nhập. Hãy hoàn tất hoặc hủy đăng nhập rồi thử lại; hệ thống chưa đổi gì.`,
+    provider_disconnected: (name) => t("{name} chưa được kết nối. Hãy kết nối lại trong phần Kết nối.", { name }),
+    reconnect_required: (name) => t("{name} cần được kết nối lại trước khi tạo notes.", { name }),
+    connection_changed: (name) => t("Kết nối {name} đã đổi trong lúc chạy nên tác vụ dừng lại.", { name }),
+    provider_quota: (name) => t("{name} đã hết hạn mức sử dụng.", { name }),
+    model_unavailable: (name) => t("Model đã chọn không dùng được với {name}; gói hiện tại có thể không bao gồm model này.", { name }),
+    thinking_level_unavailable: (name) => t("{name} không áp dụng được mức suy nghĩ đã chọn; tác vụ đã dừng trước khi gửi yêu cầu tiếp theo.", { name }),
+    provider_unavailable: (name) => t("{name} tạm thời không khả dụng.", { name }),
+    provider_invalid_response: (name) => t("{name} dừng mà không trả về kết quả dùng được nên không có notes mới nào được lưu.", { name }),
+    provider_timeout: (name) => t("{name} không phản hồi kịp thời gian.", { name }),
+    notes_invalid_output: (name) => t("{name} trả về notes không hợp lệ, kể cả sau một lần sửa tự động.", { name }),
+    provider_in_use: (name) => t("{name} đang được một tác vụ notes khác sử dụng.", { name }),
+    notes_model_unselected: (name) => t("Chưa chọn model cho {name}.", { name }),
+    notes_preference_changed: () => t("Lựa chọn nhà cung cấp hoặc model đã đổi ở nơi khác nên yêu cầu chưa được gửi. Hãy xác nhận lại nhà cung cấp và model đang hiển thị rồi bấm tạo notes lần nữa."),
+    login_in_progress: (name) => t("Phiên đăng nhập {name} đang chờ. Hãy hoàn tất hoặc hủy đăng nhập trước khi tạo notes; hệ thống chưa đổi gì.", { name }),
+    provider_busy: (name) => t("{name} đang bận với một thao tác kết nối hoặc đăng nhập. Hãy hoàn tất hoặc hủy đăng nhập rồi thử lại; hệ thống chưa đổi gì.", { name }),
   };
 
   function providerLabel(provider) {
@@ -163,12 +163,12 @@
     const detail = payload && payload.detail;
     if (typeof detail === "string" && detail.trim()) return detail.trim();
     if (detail && typeof detail.message === "string" && detail.message.trim()) return detail.message.trim();
-    if (status === 401) return "Phiên truy cập không còn hợp lệ. Hãy mở lại workspace.";
-    if (status === 403) return "Yêu cầu notes bị từ chối.";
-    if (status === 404) return "Không tìm thấy notes hoặc nguồn transcript đã lưu.";
-    if (status === 409) return "Dữ liệu đã thay đổi. Hãy tải bản mới nhất rồi thử lại.";
-    if (status >= 500) return "Máy chủ chưa thể hoàn tất yêu cầu notes.";
-    return "Máy chủ chưa thể hoàn tất yêu cầu notes.";
+    if (status === 401) return t("Phiên truy cập không còn hợp lệ. Hãy mở lại workspace.");
+    if (status === 403) return t("Yêu cầu notes bị từ chối.");
+    if (status === 404) return t("Không tìm thấy notes hoặc nguồn transcript đã lưu.");
+    if (status === 409) return t("Dữ liệu đã thay đổi. Hãy tải bản mới nhất rồi thử lại.");
+    if (status >= 500) return t("Máy chủ chưa thể hoàn tất yêu cầu notes.");
+    return t("Máy chủ chưa thể hoàn tất yêu cầu notes.");
   }
 
   async function apiJson(path, options = {}) {
@@ -186,7 +186,7 @@
       });
     } catch (error) {
       if (error && error.name === "AbortError") throw error;
-      throw new NotesApiError("Không kết nối được với máy chủ trên máy này.");
+      throw new NotesApiError(t("Không kết nối được với máy chủ trên máy này."));
     }
     let payload = null;
     try {
@@ -252,7 +252,7 @@
   function installNotesPayload(meetingId, payload) {
     const notes = unwrappedNotesPayload(payload);
     if (!notes || !Array.isArray(notes.revisions) || typeof notes.source_locked !== "boolean") {
-      throw new Error("Máy chủ không trả về trạng thái notes theo API đã công bố.");
+      throw new Error(t("Máy chủ không trả về trạng thái notes theo API đã công bố."));
     }
     const revisions = notes.revisions
       .map((revision) => normalizeRevision(revision, meetingId))
@@ -292,7 +292,7 @@
   }
 
   function sourceStateLabel(sourceState) {
-    return SOURCE_STATE_LABELS[sourceState] || "Nguồn chưa xác định";
+    return SOURCE_STATE_LABELS[sourceState] || t("Nguồn chưa xác định");
   }
 
   function outputLanguageLabel(language) {
@@ -311,7 +311,7 @@
   function revisionOptionLabel(revision, index, count) {
     const number = count - index;
     const provenance = revisionProvenance(revision);
-    return `Bản ${number} · ${sourceStateLabel(revision.source_state)}`
+    return t("Bản {number} · {source}", { number, source: sourceStateLabel(revision.source_state) })
       + (provenance.length ? ` · ${provenance.join(" / ")}` : "");
   }
 
@@ -418,8 +418,8 @@
 
   function catalogUnavailableReason(provider, status) {
     const name = providerLabel(provider);
-    if (status === "disconnected") return `${name} chưa được kết nối nên chưa tải được danh sách model.`;
-    if (status === "reconnect_required") return `${name} cần được kết nối lại nên chưa tải được danh sách model.`;
+    if (status === "disconnected") return t("{name} chưa được kết nối nên chưa tải được danh sách model.", { name });
+    if (status === "reconnect_required") return t("{name} cần được kết nối lại nên chưa tải được danh sách model.", { name });
     return "";
   }
 
@@ -469,8 +469,8 @@
           choice.catalogs[id] = null;
           const detail = error && error.payload && error.payload.detail;
           choice.catalogErrors[id] = detail && detail.code === "provider_in_use"
-            ? `${providerLabel(id)} đang chạy notes nên chưa tải lại được danh sách model. Model đã lưu vẫn được giữ.`
-            : `Chưa tải được danh sách model của ${providerLabel(id)}. Model đã lưu vẫn được giữ.`;
+            ? t("{provider} đang chạy notes nên chưa tải lại được danh sách model. Model đã lưu vẫn được giữ.", { provider: providerLabel(id) })
+            : t("Chưa tải được danh sách model của {provider}. Model đã lưu vẫn được giữ.", { provider: providerLabel(id) });
         }
       }));
       if (seq !== choice.loadSeq) return;
@@ -480,7 +480,7 @@
       if (seq !== choice.loadSeq) return;
       choice.loaded = false;
       choice.loading = false;
-      choice.message = "Chưa đọc được lựa chọn nhà cung cấp và model đã lưu. Chưa thể tạo notes mới cho tới khi tải lại được.";
+      choice.message = t("Chưa đọc được lựa chọn nhà cung cấp và model đã lưu. Chưa thể tạo notes mới cho tới khi tải lại được.");
       render();
     }
   }
@@ -505,10 +505,16 @@
       };
       const next = `${providerLabel(provider)} · ${modelName(provider, model)}`;
       choice.message = data && activeTask(data)
-        ? `Đã lưu lựa chọn ${next}. Lựa chọn này chỉ áp dụng cho lần chạy tiếp theo; tác vụ đang chạy giữ ${providerLabel(data.task.provider)} · ${data.task.model || "model đã ghim"}.`
-        : `Đã lưu lựa chọn ${next} cho lần chạy tiếp theo.`;
+        ? t("Đã lưu lựa chọn {next}. Lựa chọn này chỉ áp dụng cho lần chạy tiếp theo; tác vụ đang chạy giữ {provider} · {model}.", {
+          next,
+          provider: providerLabel(data.task.provider),
+          model: data.task.model || t("model đã ghim"),
+        })
+        : t("Đã lưu lựa chọn {next} cho lần chạy tiếp theo.", { next });
     } catch (error) {
-      choice.message = `Chưa lưu được lựa chọn: ${error && error.message ? error.message : "lỗi không xác định"} Lựa chọn đã lưu trước đó vẫn được giữ.`;
+      choice.message = t("Chưa lưu được lựa chọn: {error} Lựa chọn đã lưu trước đó vẫn được giữ.", {
+        error: error && error.message ? error.message : t("lỗi không xác định"),
+      });
     }
     choice.localProvider = null;
     choice.saving = false;
@@ -534,9 +540,9 @@
         option.textContent = text;
         modelSelect.append(option);
       };
-      if (models === null) add(readiness.model, readiness.model || "Chưa có model");
+      if (models === null) add(readiness.model, readiness.model || t("Chưa có model"));
       else {
-        if (!readiness.ready) add("", readiness.model ? "Chọn model khác" : "Chọn model");
+        if (!readiness.ready) add("", readiness.model ? t("Chọn model khác") : t("Chọn model"));
         for (const item of models) add(item.id, item.display_name);
       }
       modelSelect.dataset.optionsKey = key;
@@ -546,25 +552,29 @@
     const name = providerLabel(provider);
     let effort = provider === "chatgpt" && choice.preferences.reasoning_effort !== "default"
       ? ` · effort ${choice.preferences.reasoning_effort}` : "";
-    if (provider === "antigravity") effort = ` · mức suy nghĩ ${effortLabel(effortFor("antigravity"))}`;
+    if (provider === "antigravity") effort = t(" · mức suy nghĩ {effort}", { effort: effortLabel(effortFor("antigravity")) });
     const plan = $("#notes-run-plan");
     const reload = $("#notes-choice-reload");
     reload.hidden = choice.loaded || !state.currentMeetingId;
     reload.disabled = choice.loading;
     if (!choice.loaded && !choice.loading && !pending) {
-      plan.textContent = "Chưa đọc được lựa chọn đã lưu nên chưa thể tạo notes mới. Hãy bấm “Tải lại lựa chọn”.";
+      plan.textContent = t("Chưa đọc được lựa chọn đã lưu nên chưa thể tạo notes mới. Hãy bấm “Tải lại lựa chọn”.");
     } else if (readiness.ready && readiness.model && models !== null) {
-      plan.textContent = `Lần chạy tiếp theo dùng ${name} · ${modelName(provider, readiness.model)}${effort}.`;
+      plan.textContent = t("Lần chạy tiếp theo dùng {name} · {model}{effort}.", { name, model: modelName(provider, readiness.model), effort });
     } else if (readiness.missing) {
-      plan.textContent = `Model đã lưu “${readiness.model}” không còn trong danh sách của ${name}. Hãy chọn model khác; hệ thống không tự chọn thay.`;
+      plan.textContent = t("Model đã lưu “{model}” không còn trong danh sách của {name}. Hãy chọn model khác; hệ thống không tự chọn thay.", { model: readiness.model, name });
     } else if (models !== null) {
-      plan.textContent = `Chưa chọn model cho ${name}. Hãy chọn một model trước khi tạo notes.`;
+      plan.textContent = t("Chưa chọn model cho {name}. Hãy chọn một model trước khi tạo notes.", { name });
     } else {
-      plan.textContent = `Lần chạy tiếp theo dùng ${name}${readiness.model ? ` · ${readiness.model}${effort}` : ""}. ${choice.catalogErrors[provider]}`.trim();
+      plan.textContent = t("Lần chạy tiếp theo dùng {name}{model}. {error}", {
+        name,
+        model: readiness.model ? ` · ${readiness.model}${effort}` : "",
+        error: choice.catalogErrors[provider],
+      }).trim();
     }
     const preferenceStatus = $("#notes-preference-status");
     preferenceStatus.textContent = choice.message;
-    $("#notes-content-policy").textContent = `Ngày họp, lời thoại, mốc thời gian và tên người nói được gửi tới ${name} bằng model đã chọn. Với nguồn dài, các bản tóm tắt trung gian cũng được gửi để tổng hợp notes. File audio/video, tên cuộc họp và thông tin tài khoản không được gửi.`;
+    $("#notes-content-policy").textContent = t("Ngày họp, lời thoại, mốc thời gian và tên người nói được gửi tới {name} bằng model đã chọn. Với nguồn dài, các bản tóm tắt trung gian cũng được gửi để tổng hợp notes. File audio/video, tên cuộc họp và thông tin tài khoản không được gửi.", { name });
     // The plan line belongs to the open choice, except when the action cannot simply run and it says why.
     const stuck = needsConnection(data, provider, readiness, pending) || (!choice.loaded && !choice.loading && !pending);
     plan.hidden = !stuck && !choice.open;
@@ -616,7 +626,7 @@
     // While a run holds the source the names cannot change, so there is nothing to do first.
     $("#notes-speaker-reminder").hidden = !names.length || activeTask(data) || Boolean(data && data.sourceLocked);
     $("#notes-speaker-names").textContent = names.length
-      ? `Notes sẽ dùng tên người nói hiện tại: ${names.join(", ")}.`
+      ? t("Notes sẽ dùng tên người nói hiện tại: {names}.", { names: names.join(", ") })
       : "";
   }
 
@@ -682,10 +692,10 @@
     const task = data && data.task;
     details.hidden = !task;
     if (!task) {
-      if (data && data.readError) status.textContent = "Chưa đọc được trạng thái notes đã lưu.";
-      else if (!state.currentMeeting) status.textContent = "Mở một cuộc họp để xem hoặc tạo notes.";
-      else if (!currentGeneration(state.currentMeeting)) status.textContent = "Cần transcript hoàn chỉnh trước khi tạo notes.";
-      else status.textContent = "Transcript hoàn chỉnh đã sẵn sàng. Notes dùng nhà cung cấp và model đang chọn.";
+      if (data && data.readError) status.textContent = t("Chưa đọc được trạng thái notes đã lưu.");
+      else if (!state.currentMeeting) status.textContent = t("Mở một cuộc họp để xem hoặc tạo notes.");
+      else if (!currentGeneration(state.currentMeeting)) status.textContent = t("Cần transcript hoàn chỉnh trước khi tạo notes.");
+      else status.textContent = t("Transcript hoàn chỉnh đã sẵn sàng. Notes dùng nhà cung cấp và model đang chọn.");
       $("#notes-cancel").hidden = true;
       return;
     }
@@ -693,32 +703,32 @@
     const taskProviderName = providerLabel(taskProvider);
     renderTaskSteps(task);
     const taskEffort = taskProvider === "antigravity"
-      ? `mức suy nghĩ ${effortLabel(task.reasoning_effort === "medium" ? "medium" : "high")}`
+      ? t("mức suy nghĩ {effort}", { effort: effortLabel(task.reasoning_effort === "medium" ? "medium" : "high") })
       : (taskProvider === "chatgpt" && task.reasoning_effort
         && task.reasoning_effort !== "default" ? `effort ${task.reasoning_effort}` : "");
-    $("#notes-task-elapsed").textContent = `Đã chạy ${Math.max(0, Number(task.elapsed_seconds) || 0).toFixed(1)} giây`;
+    $("#notes-task-elapsed").textContent = t("Đã chạy {n} giây", { n: Math.max(0, Number(task.elapsed_seconds) || 0).toFixed(1) });
     $("#notes-task-provider-model").textContent = [taskProviderName, task.model, taskEffort]
       .filter(Boolean).join(" · ");
     const active = ACTIVE_TASK_STATES.has(task.status);
-    if (task.status === "accepted") status.textContent = "Tác vụ đã được nhận. Worker sẽ bắt đầu xử lý notes.";
-    else if (task.status === "running") status.textContent = `${taskProviderName} đang tạo notes. Tác vụ tiếp tục ở worker nếu bạn mở cuộc họp khác.`;
-    else if (task.status === "stopping") status.textContent = "Đã gửi yêu cầu hủy. Tác vụ vẫn giữ slot cho đến khi worker xác nhận dừng.";
-    else if (task.status === "succeeded") status.textContent = "Notes đã được lưu. Chọn revision bên dưới để xem hoặc sửa.";
+    if (task.status === "accepted") status.textContent = t("Tác vụ đã được nhận. Worker sẽ bắt đầu xử lý notes.");
+    else if (task.status === "running") status.textContent = t("{taskProviderName} đang tạo notes. Tác vụ tiếp tục ở worker nếu bạn mở cuộc họp khác.", { taskProviderName });
+    else if (task.status === "stopping") status.textContent = t("Đã gửi yêu cầu hủy. Tác vụ vẫn giữ slot cho đến khi worker xác nhận dừng.");
+    else if (task.status === "succeeded") status.textContent = t("Notes đã được lưu. Chọn revision bên dưới để xem hoặc sửa.");
     else if (task.status === "failed") {
       status.textContent = failureMessage(task.error_code, taskProvider)
         || task.error_message
-        || `Tác vụ notes bằng ${taskProviderName} thất bại. ${NEXT_STEP}`;
+        || t("Tác vụ notes bằng {provider} thất bại. {next}", { provider: taskProviderName, next: NEXT_STEP });
     }
-    else if (task.status === "canceled") status.textContent = "Worker đã xác nhận hủy tác vụ notes.";
-    else if (task.status === "interrupted") status.textContent = "Worker đã dừng giữa tác vụ notes. Không tự chạy lại.";
-    else status.textContent = "Đang đọc trạng thái tác vụ notes.";
+    else if (task.status === "canceled") status.textContent = t("Worker đã xác nhận hủy tác vụ notes.");
+    else if (task.status === "interrupted") status.textContent = t("Worker đã dừng giữa tác vụ notes. Không tự chạy lại.");
+    else status.textContent = t("Đang đọc trạng thái tác vụ notes.");
     if (task.error_message && !["failed", "interrupted"].includes(task.status)) {
       status.textContent += ` ${task.error_message}`;
     }
     const cancel = $("#notes-cancel");
     cancel.hidden = !active;
     cancel.disabled = !active || task.status === "stopping" || data.cancelInFlight;
-    cancel.textContent = task.status === "stopping" || data.cancelInFlight ? "Đang dừng…" : "Hủy tạo notes";
+    cancel.textContent = task.status === "stopping" || data.cancelInFlight ? t("Đang dừng…") : t("Hủy tạo notes");
   }
 
   function renderError(data) {
@@ -822,7 +832,7 @@
     link.dataset.meetingId = revision.meeting_id;
     link.dataset.snapshotId = revision.source_snapshot_id;
     link.dataset.segmentId = source.id;
-    link.setAttribute("aria-label", `Nghe lại đoạn nguồn lúc ${label}`);
+    link.setAttribute("aria-label", t("Nghe lại đoạn nguồn lúc {label}", { label }));
     link.textContent = label;
     return link;
   }
@@ -883,7 +893,7 @@
           invalid.textContent = unescape(match[1]);
           const reason = document.createElement("span");
           reason.className = "visually-hidden";
-          reason.textContent = " (liên kết nguồn không hợp lệ)";
+          reason.textContent = t(" (liên kết nguồn không hợp lệ)");
           invalid.append(reason);
           parent.append(invalid);
         } else if (source) {
@@ -893,7 +903,7 @@
           link.dataset.meetingId = source.meetingId;
           link.dataset.snapshotId = source.snapshotId;
           link.dataset.segmentId = source.segmentId;
-          link.setAttribute("aria-label", `Mở nguồn transcript tại ${unescape(match[1])}`);
+          link.setAttribute("aria-label", t("Mở nguồn transcript tại {time}", { time: unescape(match[1]) }));
           link.textContent = unescape(match[1]);
           parent.append(link);
         } else {
@@ -987,12 +997,12 @@
     $("#notes-copy").disabled = dirty || Boolean(draft.conflict) || busy;
     $("#notes-export").disabled = dirty || Boolean(draft.conflict) || busy;
     $("#notes-draft-status").textContent = dirty
-      ? "Có thay đổi chưa lưu. Sao chép và tải xuống chỉ dùng Markdown đã lưu."
-      : "Đang xem đúng Markdown đã lưu cho revision này.";
+      ? t("Có thay đổi chưa lưu. Sao chép và tải xuống chỉ dùng Markdown đã lưu.")
+      : t("Đang xem đúng Markdown đã lưu cho revision này.");
     $("#notes-unsaved-dot").hidden = !dirty;
     $("#notes-view-draft").hidden = !dirty || state.mode !== "view";
     const write = $("#notes-mode-write");
-    write.setAttribute("aria-label", dirty ? "Viết, có thay đổi chưa lưu" : "Viết");
+    write.setAttribute("aria-label", dirty ? t("Viết, có thay đổi chưa lưu") : t("Viết"));
   }
 
   function setViewMode(mode) {
@@ -1019,7 +1029,7 @@
     const first = document.createElement("code");
     first.textContent = revision.warnings[0].href;
     line.replaceChildren(
-      `Markdown đã lưu có ${count} liên kết nguồn không hợp lệ. Nội dung được giữ nguyên; Xem chỉ hiện chúng dưới dạng chữ và không mở nguồn nào. Liên kết đầu tiên: `,
+      t("Markdown đã lưu có {count} liên kết nguồn không hợp lệ. Nội dung được giữ nguyên; Xem chỉ hiện chúng dưới dạng chữ và không mở nguồn nào. Liên kết đầu tiên: ", { count }),
       first,
     );
   }
@@ -1036,7 +1046,7 @@
       if (data && data.selectedNoteId && !data.revisions.some((item) => item.id === data.selectedNoteId)) {
         const missing = document.createElement("option");
         missing.value = data.selectedNoteId;
-        missing.textContent = "Phiên bản đã chọn không còn trong danh sách";
+        missing.textContent = t("Phiên bản đã chọn không còn trong danh sách");
         selector.append(missing);
       }
       if (data) {
@@ -1054,7 +1064,7 @@
     applyViewMode();
     if (!revision) {
       $("#notes-revision-meta").textContent = data && data.selectedNoteId
-        ? "Phiên bản đã chọn chưa có trong danh sách notes mới nhất. Bản nháp được giữ trong phiên này."
+        ? t("Phiên bản đã chọn chưa có trong danh sách notes mới nhất. Bản nháp được giữ trong phiên này.")
         : "";
       $("#notes-preview").replaceChildren();
       $("#notes-markdown").value = "";
@@ -1068,7 +1078,7 @@
     const provenance = revisionProvenance(revision).join(" · ");
     $("#notes-revision-meta").textContent = [
       sourceStateLabel(revision.source_state),
-      `Ngôn ngữ: ${outputLanguageLabel(revision.output_language)}`,
+      t("Ngôn ngữ: {language}", { language: outputLanguageLabel(revision.output_language) }),
       provenance,
       `Edit ${revision.edit_version}`,
     ].filter(Boolean).join(" · ");
@@ -1077,7 +1087,7 @@
     renderDraftState(data, revision, draft);
     if (draft.conflict) {
       $("#notes-conflict").hidden = false;
-      $("#notes-conflict-message").textContent = `Bản đã lưu đã đổi thành edit ${draft.conflict.editVersion}. Bản nháp của bạn vẫn được giữ; chọn cách xử lý trước khi lưu.`;
+      $("#notes-conflict-message").textContent = t("Bản đã lưu đã đổi thành edit {version}. Bản nháp của bạn vẫn được giữ; chọn cách xử lý trước khi lưu.", { version: draft.conflict.editVersion });
       $("#notes-keep-draft").disabled = data.saveInFlight.has(revision.id);
       $("#notes-use-latest").disabled = data.saveInFlight.has(revision.id);
     } else {
@@ -1096,10 +1106,10 @@
     if (!needed) return;
     const task = meeting.transcription && meeting.transcription.task;
     $("#notes-empty-copy").textContent = transcriptionBusy(meeting)
-      ? "Đang chép lời. Notes tạo được sau khi transcript hoàn tất."
+      ? t("Đang chép lời. Notes tạo được sau khi transcript hoàn tất.")
       : task && ["failed", "canceled", "interrupted"].includes(task.status)
-        ? "Lần chép lời gần nhất chưa hoàn tất. Mở Transcript & bản ghi để xem chi tiết và chạy lại."
-        : "Notes được tạo từ transcript hoàn chỉnh. Chép lời bản ghi trước.";
+        ? t("Lần chép lời gần nhất chưa hoàn tất. Mở Transcript & bản ghi để xem chi tiết và chạy lại.")
+        : t("Notes được tạo từ transcript hoàn chỉnh. Chép lời bản ghi trước.");
   }
 
   function render() {
@@ -1116,7 +1126,7 @@
     renderTranscriptNeeded(meeting);
     const runButton = $("#notes-start");
     const waitForTranscript = transcriptionBusy(meeting);
-    const waitMessage = "Đang xử lý transcript. Chờ tác vụ kết thúc để tạo notes.";
+    const waitMessage = t("Đang xử lý transcript. Chờ tác vụ kết thúc để tạo notes.");
     const pending = state.currentMeetingId
       ? getPendingRequest(state.currentMeetingId, false)
       : null;
@@ -1143,12 +1153,12 @@
     runButton.disabled = !connect && !canStartNotes(meeting, data);
     runButton.title = !connect && waitForTranscript ? waitMessage : "";
     runButton.textContent = connect
-      ? `Kết nối ${providerLabel(provider)} để tạo notes`
+      ? t("Kết nối {provider} để tạo notes", { provider: providerLabel(provider) })
       : data && data.requestInFlight
-        ? "Đang gửi yêu cầu…"
+        ? t("Đang gửi yêu cầu…")
         : pending
-          ? "Xác minh yêu cầu notes"
-          : runLabel(data && data.revisions.length ? "Tạo lại notes" : "Tạo notes", outputLanguage, provider, readiness);
+          ? t("Xác minh yêu cầu notes")
+          : runLabel(data && data.revisions.length ? t("Tạo lại notes") : t("Tạo notes"), outputLanguage, provider, readiness);
     renderSpeakerReminder(meeting, data);
     renderTask(data);
     renderError(data);
@@ -1158,7 +1168,7 @@
     if (waitForTranscript) {
       $("#notes-status").textContent = waitMessage;
     } else if (data && data.runErrorUncertain) {
-      $("#notes-status").textContent = `${data.runError} Yêu cầu chưa được tự gửi lại. Bấm “Xác minh yêu cầu notes” để gửi lại cùng request ID.`;
+      $("#notes-status").textContent = t("{error} Yêu cầu chưa được tự gửi lại. Bấm “Xác minh yêu cầu notes” để gửi lại cùng request ID.", { error: data.runError });
     }
     const copyStatus = $("#notes-copy-export-status");
     if (data && data.actionMessage) copyStatus.textContent = data.actionMessage;
@@ -1187,7 +1197,7 @@
       ) return;
       const notes = meetingNotes(meetingId);
       notes.known = true;
-      notes.readError = error && error.message ? error.message : "Không thể đọc notes đã lưu.";
+      notes.readError = error && error.message ? error.message : t("Không thể đọc notes đã lưu.");
       if (!notes.sourceLockKnown && window.ASRMeetingHistory) {
         window.ASRMeetingHistory.setNotesSourceLock(meetingId, false, false);
       }
@@ -1432,9 +1442,9 @@
   function taskFromResponse(payload) {
     const task = payload && payload.task && typeof payload.task === "object" ? payload.task : payload;
     if (!task || typeof task.id !== "string" || typeof task.status !== "string") {
-      throw new Error("Máy chủ không trả về task notes hợp lệ.");
+      throw new Error(t("Máy chủ không trả về task notes hợp lệ."));
     }
-    if (task.kind !== "notes") throw new Error("Task được nhận không có kind notes theo API đã công bố.");
+    if (task.kind !== "notes") throw new Error(t("Task được nhận không có kind notes theo API đã công bố."));
     return task;
   }
 
@@ -1464,7 +1474,7 @@
       if (window.ASRMeetingHistory) {
         window.ASRMeetingHistory.setNotesSourceLock(meetingId, data.sourceLocked, true);
       }
-      data.actionMessage = "Yêu cầu notes đã được worker xác nhận.";
+      data.actionMessage = t("Yêu cầu notes đã được worker xác nhận.");
       render();
       if (ACTIVE_TASK_STATES.has(task.status)) startTaskPolling(meetingId, task);
       else await readNotes(meetingId);
@@ -1478,7 +1488,7 @@
       const mapped = definitive && detail && typeof detail === "object"
         ? failureMessage(detail.code, body.provider)
         : "";
-      data.runError = mapped || (error && error.message ? error.message : "Không thể xác nhận yêu cầu notes.");
+      data.runError = mapped || (error && error.message ? error.message : t("Không thể xác nhận yêu cầu notes."));
       data.runErrorUncertain = !definitive;
       if (mapped) void loadProviderChoice(meetingId);
       data.actionMessage = "";
@@ -1509,7 +1519,7 @@
       if (ACTIVE_TASK_STATES.has(data.task.status)) startTaskPolling(meetingId, data.task);
       else void readNotes(meetingId);
     } catch (error) {
-      data.runError = error && error.message ? error.message : "Không thể gửi yêu cầu hủy. Trạng thái worker chưa được xác nhận là đã đổi.";
+      data.runError = error && error.message ? error.message : t("Không thể gửi yêu cầu hủy. Trạng thái worker chưa được xác nhận là đã đổi.");
       data.runErrorUncertain = false;
     } finally {
       data.cancelInFlight = false;
@@ -1536,7 +1546,7 @@
       || typeof note.markdown !== "string"
       || !Number.isInteger(note.edit_version)
       || !["current", "stale", "historical"].includes(note.source_state)
-    ) throw new Error("Máy chủ không trả về revision notes hợp lệ.");
+    ) throw new Error(t("Máy chủ không trả về revision notes hợp lệ."));
     return note;
   }
 
@@ -1559,28 +1569,28 @@
         method: "PATCH",
         body: JSON.stringify({ expected_edit_version: draft.expectedEditVersion, markdown: draft.value }),
       }));
-      if (saved.id !== revision.id || saved.meeting_id !== meetingId) throw new Error("Máy chủ lưu nhầm revision notes.");
+      if (saved.id !== revision.id || saved.meeting_id !== meetingId) throw new Error(t("Máy chủ lưu nhầm revision notes."));
       replaceRevision(data, saved);
       draft.value = saved.markdown;
       draft.baselineMarkdown = saved.markdown;
       draft.expectedEditVersion = saved.edit_version;
       draft.conflict = null;
       data.runError = "";
-      data.actionMessage = "Markdown đã được lưu.";
+      data.actionMessage = t("Markdown đã được lưu.");
     } catch (error) {
       if (error instanceof NotesApiError && error.status === 409) {
         draft.conflict = { markdown: "", editVersion: draft.expectedEditVersion };
         try {
           const latest = detailFromResponse(await apiJson(`/api/notes/${encodeURIComponent(revision.id)}`));
-          if (latest.id !== revision.id || latest.meeting_id !== meetingId) throw new Error("Revision notes mới nhất không khớp.");
+          if (latest.id !== revision.id || latest.meeting_id !== meetingId) throw new Error(t("Revision notes mới nhất không khớp."));
           replaceRevision(data, latest);
           draft.conflict = { markdown: latest.markdown, editVersion: latest.edit_version };
-          data.actionMessage = "Bản đã lưu đổi ở nơi khác. Bản nháp được giữ nguyên.";
+          data.actionMessage = t("Bản đã lưu đổi ở nơi khác. Bản nháp được giữ nguyên.");
         } catch (readError) {
-          data.actionMessage = `${error.message} Bản nháp được giữ nguyên; chưa tải được phiên bản mới nhất.`;
+          data.actionMessage = t("{error} Bản nháp được giữ nguyên; chưa tải được phiên bản mới nhất.", { error: error.message });
         }
       } else {
-        data.actionMessage = error && error.message ? error.message : "Không thể lưu Markdown.";
+        data.actionMessage = error && error.message ? error.message : t("Không thể lưu Markdown.");
       }
     } finally {
       data.saveInFlight.delete(revision.id);
@@ -1608,7 +1618,7 @@
     draft.baselineMarkdown = draft.conflict.markdown;
     draft.expectedEditVersion = draft.conflict.editVersion;
     draft.conflict = null;
-    data.actionMessage = "Đã tải bản Markdown mới nhất đã lưu.";
+    data.actionMessage = t("Đã tải bản Markdown mới nhất đã lưu.");
     render();
   }
 
@@ -1619,22 +1629,22 @@
     if (!meetingId || !revision) return null;
     const draft = revisionDraft(revision);
     if (draftIsDirty(draft) || draft.conflict || data.saveInFlight.has(revision.id)) {
-      data.actionMessage = "Lưu hoặc giải quyết bản nháp trước khi sao chép hay tải xuống.";
+      data.actionMessage = t("Lưu hoặc giải quyết bản nháp trước khi sao chép hay tải xuống.");
       render();
       return null;
     }
     const noteId = revision.id;
     const currentValue = draft.value;
     const expectedVersion = draft.expectedEditVersion;
-    data.actionMessage = "Đang đọc phiên bản đã lưu mới nhất…";
+    data.actionMessage = t("Đang đọc phiên bản đã lưu mới nhất…");
     render();
     try {
       const latest = detailFromResponse(await apiJson(`/api/notes/${encodeURIComponent(noteId)}`));
-      if (latest.id !== noteId || latest.meeting_id !== meetingId) throw new Error("Revision notes mới nhất không khớp cuộc họp.");
+      if (latest.id !== noteId || latest.meeting_id !== meetingId) throw new Error(t("Revision notes mới nhất không khớp cuộc họp."));
       replaceRevision(data, latest);
       if (draft.value !== currentValue || draft.expectedEditVersion !== expectedVersion) {
         draft.conflict = { markdown: latest.markdown, editVersion: latest.edit_version };
-        data.actionMessage = "Bản nháp thay đổi trong lúc đồng bộ. Bản nháp được giữ; chưa sao chép hoặc tải xuống.";
+        data.actionMessage = t("Bản nháp thay đổi trong lúc đồng bộ. Bản nháp được giữ; chưa sao chép hoặc tải xuống.");
         render();
         return null;
       }
@@ -1645,7 +1655,7 @@
         draft.conflict = null;
       }
       if (state.currentMeetingId !== meetingId || currentNotes().selectedNoteId !== noteId) {
-        data.actionMessage = "Phiên bản notes đã đổi trong lúc đồng bộ. Hãy chọn lại để tiếp tục.";
+        data.actionMessage = t("Phiên bản notes đã đổi trong lúc đồng bộ. Hãy chọn lại để tiếp tục.");
         render();
         return null;
       }
@@ -1653,7 +1663,7 @@
       render();
       return { markdown: latest.markdown, noteId, editVersion: latest.edit_version, action };
     } catch (error) {
-      data.actionMessage = error && error.message ? error.message : "Không thể đọc bản notes đã lưu mới nhất.";
+      data.actionMessage = error && error.message ? error.message : t("Không thể đọc bản notes đã lưu mới nhất.");
       render();
       return null;
     }
@@ -1665,9 +1675,9 @@
     const data = meetingNotes(state.currentMeetingId);
     try {
       await navigator.clipboard.writeText(saved.markdown);
-      data.actionMessage = `Đã sao chép bản đã lưu · edit ${saved.editVersion}.`;
+      data.actionMessage = t("Đã sao chép bản đã lưu · edit {version}.", { version: saved.editVersion });
     } catch {
-      data.actionMessage = "Không thể truy cập clipboard. Trình duyệt chưa sao chép nội dung.";
+      data.actionMessage = t("Không thể truy cập clipboard. Trình duyệt chưa sao chép nội dung.");
     }
     render();
   }
@@ -1697,7 +1707,7 @@
     link.click();
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
-    data.actionMessage = `Đã tải bản đã lưu · edit ${saved.editVersion}.`;
+    data.actionMessage = t("Đã tải bản đã lưu · edit {version}.", { version: saved.editVersion });
     render();
   }
 
@@ -1718,11 +1728,11 @@
       : null;
     return speaker && speaker.display_name
       ? speaker.display_name
-      : speakerId || "Chưa xác định";
+      : speakerId || t("Chưa xác định");
   }
 
   function dateLabel(date) {
-    return date || "Chưa đặt ngày";
+    return date || t("Chưa đặt ngày");
   }
 
   // How the current meeting departs from the saved source, in words; "" while they agree or before the meeting loads.
@@ -1732,16 +1742,19 @@
     const notes = [];
     const generation = currentGeneration(meeting);
     if (generation && generation.id !== source.generationId) {
-      notes.push("Transcript hiện tại là một lần chép lời khác với bản chụp này, nên đoạn được đánh dấu chỉ khớp theo mốc thời gian.");
+      notes.push(t("Transcript hiện tại là một lần chép lời khác với bản chụp này, nên đoạn được đánh dấu chỉ khớp theo mốc thời gian."));
     } else if (generation) {
       const current = generation.segments.find((item) => item.id === source.segmentId);
-      if (current && current.text !== source.text) notes.push("Văn bản của đoạn này đã được sửa trong transcript hiện tại.");
+      if (current && current.text !== source.text) notes.push(t("Văn bản của đoạn này đã được sửa trong transcript hiện tại."));
       if (current && speakerForSnapshot(generation, current) !== source.speaker) {
-        notes.push("Người nói của đoạn này đã đổi trong transcript hiện tại.");
+        notes.push(t("Người nói của đoạn này đã đổi trong transcript hiện tại."));
       }
     }
     if ((meeting.meeting_date || null) !== source.meetingDate) {
-      notes.push(`Ngày họp hiện tại (${dateLabel(meeting.meeting_date || null)}) khác ngày họp trong bản chụp (${dateLabel(source.meetingDate)}).`);
+      notes.push(t("Ngày họp hiện tại ({current}) khác ngày họp trong bản chụp ({snapshot}).", {
+        current: dateLabel(meeting.meeting_date || null),
+        snapshot: dateLabel(source.meetingDate),
+      }));
     }
     return notes.join(" ");
   }
@@ -1767,7 +1780,7 @@
     state.currentSource = source;
     const root = $("#notes-source-view");
     root.hidden = false;
-    $("#notes-source-context").textContent = "Đang xem bản chụp transcript bất biến. Nội dung này không đổi khi transcript hiện tại được sửa.";
+    $("#notes-source-context").textContent = t("Đang xem bản chụp transcript bất biến. Nội dung này không đổi khi transcript hiện tại được sửa.");
     const time = $("#notes-source-time");
     time.textContent = formatSeconds(source.startSeconds);
     $("#notes-source-speaker").textContent = source.speaker;
@@ -1790,19 +1803,19 @@
     const key = `${reference.meetingId}\u0000${reference.snapshotId}\u0000${reference.segmentId}`;
     const sequence = ++state.sourceSeq;
     state.sourceKey = key;
-    $("#notes-source-status").textContent = "Đang tải bản chụp transcript đã lưu…";
+    $("#notes-source-status").textContent = t("Đang tải bản chụp transcript đã lưu…");
     try {
       let snapshot = state.sourceCache.get(reference.snapshotId);
       if (!snapshot) {
         snapshot = await apiJson(`/api/notes-sources/${encodeURIComponent(reference.snapshotId)}`);
         if (!validateSnapshot(snapshot, reference.meetingId, reference.snapshotId)) {
-          throw new Error("Bản chụp nguồn không khớp cuộc họp hoặc mã nguồn đã chọn.");
+          throw new Error(t("Bản chụp nguồn không khớp cuộc họp hoặc mã nguồn đã chọn."));
         }
         state.sourceCache.set(reference.snapshotId, snapshot);
       }
       if (sequence !== state.sourceSeq || state.currentMeetingId !== reference.meetingId) return;
       if (!validateSnapshot(snapshot, reference.meetingId, reference.snapshotId)) {
-        throw new Error("Bản chụp nguồn không khớp cuộc họp hoặc mã nguồn đã chọn.");
+        throw new Error(t("Bản chụp nguồn không khớp cuộc họp hoặc mã nguồn đã chọn."));
       }
       const segment = snapshot.segments.find((item) => item.id === reference.segmentId);
       if (
@@ -1810,9 +1823,9 @@
         || typeof segment.text !== "string"
         || !Number.isFinite(Number(segment.start_seconds))
         || Number(segment.start_seconds) < 0
-      ) throw new Error("Không tìm thấy đoạn trong bản chụp transcript đã lưu.");
+      ) throw new Error(t("Không tìm thấy đoạn trong bản chụp transcript đã lưu."));
       const source = updateSourceView(snapshot, segment, reference.meetingId);
-      $("#notes-source-status").textContent = "Đang đưa trình phát bản ghi tới mốc nguồn…";
+      $("#notes-source-status").textContent = t("Đang đưa trình phát bản ghi tới mốc nguồn…");
       let sought = false;
       let playing = false;
       if (meetings) {
@@ -1823,10 +1836,10 @@
         if (sequence !== state.sourceSeq) return;
       }
       $("#notes-source-status").textContent = !sought
-        ? "Đã mở nguồn bất biến nhưng chưa thể tua bản ghi. Dùng nút tua để thử lại."
+        ? t("Đã mở nguồn bất biến nhưng chưa thể tua bản ghi. Dùng nút tua để thử lại.")
         : playing
-          ? `Đã tua bản ghi cuộc họp tới ${formatSeconds(source.startSeconds)} và đang phát.`
-          : `Đã tua bản ghi cuộc họp tới ${formatSeconds(source.startSeconds)}. Bấm phát trên trình phát để nghe.`;
+          ? t("Đã tua bản ghi cuộc họp tới {time} và đang phát.", { time: formatSeconds(source.startSeconds) })
+          : t("Đã tua bản ghi cuộc họp tới {time}. Bấm phát trên trình phát để nghe.", { time: formatSeconds(source.startSeconds) });
     } catch (error) {
       if (sequence !== state.sourceSeq) return;
       state.currentSource = null;
@@ -1839,7 +1852,7 @@
       renderSourceDifference();
       $("#notes-source-status").textContent = error && error.message
         ? error.message
-        : "Không thể mở nguồn transcript đã lưu.";
+        : t("Không thể mở nguồn transcript đã lưu.");
       $("#notes-source-heading").focus({ preventScroll: true });
     }
   }
@@ -1903,8 +1916,8 @@
     if (!source || !window.ASRMeetingHistory) return;
     const sought = await window.ASRMeetingHistory.seekNotesSource(source);
     $("#notes-source-status").textContent = sought
-      ? `Đã tua bản ghi cuộc họp tới ${formatSeconds(source.startSeconds)}.`
-      : "Chưa thể tua bản ghi tới mốc này. Hãy kiểm tra audio đã tải xong.";
+      ? t("Đã tua bản ghi cuộc họp tới {time}.", { time: formatSeconds(source.startSeconds) })
+      : t("Chưa thể tua bản ghi tới mốc này. Hãy kiểm tra audio đã tải xong.");
     if (sought) window.ASRMeetingHistory.markNotesSource(source.segmentId, source.startSeconds);
   }
 

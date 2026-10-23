@@ -132,7 +132,7 @@ def test_language_choice_is_presented_as_a_hint_not_an_output_constraint():
 
     assert markup.count("Gợi ý ngôn ngữ") >= 3
     assert "Ngôn ngữ chính" not in markup
-    assert "`Gợi ý: ${" in script
+    assert 't("Gợi ý: {language}"' in script
 
 
 def test_worker_grace_period_exceeds_runner_worst_case_stop_time():
@@ -161,4 +161,4 @@ def test_claimed_task_starting_stage_has_a_vietnamese_label():
     script = (ROOT / "src/asr_en_vi/web/history.js").read_text(encoding="utf-8")
     labels = script.split("const TASK_STAGES = {", 1)[1].split("};", 1)[0]
 
-    assert '    starting: "Đang bắt đầu",' in labels
+    assert '    starting: t("Đang bắt đầu"),' in labels

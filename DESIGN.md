@@ -398,7 +398,7 @@ Without a complete transcript the Meeting notes tab holds one heading, **Cần t
 
 ### Navigation
 
-Navigation is a quiet ledger rail: mono wordmark, uppercase technical section labels, compact rows, and an accent-soft current state. A compact sun/moon toggle sits beside the wordmark and exposes a dynamic accessible name for the opposite theme. On mobile the rail becomes a top bar containing the brand, theme toggle, and icon-only create action.
+Navigation is a quiet ledger rail: mono wordmark, uppercase technical section labels, compact rows, and an accent-soft current state. A compact sun/moon toggle sits beside the wordmark and exposes a dynamic accessible name for the opposite theme. The language switch borrows the portfolio's pattern: a mono button in the same square box that names the other language (**EN** in Vietnamese, **VI** in English), stores the choice and reloads the page. The rail has no room for it beside the theme toggle, so in the workspace it leads the header actions; on the access page it sits left of the theme toggle. Vietnamese stays the default. On mobile the rail becomes a top bar containing the brand, theme toggle, and icon-only create action.
 
 ### Operational Status
 

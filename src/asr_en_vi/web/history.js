@@ -7,15 +7,19 @@
   const $ = (selector) => document.querySelector(selector);
   const MIN_YEAR = 1000;
   const MAX_YEAR = 9999;
-  const WEEKDAYS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
-  const LANGUAGES = { en: "English", vi: "Tiếng Việt" };
+  const WEEKDAYS = [t("T2"), t("T3"), t("T4"), t("T5"), t("T6"), t("T7"), t("CN")];
+  const MONTHS = [
+    t("Tháng 1"), t("Tháng 2"), t("Tháng 3"), t("Tháng 4"), t("Tháng 5"), t("Tháng 6"),
+    t("Tháng 7"), t("Tháng 8"), t("Tháng 9"), t("Tháng 10"), t("Tháng 11"), t("Tháng 12"),
+  ];
+  const LANGUAGES = { en: "English", vi: t("Tiếng Việt") };
   const LANGUAGE_HINTS = new Set(Object.keys(LANGUAGES));
   const REVIEW_REASON_LABELS = {
-    asr_uncertain: "Nhận dạng chưa chắc",
-    overlap: "Có lời nói chồng lấn",
-    multiple_speakers: "Nhiều người nói trong đoạn",
-    low_speaker_dominance: "Người nói chưa rõ",
-    unidentified_speaker: "Chưa xác định người nói",
+    asr_uncertain: t("Nhận dạng chưa chắc"),
+    overlap: t("Có lời nói chồng lấn"),
+    multiple_speakers: t("Nhiều người nói trong đoạn"),
+    low_speaker_dominance: t("Người nói chưa rõ"),
+    unidentified_speaker: t("Chưa xác định người nói"),
   };
   const VIEWS = {
     home: "#home-view",
@@ -59,10 +63,10 @@
   // Recording length only ("1 giờ 24 phút", "12 phút", "45 giây"); never a clock time.
   function formatRecordingDuration(seconds) {
     const whole = Math.round(seconds); // round first so 59.5 s reads "1 phút", never "60 giây"
-    if (whole < 60) return `${Math.max(1, whole)} giây`;
+    if (whole < 60) return t("{n} giây", { n: Math.max(1, whole) });
     const minutes = Math.round(whole / 60);
-    if (minutes < 60) return `${minutes} phút`;
-    return `${Math.floor(minutes / 60)} giờ ${pad(minutes % 60)} phút`;
+    if (minutes < 60) return t("{n} phút", { n: minutes });
+    return t("{h} giờ {m} phút", { h: Math.floor(minutes / 60), m: pad(minutes % 60) });
   }
 
   const today = parseKey(todayKey());
@@ -137,10 +141,10 @@
     const unavailable = sourceMutationUnavailable();
     syncMetadataLockControls();
     if (!state.notesSourceLockKnown) {
-      status.textContent = "Đang kiểm tra trạng thái khóa nguồn trước khi cho phép sửa transcript, người nói hoặc ngày họp.";
+      status.textContent = t("Đang kiểm tra trạng thái khóa nguồn trước khi cho phép sửa transcript, người nói hoặc ngày họp.");
       status.hidden = false;
     } else if (state.notesSourceLocked) {
-      status.textContent = "Nguồn đang được dùng để tạo notes. Chỉnh sửa transcript, người nói và ngày họp tạm thời bị khóa.";
+      status.textContent = t("Nguồn đang được dùng để tạo notes. Chỉnh sửa transcript, người nói và ngày họp tạm thời bị khóa.");
       status.hidden = false;
     } else {
       status.textContent = "";
@@ -274,7 +278,7 @@
   function renderTabCounts(generation) {
     const segments = generation && Array.isArray(generation.segments) ? generation.segments : null;
     $("#meeting-tab-count").textContent = segments
-      ? `${segments.length} đoạn · ${segments.filter(needsReview).length} cần kiểm tra`
+      ? t("{count} đoạn · {review} cần kiểm tra", { count: segments.length, review: segments.filter(needsReview).length })
       : "";
   }
 
@@ -283,7 +287,7 @@
     stopTaskPolling();
     resetTab();
     showView("home");
-    setHeading("Cuộc họp", "Workspace · ASR EN VI");
+    setHeading(t("Cuộc họp"), "Workspace · ASR EN VI");
     renderSidebar();
     notifyMeetingContext();
   }
@@ -328,18 +332,18 @@
   function renderSidebar() {
     const searching = state.query.trim() !== "";
     const items = searching ? state.results : state.recent;
-    $("#recent-heading").textContent = searching ? "Kết quả" : "Gần đây";
+    $("#recent-heading").textContent = searching ? t("Kết quả") : t("Gần đây");
     const noMeetings = !searching && state.total === 0;
     const noDated = !searching && state.total > 0 && state.recent.length === 0;
     const empty = $("#sidebar-empty");
     empty.hidden = !(noMeetings || noDated);
     empty.textContent = noMeetings
-      ? "Cuộc họp đã lưu sẽ xuất hiện tại đây."
-      : "Chưa có cuộc họp nào có ngày. Mở nhóm Chưa đặt ngày trong lịch.";
+      ? t("Cuộc họp đã lưu sẽ xuất hiện tại đây.")
+      : t("Chưa có cuộc họp nào có ngày. Mở nhóm Chưa đặt ngày trong lịch.");
     $("#search-error").hidden = !(searching && state.searchFailed);
     const noResults = $("#search-empty");
     noResults.hidden = !(searching && !state.searchFailed && items.length === 0);
-    noResults.textContent = `Không tìm thấy cuộc họp nào khớp “${state.query.trim()}”.`;
+    noResults.textContent = t("Không tìm thấy cuộc họp nào khớp “{query}”.", { query: state.query.trim() });
     $("#workspace-empty").hidden = state.total > 0;
 
     const openId = state.meeting && state.view === "meeting" ? state.meeting.id : null;
@@ -365,7 +369,7 @@
     title.textContent = meeting.title;
     const date = document.createElement("span");
     date.className = "link-date";
-    const parts = [meeting.meeting_date ? displayDate(meeting.meeting_date) : "Chưa đặt ngày"];
+    const parts = [meeting.meeting_date ? displayDate(meeting.meeting_date) : t("Chưa đặt ngày")];
     if (meeting.duration_seconds > 0) parts.push(formatRecordingDuration(meeting.duration_seconds));
     date.textContent = parts.join(" · ");
     link.append(title, date);
@@ -373,7 +377,7 @@
       const deletionState = document.createElement("span");
       deletionState.className = "meeting-link-deletion-state";
       deletionState.dataset.state = meeting.deletion_status;
-      deletionState.textContent = meeting.deletion_status === "failed" ? "Dọn dẹp bị lỗi" : "Đang dọn dẹp";
+      deletionState.textContent = meeting.deletion_status === "failed" ? t("Dọn dẹp bị lỗi") : t("Đang dọn dẹp");
       link.append(deletionState);
     }
     return link;
@@ -382,24 +386,24 @@
   // ---- calendars (small + large share one state) ----
   const CALENDAR_TEMPLATE = `
     <div class="cal-nav">
-      <button type="button" class="cal-step" data-step="-1" aria-label="Tháng trước">‹</button>
+      <button type="button" class="cal-step" data-step="-1" aria-label="${t("Tháng trước")}">‹</button>
       <strong class="cal-title" aria-live="polite"></strong>
-      <button type="button" class="cal-step" data-step="1" aria-label="Tháng sau">›</button>
+      <button type="button" class="cal-step" data-step="1" aria-label="${t("Tháng sau")}">›</button>
     </div>
     <div class="cal-pick">
-      <select class="cal-month" aria-label="Tháng"></select>
-      <input class="cal-year" type="number" inputmode="numeric" aria-label="Năm" min="${MIN_YEAR}" max="${MAX_YEAR}" />
-      <button type="button" class="cal-today">Hôm nay</button>
+      <select class="cal-month" aria-label="${t("Tháng")}"></select>
+      <input class="cal-year" type="number" inputmode="numeric" aria-label="${t("Năm")}" min="${MIN_YEAR}" max="${MAX_YEAR}" />
+      <button type="button" class="cal-today">${t("Hôm nay")}</button>
     </div>
     <p class="cal-summary"></p>
     <div class="cal-weekdays" aria-hidden="true">${WEEKDAYS.map((name) => `<span>${name}</span>`).join("")}</div>
     <div class="cal-days"></div>
-    <button type="button" class="cal-undated"><span>Chưa đặt ngày</span><span class="cal-undated-count"></span></button>`;
+    <button type="button" class="cal-undated"><span>${t("Chưa đặt ngày")}</span><span class="cal-undated-count"></span></button>`;
 
   function buildCalendar(root) {
     root.innerHTML = CALENDAR_TEMPLATE;
     const select = root.querySelector(".cal-month");
-    for (let month = 0; month < 12; month += 1) select.add(new Option(`Tháng ${month + 1}`, String(month)));
+    for (let month = 0; month < 12; month += 1) select.add(new Option(MONTHS[month], String(month)));
   }
 
   function meetingsByDate() {
@@ -420,7 +424,7 @@
       activeElement && root.contains(activeElement) && activeElement.classList.contains("cal-day")
         ? activeElement.dataset.date
         : null;
-    root.querySelector(".cal-title").textContent = `Tháng ${month + 1} · ${year}`;
+    root.querySelector(".cal-title").textContent = `${MONTHS[month]} · ${year}`;
     root.querySelector(".cal-month").value = String(month);
     // A background refresh must not overwrite what the user is typing in the year box.
     const yearInput = root.querySelector(".cal-year");
@@ -430,8 +434,8 @@
       (meeting) => meeting.meeting_date && meeting.meeting_date.startsWith(monthKey),
     ).length;
     root.querySelector(".cal-summary").textContent = monthCount
-      ? `${monthCount} cuộc họp trong tháng`
-      : "Không có cuộc họp trong tháng này.";
+      ? t("{count} cuộc họp trong tháng", { count: monthCount })
+      : t("Không có cuộc họp trong tháng này.");
 
     const cells = monthGrid(year, month).map((key) => {
       const meetings = byDate.get(key) || [];
@@ -449,7 +453,7 @@
       day.setAttribute("aria-pressed", String(key === selected));
       day.setAttribute(
         "aria-label",
-        `${displayDate(key)}, ${meetings.length ? `${meetings.length} cuộc họp` : "không có cuộc họp"}`,
+        `${displayDate(key)}, ${meetings.length ? t("{count} cuộc họp", { count: meetings.length }) : t("không có cuộc họp")}`,
       );
       day.tabIndex = key === selected ? 0 : -1;
       const number = document.createElement("span");
@@ -477,7 +481,7 @@
           more.type = "button";
           more.className = "cal-more";
           more.dataset.date = key;
-          more.textContent = `+${meetings.length - 2} khác`;
+          more.textContent = t("+{count} khác", { count: meetings.length - 2 });
           cell.append(more);
         }
       }
@@ -503,13 +507,13 @@
     const meetings = undated
       ? state.meetings.filter((meeting) => !meeting.meeting_date)
       : byDate.get(selected) || [];
-    $("#day-panel-title").textContent = undated ? "Chưa đặt ngày" : displayDate(selected);
+    $("#day-panel-title").textContent = undated ? t("Chưa đặt ngày") : displayDate(selected);
     $("#day-panel-count").textContent = String(meetings.length);
     const empty = $("#day-panel-empty");
     empty.hidden = meetings.length > 0;
     empty.textContent = undated
-      ? "Mọi cuộc họp đều đã có ngày."
-      : "Không có cuộc họp trong ngày này.";
+      ? t("Mọi cuộc họp đều đã có ngày.")
+      : t("Không có cuộc họp trong ngày này.");
     $("#day-panel-list").replaceChildren(
       ...meetings.map((meeting) => {
         const item = document.createElement("li");
@@ -621,7 +625,7 @@
     if (state.view === "calendar") return;
     state.loadSeq += 1; // same reason as showHome
     showView("calendar");
-    setHeading("Lịch cuộc họp", "Lịch cuộc họp · ASR EN VI");
+    setHeading(t("Lịch cuộc họp"), t("Lịch cuộc họp · ASR EN VI"));
     renderSidebar();
     renderCalendars();
     void refreshHistory();
@@ -706,7 +710,7 @@
 
   function renderMeeting(meeting) {
     // The name shows once, in #meeting-title; the page heading above it stays generic.
-    setHeading("Cuộc họp", `${meeting.title} · ASR EN VI`);
+    setHeading(t("Cuộc họp"), `${meeting.title} · ASR EN VI`);
     $("#meeting-title").textContent = meeting.title;
     const date = formatMeetingDate(meeting.meeting_date);
     const dateElement = $("#meeting-date");
@@ -736,14 +740,14 @@
       : (markerStatus || (cleanupMarked ? "failed" : "error"));
     $("#delete-meeting").disabled = state.deletionRequestPending;
     $("#delete-meeting").textContent = cleanupMarked
-      ? "Thử dọn tiếp"
-      : "Xóa cuộc họp";
+      ? t("Thử dọn tiếp")
+      : t("Xóa cuộc họp");
     if (requestPending) {
-      message.textContent = "Đang dọn dữ liệu… Nếu bị gián đoạn, hệ thống sẽ tự thử lại khi khởi động; nếu vẫn chưa xong, xử lý sự cố rồi chọn “Thử dọn tiếp”.";
+      message.textContent = t("Đang dọn dữ liệu… Nếu bị gián đoạn, hệ thống sẽ tự thử lại khi khởi động; nếu vẫn chưa xong, xử lý sự cố rồi chọn “Thử dọn tiếp”.");
     } else if (markerStatus === "failed") {
-      message.textContent = "Dọn dẹp chưa hoàn tất. Hệ thống sẽ tự thử lại khi khởi động; sau khi xử lý sự cố, hãy chọn “Thử dọn tiếp”.";
+      message.textContent = t("Dọn dẹp chưa hoàn tất. Hệ thống sẽ tự thử lại khi khởi động; sau khi xử lý sự cố, hãy chọn “Thử dọn tiếp”.");
     } else if (markerStatus === "pending") {
-      message.textContent = "Dọn dẹp chưa hoàn tất. Hệ thống sẽ thử lại khi khởi động; sau khi xử lý sự cố, hãy chọn “Thử dọn tiếp”.";
+      message.textContent = t("Dọn dẹp chưa hoàn tất. Hệ thống sẽ thử lại khi khởi động; sau khi xử lý sự cố, hãy chọn “Thử dọn tiếp”.");
     } else {
       message.textContent = deletionMessage;
     }
@@ -755,35 +759,35 @@
 
   const ACTIVE_TASK_STATES = new Set(["accepted", "running", "stopping"]);
   const TASK_STAGES = {
-    accepted: "Đã nhận",
-    starting: "Đang bắt đầu",
-    starting_runner: "Khởi chạy runner",
-    loading_model: "Nạp model local",
-    transcribing: "Đang chép lời",
-    starting_diarization: "Chuẩn bị nhận dạng người nói",
-    loading_diarization_model: "Nạp Community-1 local",
-    decoding_input: "Đọc bản ghi local",
-    diarizing: "Đang nhận dạng người nói",
-    publishing: "Lưu transcript hoàn chỉnh",
-    stopping: "Đang dừng runner",
-    complete: "Hoàn tất transcript",
-    failed: "Thất bại",
-    canceled: "Đã hủy",
-    interrupted: "Bị gián đoạn",
+    accepted: t("Đã nhận"),
+    starting: t("Đang bắt đầu"),
+    starting_runner: t("Khởi chạy runner"),
+    loading_model: t("Nạp model local"),
+    transcribing: t("Đang chép lời"),
+    starting_diarization: t("Chuẩn bị nhận dạng người nói"),
+    loading_diarization_model: t("Nạp Community-1 local"),
+    decoding_input: t("Đọc bản ghi local"),
+    diarizing: t("Đang nhận dạng người nói"),
+    publishing: t("Lưu transcript hoàn chỉnh"),
+    stopping: t("Đang dừng runner"),
+    complete: t("Hoàn tất transcript"),
+    failed: t("Thất bại"),
+    canceled: t("Đã hủy"),
+    interrupted: t("Bị gián đoạn"),
   };
   const TASK_ERROR_MESSAGES = {
-    diarization_decoder_unavailable: "Bộ giải mã âm thanh local không khả dụng. Kiểm tra dependencies âm thanh của ứng dụng.",
-    diarization_model_load_failed: "Không thể nạp model Community-1 local. Kiểm tra các model assets đã được cấp quyền và tải đầy đủ.",
-    diarization_cuda_failed: "Community-1 không chạy được trên CUDA đã chọn. Kiểm tra CUDA hoặc chọn CPU.",
-    diarization_input_decode_failed: "Không thể giải mã bản ghi. Tải lại file âm thanh hợp lệ rồi thử lại.",
-    diarization_failed: "Nhận dạng người nói thất bại. Kiểm tra worker logs rồi thử lại.",
-    publication_failed: "Không thể lưu transcript hoàn chỉnh. Kiểm tra bộ nhớ lưu trữ rồi thử lại.",
+    diarization_decoder_unavailable: t("Bộ giải mã âm thanh local không khả dụng. Kiểm tra dependencies âm thanh của ứng dụng."),
+    diarization_model_load_failed: t("Không thể nạp model Community-1 local. Kiểm tra các model assets đã được cấp quyền và tải đầy đủ."),
+    diarization_cuda_failed: t("Community-1 không chạy được trên CUDA đã chọn. Kiểm tra CUDA hoặc chọn CPU."),
+    diarization_input_decode_failed: t("Không thể giải mã bản ghi. Tải lại file âm thanh hợp lệ rồi thử lại."),
+    diarization_failed: t("Nhận dạng người nói thất bại. Kiểm tra worker logs rồi thử lại."),
+    publication_failed: t("Không thể lưu transcript hoàn chỉnh. Kiểm tra bộ nhớ lưu trữ rồi thử lại."),
   };
   const SAFE_TASK_ID = /^[0-9a-f]{32}$/;
 
   function formatElapsedSeconds(value) {
     const seconds = Math.max(0, Number(value) || 0);
-    return `${seconds.toFixed(1)} giây`;
+    return t("{n} giây", { n: seconds.toFixed(1) });
   }
 
   function formatTimestamp(secondsValue) {
@@ -819,7 +823,7 @@
       : "";
     $("#transcription-error-message").textContent = state.taskRequestError || (
       taskFailed
-        ? diagnosticMessage || task.error_message || "Tác vụ chưa hoàn tất."
+        ? diagnosticMessage || task.error_message || t("Tác vụ chưa hoàn tất.")
         : ""
     );
 
@@ -866,20 +870,20 @@
     try {
       if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("Clipboard unavailable");
       await navigator.clipboard.writeText(input.value);
-      status.textContent = "Đã sao chép lệnh.";
+      status.textContent = t("Đã sao chép lệnh.");
     } catch {
       input.focus();
       input.select();
       const copied = document.execCommand("copy");
       status.textContent = copied
-        ? "Đã sao chép lệnh."
-        : "Lệnh đã được chọn. Nhấn Ctrl+C hoặc ⌘C để sao chép.";
+        ? t("Đã sao chép lệnh.")
+        : t("Lệnh đã được chọn. Nhấn Ctrl+C hoặc ⌘C để sao chép.");
     }
   }
 
   // How a run that did not finish reads alone, and after "lần chạy mới" / "lần tạo mới".
-  const RUN_END_LABELS = { failed: "Thất bại", canceled: "Đã hủy", interrupted: "Bị gián đoạn" };
-  const NEW_RUN_END_WORDS = { failed: "thất bại", canceled: "bị hủy", interrupted: "bị gián đoạn" };
+  const RUN_END_LABELS = { failed: t("Thất bại"), canceled: t("Đã hủy"), interrupted: t("Bị gián đoạn") };
+  const NEW_RUN_END_WORDS = { failed: t("thất bại"), canceled: t("bị hủy"), interrupted: t("bị gián đoạn") };
 
   function setStatusItem(id, name, value, itemState) {
     const item = $(`#status-${id}`);
@@ -893,43 +897,44 @@
     const seconds = Number(meeting && meeting.recording && meeting.recording.duration_seconds);
     setStatusItem(
       "recording",
-      "Bản ghi",
-      seconds > 0 ? `Đã lưu · ${formatRecordingDuration(seconds)}` : "Đã lưu",
+      t("Bản ghi"),
+      seconds > 0 ? t("Đã lưu · {duration}", { duration: formatRecordingDuration(seconds) }) : t("Đã lưu"),
       "done",
     );
 
     const transcriptEnd = task && Object.hasOwn(RUN_END_LABELS, task.status) ? task.status : null;
     if (task && ACTIVE_TASK_STATES.has(task.status)) {
-      setStatusItem("transcript", "Transcript", task.status === "stopping" ? "Đang dừng" : "Đang chép lời", "active");
+      setStatusItem("transcript", "Transcript", task.status === "stopping" ? t("Đang dừng") : t("Đang chép lời"), "active");
     } else if (generation) {
       setStatusItem(
         "transcript",
         "Transcript",
-        transcriptEnd ? `Hoàn tất · lần chạy mới ${NEW_RUN_END_WORDS[transcriptEnd]}` : "Hoàn tất",
+        transcriptEnd ? t("Hoàn tất · lần chạy mới {result}", { result: NEW_RUN_END_WORDS[transcriptEnd] }) : t("Hoàn tất"),
         transcriptEnd ? "warning" : "done",
       );
     } else if (transcriptEnd) {
       setStatusItem("transcript", "Transcript", RUN_END_LABELS[transcriptEnd], transcriptEnd === "failed" ? "problem" : "warning");
     } else {
-      setStatusItem("transcript", "Transcript", "Chưa chép lời", "idle");
+      setStatusItem("transcript", "Transcript", t("Chưa chép lời"), "idle");
     }
 
     const notesEnd = Object.hasOwn(RUN_END_LABELS, state.notesTaskStatus) ? state.notesTaskStatus : null;
     if (!state.notesKnown) {
-      setStatusItem("notes", "Notes", "Đang kiểm tra", "idle");
+      setStatusItem("notes", "Notes", t("Đang kiểm tra"), "idle");
     } else if (ACTIVE_TASK_STATES.has(state.notesTaskStatus)) {
-      setStatusItem("notes", "Notes", state.notesTaskStatus === "stopping" ? "Đang dừng" : "Đang tạo", "active");
+      setStatusItem("notes", "Notes", state.notesTaskStatus === "stopping" ? t("Đang dừng") : t("Đang tạo"), "active");
     } else if (state.notesCount > 0) {
       setStatusItem(
         "notes",
         "Notes",
-        `${state.notesCount} bản${notesEnd ? ` · lần tạo mới ${NEW_RUN_END_WORDS[notesEnd]}` : ""}`,
+        t("{count} bản", { count: state.notesCount })
+          + (notesEnd ? t(" · lần tạo mới {result}", { result: NEW_RUN_END_WORDS[notesEnd] }) : ""),
         notesEnd ? "warning" : "done",
       );
     } else if (notesEnd) {
       setStatusItem("notes", "Notes", RUN_END_LABELS[notesEnd], notesEnd === "failed" ? "problem" : "warning");
     } else {
-      setStatusItem("notes", "Notes", "Chưa có", "idle");
+      setStatusItem("notes", "Notes", t("Chưa có"), "idle");
     }
   }
 
@@ -1147,21 +1152,21 @@
       if (latest && latestValue !== undefined) {
         const generation = generationsFor(state.meeting && state.meeting.transcription)
           .find((item) => item.id === generationId);
-        latest.textContent = `Bản mới nhất đã lưu: ${draftReviewValue(field, latestValue, generation)}`;
+        latest.textContent = t("Bản mới nhất đã lưu: {value}", { value: draftReviewValue(field, latestValue, generation) });
       }
       const value = draftReviewValue(field, draft.value);
-      review.querySelector(".transcript-draft-value").textContent = `Bản nháp chưa lưu: ${value}`;
+      review.querySelector(".transcript-draft-value").textContent = t("Bản nháp chưa lưu: {value}", { value });
     }
   }
 
   function transcriptSpeakerLabel(generation, speakerId) {
-    if (!speakerId) return "Chưa xác định";
+    if (!speakerId) return t("Chưa xác định");
     const speaker = generation && generation.speakers.find((item) => item.speaker_id === speakerId);
     return speaker && speaker.display_name ? speaker.display_name : speakerId;
   }
 
   function draftReviewValue(field, value, generation = null) {
-    if (field === "speakerName" && value === "") return "Khôi phục tên mặc định";
+    if (field === "speakerName" && value === "") return t("Khôi phục tên mặc định");
     if (field === "speakerAssignment") return transcriptSpeakerLabel(generation, value);
     return value;
   }
@@ -1369,7 +1374,7 @@
       button.type = "button";
       button.dataset.reloadLatest = "true";
       button.dataset.transcriptMutation = "true";
-      button.textContent = "Tải lại bản mới nhất";
+      button.textContent = t("Tải lại bản mới nhất");
       button.disabled = state.transcriptMutationInFlight || state.transcriptReloadInFlight;
       container.append(button);
     }
@@ -1395,7 +1400,7 @@
       latest.className = "transcript-latest-value";
       const generation = generationsFor(state.meeting && state.meeting.transcription)
         .find((item) => item.id === generationId);
-      latest.textContent = `Bản mới nhất đã lưu: ${draftReviewValue(field, latestValue, generation)}`;
+      latest.textContent = t("Bản mới nhất đã lưu: {value}", { value: draftReviewValue(field, latestValue, generation) });
       review.append(latest);
     }
     const draft = document.createElement("p");
@@ -1403,7 +1408,7 @@
     const generation = generationsFor(state.meeting && state.meeting.transcription)
       .find((item) => item.id === generationId);
     const reviewValue = draftReviewValue(field, value, generation);
-    draft.textContent = `Bản nháp chưa lưu: ${reviewValue}`;
+    draft.textContent = t("Bản nháp chưa lưu: {value}", { value: reviewValue });
     const copy = document.createElement("button");
     copy.className = "text-button transcript-copy-draft";
     copy.type = "button";
@@ -1411,7 +1416,7 @@
     copy.dataset.generationId = generationId;
     copy.dataset.draftField = field;
     copy.dataset.draftItemId = itemId;
-    copy.textContent = field === "speakerAssignment" ? "Xem transcript này" : "Sao chép bản nháp";
+    copy.textContent = field === "speakerAssignment" ? t("Xem transcript này") : t("Sao chép bản nháp");
     if (field === "speakerAssignment") copy.dataset.openTranscriptDraft = "true";
     const status = document.createElement("span");
     status.className = "transcript-draft-copy-status";
@@ -1499,7 +1504,7 @@
         section = document.createElement("section");
         section.className = "transcript-draft-generation";
         const heading = document.createElement("h5");
-        heading.textContent = `Bản nháp chưa lưu · Transcript #${entry.generationNumber}`;
+        heading.textContent = t("Bản nháp chưa lưu · Transcript #{number}", { number: entry.generationNumber });
         section.append(heading);
         sections.set(entry.generationId, section);
         panel.append(section);
@@ -1507,7 +1512,7 @@
       if (entry.field === "segmentText") {
         const context = document.createElement("p");
         context.className = "transcript-draft-context";
-        context.textContent = `Đoạn bắt đầu tại ${formatTimestamp(entry.startSeconds)}`;
+        context.textContent = t("Đoạn bắt đầu tại {time}", { time: formatTimestamp(entry.startSeconds) });
         section.append(
           context,
           createTranscriptDraftReview(
@@ -1521,7 +1526,7 @@
       } else if (entry.field === "speakerName") {
         const context = document.createElement("p");
         context.className = "transcript-draft-context";
-        context.textContent = `Tên người nói · ${entry.itemId}`;
+        context.textContent = t("Tên người nói · {id}", { id: entry.itemId });
         section.append(
           context,
           createTranscriptDraftReview(
@@ -1535,7 +1540,7 @@
       } else if (entry.field === "speakerAssignment") {
         const context = document.createElement("p");
         context.className = "transcript-draft-context";
-        context.textContent = `Người nói · đoạn bắt đầu tại ${formatTimestamp(entry.startSeconds)}`;
+        context.textContent = t("Người nói · đoạn bắt đầu tại {time}", { time: formatTimestamp(entry.startSeconds) });
         section.append(
           context,
           createTranscriptDraftReview(
@@ -1549,14 +1554,14 @@
       } else {
         const context = document.createElement("p");
         context.className = "transcript-draft-context";
-        context.textContent = "Tên người nói chưa được thêm";
+        context.textContent = t("Tên người nói chưa được thêm");
         const review = document.createElement("div");
         review.className = "transcript-draft-review transcript-speaker-add-draft-review";
         review.dataset.generationId = entry.generationId;
         review.dataset.draftField = "speakerAddName";
         const value = document.createElement("p");
         value.className = "transcript-draft-value";
-        value.textContent = `Tên cần thêm: ${entry.value || "(để trống; máy chủ sẽ đặt tên mặc định)"}`;
+        value.textContent = t("Tên cần thêm: {name}", { name: entry.value || t("(để trống; máy chủ sẽ đặt tên mặc định)") });
         const apply = document.createElement("button");
         apply.type = "button";
         apply.className = "secondary-button transcript-reapply-speaker-add";
@@ -1566,7 +1571,7 @@
         const current = transcription && transcription.generation;
         const draft = transcriptDraft(entry.generationId, "speakerAddName", "speaker-add-name");
         apply.disabled = !speakerAddRecoveryReady(current, draft);
-        apply.textContent = "Thêm vào transcript hiện tại";
+        apply.textContent = t("Thêm vào transcript hiện tại");
         const status = document.createElement("span");
         status.className = "transcript-speaker-add-draft-status";
         status.setAttribute("role", "status");
@@ -1587,7 +1592,7 @@
     try {
       if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("Clipboard unavailable");
       await navigator.clipboard.writeText(draft.value);
-      status.textContent = "Đã sao chép bản nháp.";
+      status.textContent = t("Đã sao chép bản nháp.");
     } catch {
       const input = document.createElement("textarea");
       input.value = draft.value;
@@ -1605,7 +1610,7 @@
       }
       input.remove();
       if (copied) {
-        status.textContent = "Đã sao chép bản nháp.";
+        status.textContent = t("Đã sao chép bản nháp.");
       } else {
         const selection = window.getSelection();
         const draftText = button.parentElement.querySelector(".transcript-draft-value");
@@ -1613,7 +1618,7 @@
         range.selectNodeContents(draftText);
         selection.removeAllRanges();
         selection.addRange(range);
-        status.textContent = "Bản nháp đã được chọn. Nhấn Ctrl+C hoặc ⌘C để sao chép.";
+        status.textContent = t("Bản nháp đã được chọn. Nhấn Ctrl+C hoặc ⌘C để sao chép.");
       }
     }
   }
@@ -1631,7 +1636,7 @@
         ? payload.meeting
         : payload;
       if (!latest || latest.id !== meetingId || !latest.transcription) {
-        throw new Error("Không tải được trạng thái transcript mới nhất.");
+        throw new Error(t("Không tải được trạng thái transcript mới nhất."));
       }
       installServerMeeting(latest);
       clearReloadLatestActions();
@@ -1644,7 +1649,7 @@
         const status = button.parentElement.querySelector(".transcript-reload-status");
         if (status) status.textContent = error && error.message
           ? error.message
-          : "Không thể tải transcript mới nhất.";
+          : t("Không thể tải transcript mới nhất.");
       }
     } finally {
       state.transcriptReloadInFlight = false;
@@ -1691,7 +1696,7 @@
         const option = document.createElement("option");
         option.value = generation.id;
         option.textContent = `Transcript #${generation.generation_number}`
-          + (current && current.id === generation.id ? " · hiện tại" : " · lịch sử");
+          + (current && current.id === generation.id ? t(" · hiện tại") : t(" · lịch sử"));
         selector.append(option);
       }
       selector.dataset.optionsKey = optionsKey;
@@ -1729,7 +1734,7 @@
     const chip = document.createElement("button");
     chip.className = "speaker-chip";
     chip.type = "button";
-    chip.title = "Đổi tên người nói";
+    chip.title = t("Đổi tên người nói");
     chip.dataset.speakerChip = "true";
     chip.dataset.speakerId = speaker.speaker_id;
     chip.dataset.generationId = generation.id;
@@ -1738,8 +1743,8 @@
     name.className = "speaker-chip-name";
     name.textContent = speaker.display_name || speaker.speaker_id;
     chip.append(name);
-    if (DEFAULT_SPEAKER_NAME.test(speaker.display_name || "")) chip.append(speakerChipMark("đặt tên"));
-    if (draft) chip.append(speakerChipMark("bản nháp"));
+    if (DEFAULT_SPEAKER_NAME.test(speaker.display_name || "")) chip.append(speakerChipMark(t("đặt tên")));
+    if (draft) chip.append(speakerChipMark(t("bản nháp")));
     return chip;
   }
 
@@ -1750,27 +1755,27 @@
     form.dataset.speakerId = speaker.speaker_id;
     form.dataset.generationId = generation.id;
     const label = document.createElement("label");
-    label.textContent = `Tên người nói · ${speaker.speaker_id}`;
+    label.textContent = t("Tên người nói · {id}", { id: speaker.speaker_id });
     const input = document.createElement("input");
     input.type = "text";
     input.maxLength = 80;
     input.autocomplete = "off";
     input.value = draft ? draft.value : speaker.display_name || "";
-    input.setAttribute("aria-label", `Tên hiển thị cho ${speaker.speaker_id}`);
+    input.setAttribute("aria-label", t("Tên hiển thị cho {id}", { id: speaker.speaker_id }));
     input.dataset.transcriptMutation = "true";
     label.append(input);
     const save = document.createElement("button");
     save.className = "secondary-button";
     save.type = "submit";
     save.dataset.transcriptMutation = "true";
-    save.textContent = "Lưu tên";
+    save.textContent = t("Lưu tên");
     const cancel = document.createElement("button");
     cancel.className = "secondary-button";
     cancel.type = "button";
     cancel.dataset.editCancel = "true";
     cancel.dataset.speakerCancel = "true";
     cancel.setAttribute("aria-keyshortcuts", "Escape");
-    cancel.textContent = "Hủy";
+    cancel.textContent = t("Hủy");
     const clear = document.createElement("button");
     clear.className = "text-button speaker-clear-name";
     clear.type = "button";
@@ -1778,7 +1783,7 @@
     clear.dataset.speakerId = speaker.speaker_id;
     clear.dataset.generationId = generation.id;
     clear.dataset.transcriptMutation = "true";
-    clear.textContent = "Khôi phục tên mặc định";
+    clear.textContent = t("Khôi phục tên mặc định");
     const status = document.createElement("p");
     status.className = "speaker-form-status";
     status.dataset.speakerStatus = speaker.speaker_id;
@@ -1899,12 +1904,12 @@
     const renderKey = `${generation.id}:${generation.source_version}:${editable}`;
     const mode = $("#generation-mode");
     mode.textContent = editable && !state.notesSourceLockKnown
-      ? "Bản hiện tại · Đang kiểm tra khóa nguồn trước khi cho phép chỉnh sửa."
+      ? t("Bản hiện tại · Đang kiểm tra khóa nguồn trước khi cho phép chỉnh sửa.")
       : editable && state.notesSourceLocked
-        ? "Bản hiện tại · Tác vụ notes đang dùng nguồn; chỉnh sửa tạm thời bị khóa."
+        ? t("Bản hiện tại · Tác vụ notes đang dùng nguồn; chỉnh sửa tạm thời bị khóa.")
         : editable
-          ? "Bản hiện tại · Bạn có thể chỉnh sửa transcript và người nói."
-          : "Bản lịch sử · Chỉ đọc.";
+          ? t("Bản hiện tại · Bạn có thể chỉnh sửa transcript và người nói.")
+          : t("Bản lịch sử · Chỉ đọc.");
     mode.classList.toggle("is-readonly", !editable || sourceMutationUnavailable());
     if (panel.dataset.renderKey === renderKey) {
       updateActiveTranscriptIntervals();
@@ -1915,9 +1920,9 @@
 
     $("#generation-title").textContent = `Transcript #${generation.generation_number}`;
     const meta = [
-      `Gợi ý: ${LANGUAGES[generation.language_hint] || generation.language_hint}`,
+      t("Gợi ý: {language}", { language: LANGUAGES[generation.language_hint] || generation.language_hint }),
       generation.model_name,
-      `${generation.segment_count} đoạn`,
+      t("{count} đoạn", { count: generation.segment_count }),
     ].filter(Boolean);
     if (typeof generation.language_probability === "number") {
       meta.push(`language_probability ${generation.language_probability.toFixed(3)}`);
@@ -1937,9 +1942,11 @@
     const originalSpeaker = document.createElement("span");
     originalSpeaker.className = "segment-original-speaker";
     originalSpeaker.dataset.originalSpeakerId = segment.original_speaker_id || "";
-    originalSpeaker.textContent = `Gán ban đầu: ${segment.original_speaker_id
-      ? speakerNames.get(segment.original_speaker_id) || segment.original_speaker_id
-      : "Chưa xác định"}`;
+    originalSpeaker.textContent = t("Gán ban đầu: {speaker}", {
+      speaker: segment.original_speaker_id
+        ? speakerNames.get(segment.original_speaker_id) || segment.original_speaker_id
+        : t("Chưa xác định"),
+    });
     return originalSpeaker;
   }
 
@@ -1954,8 +1961,8 @@
     const reviewCue = document.createElement("span");
     reviewCue.className = "segment-review-cue";
     reviewCue.textContent = reasons.length
-      ? `Cần kiểm tra · ${reasons.map((reason) => REVIEW_REASON_LABELS[reason] || reason).join(" · ")}`
-      : "Nên nghe lại";
+      ? t("Cần kiểm tra · {reasons}", { reasons: reasons.map((reason) => REVIEW_REASON_LABELS[reason] || reason).join(" · ") })
+      : t("Nên nghe lại");
     return reviewCue;
   }
 
@@ -1967,7 +1974,7 @@
     if (!measures.length) return null;
     const modelMeasures = document.createElement("span");
     modelMeasures.className = "segment-model-measures";
-    modelMeasures.textContent = `Chỉ số model, không phải độ chính xác đã hiệu chuẩn: ${measures.join(" · ")}`;
+    modelMeasures.textContent = t("Chỉ số model, không phải độ chính xác đã hiệu chuẩn: {measures}", { measures: measures.join(" · ") });
     return modelMeasures;
   }
 
@@ -1977,7 +1984,7 @@
     const details = document.createElement("details");
     details.className = "segment-details";
     const summary = document.createElement("summary");
-    summary.textContent = "Chi tiết";
+    summary.textContent = t("Chi tiết");
     details.append(summary, buildOriginalSpeaker(segment, speakerNames));
     const modelMeasures = buildModelMeasures(segment);
     if (modelMeasures) details.append(modelMeasures);
@@ -1990,10 +1997,11 @@
     button.type = "button";
     button.dataset.editSegment = "true";
     button.dataset.transcriptMutation = "true";
-    button.textContent = "Sửa";
+    button.textContent = t("Sửa");
     button.setAttribute(
       "aria-label",
-      `Sửa đoạn bắt đầu tại ${formatTimestamp(segment.start_seconds)}${hasDraft ? " (có bản nháp chưa lưu)" : ""}`,
+      t("Sửa đoạn bắt đầu tại {time}", { time: formatTimestamp(segment.start_seconds) })
+        + (hasDraft ? t(" (có bản nháp chưa lưu)") : ""),
     );
     return button;
   }
@@ -2003,7 +2011,7 @@
     const speakerControl = document.createElement("div");
     speakerControl.className = "segment-speaker-control";
     const speakerLabel = document.createElement("span");
-    speakerLabel.textContent = "Người nói";
+    speakerLabel.textContent = t("Người nói");
     const speakerSelect = document.createElement("select");
     speakerSelect.className = "segment-speaker-select";
     speakerSelect.dataset.speakerAssignment = "true";
@@ -2014,11 +2022,11 @@
     speakerSelect.dataset.transcriptMutation = "true";
     speakerSelect.setAttribute(
       "aria-label",
-      `Người nói cho đoạn bắt đầu tại ${formatTimestamp(segment.start_seconds)}`,
+      t("Người nói cho đoạn bắt đầu tại {time}", { time: formatTimestamp(segment.start_seconds) }),
     );
     const unidentified = document.createElement("option");
     unidentified.value = "";
-    unidentified.textContent = "Chưa xác định";
+    unidentified.textContent = t("Chưa xác định");
     speakerSelect.append(unidentified);
     for (const speaker of speakers) {
       const option = document.createElement("option");
@@ -2044,7 +2052,7 @@
     editor.value = draft ? draft.value : segment.text;
     editor.setAttribute(
       "aria-label",
-      `Nội dung transcript cho đoạn bắt đầu tại ${formatTimestamp(segment.start_seconds)}`,
+      t("Nội dung transcript cho đoạn bắt đầu tại {time}", { time: formatTimestamp(segment.start_seconds) }),
     );
     editor.dataset.transcriptMutation = "true";
     const actions = document.createElement("div");
@@ -2055,7 +2063,7 @@
     save.dataset.transcriptMutation = "true";
     save.setAttribute("aria-keyshortcuts", "Control+Enter Meta+Enter");
     save.title = "Ctrl/⌘+Enter";
-    save.textContent = "Lưu đoạn";
+    save.textContent = t("Lưu đoạn");
     const cancel = document.createElement("button");
     cancel.className = "secondary-button";
     cancel.type = "button";
@@ -2063,7 +2071,7 @@
     cancel.dataset.segmentCancel = "true";
     cancel.setAttribute("aria-keyshortcuts", "Escape");
     cancel.title = "Esc";
-    cancel.textContent = "Hủy";
+    cancel.textContent = t("Hủy");
     // Plain text, no role: every save is announced once, by the shared #transcript-mutation-status.
     const status = document.createElement("p");
     status.className = "segment-edit-status";
@@ -2099,7 +2107,7 @@
     timestamp.textContent = formatTimestamp(segment.start_seconds);
     timestamp.setAttribute(
       "aria-label",
-      `Phát bản ghi từ ${formatTimestamp(segment.start_seconds)}`,
+      t("Phát bản ghi từ {time}", { time: formatTimestamp(segment.start_seconds) }),
     );
 
     const head = document.createElement("div");
@@ -2112,7 +2120,7 @@
       speakerName.dataset.speakerId = segment.speaker_id || "";
       speakerName.textContent = segment.speaker_id
         ? speakerNames.get(segment.speaker_id) || segment.speaker_id
-        : "Chưa xác định";
+        : t("Chưa xác định");
       head.append(speakerName);
       if (editable) head.append(buildEditButton(segment, hasDraft));
     }
@@ -2153,7 +2161,7 @@
     } else if (hasDraft) {
       const draftMark = document.createElement("span");
       draftMark.className = "segment-draft-mark";
-      draftMark.textContent = "Bản nháp chưa lưu";
+      draftMark.textContent = t("Bản nháp chưa lưu");
       item.append(draftMark);
     }
     return item;
@@ -2231,10 +2239,10 @@
     review.dataset.draftItemId = segment.id;
     const latest = document.createElement("p");
     latest.className = "transcript-latest-value";
-    latest.textContent = `Người nói đã lưu: ${transcriptSpeakerLabel(generation, segment.speaker_id || "")}`;
+    latest.textContent = t("Người nói đã lưu: {speaker}", { speaker: transcriptSpeakerLabel(generation, segment.speaker_id || "") });
     const value = document.createElement("p");
     value.className = "transcript-draft-value";
-    value.textContent = `Lựa chọn cần xem lại: ${transcriptSpeakerLabel(generation, draft.value)}`;
+    value.textContent = t("Lựa chọn cần xem lại: {speaker}", { speaker: transcriptSpeakerLabel(generation, draft.value) });
     review.append(latest, value);
     if (editable) {
       const apply = document.createElement("button");
@@ -2245,7 +2253,7 @@
       apply.dataset.segmentId = segment.id;
       apply.dataset.transcriptMutation = "true";
       apply.disabled = Boolean(draft.conflictCode) || state.transcriptMutationInFlight;
-      apply.textContent = "Áp dụng lại lựa chọn";
+      apply.textContent = t("Áp dụng lại lựa chọn");
       const status = document.createElement("span");
       status.className = "transcript-assignment-draft-status";
       status.setAttribute("role", "status");
@@ -2262,9 +2270,9 @@
       const draft = transcriptDraft(generation.id, "speakerAssignment", segmentId);
       if (!segment || !draft) continue;
       review.querySelector(".transcript-latest-value").textContent =
-        `Người nói đã lưu: ${transcriptSpeakerLabel(generation, segment.speaker_id || "")}`;
+        t("Người nói đã lưu: {speaker}", { speaker: transcriptSpeakerLabel(generation, segment.speaker_id || "") });
       review.querySelector(".transcript-draft-value").textContent =
-        `Lựa chọn cần xem lại: ${transcriptSpeakerLabel(generation, draft.value)}`;
+        t("Lựa chọn cần xem lại: {speaker}", { speaker: transcriptSpeakerLabel(generation, draft.value) });
     }
   }
 
@@ -2313,7 +2321,7 @@
     row.classList.add("is-notes-source");
     const label = document.createElement("span");
     label.className = "segment-source-mark";
-    label.textContent = "Nguồn của mục notes";
+    label.textContent = t("Nguồn của mục notes");
     row.append(label);
     return row;
   }
@@ -2390,10 +2398,10 @@
   function transcriptMutationMessage(error, fallback) {
     const code = error && error.payload && error.payload.detail && error.payload.detail.code;
     if (code === "source_version_changed") {
-      return "Transcript đã thay đổi. Bản nháp vẫn được giữ; hãy xem lại trước khi lưu lần nữa.";
+      return t("Transcript đã thay đổi. Bản nháp vẫn được giữ; hãy xem lại trước khi lưu lần nữa.");
     }
     if (code === "current_generation_changed") {
-      return "Phiên bản này không còn là bản hiện tại. Bản nháp vẫn được giữ để xem lại và thêm vào transcript hiện tại.";
+      return t("Phiên bản này không còn là bản hiện tại. Bản nháp vẫn được giữ để xem lại và thêm vào transcript hiện tại.");
     }
     return error && error.message ? error.message : fallback;
   }
@@ -2410,8 +2418,8 @@
 
   function showTranscriptConflictNotice(generationId, code) {
     const message = code === "source_version_changed"
-      ? "Transcript đã thay đổi. Bản nháp vẫn được giữ để xem lại."
-      : "Phiên bản transcript đã đổi. Bản nháp vẫn được giữ để sao chép.";
+      ? t("Transcript đã thay đổi. Bản nháp vẫn được giữ để xem lại.")
+      : t("Phiên bản transcript đã đổi. Bản nháp vẫn được giữ để sao chép.");
     const meetingId = state.meeting && state.meeting.id;
     if (meetingId) setTranscriptMutationError(meetingId, generationId, message, true);
   }
@@ -2594,7 +2602,7 @@
     }
     const globalStatus = $("#transcript-mutation-status");
     const sameMeeting = !descriptor || !state.meeting || descriptor.meetingId === state.meeting.id;
-    globalStatus.textContent = sameMeeting ? message : "Thay đổi transcript đã hoàn tất.";
+    globalStatus.textContent = sameMeeting ? message : t("Thay đổi transcript đã hoàn tất.");
     globalStatus.hidden = false;
     return target;
   }
@@ -2650,10 +2658,10 @@
     const status = $("#transcript-mutation-status");
     if (state.transcriptMutationInFlight) {
       status.hidden = false;
-      status.textContent = "Đang lưu thay đổi transcript.";
+      status.textContent = t("Đang lưu thay đổi transcript.");
     } else {
-      if (status.textContent === "Đang lưu thay đổi transcript.") {
-        status.textContent = "Thay đổi transcript đã hoàn tất.";
+      if (status.textContent === t("Đang lưu thay đổi transcript.")) {
+        status.textContent = t("Thay đổi transcript đã hoàn tất.");
       }
       status.hidden = !status.textContent;
     }
@@ -2692,7 +2700,7 @@
     const draft = rememberTranscriptDraft(generation.id, "segmentText", segment.id, text);
     if (segment.text === text) {
       const edit = closeSegmentEditor(generation.id, segment.id);
-      reportTranscriptMutation(null, null, "Không có thay đổi.");
+      reportTranscriptMutation(null, null, t("Không có thay đổi."));
       if (edit) edit.focus();
       return;
     }
@@ -2700,7 +2708,7 @@
       reportTranscriptMutation(
         null,
         status,
-        "Transcript đã thay đổi. Xem bản mới nhất rồi chỉnh bản nháp trước khi lưu.",
+        t("Transcript đã thay đổi. Xem bản mới nhất rồi chỉnh bản nháp trước khi lưu."),
         true,
       );
       return;
@@ -2742,13 +2750,13 @@
       reportTranscriptMutation(
         state.transcriptMutationStatusDescriptor,
         status,
-        "Đã lưu.",
+        t("Đã lưu."),
       );
     } catch (error) {
       const feedbackStatus = reportTranscriptMutation(
         state.transcriptMutationStatusDescriptor,
         status,
-        transcriptMutationMessage(error, "Không thể lưu đoạn transcript."),
+        transcriptMutationMessage(error, t("Không thể lưu đoạn transcript.")),
         true,
       );
       const code = transcriptConflictCode(error);
@@ -2772,7 +2780,7 @@
     }
     for (const label of $("#transcript-segments").querySelectorAll(".segment-original-speaker")) {
       if (label.dataset.originalSpeakerId === speaker.speaker_id) {
-        label.textContent = `Gán ban đầu: ${speaker.display_name}`;
+        label.textContent = t("Gán ban đầu: {speaker}", { speaker: speaker.display_name });
       }
     }
     for (const name of $("#transcript-segments").querySelectorAll(".segment-speaker")) {
@@ -2814,7 +2822,7 @@
     );
     if (draft && draft.conflictCode === "source_version_changed") {
       status.classList.add("is-error");
-      status.textContent = "Tên người nói đã thay đổi. Xem tên mới nhất rồi chỉnh bản nháp trước khi lưu.";
+      status.textContent = t("Tên người nói đã thay đổi. Xem tên mới nhất rồi chỉnh bản nháp trước khi lưu.");
       return;
     }
     setTranscriptMutationInFlight(true, form);
@@ -2858,13 +2866,13 @@
       reportTranscriptMutation(
         state.transcriptMutationStatusDescriptor,
         status,
-        "Đã lưu tên người nói.",
+        t("Đã lưu tên người nói."),
       );
     } catch (error) {
       const feedbackStatus = reportTranscriptMutation(
         state.transcriptMutationStatusDescriptor,
         status,
-        transcriptMutationMessage(error, "Không thể lưu tên người nói."),
+        transcriptMutationMessage(error, t("Không thể lưu tên người nói.")),
         true,
       );
       const code = transcriptConflictCode(error);
@@ -2957,13 +2965,13 @@
       reportTranscriptMutation(
         state.transcriptMutationStatusDescriptor,
         status,
-        "Đã thêm người nói.",
+        t("Đã thêm người nói."),
       );
     } catch (error) {
       const feedbackStatus = reportTranscriptMutation(
         state.transcriptMutationStatusDescriptor,
         status,
-        transcriptMutationMessage(error, "Không thể thêm người nói."),
+        transcriptMutationMessage(error, t("Không thể thêm người nói.")),
         true,
       );
       const code = transcriptConflictCode(error);
@@ -3038,13 +3046,13 @@
       reportTranscriptMutation(
         state.transcriptMutationStatusDescriptor,
         status,
-        "Đã thêm người nói.",
+        t("Đã thêm người nói."),
       );
     } catch (error) {
       const feedbackStatus = reportTranscriptMutation(
         state.transcriptMutationStatusDescriptor,
         status,
-        transcriptMutationMessage(error, "Không thể thêm người nói."),
+        transcriptMutationMessage(error, t("Không thể thêm người nói.")),
         true,
       );
       const code = transcriptConflictCode(error);
@@ -3085,7 +3093,7 @@
         .querySelector(".transcript-assignment-draft-review");
       if (review) {
         const status = review.querySelector(".transcript-assignment-draft-status");
-        if (status) status.textContent = "Tải bản mới nhất để xem lựa chọn rồi áp dụng lại.";
+        if (status) status.textContent = t("Tải bản mới nhất để xem lựa chọn rồi áp dụng lại.");
       }
       return;
     }
@@ -3142,10 +3150,10 @@
       reportTranscriptMutation(
         state.transcriptMutationStatusDescriptor,
         null,
-        "Đã lưu lựa chọn người nói.",
+        t("Đã lưu lựa chọn người nói."),
       );
     } catch (error) {
-      const message = transcriptMutationMessage(error, "Không thể lưu người nói.");
+      const message = transcriptMutationMessage(error, t("Không thể lưu người nói."));
       const code = error && error.payload && error.payload.detail && error.payload.detail.code;
       const isConflict = Boolean(
         transcriptConflictCode(error)
@@ -3216,11 +3224,11 @@
     } else if (device === "cpu") {
       $("#runtime-backend").textContent = `CPU fallback · ${runtime.compute_type}`;
     } else {
-      $("#runtime-backend").textContent = "Worker chưa sẵn sàng";
+      $("#runtime-backend").textContent = t("Worker chưa sẵn sàng");
     }
     $("#runtime-model").textContent = runtime && runtime.model_name
       ? runtime.model_name
-      : "Chưa xác định";
+      : t("Chưa xác định");
   }
 
   function validLanguageHint(value) {
@@ -3236,7 +3244,7 @@
   }
 
   function taskStageLabel(task) {
-    return TASK_STAGES[task.stage] || task.stage || "Chưa bắt đầu";
+    return TASK_STAGES[task.stage] || task.stage || t("Chưa bắt đầu");
   }
 
   // The bar is the share of the recording already transcribed; without a usable duration it is
@@ -3273,36 +3281,36 @@
 
     startButton.hidden = active;
     startButton.disabled = state.taskRequestInFlight || sourceMutationUnavailable();
-    startButton.textContent = generation ? "Chạy lại bản ghi" : "Bắt đầu chép lời";
+    startButton.textContent = generation ? t("Chạy lại bản ghi") : t("Bắt đầu chép lời");
     // The first run is the decisive action; running again over a transcript is not.
     startButton.classList.toggle("primary-button", !generation);
     startButton.classList.toggle("secondary-button", Boolean(generation));
     cancelButton.hidden = !active;
     cancelButton.disabled = !task || task.status === "stopping";
-    cancelButton.textContent = task && task.status === "stopping" ? "Đang dừng…" : "Hủy chép lời";
+    cancelButton.textContent = task && task.status === "stopping" ? t("Đang dừng…") : t("Hủy chép lời");
     renderTaskProgress(active ? task : null);
     measurements.hidden = !task;
     renderTaskError(task);
 
     if (!task) {
       $("#transcription-status").textContent = generation
-        ? "Transcript hoàn chỉnh đã được lưu. Bạn có thể nghe lại các mốc hoặc chủ động chạy lại bản ghi."
-        : "Bản ghi đã lưu. Bấm “Bắt đầu chép lời” khi bạn muốn chạy nhận dạng local.";
+        ? t("Transcript hoàn chỉnh đã được lưu. Bạn có thể nghe lại các mốc hoặc chủ động chạy lại bản ghi.")
+        : t("Bản ghi đã lưu. Bấm “Bắt đầu chép lời” khi bạn muốn chạy nhận dạng local.");
     } else {
       const statusText = {
-        accepted: "Tác vụ đã được nhận. Worker sẽ bắt đầu xử lý.",
-        running: "Đang chép lời bằng model local. Tác vụ tiếp tục nếu bạn đóng tab.",
-        stopping: "Đang dừng và thu hồi runner. Slot chỉ được nhường sau khi runner đã kết thúc.",
-        succeeded: "Transcript đã được lưu hoàn chỉnh. Kết quả của lần chép lời là transcript_only.",
-        failed: task.error_message || "Tác vụ thất bại. Transcript hoàn chỉnh trước đó vẫn được giữ.",
-        canceled: "Đã hủy sau khi runner dừng. Transcript hoàn chỉnh trước đó vẫn được giữ.",
-        interrupted: "Worker đã dừng giữa tác vụ. Không tự chạy lại; hãy bấm để thử lại.",
+        accepted: t("Tác vụ đã được nhận. Worker sẽ bắt đầu xử lý."),
+        running: t("Đang chép lời bằng model local. Tác vụ tiếp tục nếu bạn đóng tab."),
+        stopping: t("Đang dừng và thu hồi runner. Slot chỉ được nhường sau khi runner đã kết thúc."),
+        succeeded: t("Transcript đã được lưu hoàn chỉnh. Kết quả của lần chép lời là transcript_only."),
+        failed: task.error_message || t("Tác vụ thất bại. Transcript hoàn chỉnh trước đó vẫn được giữ."),
+        canceled: t("Đã hủy sau khi runner dừng. Transcript hoàn chỉnh trước đó vẫn được giữ."),
+        interrupted: t("Worker đã dừng giữa tác vụ. Không tự chạy lại; hãy bấm để thử lại."),
       };
       $("#transcription-status").textContent = workerChecking
         ? task.status === "accepted"
-          ? "Đang kiểm tra worker trước khi bắt đầu xử lý."
-          : "Đang kiểm tra worker vì heartbeat tác vụ đã cũ."
-        : statusText[task.status] || "Đang tải trạng thái tác vụ.";
+          ? t("Đang kiểm tra worker trước khi bắt đầu xử lý.")
+          : t("Đang kiểm tra worker vì heartbeat tác vụ đã cũ.")
+        : statusText[task.status] || t("Đang tải trạng thái tác vụ.");
       $("#task-stage").textContent = taskStageLabel(task);
       $("#task-elapsed").textContent = formatElapsedSeconds(task.elapsed_seconds);
       $("#task-segment-count").textContent = String(task.segment_count || 0);
@@ -3488,24 +3496,24 @@
           try {
             await refreshMeetingTranscription(meetingId);
           } catch {
-            $("#transcription-status").textContent = "Tác vụ đã hoàn tất; không tải được transcript mới. Mở lại cuộc họp để thử lại.";
+            $("#transcription-status").textContent = t("Tác vụ đã hoàn tất; không tải được transcript mới. Mở lại cuộc họp để thử lại.");
           }
         }
       }
     } catch {
       if (state.taskPollId !== taskId) return;
-      $("#transcription-status").textContent = "Tạm mất kết nối khi đọc tiến độ. Tác vụ vẫn thuộc worker; đang thử đọc lại.";
+      $("#transcription-status").textContent = t("Tạm mất kết nối khi đọc tiến độ. Tác vụ vẫn thuộc worker; đang thử đọc lại.");
       scheduleTaskPoll(meetingId, taskId, 3000);
     }
   }
 
   // Reasons an automatic start was refused; the manual button stays for a deliberate retry.
   const AUTO_START_REASONS = {
-    system_busy: "Máy đang bận vì một tác vụ khác đang chạy.",
-    processing_unavailable: "Slot xử lý của máy chưa sẵn sàng.",
-    worker_unavailable: "Worker chép lời chưa sẵn sàng.",
-    model_unavailable: "Model chép lời local chưa được chuẩn bị.",
-    diarization_model_unavailable: "Model nhận dạng người nói chưa được chuẩn bị.",
+    system_busy: t("Máy đang bận vì một tác vụ khác đang chạy."),
+    processing_unavailable: t("Slot xử lý của máy chưa sẵn sàng."),
+    worker_unavailable: t("Worker chép lời chưa sẵn sàng."),
+    model_unavailable: t("Model chép lời local chưa được chuẩn bị."),
+    diarization_model_unavailable: t("Model nhận dạng người nói chưa được chuẩn bị."),
   };
 
   // The create dialog leaves a one-shot key for a meeting it saved with "Chép lời ngay" on.
@@ -3551,15 +3559,15 @@
         && requestError.status < 500;
       if (definitiveError) clearPendingTaskRequestId(meeting.id);
       const retryGuidance = definitiveError
-        ? "Bấm lại để gửi một yêu cầu mới."
-        : "Bấm lại để xác minh bằng cùng request ID và ngôn ngữ gợi ý.";
+        ? t("Bấm lại để gửi một yêu cầu mới.")
+        : t("Bấm lại để xác minh bằng cùng request ID và ngôn ngữ gợi ý.");
       const code = requestError && requestError.payload && requestError.payload.detail
         ? requestError.payload.detail.code
         : "";
       state.taskRequestError = auto && Object.hasOwn(AUTO_START_REASONS, code)
-        ? `${AUTO_START_REASONS[code]} Cuộc họp đã được lưu nhưng chưa chép lời. Ứng dụng không tự thử lại; bấm “Bắt đầu chép lời” khi máy sẵn sàng.`
-        : `${requestError && requestError.message ? requestError.message : "Không thể xác nhận yêu cầu."} ${retryGuidance}`;
-      $("#transcription-status").textContent = "Chưa xác nhận được việc nhận tác vụ. Yêu cầu chưa được tự gửi lại.";
+        ? t("{reason} Cuộc họp đã được lưu nhưng chưa chép lời. Ứng dụng không tự thử lại; bấm “Bắt đầu chép lời” khi máy sẵn sàng.", { reason: AUTO_START_REASONS[code] })
+        : `${requestError && requestError.message ? requestError.message : t("Không thể xác nhận yêu cầu.")} ${retryGuidance}`;
+      $("#transcription-status").textContent = t("Chưa xác nhận được việc nhận tác vụ. Yêu cầu chưa được tự gửi lại.");
     } finally {
       state.taskRequestInFlight = false;
       if (state.meeting && state.meeting.id === meeting.id) renderTranscription(state.meeting.transcription);
@@ -3584,7 +3592,7 @@
     } catch (requestError) {
       state.taskRequestError = requestError && requestError.message
         ? requestError.message
-        : "Không thể gửi yêu cầu hủy. Trạng thái tác vụ chưa được thay đổi trên giao diện.";
+        : t("Không thể gửi yêu cầu hủy. Trạng thái tác vụ chưa được thay đổi trên giao diện.");
       renderTranscription(meeting.transcription);
     }
   }
@@ -3610,7 +3618,7 @@
       renderMeeting(state.meeting); // show what we already know while the refresh runs
       showView("meeting");
     } else {
-      setHeading("Cuộc họp", "Cuộc họp · ASR EN VI");
+      setHeading(t("Cuộc họp"), t("Cuộc họp · ASR EN VI"));
       showView("loading");
     }
     try {
@@ -3618,9 +3626,9 @@
       if (sequence !== state.loadSeq) return false;
       let meeting = payload && payload.meeting && typeof payload.meeting === "object" ? payload.meeting : payload;
       if (!meeting || typeof meeting.title !== "string" || typeof meeting.id !== "string") {
-        throw new Error("Máy chủ không trả về metadata cuộc họp hợp lệ.");
+        throw new Error(t("Máy chủ không trả về metadata cuộc họp hợp lệ."));
       }
-      if (!LANGUAGES[meeting.language_hint]) throw new Error("Cuộc họp chưa có gợi ý ngôn ngữ hợp lệ.");
+      if (!LANGUAGES[meeting.language_hint]) throw new Error(t("Cuộc họp chưa có gợi ý ngôn ngữ hợp lệ."));
       // A read issued before a save landed can answer after it; never step back a version.
       const known = state.meeting;
       if (known && known.id === meeting.id && known.metadata_version > meeting.metadata_version) meeting = known;
@@ -3647,8 +3655,8 @@
       return true;
     } catch (error) {
       if (sequence !== state.loadSeq) return false;
-      const message = error instanceof ApiError ? error.message : (error && error.message) || "Không thể tải dữ liệu cuộc họp.";
-      showMeetingError(`${message} Hãy kiểm tra phiên truy cập hoặc mở lại cuộc họp từ workspace.`);
+      const message = error instanceof ApiError ? error.message : (error && error.message) || t("Không thể tải dữ liệu cuộc họp.");
+      showMeetingError(t("{message} Hãy kiểm tra phiên truy cập hoặc mở lại cuộc họp từ workspace.", { message }));
       return true;
     }
   }
@@ -3666,8 +3674,8 @@
       meeting.deletion_status || (deletionFailure && deletionFailure.cleanupMarked),
     );
     confirmButton.textContent = cleanupMarked
-      ? "Thử dọn tiếp"
-      : "Xóa dữ liệu đã lưu";
+      ? t("Thử dọn tiếp")
+      : t("Xóa dữ liệu đã lưu");
     confirmButton.disabled = true;
     $("#meeting-delete-dialog").showModal();
     $("#meeting-delete-confirmation").focus();
@@ -3683,7 +3691,7 @@
     $("#meeting-delete-error").textContent = "";
     $("#meeting-delete-error").hidden = true;
     confirmButton.disabled = true;
-    confirmButton.textContent = "Đang dọn dữ liệu…";
+    confirmButton.textContent = t("Đang dọn dữ liệu…");
     state.deletionRequestPending = true;
     state.deletionRequestMeetingId = meetingId;
     state.deletionFailures.delete(meetingId);
@@ -3694,7 +3702,7 @@
           method: "DELETE",
         });
         if (result.meeting_id !== meetingId || result.status !== "deleted") {
-          throw new Error("Máy chủ chưa xác nhận việc xóa cuộc họp.");
+          throw new Error(t("Máy chủ chưa xác nhận việc xóa cuộc họp."));
         }
       } catch (error) {
         const code = error instanceof ApiError
@@ -3734,15 +3742,15 @@
       state.deletionRequestMeetingId = null;
       const failureMessage = error && error.message
         ? error.message
-        : "Không thể xác nhận trạng thái dọn dẹp. Hãy tải lại cuộc họp để kiểm tra.";
+        : t("Không thể xác nhận trạng thái dọn dẹp. Hãy tải lại cuộc họp để kiểm tra.");
       const code = error instanceof ApiError
         && error.payload
         && error.payload.detail
         && error.payload.detail.code;
       const userMessage = code === "meeting_task_active"
-        ? "Cuộc họp còn tác vụ đang chạy. Hãy hủy chép lời hoặc tạo notes, rồi chờ trạng thái kết thúc trước khi xóa."
+        ? t("Cuộc họp còn tác vụ đang chạy. Hãy hủy chép lời hoặc tạo notes, rồi chờ trạng thái kết thúc trước khi xóa.")
         : code === "meeting_deletion_cleanup_failed"
-          ? "Dọn dẹp chưa hoàn tất. Yêu cầu đã được lưu để thử lại khi khởi động; khắc phục lỗi lưu trữ rồi thử lại."
+          ? t("Dọn dẹp chưa hoàn tất. Yêu cầu đã được lưu để thử lại khi khởi động; khắc phục lỗi lưu trữ rồi thử lại.")
           : failureMessage;
       const cleanupMarked = code === "meeting_deletion_cleanup_failed";
       state.deletionFailures.set(meetingId, { message: userMessage, cleanupMarked });
@@ -3762,7 +3770,7 @@
         const errorPanel = $("#meeting-delete-error");
         errorPanel.textContent = userMessage;
         errorPanel.hidden = false;
-        confirmButton.textContent = cleanupMarked ? "Thử dọn tiếp" : "Xóa dữ liệu đã lưu";
+        confirmButton.textContent = cleanupMarked ? t("Thử dọn tiếp") : t("Xóa dữ liệu đã lưu");
         $("#meeting-delete-confirmation").value = "";
         confirmButton.disabled = true;
       }
@@ -3798,7 +3806,7 @@
     $("#edit-date").value = meeting.meeting_date || "";
     $("#edit-status").textContent = "";
     $("#edit-conflict").hidden = true;
-    $("#edit-save").textContent = "Lưu thay đổi";
+    $("#edit-save").textContent = t("Lưu thay đổi");
     showEditError("");
     $("#meeting-edit").hidden = false;
     $("#edit-meeting").hidden = true;
@@ -3817,19 +3825,19 @@
     if (!draft) return;
     const title = $("#edit-title").value.trim();
     if (!title || Array.from(title).length > 200) {
-      showEditError("Tên cuộc họp phải có từ 1 đến 200 ký tự.");
+      showEditError(t("Tên cuộc họp phải có từ 1 đến 200 ký tự."));
       return;
     }
     // A half-typed date reads as "" but is not a deletion: only "Xóa ngày" or an
     // empty field removes the date.
     if ($("#edit-date").validity.badInput) {
-      showEditError("Ngày họp chưa đầy đủ hoặc không hợp lệ. Nhập đủ ngày, tháng, năm hoặc bấm “Xóa ngày” để bỏ ngày.");
+      showEditError(t("Ngày họp chưa đầy đủ hoặc không hợp lệ. Nhập đủ ngày, tháng, năm hoặc bấm “Xóa ngày” để bỏ ngày."));
       $("#edit-date").focus();
       return;
     }
     const meetingDate = $("#edit-date").value || null;
     if (meetingDate !== draft.original.meeting_date && sourceMutationUnavailable()) {
-      showEditError("Ngày họp đang bị khóa để giữ nguyên nguồn của notes. Tên cuộc họp vẫn có thể được lưu sau khi trả ngày về giá trị ban đầu.");
+      showEditError(t("Ngày họp đang bị khóa để giữ nguyên nguồn của notes. Tên cuộc họp vẫn có thể được lưu sau khi trả ngày về giá trị ban đầu."));
       syncMetadataLockControls();
       return;
     }
@@ -3858,7 +3866,7 @@
       if (sameSession()) {
         installServerMeeting(updated);
         closeEditor();
-        $("#edit-status").textContent = "Đã lưu tên và ngày họp.";
+        $("#edit-status").textContent = t("Đã lưu tên và ngày họp.");
         if (state.view === "meeting") {
           renderMeeting(updated);
           $("#meeting-actions").focus();
@@ -3868,7 +3876,7 @@
     } catch (error) {
       const code = error instanceof ApiError && error.payload && error.payload.detail ? error.payload.detail.code : "";
       if (code === "stale_version") await showConflict(id, sameSession);
-      else if (sameSession()) showEditError(error && error.message ? error.message : "Không thể lưu thay đổi.");
+      else if (sameSession()) showEditError(error && error.message ? error.message : t("Không thể lưu thay đổi."));
     } finally {
       if (saveId === state.saveSeq) setEditorBusy(false);
     }
@@ -3899,14 +3907,20 @@
       draft.version = current.metadata_version;
       installServerMeeting(current);
       if (state.view === "meeting") renderMeeting(current);
-      const date = current.meeting_date ? displayDate(current.meeting_date) : "Chưa đặt ngày";
-      const kept = [titleEdited && "tên", dateEdited && "ngày họp"].filter(Boolean).join(" và ");
-      conflict.textContent = `Cuộc họp đã được cập nhật ở nơi khác: “${current.title}” · ${date}. ${kept ? `Bản nháp ${kept} của bạn vẫn được giữ; lưu lại để ghi đè phần đó` : "Bạn chưa sửa trường nào khác bản đã lưu"}, hoặc hủy để dùng bản đã lưu.`;
-      $("#edit-save").textContent = "Lưu bản nháp lên bản mới nhất";
+      const date = current.meeting_date ? displayDate(current.meeting_date) : t("Chưa đặt ngày");
+      const kept = [titleEdited && t("tên"), dateEdited && t("ngày họp")].filter(Boolean).join(t(" và "));
+      conflict.textContent = t("Cuộc họp đã được cập nhật ở nơi khác: “{title}” · {date}. {kept}, hoặc hủy để dùng bản đã lưu.", {
+        title: current.title,
+        date,
+        kept: kept
+          ? t("Bản nháp {fields} của bạn vẫn được giữ; lưu lại để ghi đè phần đó", { fields: kept })
+          : t("Bạn chưa sửa trường nào khác bản đã lưu"),
+      });
+      $("#edit-save").textContent = t("Lưu bản nháp lên bản mới nhất");
       void refreshHistory();
     } catch {
       if (!sameSession()) return;
-      conflict.textContent = "Cuộc họp đã được cập nhật ở nơi khác và chưa tải được bản mới. Bản nháp của bạn được giữ nguyên.";
+      conflict.textContent = t("Cuộc họp đã được cập nhật ở nơi khác và chưa tải được bản mới. Bản nháp của bạn được giữ nguyên.");
     }
     conflict.hidden = false;
   }
@@ -4020,7 +4034,7 @@
     // The opener sits in the closed actions menu, so focus falls back to the menu toggle.
     if (state.view === "meeting" && document.activeElement === document.body) $("#meeting-actions").focus();
     $("#meeting-delete-confirmation").value = "";
-    $("#meeting-delete-confirm").textContent = "Xóa dữ liệu đã lưu";
+    $("#meeting-delete-confirm").textContent = t("Xóa dữ liệu đã lưu");
     $("#meeting-delete-confirm").disabled = true;
   });
   $("#edit-cancel").addEventListener("click", () => {
