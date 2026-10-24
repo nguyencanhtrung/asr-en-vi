@@ -5,7 +5,7 @@ description = "Local-first meeting notes workspace"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "av>=11,<19",
+    "av>=11,<20",
     "fastapi>=0.115,<1.0",
     "faster-whisper==1.2.1",
     "httpx>=0.28,<1.0",
@@ -14,7 +14,7 @@ dependencies = [
     "qrcode>=8.0,<9.0",
     "torch==2.11.0",
     "torchaudio==2.11.0",
-    "torchcodec==0.11.1",
+    "torchcodec==0.17.0",
     "uvicorn>=0.34,<1.0",
 ]
 
