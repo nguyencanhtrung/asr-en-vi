@@ -8,6 +8,7 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
+import torch
 from seeding import prepare_diarization_model
 
 from asr_en_vi import diarization_runner
@@ -39,6 +40,86 @@ def _install_pipeline_modules(monkeypatch, pipeline):
     monkeypatch.setitem(sys.modules, "torch", torch)
 
 
+def _audio_samples(frames=16000, *, channels=1, sample_rate=16000):
+    # torchcodec 0.11.1 AudioSamples (torchcodec/_frame.py): data is a float32 tensor shaped
+    # (num_channels, num_samples) and sample_rate is an int. The tensor is real; only the runner's
+    # own `torch` import is faked.
+    return SimpleNamespace(data=torch.zeros(channels, frames), sample_rate=sample_rate)
+
+
+def _decoder_returning(samples):
+    # torchcodec 0.11.1 AudioDecoder(source, *, stream_index, sample_rate, num_channels) and
+    # get_all_samples() -> AudioSamples (torchcodec/decoders/_audio_decoder.py).
+    class FakeAudioDecoder:
+        calls = []
+
+        def __init__(self, source, **kwargs):
+            self.calls.append(("init", source, kwargs))
+
+        def get_all_samples(self):
+            self.calls.append(("get_all_samples",))
+            return samples
+
+    return FakeAudioDecoder
+
+
+class _OpenFails:
+    def __init__(self, *_args, **_kwargs):
+        raise RuntimeError("decoder internals with /private/path")
+
+
+class _DecodeFails:
+    def __init__(self, *_args, **_kwargs):
+        pass
+
+    def get_all_samples(self):
+        raise RuntimeError("decoder internals with /private/path")
+
+
+def _install_audio_decoder(monkeypatch, decoder_type):
+    torchcodec_package = ModuleType("torchcodec")
+    torchcodec_package.__path__ = []
+    torchcodec_decoders = ModuleType("torchcodec.decoders")
+    torchcodec_decoders.AudioDecoder = decoder_type
+    monkeypatch.setitem(sys.modules, "torchcodec", torchcodec_package)
+    monkeypatch.setitem(sys.modules, "torchcodec.decoders", torchcodec_decoders)
+
+
+class _NoTurns:
+    def itertracks(self, *, yield_label):
+        return iter(())
+
+
+class _SpyPipeline:
+    """Records what it is called with and returns an empty diarization."""
+
+    def __init__(self):
+        self.inputs = []
+
+    def to(self, _device):
+        return self
+
+    def __call__(self, source):
+        self.inputs.append(source)
+        return SimpleNamespace(
+            speaker_diarization=_NoTurns(),
+            exclusive_speaker_diarization=_NoTurns(),
+        )
+
+
+def _diarize_with_fakes(tmp_path, monkeypatch, *, decoder_type, pipeline, events):
+    audio_path = tmp_path / "recording.m4a"
+    audio_path.write_bytes(b"local audio")
+    _install_pipeline_modules(monkeypatch, pipeline)
+    _install_audio_decoder(monkeypatch, decoder_type)
+    diarize_file(
+        model_path=_prepared_model(tmp_path / "model"),
+        audio_path=audio_path,
+        device="cpu",
+        emit=events.append,
+    )
+
+
 def test_runner_requires_a_prepared_local_community_directory(tmp_path):
     with pytest.raises(DiarizationConfigurationError):
         prepared_diarization_directory(tmp_path / "community-1")
@@ -57,6 +138,8 @@ def test_runner_loads_local_pipeline_with_telemetry_and_network_disabled(tmp_pat
     model_dir = _prepared_model(tmp_path / "model")
     audio_path = tmp_path / "recording.m4a"
     audio_path.write_bytes(b"local audio")
+    samples = _audio_samples()
+    decoder_type = _decoder_returning(samples)
     observed = {}
 
     class Annotation:
@@ -70,21 +153,10 @@ def test_runner_loads_local_pipeline_with_telemetry_and_network_disabled(tmp_pat
             return self
 
         def __call__(self, source):
-            observed["audio"] = source
+            observed["pipeline_input"] = source
             return SimpleNamespace(
                 speaker_diarization=Annotation(),
                 exclusive_speaker_diarization=Annotation(),
-            )
-
-    class FakeAudioDecoder:
-        def __init__(self, source):
-            observed["audio_path"] = source
-
-        def get_samples_played_in_range(self, *, start_seconds, stop_seconds):
-            observed["decode_range"] = (start_seconds, stop_seconds)
-            return SimpleNamespace(
-                data=SimpleNamespace(numel=lambda: 16000),
-                sample_rate=16000,
             )
 
     class FakePipelineType:
@@ -98,17 +170,12 @@ def test_runner_loads_local_pipeline_with_telemetry_and_network_disabled(tmp_pat
     pyannote_package.__path__ = []
     pyannote_audio = ModuleType("pyannote.audio")
     pyannote_audio.Pipeline = FakePipelineType
-    torchcodec_package = ModuleType("torchcodec")
-    torchcodec_package.__path__ = []
-    torchcodec_decoders = ModuleType("torchcodec.decoders")
-    torchcodec_decoders.AudioDecoder = FakeAudioDecoder
     torch = ModuleType("torch")
     torch.device = lambda name: f"device:{name}"
     monkeypatch.setitem(sys.modules, "pyannote", pyannote_package)
     monkeypatch.setitem(sys.modules, "pyannote.audio", pyannote_audio)
-    monkeypatch.setitem(sys.modules, "torchcodec", torchcodec_package)
-    monkeypatch.setitem(sys.modules, "torchcodec.decoders", torchcodec_decoders)
     monkeypatch.setitem(sys.modules, "torch", torch)
+    _install_audio_decoder(monkeypatch, decoder_type)
     monkeypatch.setenv("HF_TOKEN", "setup-only-token")
     events = []
 
@@ -119,13 +186,19 @@ def test_runner_loads_local_pipeline_with_telemetry_and_network_disabled(tmp_pat
         emit=events.append,
     )
 
+    pipeline_input = observed.pop("pipeline_input")
+    assert isinstance(pipeline_input, dict)
+    assert pipeline_input.keys() == {"waveform", "sample_rate"}
+    assert pipeline_input["waveform"] is samples.data
+    assert pipeline_input["sample_rate"] == 16000
+    assert decoder_type.calls == [
+        ("init", str(audio_path.resolve()), {"sample_rate": 16000, "num_channels": 1}),
+        ("get_all_samples",),
+    ]
     assert observed == {
         "model_path": str(model_dir.resolve()),
         "token": False,
         "device": "device:cuda",
-        "audio_path": str(audio_path.resolve()),
-        "decode_range": (0.0, 1.0),
-        "audio": str(audio_path.resolve()),
     }
     assert events[0] == {"type": "stage", "stage": "loading_diarization_model"}
     assert events[1] == {"type": "stage", "stage": "decoding_input"}
@@ -248,19 +321,104 @@ def test_cuda_move_failure_uses_cuda_phase_code(tmp_path, monkeypatch):
     assert str(raised.value) == DIARIZATION_ERROR_MESSAGES[raised.value.code]
 
 
-def test_input_decode_failure_uses_its_phase_code(tmp_path):
-    class BrokenDecoder:
-        def __init__(self, _path):
-            pass
+def test_decoder_resamples_and_downmixes_the_whole_recording_in_one_pass(tmp_path):
+    samples = _audio_samples()
+    decoder_type = _decoder_returning(samples)
+    audio_path = tmp_path / "recording.m4a"
 
-        def get_samples_played_in_range(self, **_kwargs):
-            raise RuntimeError("decoder internals with /private/path")
+    waveform = diarization_runner._decode_waveform(audio_path, decoder_type)
 
+    assert waveform is samples.data
+    assert decoder_type.calls == [
+        ("init", str(audio_path), {"sample_rate": 16000, "num_channels": 1}),
+        ("get_all_samples",),
+    ]
+
+
+@pytest.mark.parametrize(
+    "decoder_type",
+    [
+        pytest.param(_OpenFails, id="open-fails"),
+        pytest.param(_DecodeFails, id="decode-fails"),
+        pytest.param(_decoder_returning(_audio_samples(frames=0)), id="no-samples"),
+        pytest.param(_decoder_returning(_audio_samples(channels=2)), id="not-mono"),
+        pytest.param(_decoder_returning(_audio_samples(sample_rate=48000)), id="wrong-rate"),
+        pytest.param(
+            _decoder_returning(SimpleNamespace(data=torch.zeros(1, 16000, 1), sample_rate=16000)),
+            id="not-2d",
+        ),
+        pytest.param(
+            _decoder_returning(SimpleNamespace(data=None, sample_rate=16000)), id="no-data"
+        ),
+    ],
+)
+def test_input_decode_failure_uses_its_phase_code(tmp_path, decoder_type):
     with pytest.raises(DiarizationPhaseError) as raised:
-        diarization_runner._validate_audio_decode(tmp_path / "recording.wav", BrokenDecoder)
+        diarization_runner._decode_waveform(tmp_path / "recording.wav", decoder_type)
 
     assert raised.value.code == "diarization_input_decode_failed"
+    assert raised.value.stage == "decoding_input"
     assert str(raised.value) == DIARIZATION_ERROR_MESSAGES[raised.value.code]
+
+
+def test_input_decode_failure_stops_before_the_diarizing_stage(tmp_path, monkeypatch):
+    pipeline = _SpyPipeline()
+    events = []
+
+    with pytest.raises(DiarizationPhaseError) as raised:
+        _diarize_with_fakes(
+            tmp_path, monkeypatch, decoder_type=_DecodeFails, pipeline=pipeline, events=events
+        )
+
+    assert raised.value.code == "diarization_input_decode_failed"
+    assert raised.value.stage == "decoding_input"
+    assert events == [
+        {"type": "stage", "stage": "loading_diarization_model"},
+        {"type": "stage", "stage": "decoding_input"},
+    ]
+    assert pipeline.inputs == []
+
+
+def test_pipeline_receives_the_decoded_waveform_and_never_a_file_path(tmp_path, monkeypatch):
+    samples = _audio_samples()
+    pipeline = _SpyPipeline()
+
+    _diarize_with_fakes(
+        tmp_path,
+        monkeypatch,
+        decoder_type=_decoder_returning(samples),
+        pipeline=pipeline,
+        events=[],
+    )
+
+    (pipeline_input,) = pipeline.inputs
+    assert not isinstance(pipeline_input, str | os.PathLike)
+    assert isinstance(pipeline_input, dict)
+    assert pipeline_input.keys() == {"waveform", "sample_rate"}
+    assert pipeline_input["waveform"] is samples.data
+    assert pipeline_input["sample_rate"] == 16000
+
+
+def test_pipeline_failure_uses_the_diarizing_stage_and_hides_vendor_text(tmp_path, monkeypatch):
+    class BrokenPipeline(_SpyPipeline):
+        def __call__(self, source):
+            raise RuntimeError("vendor detail at /private/model/cache")
+
+    events = []
+
+    with pytest.raises(DiarizationPhaseError) as raised:
+        _diarize_with_fakes(
+            tmp_path,
+            monkeypatch,
+            decoder_type=_decoder_returning(_audio_samples()),
+            pipeline=BrokenPipeline(),
+            events=events,
+        )
+
+    assert raised.value.code == "diarization_failed"
+    assert raised.value.stage == "diarizing"
+    assert str(raised.value) == DIARIZATION_ERROR_MESSAGES[raised.value.code]
+    assert events[-1] == {"type": "stage", "stage": "diarizing"}
 
 
 @pytest.mark.parametrize(
