@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import copy
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import suppress
 from typing import Any, Protocol
 
 # Limits are read through the module at call time so tests can lower them.
 from asr_en_vi import notes_document as nd
+
+# The code a transport gives a response over its output cap.
+_OUTPUT_TOO_LARGE = "provider_output_too_large"
 
 
 class NotesTransport(Protocol):
@@ -40,10 +43,12 @@ def generate_notes_document(
     """Run the notes synthesis for one task through a provider transport.
 
     The transport owns credentials, model pinning and provider errors. This function owns
-    the call budget, the single repair allowed per task, validation and source-ref restoring,
-    so no provider can skip them. `invalid_output_error` receives bounded diagnostics only.
-    `on_coverage` gets the coverage manifest, with the accepted call of every planned request,
-    only after the final document is valid, so it never describes a partial run.
+    the call budget, the single repair allowed per task, the bounded recovery from a response
+    over its output cap, validation and source-ref restoring, so no provider can skip them.
+    `invalid_output_error` receives bounded diagnostics only.
+    `on_coverage` gets the coverage manifest, with the accepted call of every planned request
+    and the call and recovery counts, only after the final document is valid, so it never
+    describes a partial run.
     """
     output_language = nd.validate_output_language(output_language)
     projection = nd.project_source_snapshot(snapshot)
@@ -57,6 +62,7 @@ def generate_notes_document(
     coverage = copy.deepcopy(plan.manifest)
     call_count = 0
     repair_used = False
+    output_recoveries = 0
     last_successful_response: tuple[int, str, str] | None = None
 
     def request(
@@ -162,6 +168,27 @@ def generate_notes_document(
                 "The notes response must be valid JSON.", reason_code="json"
             ) from None
 
+    def recovery_prompts(
+        prompt: str, *, target: int, allowed_source_ids: Sequence[str]
+    ) -> Iterator[str]:
+        """Yield the lower-target prompts one request may still send, within both budgets."""
+        nonlocal output_recoveries
+        for _ in range(nd.MAX_OUTPUT_RECOVERY_ATTEMPTS):
+            if output_recoveries >= nd.MAX_OUTPUT_RECOVERY_CALLS:
+                return
+            target = nd.lower_output_target(target)
+            try:
+                lowered = nd.build_recovery_prompt(
+                    prompt,
+                    target_bytes=target,
+                    allowed_source_ids=allowed_source_ids,
+                    output_language=output_language,
+                )
+            except nd.NotesDocumentError:
+                return  # the request budget has no room for the lower-target prompt
+            output_recoveries += 1
+            yield lowered
+
     def request_document(
         prompt: str,
         citation_scope: dict[str, Any],
@@ -172,75 +199,99 @@ def generate_notes_document(
     ) -> dict[str, Any]:
         nonlocal last_successful_response, repair_used
         allowed_source_ids = tuple(segment["id"] for segment in citation_scope["segments"])
-        raw_output = request(
+        recoveries = recovery_prompts(
             prompt,
+            # The aim the primary prompt states: the reduction target, else the stage cap.
+            target=nd.MAX_REDUCTION_TARGET_BYTES if stage == "reduce" else max_output_bytes,
             allowed_source_ids=allowed_source_ids,
-            max_output_bytes=max_output_bytes,
-            stage=stage,
-            attempt="primary",
         )
-        provider_call_index = call_count
-        try:
-            validated = parse_and_validate(
-                raw_output,
-                citation_scope,
-                max_output_bytes=max_output_bytes,
-            )
-            last_successful_response = (provider_call_index, "primary", raw_output)
-            return validated
-        except (nd.NotesDocumentError, TypeError) as validation_error:
-            if repair_used:
-                raise invalid_output(
-                    validation_error,
-                    stage=stage,
-                    provider_call_index=provider_call_index,
-                    attempt="primary",
-                    raw_output=raw_output,
-                    repair_state="already_consumed",
-                    prompt_bytes=len(prompt.encode("utf-8")),
-                    response_limit=max_output_bytes,
-                ) from None
-            repair_used = True
+        attempt, sent = "primary", prompt
+        while True:
             try:
-                bounded_repair_prompt = repair_prompt(raw_output)
-            except (nd.NotesDocumentError, TypeError, AttributeError):
-                raise invalid_output(
-                    validation_error,
+                raw_output = request(
+                    sent,
+                    allowed_source_ids=allowed_source_ids,
+                    max_output_bytes=max_output_bytes,
                     stage=stage,
-                    provider_call_index=provider_call_index,
-                    attempt="primary",
-                    raw_output=raw_output,
-                    repair_state="unavailable",
-                    prompt_bytes=len(prompt.encode("utf-8")),
-                    response_limit=max_output_bytes,
-                ) from None
-            repaired_output = request(
-                bounded_repair_prompt,
-                allowed_source_ids=allowed_source_ids,
-                max_output_bytes=max_output_bytes,
-                stage=stage,
-                attempt="repair",
-            )
-            repair_call_index = call_count
+                    attempt=attempt,
+                )
+            except Exception as error:
+                # Only a response over its cap earns a smaller ask; any other failure is final.
+                if getattr(error, "code", None) != _OUTPUT_TOO_LARGE:
+                    raise
+                lowered = next(recoveries, None)
+                if lowered is None:
+                    raise
+                attempt, sent = "recovery", lowered
+                continue
+            provider_call_index = call_count
             try:
                 validated = parse_and_validate(
-                    repaired_output,
+                    raw_output,
                     citation_scope,
                     max_output_bytes=max_output_bytes,
                 )
-                last_successful_response = (repair_call_index, "repair", repaired_output)
+                last_successful_response = (provider_call_index, attempt, raw_output)
                 return validated
-            except (nd.NotesDocumentError, TypeError) as repair_error:
-                raise invalid_output(
-                    repair_error,
+            except (nd.NotesDocumentError, TypeError) as validation_error:
+                # OMP ignores the response cap, so its overflow is a size failure here.
+                if getattr(validation_error, "reason_code", None) == "size":
+                    lowered = next(recoveries, None)
+                    if lowered is not None:
+                        attempt, sent = "recovery", lowered
+                        continue
+                if repair_used:
+                    raise invalid_output(
+                        validation_error,
+                        stage=stage,
+                        provider_call_index=provider_call_index,
+                        attempt=attempt,
+                        raw_output=raw_output,
+                        repair_state="already_consumed",
+                        prompt_bytes=len(sent.encode("utf-8")),
+                        response_limit=max_output_bytes,
+                    ) from None
+                repair_used = True
+                try:
+                    bounded_repair_prompt = repair_prompt(raw_output)
+                except (nd.NotesDocumentError, TypeError, AttributeError):
+                    raise invalid_output(
+                        validation_error,
+                        stage=stage,
+                        provider_call_index=provider_call_index,
+                        attempt=attempt,
+                        raw_output=raw_output,
+                        repair_state="unavailable",
+                        prompt_bytes=len(sent.encode("utf-8")),
+                        response_limit=max_output_bytes,
+                    ) from None
+                repaired_output = request(
+                    bounded_repair_prompt,
+                    allowed_source_ids=allowed_source_ids,
+                    max_output_bytes=max_output_bytes,
                     stage=stage,
-                    provider_call_index=repair_call_index,
                     attempt="repair",
-                    raw_output=repaired_output,
-                    repair_state="already_consumed",
-                    prompt_bytes=len(bounded_repair_prompt.encode("utf-8")),
-                    response_limit=max_output_bytes,
-                ) from None
+                )
+                repair_call_index = call_count
+                try:
+                    validated = parse_and_validate(
+                        repaired_output,
+                        citation_scope,
+                        max_output_bytes=max_output_bytes,
+                    )
+                    last_successful_response = (repair_call_index, "repair", repaired_output)
+                    return validated
+                except (nd.NotesDocumentError, TypeError) as repair_error:
+                    raise invalid_output(
+                        repair_error,
+                        stage=stage,
+                        provider_call_index=repair_call_index,
+                        attempt="repair",
+                        raw_output=repaired_output,
+                        repair_state="already_consumed",
+                        prompt_bytes=len(bounded_repair_prompt.encode("utf-8")),
+                        response_limit=max_output_bytes,
+                    ) from None
 
     def restore_final_document(document: dict[str, Any], *, stage: str) -> dict[str, Any]:
         restored = nd.restore_source_refs(document, projection.alias_to_original)
@@ -271,6 +322,8 @@ def generate_notes_document(
             ) from None
 
     def finish(document: dict[str, Any]) -> dict[str, Any]:
+        coverage["provider_calls"] = call_count
+        coverage["output_recoveries"] = output_recoveries
         if on_coverage is not None:
             on_coverage(coverage)
         return document

@@ -17,9 +17,12 @@ from fake_chatgpt import FakeChatGPTAdapter
 from httpx import ASGITransport, AsyncClient
 from notes_helpers import seed_completed_transcript
 from test_notes_provider import (
+    RECOVERY_MARK,
     NotesOnlyAdapter,
+    _aim,
     _chunked_snapshot,
     _document_for_prompt,
+    _lowered_aims,
     _provider,
     _snapshot,
     _valid_document,
@@ -43,7 +46,12 @@ from asr_en_vi.notes import (
     publish_notes_revision,
     update_note,
 )
-from asr_en_vi.notes_document import render_markdown
+from asr_en_vi.notes_document import (
+    MAX_CHUNK_OUTPUT_BYTES,
+    MAX_OUTPUT_BYTES,
+    MAX_OUTPUT_RECOVERY_ATTEMPTS,
+    render_markdown,
+)
 from asr_en_vi.storage import database_path
 from asr_en_vi.tasks import TaskError, cancel_task, claim_next_task, fail_task
 from asr_en_vi.worker import acquire_worker_lock
@@ -107,12 +115,13 @@ def _antigravity(tmp_path, adapter, *, status="connected", version=4, model=PINN
     return provider
 
 
-def _generate(provider, snapshot, *, version=4, model=PINNED_MODEL):
+def _generate(provider, snapshot, *, version=4, model=PINNED_MODEL, **options):
     return provider.generate_notes_document(
         snapshot=snapshot,
         connection_version=version,
         model=model,
         reasoning_effort="default",
+        **options,
     )
 
 
@@ -181,6 +190,86 @@ def test_antigravity_invalid_output_gets_one_repair_per_task_then_fails(tmp_path
         _generate(_antigravity(tmp_path / "chunked", chunked), _chunked_snapshot())
     assert exhausted.value.code == "notes_invalid_output"
     assert len(chunked.calls) == 3
+
+
+def _oversized(cap):
+    """A well-formed document just over a cap, as OMP can return since it ignores the cap."""
+    document = _valid_document()
+    document["overview"][0]["text"] = "x" * cap
+    return json.dumps(document)
+
+
+def test_antigravity_oversized_document_is_asked_again_for_a_smaller_one(tmp_path):
+    adapter = FakeOmp(replies=[_oversized(MAX_OUTPUT_BYTES), json.dumps(_valid_document())])
+
+    result = _generate(_antigravity(tmp_path, adapter), _snapshot())
+
+    assert result["overview"][0]["text"] == "Morgan will prepare a draft."
+    first, second = (_original_prompt(prompt) for _, prompt in adapter.calls)
+    assert RECOVERY_MARK not in first and RECOVERY_MARK in second
+    assert second.startswith(first)
+    assert _aim(second) == _lowered_aims(MAX_OUTPUT_BYTES, 1)[0] < MAX_OUTPUT_BYTES
+    assert "INVALID_OUTPUT:" not in second  # the oversized output is not sent back to repair
+
+
+def test_antigravity_oversized_chunk_recovers_and_the_manifest_counts_it(tmp_path):
+    adapter = FakeOmp(replies=[_oversized(MAX_CHUNK_OUTPUT_BYTES)])
+    manifests = []
+
+    result = _generate(
+        _antigravity(tmp_path, adapter), _chunked_snapshot(), on_coverage=manifests.append
+    )
+
+    assert result["overview"]
+    prompts = [_original_prompt(prompt) for _, prompt in adapter.calls]
+    assert len(prompts) == 4  # chunk 1 twice, chunk 2, then the final reduction
+    assert RECOVERY_MARK in prompts[1] and sum(RECOVERY_MARK in item for item in prompts) == 1
+    assert prompts[1].startswith(prompts[0])
+    (manifest,) = manifests
+    assert [chunk["provider_call_index"] for chunk in manifest["chunks"]] == [2, 3]
+    assert (manifest["provider_calls"], manifest["output_recoveries"]) == (4, 1)
+
+
+def test_antigravity_document_that_stays_oversized_fails_as_before(tmp_path):
+    adapter = FakeOmp(replies=[_oversized(MAX_OUTPUT_BYTES)] * (1 + MAX_OUTPUT_RECOVERY_ATTEMPTS))
+
+    with pytest.raises(AntigravityError) as failed:
+        _generate(_antigravity(tmp_path, adapter), _snapshot())
+
+    assert (failed.value.status_code, failed.value.code) == (502, "notes_invalid_output")
+    assert len(adapter.calls) == 1 + MAX_OUTPUT_RECOVERY_ATTEMPTS
+    assert not any("INVALID_OUTPUT:" in prompt for _, prompt in adapter.calls)
+
+
+def test_antigravity_other_failures_keep_their_paths_beside_the_recovery(tmp_path):
+    # Another validation failure is repaired as before, with no lower aim.
+    adapter = FakeOmp(replies=["not json", json.dumps(_valid_document())])
+    _generate(_antigravity(tmp_path / "repair", adapter), _snapshot())
+    assert len(adapter.calls) == 2
+    assert "INVALID_OUTPUT:" in adapter.calls[1][1]
+    assert not any(RECOVERY_MARK in prompt for _, prompt in adapter.calls)
+
+    # A smaller answer with another flaw gets the task's one repair.
+    adapter = FakeOmp(
+        replies=[_oversized(MAX_OUTPUT_BYTES), "not json", json.dumps(_valid_document())]
+    )
+    _generate(_antigravity(tmp_path / "flawed", adapter), _snapshot())
+    prompts = [prompt for _, prompt in adapter.calls]
+    assert [RECOVERY_MARK in prompt for prompt in prompts] == [False, True, False]
+    assert "INVALID_OUTPUT:" in prompts[2]
+
+    # A provider failure stops at once, also while asking again.
+    adapter = FakeOmp(
+        replies=[
+            _oversized(MAX_OUTPUT_BYTES),
+            AntigravityError(503, "provider_unavailable", "OMP is unavailable."),
+            json.dumps(_valid_document()),
+        ]
+    )
+    with pytest.raises(AntigravityError) as unavailable:
+        _generate(_antigravity(tmp_path / "unavailable", adapter), _snapshot())
+    assert unavailable.value.code == "provider_unavailable"
+    assert len(adapter.calls) == 2 and len(adapter.replies) == 1
 
 
 @pytest.mark.parametrize(
@@ -1572,6 +1661,7 @@ def test_long_transcript_run_keeps_a_coverage_manifest_with_the_revision(
     assert chunks[0]["owned"][0] == 0 and chunks[-1]["owned"][1] == 1_000
     assert all(left["owned"][1] == right["owned"][0] for left, right in pairwise(chunks))
     assert all(chunk["overlap"] is not None for chunk in chunks[1:])
+    assert (manifest["provider_calls"], manifest["output_recoveries"]) == (len(calls), 0)
     assert _transcript_rows(data_dir) == rows_before
 
 

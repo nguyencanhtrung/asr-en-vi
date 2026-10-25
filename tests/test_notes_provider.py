@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import json
+import re
 import time
 from dataclasses import dataclass
 
@@ -15,7 +16,18 @@ from asr_en_vi.chatgpt import (
     ChatGPTError,
     ChatGPTProvider,
 )
-from asr_en_vi.notes_document import MAX_PROMPT_BYTES, MAX_REDUCTION_OUTPUT_BYTES
+from asr_en_vi.notes_document import (
+    MAX_OUTPUT_BYTES,
+    MAX_OUTPUT_RECOVERY_ATTEMPTS,
+    MAX_OUTPUT_RECOVERY_CALLS,
+    MAX_PROMPT_BYTES,
+    MAX_REDUCTION_OUTPUT_BYTES,
+    MAX_REDUCTION_TARGET_BYTES,
+    notes_schema_json_bytes,
+)
+
+# The visible mark of a prompt that asks again for a smaller answer.
+RECOVERY_MARK = "previous answer exceeded the output size limit"
 
 
 @dataclass
@@ -150,12 +162,17 @@ def _chunked_snapshot():
     return snapshot
 
 
+def _payload(prompt, marker):
+    """The JSON after the marker; a recovery or repair suffix may follow it."""
+    return json.JSONDecoder().raw_decode(prompt.split(marker, 1)[1])[0]
+
+
 def _document_for_prompt(prompt):
     if "SOURCE_JSON:\n" in prompt:
-        payload = json.loads(prompt.split("SOURCE_JSON:\n", 1)[1])
+        payload = _payload(prompt, "SOURCE_JSON:\n")
         source_ids = [payload["segments"][0]["id"]]
     else:
-        payload = json.loads(prompt.split("SYNTHESIS_INPUT_JSON:\n", 1)[1])
+        payload = _payload(prompt, "SYNTHESIS_INPUT_JSON:\n")
         source_ids = list(
             dict.fromkeys(
                 source_id
@@ -1166,7 +1183,7 @@ def test_intermediate_reduction_has_its_own_hard_output_budget(
             assert len(output.encode("utf-8")) <= max_output_bytes
             return output
 
-        payload = json.loads(prompt.split("SYNTHESIS_INPUT_JSON:\n", 1)[1])
+        payload = _payload(prompt, "SYNTHESIS_INPUT_JSON:\n")
         source_ids = list(
             dict.fromkeys(
                 source_id
@@ -1207,13 +1224,16 @@ def test_intermediate_reduction_has_its_own_hard_output_budget(
 
         assert failed.value.code == "notes_invalid_output"
         diagnostic = provider.store._read()["last_diagnostic"]
+        # This provider keeps ignoring the cap, so the lower-target asks fail the same way.
+        last_call = 7 + MAX_OUTPUT_RECOVERY_ATTEMPTS
         assert diagnostic["stage"] == "reduce"
-        assert diagnostic["attempt"] == "primary"
-        assert diagnostic["provider_call_index"] == 7
+        assert diagnostic["attempt"] == "recovery"
+        assert diagnostic["provider_call_index"] == last_call
         assert diagnostic["response_limit"] == MAX_REDUCTION_OUTPUT_BYTES
         assert diagnostic["output_bytes"] == intermediate_bytes
         assert diagnostic["validation_reason"] == "size"
-        assert len(adapter.calls) == 7
+        assert diagnostic["repair_state"] == "unavailable"
+        assert len(adapter.calls) == last_call
         return
 
     result = provider.generate_notes_document(
@@ -1298,9 +1318,11 @@ def test_transport_failure_diagnostics_use_actual_stage_and_bounded_metadata(tmp
 
     assert failed.value.code == "provider_output_too_large"
     diagnostic = provider.store._read()["last_diagnostic"]
+    # The failure is the last lower-target ask: every ask is capped and diagnosed on its own.
+    assert len(adapter.calls) == 7 + MAX_OUTPUT_RECOVERY_ATTEMPTS
     assert diagnostic["stage"] == "reduce"
-    assert diagnostic["attempt"] == "primary"
-    assert diagnostic["provider_call_index"] == 7
+    assert diagnostic["attempt"] == "recovery"
+    assert diagnostic["provider_call_index"] == 7 + MAX_OUTPUT_RECOVERY_ATTEMPTS
     assert diagnostic["prompt_bytes"] == len(adapter.calls[-1].prompt.encode("utf-8"))
     assert diagnostic["response_limit"] == MAX_REDUCTION_OUTPUT_BYTES
     assert diagnostic["output_bytes"] == 16_001
@@ -1325,11 +1347,11 @@ def _many_segments_snapshot(count=600):
 
 
 def _source_segments(prompt):
-    return json.loads(prompt.split("SOURCE_JSON:\n", 1)[1])["segments"]
+    return _payload(prompt, "SOURCE_JSON:\n")["segments"]
 
 
 def _synthesis_summaries(prompt):
-    return json.loads(prompt.split("SYNTHESIS_INPUT_JSON:\n", 1)[1])["summaries"]
+    return _payload(prompt, "SYNTHESIS_INPUT_JSON:\n")["summaries"]
 
 
 def test_long_run_sends_budgeted_overlapping_requests_and_reports_coverage(tmp_path):
@@ -1423,6 +1445,8 @@ def test_single_request_run_reports_a_manifest_for_its_one_call(tmp_path):
                     "provider_call_index": 1,
                 }
             ],
+            "provider_calls": 1,
+            "output_recoveries": 0,
         }
     ]
 
@@ -1718,3 +1742,329 @@ def test_network_failure_after_earlier_chunks_is_not_resent_and_reports_no_cover
     assert len(adapter.calls) == 2
     assert len(adapter.replies) == 1
     assert manifests == []
+
+
+def _aim(prompt):
+    """The last output aim a prompt states: its reduction target or the one a recovery lowered."""
+    return int(re.findall(r"aiming for (\d+) bytes or less", prompt)[-1])
+
+
+def _lowered_aims(first, count):
+    aims = []
+    for _ in range(count):
+        first = first * 3 // 4 // 100 * 100
+        aims.append(first)
+    return aims
+
+
+def _within_request_budget(call):
+    prompt_bytes = len(call.prompt.encode("utf-8"))
+    schema_bytes = notes_schema_json_bytes(call.allowed_source_ids)
+    return prompt_bytes <= MAX_PROMPT_BYTES and prompt_bytes + schema_bytes + 1_024 <= 35_000
+
+
+def _too_large(output_bytes):
+    """What the ChatGPT adapter raises for a response over its cap."""
+    error = ChatGPTError(
+        502, "provider_output_too_large", "ChatGPT returned an oversized notes document."
+    )
+    error.diagnostics = {"output_bytes": output_bytes}
+    return error
+
+
+def _generate(provider, snapshot, **options):
+    return provider.generate_notes_document(
+        snapshot=snapshot,
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+        **options,
+    )
+
+
+def _six_chunk_snapshot(monkeypatch):
+    from asr_en_vi import notes_document
+
+    monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
+    snapshot = _snapshot()
+    snapshot["segments"] = [
+        {
+            "id": f"{index:032x}",
+            "start_seconds": float(index),
+            "end_seconds": float(index + 1),
+            "text": "source detail " + "x" * 18_000,
+        }
+        for index in range(1, 7)
+    ]
+    return snapshot
+
+
+def _reduction_of_size(marker, source_ids, size):
+    result = _valid_document()
+    result["overview"] = [{"text": marker, "source_ids": source_ids}]
+    padding = size - len(json.dumps(result, separators=(",", ":")).encode("utf-8"))
+    result["overview"][0]["text"] += "r" * padding
+    return json.dumps(result, separators=(",", ":"))
+
+
+def _level_two_overflow(overshoot, overflows):
+    """A provider whose first level-two reduce answers are over the cap, `overflows` times.
+
+    Chunk summaries and level-one reductions fill the cap, so three of them cannot share a
+    final prompt and a second reduction level is needed: 6 chunks, 3 + 1 reductions, 1 final.
+    A lower-target prompt gets an answer that meets its stated aim.
+    """
+    pending = [overflows]
+    answers = [0]
+
+    def respond(prompt, max_output_bytes):
+        if "SOURCE_JSON:\n" in prompt:
+            source_id = _source_segments(prompt)[0]["id"]
+            result = _valid_document()
+            result["overview"] = [
+                {"text": "chunk summary " + "x" * 7_300, "source_ids": [source_id]}
+            ]
+            return json.dumps(result, separators=(",", ":"))
+        summaries = _synthesis_summaries(prompt)
+        source_ids = list(
+            dict.fromkeys(i for summary in summaries for i in summary["source_order"])
+        )
+        if "final meeting-level notes" in prompt:
+            result = _valid_document()
+            result["overview"] = [
+                {"text": "All six chunks were synthesized.", "source_ids": source_ids}
+            ]
+            return json.dumps(result, separators=(",", ":"))
+        level_two = any(
+            summary["notes"]["overview"][0]["text"].startswith("reduce-") for summary in summaries
+        )
+        if level_two and pending[0]:
+            pending[0] -= 1
+            raise _too_large(max_output_bytes + overshoot)
+        answers[0] += 1
+        size = _aim(prompt) - 100 if RECOVERY_MARK in prompt else max_output_bytes - 100
+        return _reduction_of_size(f"reduce-{answers[0]}|", source_ids, size)
+
+    return respond
+
+
+@pytest.mark.parametrize("overflows", [1, 2])
+@pytest.mark.parametrize("overshoot", [1, 200])
+def test_level_two_reduce_over_its_cap_is_asked_again_for_a_smaller_answer(
+    tmp_path, monkeypatch, overshoot, overflows
+):
+    snapshot = _six_chunk_snapshot(monkeypatch)
+    adapter = NotesOnlyAdapter(responder=_level_two_overflow(overshoot, overflows))
+    provider = _provider(tmp_path, adapter)
+    manifests = []
+
+    result = _generate(provider, snapshot, on_coverage=manifests.append)
+
+    assert result["overview"][0]["text"] == "All six chunks were synthesized."
+    # Calls 1-6 are chunks, 7-9 level-one reductions and 10 the level-two reduction.
+    primary, *asked_again = adapter.calls[9 : 10 + overflows]
+    assert len(adapter.calls) == 11 + overflows
+    assert RECOVERY_MARK not in primary.prompt
+    assert _aim(primary.prompt) == MAX_REDUCTION_TARGET_BYTES
+    assert (
+        len(asked_again) == overflows <= MAX_OUTPUT_RECOVERY_ATTEMPTS <= MAX_OUTPUT_RECOVERY_CALLS
+    )
+    # The same request again: only a lower aim is added, so the targets strictly decrease.
+    assert all(call.prompt.startswith(primary.prompt) for call in asked_again)
+    assert [_aim(call.prompt) for call in asked_again] == _lowered_aims(
+        MAX_REDUCTION_TARGET_BYTES, overflows
+    )
+    assert all(_aim(call.prompt) < MAX_REDUCTION_TARGET_BYTES for call in asked_again)
+    # The hard cap and the prompt budget are the same for every ask.
+    assert all(
+        call.max_output_bytes == MAX_REDUCTION_OUTPUT_BYTES for call in [primary, *asked_again]
+    )
+    assert all(_within_request_budget(call) for call in adapter.calls)
+    (manifest,) = manifests
+    assert manifest["provider_calls"] == len(adapter.calls)
+    assert manifest["output_recoveries"] == overflows
+
+
+def test_chunk_over_its_cap_is_asked_again_for_a_smaller_answer(tmp_path):
+    from asr_en_vi.notes_document import MAX_CHUNK_OUTPUT_BYTES
+
+    second = _valid_document()
+    second["overview"][0]["source_ids"] = ["00001"]
+    adapter = NotesOnlyAdapter(
+        [
+            _too_large(MAX_CHUNK_OUTPUT_BYTES + 1),
+            json.dumps(_valid_document()),
+            json.dumps(second),
+            json.dumps(_valid_document()),
+        ]
+    )
+    provider = _provider(tmp_path, adapter)
+    manifests = []
+
+    result = _generate(provider, _chunked_snapshot(), on_coverage=manifests.append)
+
+    assert result["overview"]
+    primary, asked_again = adapter.calls[:2]
+    assert RECOVERY_MARK not in primary.prompt and RECOVERY_MARK in asked_again.prompt
+    assert asked_again.prompt.startswith(primary.prompt)
+    assert _aim(asked_again.prompt) == _lowered_aims(MAX_CHUNK_OUTPUT_BYTES, 1)[0]
+    assert primary.max_output_bytes == asked_again.max_output_bytes == MAX_CHUNK_OUTPUT_BYTES
+    assert all(_within_request_budget(call) for call in adapter.calls)
+    (manifest,) = manifests
+    assert [chunk["provider_call_index"] for chunk in manifest["chunks"]] == [2, 3]
+    assert (manifest["provider_calls"], manifest["output_recoveries"]) == (4, 1)
+
+
+def test_vietnamese_run_asks_again_in_vietnamese(tmp_path):
+    adapter = NotesOnlyAdapter([_too_large(MAX_OUTPUT_BYTES + 1), json.dumps(_valid_document())])
+    provider = _provider(tmp_path, adapter)
+
+    _generate(provider, _snapshot(), output_language="vi")
+
+    asked_again = adapter.calls[1].prompt
+    aim = _lowered_aims(MAX_OUTPUT_BYTES, 1)[0]
+    assert f"hướng tới tối đa {aim} byte" in asked_again
+    assert RECOVERY_MARK not in asked_again
+
+
+def test_chunk_that_stays_over_its_cap_fails_with_the_overflow_and_its_diagnostics(tmp_path):
+    from asr_en_vi.notes_document import MAX_CHUNK_OUTPUT_BYTES
+
+    adapter = NotesOnlyAdapter(
+        [_too_large(MAX_CHUNK_OUTPUT_BYTES + 5)] * (1 + MAX_OUTPUT_RECOVERY_ATTEMPTS)
+    )
+    provider = _provider(tmp_path, adapter)
+    manifests = []
+
+    with pytest.raises(ChatGPTError) as failed:
+        _generate(provider, _chunked_snapshot(), on_coverage=manifests.append)
+
+    assert failed.value.code == "provider_output_too_large"
+    assert len(adapter.calls) == 1 + MAX_OUTPUT_RECOVERY_ATTEMPTS
+    assert sum(RECOVERY_MARK in call.prompt for call in adapter.calls) == (
+        MAX_OUTPUT_RECOVERY_ATTEMPTS
+    )
+    diagnostic = provider.store._read()["last_diagnostic"]
+    assert diagnostic["code"] == "provider_output_too_large"
+    assert diagnostic["stage"] == "chunk"
+    assert diagnostic["attempt"] == "recovery"
+    assert diagnostic["provider_call_index"] == len(adapter.calls)
+    assert diagnostic["prompt_bytes"] == len(adapter.calls[-1].prompt.encode("utf-8"))
+    assert diagnostic["response_limit"] == MAX_CHUNK_OUTPUT_BYTES
+    assert diagnostic["output_bytes"] == MAX_CHUNK_OUTPUT_BYTES + 5
+    # The error that reaches the caller is the last overflow, with the diagnostics it recorded.
+    recorded = {key: value for key, value in diagnostic.items() if key not in {"code", "at"}}
+    assert failed.value.diagnostics == recorded
+    assert manifests == []  # no partial run is reported, so none is published
+
+
+def test_level_two_reduce_that_stays_over_its_cap_fails_with_the_overflow_and_its_diagnostics(
+    tmp_path, monkeypatch
+):
+    overflows = 1 + MAX_OUTPUT_RECOVERY_ATTEMPTS
+    adapter = NotesOnlyAdapter(responder=_level_two_overflow(5, overflows))
+    provider = _provider(tmp_path, adapter)
+    manifests = []
+
+    with pytest.raises(ChatGPTError) as failed:
+        _generate(provider, _six_chunk_snapshot(monkeypatch), on_coverage=manifests.append)
+
+    assert failed.value.code == "provider_output_too_large"
+    assert len(adapter.calls) == 9 + overflows  # nothing is sent after the last allowed ask
+    diagnostic = provider.store._read()["last_diagnostic"]
+    assert diagnostic["code"] == "provider_output_too_large"
+    assert diagnostic["stage"] == "reduce"
+    assert diagnostic["attempt"] == "recovery"
+    assert diagnostic["provider_call_index"] == 9 + overflows
+    assert diagnostic["prompt_bytes"] == len(adapter.calls[-1].prompt.encode("utf-8"))
+    assert diagnostic["response_limit"] == MAX_REDUCTION_OUTPUT_BYTES
+    assert diagnostic["output_bytes"] == MAX_REDUCTION_OUTPUT_BYTES + 5
+    recorded = {key: value for key, value in diagnostic.items() if key not in {"code", "at"}}
+    assert failed.value.diagnostics == recorded
+    assert manifests == []
+
+
+def test_recoveries_are_capped_across_the_whole_task(tmp_path, monkeypatch):
+    _tight_budget(monkeypatch)
+
+    def respond(prompt, max_output_bytes):
+        if RECOVERY_MARK not in prompt:
+            raise _too_large(max_output_bytes + 5)  # the first ask of every request is too big
+        source_id = _source_segments(prompt)[0]["id"]
+        document = _valid_document()
+        document["overview"] = [{"text": "chunk " + "x" * 6_400, "source_ids": [source_id]}]
+        return json.dumps(document, separators=(",", ":"))
+
+    adapter = NotesOnlyAdapter(responder=respond)
+    provider = _provider(tmp_path, adapter)
+    manifests = []
+
+    with pytest.raises(ChatGPTError) as failed:
+        _generate(provider, _four_chunk_snapshot(), on_coverage=manifests.append)
+
+    # Each of the four chunks used one ask again; the first reduction finds none left.
+    assert failed.value.code == "provider_output_too_large"
+    assert sum(RECOVERY_MARK in call.prompt for call in adapter.calls) == MAX_OUTPUT_RECOVERY_CALLS
+    assert len(adapter.calls) == 2 * MAX_OUTPUT_RECOVERY_CALLS + 1
+    diagnostic = provider.store._read()["last_diagnostic"]
+    assert (diagnostic["stage"], diagnostic["attempt"]) == ("reduce", "primary")
+    assert diagnostic["provider_call_index"] == len(adapter.calls)
+    assert manifests == []
+
+
+def test_a_lower_target_prompt_that_does_not_fit_is_not_sent(tmp_path, monkeypatch):
+    from asr_en_vi import notes_document
+
+    def respond(prompt, max_output_bytes):
+        # The request now fills its whole budget, so the added lower aim has no room.
+        monkeypatch.setattr(notes_document, "MAX_PROMPT_BYTES", len(prompt.encode("utf-8")))
+        raise _too_large(max_output_bytes + 1)
+
+    adapter = NotesOnlyAdapter(responder=respond)
+    provider = _provider(tmp_path, adapter)
+
+    with pytest.raises(ChatGPTError) as failed:
+        _generate(provider, _snapshot())
+
+    assert failed.value.code == "provider_output_too_large"
+    assert len(adapter.calls) == 1
+    diagnostic = provider.store._read()["last_diagnostic"]
+    assert (diagnostic["stage"], diagnostic["attempt"]) == ("single", "primary")
+    assert diagnostic["provider_call_index"] == 1
+
+
+def test_provider_failure_while_asking_again_is_not_retried(tmp_path):
+    adapter = NotesOnlyAdapter(
+        [
+            _too_large(MAX_OUTPUT_BYTES + 1),
+            ChatGPTError(503, "provider_unavailable", "ChatGPT could not complete the notes."),
+            json.dumps(_valid_document()),
+        ]
+    )
+    provider = _provider(tmp_path, adapter)
+    manifests = []
+
+    with pytest.raises(ChatGPTError) as failed:
+        _generate(provider, _snapshot(), on_coverage=manifests.append)
+
+    assert failed.value.code == "provider_unavailable"
+    assert len(adapter.calls) == 2 and len(adapter.replies) == 1
+    assert manifests == []
+
+
+def test_a_smaller_answer_that_fails_validation_gets_the_one_repair(tmp_path):
+    adapter = NotesOnlyAdapter(
+        [_too_large(MAX_OUTPUT_BYTES + 1), "not-json", json.dumps(_valid_document())]
+    )
+    provider = _provider(tmp_path, adapter)
+    manifests = []
+
+    result = _generate(provider, _snapshot(), on_coverage=manifests.append)
+
+    assert result["overview"][0]["text"] == "Morgan will prepare a draft."
+    _, asked_again, repair = adapter.calls
+    assert RECOVERY_MARK in asked_again.prompt and RECOVERY_MARK not in repair.prompt
+    assert "INVALID_OUTPUT:\nnot-json" in repair.prompt
+    (manifest,) = manifests
+    assert manifest["chunks"][0]["provider_call_index"] == 3
+    assert (manifest["provider_calls"], manifest["output_recoveries"]) == (3, 1)
