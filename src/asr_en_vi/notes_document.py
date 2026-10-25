@@ -699,9 +699,11 @@ _PLACEMENT_RULE = {
 }
 _LENGTH_BUDGET = {
     "en": (
-        "HARD document budget: at most 400 words of item text across the whole document; "
+        "HARD document budget: at most 350 words of item text across the whole document; "
         "owner/deadline fields come on top. At most 5 key_topics items; each item at most 10 "
-        "words. To fit, merge related items within the same section into one item, listing every "
+        "words. At most 12 action_items: merge actions with the same owner and same deadline "
+        "into one item (one phrase per action, union of source_ids). To fit, merge related items "
+        "within the same section into one item, listing every "
         "distinct fact as a short phrase separated by ';' and carrying the union of their "
         "source_ids (for example, several actions by one owner or several questions on one "
         "topic). Never "
@@ -709,9 +711,12 @@ _LENGTH_BUDGET = {
         "(or vice versa); uncommitted proposals stay in confirmation_items.\n"
     ),
     "vi": (
-        "Ngân sách CỨNG cho tài liệu: tối đa 400 từ trong nội dung các mục trên toàn tài liệu; "
-        "các trường owner/deadline tính thêm. Tối đa 5 mục key_topics; mỗi mục tối đa 10 từ. Để "
-        "đạt giới hạn, gộp các mục liên quan trong cùng nhóm thành một mục, liệt kê mọi thông tin "
+        "Ngân sách CỨNG cho tài liệu: tối đa 350 từ trong nội dung các mục trên toàn tài liệu; "
+        "các trường owner/deadline tính thêm. Tối đa 5 mục key_topics; mỗi mục tối đa 10 từ. "
+        "Tối đa "
+        "12 mục action_items: gộp các hành động cùng người phụ trách và cùng hạn chót "
+        "thành một mục (mỗi hành động một cụm, hợp nhất source_ids). Để đạt giới hạn, gộp các "
+        "mục liên quan trong cùng nhóm thành một mục, liệt kê mọi thông tin "
         "riêng thành cụm ngắn, ngăn cách bằng ';' và dùng hợp nhất toàn bộ source_ids (ví dụ: "
         "nhiều hành động của một người phụ trách hoặc nhiều câu hỏi về một chủ đề). Không bỏ "
         "thông tin riêng biệt. Không gộp khác nhóm hoặc gộp quyết định vào hành động (hay ngược "

@@ -251,7 +251,7 @@ def test_vietnamese_generation_localizes_chunk_repair_reduction_and_final_prompt
             source_ids = [payload["segments"][0]["id"]]
             document = _valid_document()
             document["overview"] = [
-                {"text": "Bản tóm tắt " + "x" * 7_000, "source_ids": source_ids}
+                {"text": "Bản tóm tắt " + "x" * 6_900, "source_ids": source_ids}
             ]
         else:
             payload = json.loads(prompt.split("SYNTHESIS_INPUT_JSON:\n", 1)[1].splitlines()[0])
