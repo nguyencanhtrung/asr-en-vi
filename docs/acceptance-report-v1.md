@@ -22,12 +22,12 @@ Cột cuối là phần nối vào dòng checkbox tương ứng của issue. S�
 | 2 | Luồng import, transcript, diarization, notes qua từng provider, review, edit, rerun, history, copy/export, cancel, restart, delete trên Chrome và Firefox | **đạt** | `- [x]` (không thêm gì). Copy/xuất chỉ có cho notes; transcript không có control (mục 4) |
 | 3 | Đo AC-01..AC-49 và FE-01..FE-16 ở các viewport đã chốt; mỗi tiêu chí có bằng chứng pass/fail và sai lệch | **chưa đạt** | `— Not done: một số phần chưa đo được: nghe chip (AC-05), bấm giờ 16/10 (AC-14), luồng trên trình duyệt stable hiện hành (AC-15), đường pull và kết nối provider trên bản cài mới (AC-17), kết nối độc lập/ngắt kết nối/phiên mất hiệu lực/quota/billing (AC-35..38, AC-44) và phần UI tương ứng (FE-11, 12, 14, 16); AC-01 thiếu thể loại 1 #89 #87 #88` |
 | 4 | Báo cáo ghi phần cứng, driver/runtime, image, model/config, provider, quota, mạng, số lượt gọi/sửa, Recording | **đạt** | `- [x]` (quota không biết; lượt gọi t8-ChatGPT không đếm riêng, xem 2.6). Quota ghi là "không được người dùng nêu; bản cài không lưu" (mục 2) |
-| 5 | Mẫu 2 giờ đo từ bắt đầu xử lý đến khi transcript và notes sẵn; báo rõ có đạt 30 phút không | **chưa đạt** | `— Not done: mẫu 2 giờ (ghép) có transcript sẵn sau 128,9 phút (4,3 lần mục tiêu), notes lỗi provider_output_too_large nên không có mốc cả hai sẵn; không đạt mục tiêu 30 phút #71 #72 #73` |
+| 5 | Mẫu 2 giờ đo từ bắt đầu xử lý đến khi transcript và notes sẵn; báo rõ có đạt 30 phút không | **chưa đạt** | `— Not done: #16: mẫu 2 giờ (ghép) có transcript sẵn sau 128,9 phút (4,3 lần mục tiêu), notes lỗi provider_output_too_large nên không có mốc cả hai sẵn; #99 (đo lại trên main 4a88ec8): transcript sẵn sau 10,4 phút nhưng notes lỗi provider_output_too_large ở lượt 29 sau 24,4 phút, không có mốc cả hai sẵn, mốc lỗi ở 34,8 phút; không đạt mục tiêu 30 phút #71 #72 #73 #101 #102` |
 | 6 | Người vận hành đo thời gian đưa draft về mức dùng được; báo rõ có đạt 5–10 phút mỗi giờ họp không | **chưa đạt** | `— Not done: 16/10 không có draft notes để đo (#72 #76); 13/10 và 20/10 chỉ là ước lượng của người vận hành, 20/10 vượt mục tiêu (10,8 phút/giờ) #89` |
 | 7 | Kiểm tra riêng chất lượng: source timestamp, speaker, quyết định đổi ở cuối, action item qua ranh giới chunk, deadline tương đối, nội dung mơ hồ | **chưa đạt** | `— Not done: đã chạy đủ 6 kiểm tra nhưng không kiểm tra nào đạt trọn (1 fail, 5 partial); chưa nghe chip để xác nhận bằng chứng #77 #78 #79 #80 #89` |
 | 8 | Mọi lỗi nghiệm thu tạo kết quả hành động được hoặc ticket follow-up trước release; không đổi tiêu chí âm thầm | **đạt** | `- [x]`: đã tạo đủ 20 issue follow-up #70–#89 (mục 9); mỗi lỗi hoặc phần chưa đo ở mục 5 dẫn tới ít nhất một follow-up |
 
-Tiêu chí 3, 5, 6 và 7 không được tick: chỉ tick khi tiêu chí được đáp ứng trọn vẹn; với 5 và 7 phép đo đã chạy nhưng kết quả không đạt (5: không có mốc notes sẵn, transcript đã vượt 30 phút; 7: có kiểm tra fail và phần nghe chưa làm).
+Tiêu chí 3, 5, 6 và 7 không được tick: chỉ tick khi tiêu chí được đáp ứng trọn vẹn; với 5 và 7 phép đo đã chạy nhưng kết quả không đạt (5: không có mốc notes sẵn; #16 transcript đã vượt 30 phút, #99 transcript sẵn sau 10,4 phút nhưng notes lỗi và mốc lỗi ở 34,8 phút; 7: có kiểm tra fail và phần nghe chưa làm).
 
 ### 1.2. Số lượng kết luận
 
@@ -44,7 +44,7 @@ Tiêu chí 3, 5, 6 và 7 không được tick: chỉ tick khi tiêu chí đượ
 
 ### 1.3. Điểm chính
 
-- **AC-13 fail:** transcript của mẫu 2 giờ sẵn sau 128,9 phút; notes lỗi `provider_output_too_large` sau 16,0 phút; chi phí diarization tăng theo bình phương thời lượng (mục 6).
+- **AC-13 fail:** #16: transcript của mẫu 2 giờ sẵn sau 128,9 phút; notes lỗi `provider_output_too_large` sau 16,0 phút; chi phí diarization tăng theo bình phương thời lượng (mục 6). #99 (đo lại trên main `4a88ec8`, có #71, #72, #74): diarization 96,7 s, transcript sẵn sau 10,4 phút, nhưng notes chạy 24,4 phút (29 lượt gọi nối tiếp) rồi lỗi `provider_output_too_large` ở lượt phục hồi; không có mốc cả hai sẵn, mốc lỗi ở 34,8 phút; bước chậm nhất là notes, 70% thời gian (mục 6.5, #101, #102).
 - **AC-10 fail:** với mạng bật, runner diarization gửi telemetry ONNX Runtime tới Microsoft; OMP liên hệ các máy chủ ngoài provider đã chọn (mục 5, #74, #75).
 - **AC-17 fail:** `./scripts/start.sh` không tải được model Whisper trên Compose v5.1.4; đường pull chưa kiểm (#70, #87).
 - **AC-02, AC-03 fail:** 119/126 mục quan trọng được tìm thấy (3 thiếu); 22/77 quyết định/action bị nâng mức chắc chắn, trong đó 5 ý mơ hồ thành quyết định hoặc action đã xác nhận (mục 8).
@@ -64,7 +64,7 @@ Tiêu chí 3, 5, 6 và 7 không được tick: chỉ tick khi tiêu chí đượ
 | RAM / swap | 60 GiB (63.369.668 kB) / 15 GiB (swap đầy nhưng nhàn rỗi trong các lần đo) |
 | GPU | NVIDIA GeForce RTX 5080, 16.303 MiB, compute capability 12.0 |
 | Driver | 590.48.01 (`nvidia-smi` báo CUDA 13.1) |
-| GPU dùng chung | Worker của bản cài chính đang rảnh (một tiến trình python 260 MiB) và phiên desktop (khoảng 0,85 GiB); mức nền 1,1–1,2 GiB. Các lần đo AC-13 chạy khi không có tác vụ GPU nào khác của đợt nghiệm thu (khóa `gpu.lock`) |
+| GPU dùng chung | Một tiến trình python khác trên máy, không thuộc ASR (260 MiB, có từ trước các lần đo; sửa ở #99, trước đó ghi nhầm là worker của bản cài chính) và phiên desktop (khoảng 0,85 GiB); mức nền 1,1–1,2 GiB. Worker của bản cài chính nhàn rỗi, không giữ bộ nhớ GPU. Các lần đo AC-13 chạy khi không có tác vụ GPU nào khác của đợt nghiệm thu (khóa `gpu.lock`) |
 
 ### 2.2. Docker, image, runtime
 
@@ -227,7 +227,7 @@ Ghi chú:
 Quy ước:
 
 - **Kết luận** theo đúng worker: pass / fail / partial / not done. Hàng có hai nửa (không provider: t4, t5, t6; có provider hoặc notes: t8, t9) ghi cả hai nửa; nửa xấu nhất quyết định. Hàng đổi hoặc suy ra so với worker có lý do ở cột "Ghi chú của người tổng hợp".
-- **Phạm vi:** `C` Chrome 149, `F` Firefox 158; `V1` = 1440×1000; `V3` = 1440×1000, 1280×800 và 1024×768, theme sáng và tối (kèm giảm chuyển động và 360 px ở t6/t9); `—` không dùng trình duyệt. Bằng chứng là tên tệp dưới `EV` (riêng tư); `EV/t8/nf-{chrome,firefox}/` viết gọn là `nf-*`.
+- **Phạm vi:** `C` Chrome 149, `F` Firefox 158; `V1` = 1440×1000; `V3` = 1440×1000, 1280×800 và 1024×768, theme sáng và tối (kèm giảm chuyển động và 360 px ở t6/t9); `—` không dùng trình duyệt. Bằng chứng là tên tệp dưới `EV` (riêng tư) hoặc dưới `EV99` (riêng tư, lần đo lại AC-13 của #99; mục 11); `EV/t8/nf-{chrome,firefox}/` viết gọn là `nf-*`.
 - `<cfg>` (ở các mục 10–11 và trong follow-up viết `<cấu hình>`): tên thư mục cấu hình đo `<chrome|firefox>-<light|dark>-<rộng>x<cao>` với rộng×cao là 1440x1000, 1280x800, 1024x768 hoặc 360x740, cộng `<chrome|firefox>-light-rm-1280x800` (giảm chuyển động).
 - Phương pháp mô phỏng được dùng đúng nơi spec nói "mô phỏng" (AC-24, AC-40, AC-47): bằng chứng là test fake-provider của repo cộng quan sát sống.
 
@@ -247,7 +247,7 @@ Quy ước:
 | AC-10 | ASR/diarization và duyệt dữ liệu local; notes qua provider; mạng bật chỉ có kết nối của provider | **fail** (t4 partial · t8 partial · t8 fail) | C+F, V1 | `EV/t4-security/browser/offline-offline-{chrome,firefox}.json`, `offline-notes-{chrome,firefox}.json`, `net/offline*-deltas.json`; `EV/t8/faults-offline/`, `faults-a10/summary.json`, `audit/`, `LEDGER.md`; `EV/t7/ort-telemetry-attribution.md` | **Ngoại tuyến:** ASR, diarization, xem/sửa transcript, copy/xuất/sửa notes đã lưu chạy được; 0 kết nối ra ngoài (`OutNoRoutes` 0); copy/xuất chỉ thử trên notes tổng hợp. Notes mới báo "chưa kết nối" hoặc "tạm thời không khả dụng", không phải thông báo thiếu kết nối. **Mạng bật:** (1) runner diarization gửi telemetry ONNX Runtime tới `mobile.events.data.microsoft.com` (4.698 byte trong 197 s; thấy ở cả 4 lần chạy t7 và lần xác nhận độc lập t8); (2) OMP liên hệ `catalog.stencil.so` khoảng mỗi 5 phút, một lần quét discovery tới 6 gateway LLM và dịch vụ cập nhật của Google, dò loopback 11434/8080/1234; (3) app gọi `api.openai.com` (danh mục model) mỗi lần mở trang cuộc họp dù chọn provider nào. Không có âm thanh rời container | #74 #75 #84 | Gộp ba nửa, nửa xấu nhất quyết định. Bản copy/xuất offline của t4 là bản notes tổng hợp, không phải đầu ra provider |
 | AC-11 | Copy và Markdown phản ánh bản được chọn | **pass** (t8) | C+F, V1 | `EV/t8/nf-*/` (N05, N11), `chips-real-*/` | copy = tải = `GET /api/notes/{id}/export` = Markdown đã lưu, gồm chỉnh sửa; đọc lại clipboard thật ở cả hai trình duyệt; không có link mốc thời gian; copy/xuất bị tắt khi còn bản nháp chưa lưu. Notes thử nghiệm không có mục action item (0) nên action item chỉ đối chiếu trong toàn văn | — | — |
 | AC-12 | Tiến độ, hủy và lỗi hiển thị đúng | **pass** (t5 pass · t8 pass) | C+F, V1 | `EV/t5/flow-*/steps.jsonl` (S03, S10), `EV/t5/ac12-api/`, `ac12-chrome/`, `ac12-firefox/`; `EV/t8/nf-*/` (N14), `faults-cut/`, `faults-model2/`, `faults-offline/` | 7 đầu vào lỗi qua API (6 bị từ chối: 415, 422 ×4, 413; file m4a cắt cụt 60% được nhận không cảnh báo) và 5 qua hộp thoại; 2 lỗi xử lý; tác vụ lỗi, hủy hay gián đoạn không bao giờ hiện "Hoàn tất". Sai lệch về câu chữ và kiểm tra đầu vào | #82 #85 #86 | — |
-| AC-13 | Bản ghi 2 giờ xử lý trong tối đa 30 phút | **fail** (t7) | C, V1 | `EV/t7/composite/` (`summary.json`, `events.jsonl`, `metrics.json`, `dbfacts.json`, `gpu.csv`, `conn.jsonl`, `provider-last-diagnostic.json`), `EV/t7/fresh-13-10/`, `fresh-20-10/`, `fresh-16-10/` | Mẫu 2 giờ (ghép): transcript sẵn sau 128,9 phút; notes lỗi `provider_output_too_large` sau 16,0 phút; không có mốc cả hai sẵn (mục 6) | #71 #72 #73 | — |
+| AC-13 | Bản ghi 2 giờ xử lý trong tối đa 30 phút | **fail** (t7; đo lại #99: fail) | C, V1 | `EV/t7/composite/` (`summary.json`, `events.jsonl`, `metrics.json`, `dbfacts.json`, `gpu.csv`, `conn.jsonl`, `provider-last-diagnostic.json`), `EV/t7/fresh-13-10/`, `fresh-20-10/`, `fresh-16-10/`; đo lại #99: `EV99/composite99/` (`summary.json`, `events.jsonl`, `metrics.json`, `dbfacts.json`, `gpu.csv`, `conn.jsonl`, `provider-last-diagnostic.txt`) | #16: mẫu 2 giờ (ghép): transcript sẵn sau 128,9 phút; notes lỗi `provider_output_too_large` sau 16,0 phút; không có mốc cả hai sẵn (mục 6). #99 (main `4a88ec8`): transcript sẵn sau 10,4 phút; notes lỗi `provider_output_too_large` ở lượt 29 sau 24,4 phút; không có mốc cả hai sẵn, mốc lỗi ở 34,8 phút (mục 6.5) | #71 #72 #73 #101 #102 | Đo lại #99 giữ fail; bước chậm nhất là notes (70% thời gian) |
 | AC-14 | Duyệt/sửa khoảng 5–10 phút mỗi giờ họp | **partial** (người vận hành, ước lượng) | — | báo cáo của người vận hành (không có tệp EV) | 13/10: 8,0 phút/giờ (trong khoảng); 20/10: 10,8 phút/giờ (vượt nhẹ); 16/10: không đo vì không có draft notes sau 3 lần thất bại. Ước lượng "khoảng 10 phút", không phải đồng hồ bấm (mục 7) | #72 #76 #89 | Không có worker chấm; kết luận dựng từ số liệu lead cung cấp |
 | AC-15 | Toàn bộ luồng chạy qua UI trên Chrome và Firefox | **partial** (suy ra từ t5 + t8) | C+F, V1 | `EV/t5/flow-chrome/`, `EV/t5/flow-firefox/`; `EV/t8/nf-chrome/`, `EV/t8/nf-firefox/` | Mở URL, nhập, xử lý, nghe lại, sửa, mở lịch sử, copy và xuất: pass ở cả hai trình duyệt. "Nghe lại" kiểm qua phần tử media (không nghe bằng tai). Trình duyệt là bản cài trên máy (Chrome: gói `google-chrome-stable`; Firefox: snap kênh `latest/stable/ubuntu-24.04`); không phải bản stable hiện hành tại ngày đo (Firefox 158.0.1, Chrome 156; mục 2.8), nên điều kiện "bản ổn định tại thời điểm kiểm thử" chưa đạt | #89 | Suy ra: không worker nào có hàng AC-15. Dựng từ bảng bước ở mục 4. partial theo review: luồng đạt trên Chrome 149 / Firefox 158.0, chưa chạy trên bản stable hiện hành |
 | AC-16 | Tác vụ đã nhận tiếp tục khi trình duyệt mất kết nối | **pass** (t5 pass · t8 pass) | C+F, V1 | `EV/t5/ac16-chrome/`, `ac16-firefox/`; `EV/t8/ac16n-chrome/`, `ac16n-firefox/` | Đóng tab, SIGKILL trình duyệt, ngắt kết nối 20–23 s: backend chạy tiếp; mở lại thấy tiến độ, chạy xong, ra kết quả (transcript và notes). Firefox, đóng tab, notes: backend vẫn chạy nhưng tác vụ lỗi vì OMP "Thinking loop" (2 lần), không do trình duyệt | #76 | — |
@@ -273,7 +273,7 @@ Quy ước:
 | AC-36 | Dùng lại phiên provider và có ngắt kết nối | **partial** (t8) | C+F, V1 | `EV/t8/nf-*/` (N15) | Nhiều lần tạo notes và 2 lần tạo lại container cùng volume: không hỏi đăng nhập, phiên bản kết nối giữ (1, 1). **Chưa làm:** phiên mất hiệu lực (cần thu hồi quyền ở provider) và ngắt kết nối khi rảnh (đăng xuất tài khoản thật) | #89 | — |
 | AC-37 | Có transcript trước khi provider dùng được | **partial** (t8) | C, V1 | `EV/t8/faults-offline/`, `EV/t8/faults-nologin/` | Ngoại tuyến: ASR, lưu transcript, hiện "chưa có notes", sửa được, 93 s sau khi mạng trở lại vẫn không tự sinh notes, tạo thủ công không chạy lại âm thanh. Bản cài tạm chưa kết nối gì: đúng. **Chưa làm:** hết quota (không tạo được trung thực); "kết nối sau" trên bản cài tạm (phần A) | #89 #84 | — |
 | AC-38 | Không tự đổi provider hoặc bật API billing khi notes lỗi | **partial** (t8) | C, V1 | `EV/t8/faults-model2/`, `faults-cut/`, `step0-13-10/` | Lỗi gây ở provider đã chọn (model tài khoản không dùng được; cắt mạng): không có tiến trình `omp` hay host Google khi ChatGPT lỗi, không có `api.openai.com` khi Antigravity lỗi; chọn bên khác thì bản mới thành công, transcript và notes cũ nguyên. **Chưa làm:** hết quota; mã nguồn không có đường API-key nhưng billing không chứng minh được qua lưu lượng (phần D của `needs-user-4`) | #89 | — |
-| AC-39 | Transcript dài xử lý đầy đủ qua chia/hợp nhất | **fail** (t10 partial · t7 quan sát) | C, V1 | `EV/t7/<run>/dbfacts.json`, `conn.jsonl`; `EV/t10/manifests.json`; `EV/t10/*-scoring.md` | **Tiêu đề không đạt:** mẫu 2 giờ và 2 trong 3 lần chạy dài khác của t7 (13/10, 16/10, qua ChatGPT) không ra notes: câu trả lời reduce cấp 2 dài 10.703–10.711 byte vượt trần 10.700 byte nên cả tác vụ lỗi. **Ngân sách mỗi bước:** bị vượt ở 3/4 lần chạy dài (kể cả mẫu 2 giờ). **Chất lượng như AC-02/03/05:** AC-02 và AC-03 fail, AC-05 partial. Cơ chế đúng trên 3 bản notes thành công: span sở hữu liên tục và đủ, chunk sau lặp đuôi chunk trước, mỗi chunk đóng góp trích dẫn, 0 trích dẫn không giải được. Chất lượng sau hợp nhất: quyết định đổi ở cuối 10 ok / 4 một phần / 1 fail trên 15; action item qua ranh giới 3/7 được nối; hiện vật ranh giới còn trong notes | #72 #76 #78 | Đổi partial (t10) thành fail theo quyết định của lead: tiêu đề yêu cầu xử lý đầy đủ qua chia/hợp nhất; phép kiểm yêu cầu không bước nào vượt ngân sách và chất lượng như AC-02/03/05. Mẫu 2 giờ và 2 trong 3 lần chạy dài khác không có notes (đầu ra reduce cấp 2 vượt trần 10.700 byte, t7); AC-02 và AC-03 fail |
+| AC-39 | Transcript dài xử lý đầy đủ qua chia/hợp nhất | **fail** (t10 partial · t7 quan sát) | C, V1 | `EV/t7/<run>/dbfacts.json`, `conn.jsonl`; `EV/t10/manifests.json`; `EV/t10/*-scoring.md` | **Tiêu đề không đạt:** mẫu 2 giờ và 2 trong 3 lần chạy dài khác của t7 (13/10, 16/10, qua ChatGPT) không ra notes: câu trả lời reduce cấp 2 dài 10.703–10.711 byte (cận dưới, mục 6.3) vượt trần 10.700 byte nên cả tác vụ lỗi. **Ngân sách mỗi bước:** bị vượt ở 3/4 lần chạy dài (kể cả mẫu 2 giờ). **Chất lượng như AC-02/03/05:** AC-02 và AC-03 fail, AC-05 partial. Cơ chế đúng trên 3 bản notes thành công: span sở hữu liên tục và đủ, chunk sau lặp đuôi chunk trước, mỗi chunk đóng góp trích dẫn, 0 trích dẫn không giải được. Chất lượng sau hợp nhất: quyết định đổi ở cuối 10 ok / 4 một phần / 1 fail trên 15; action item qua ranh giới 3/7 được nối; hiện vật ranh giới còn trong notes | #72 #76 #78 | Đổi partial (t10) thành fail theo quyết định của lead: tiêu đề yêu cầu xử lý đầy đủ qua chia/hợp nhất; phép kiểm yêu cầu không bước nào vượt ngân sách và chất lượng như AC-02/03/05. Mẫu 2 giờ và 2 trong 3 lần chạy dài khác không có notes (đầu ra reduce cấp 2 vượt trần 10.700 byte, t7); AC-02 và AC-03 fail |
 | AC-40 | Tối đa một lượt sửa đầu ra không hợp lệ cho cả tác vụ notes | **pass** (t8; mô phỏng + quan sát) | — | `EV/t8/sim/ac40-ac47-sim-tests.log`, nhật ký suite đầy đủ của t2 | 25 test fake-provider pass. Không có đầu ra sai schema hoặc ID trong lượt gọi thật nào (mọi lần thử là `primary`, 0 lượt sửa), nên chưa thấy lượt sửa thật. Đầu ra quá lớn không phải trường hợp sửa mà là lỗi cuối (#72) | #72 | Phương pháp theo spec và quyết định của capsule: mô phỏng |
 | AC-41 | Notes cũ giữ đúng nguồn trước chỉnh sửa | **pass** (t8) | C+F, V1 | `EV/t8/nf-*/` (N06, N08, N11, N13, N16), `chips-real-*/` | Sau sửa text, tên, ngày, gán lại và chạy lại: bằng chứng notes cũ mở văn bản, tên, ngày gốc, khác nguồn hiện tại; sửa notes cũ không đổi hash snapshot; notes mới gắn nguồn mới. Bản sao thật của 16/10: 2/4 chip kèm chú thích "người nói đã đổi" | — | — |
 | AC-42 | Tab cũ không ghi đè chỉnh sửa mới | **pass** (t5 pass · t8 pass) | C+F, V1 | `EV/t5/stale-chrome/`, `stale-firefox/`; `EV/t8/nf-*/` (N10) | Lưu từ tab B cũ bị từ chối 409 (văn bản, đổi tên, gán lại, notes), bản nháp của B giữ; "Giữ bản nháp" lưu lên bản mới nhất theo lựa chọn; tạo notes mới trong lúc sửa bản cũ không đổi đích ghi. Tab thứ hai không biết revision hay khóa mới tới khi tải lại | #86 | — |
@@ -315,7 +315,7 @@ Quy ước:
 
 ## 6. Tiêu chí 5: AC-13, mẫu 2 giờ
 
-Kết quả: **fail**. Cách đo: Chrome 149 thật, import qua hộp thoại, giá trị mặc định của sản phẩm (tự chép lời sau khi tạo bật), lựa chọn ChatGPT đã lưu (`gpt-5.6-sol`, medium, đầu ra English), một lần đo mỗi mẫu, GPU không có tác vụ eval khác (khóa `gpu.lock`), mạng có dây. Mốc bắt đầu là request `POST /api/tasks` mà trang cuộc họp tự gửi sau import; upload (0,2 s) và kiểm tra phía server (81 s) nằm ngoài AC-13 và chỉ cộng thêm 1,4 phút. Không thử lại vì lỗi là giới hạn của sản phẩm, không phải sự cố môi trường (không có lỗi mạng, quota, máy chủ hay GPU).
+Kết quả: **fail**. Cách đo: Chrome 149 thật, import qua hộp thoại, giá trị mặc định của sản phẩm (tự chép lời sau khi tạo bật), lựa chọn ChatGPT đã lưu (`gpt-5.6-sol`, medium, đầu ra English), một lần đo mỗi mẫu, GPU không có tác vụ eval khác (khóa `gpu.lock`), mạng có dây. Mốc bắt đầu là request `POST /api/tasks` mà trang cuộc họp tự gửi sau import; upload (0,2 s) và kiểm tra phía server (81 s) nằm ngoài AC-13 và chỉ cộng thêm 1,4 phút. Không thử lại vì lỗi là giới hạn của sản phẩm, không phải sự cố môi trường (không có lỗi mạng, quota, máy chủ hay GPU). Mục 6.1–6.4 là số đo của #16 (revision `151f3e4`); mục 6.5 đo lại sau #71, #72, #74 (#99, revision `4a88ec8`), kết quả vẫn **fail**.
 
 ### 6.1. Số liệu
 
@@ -346,6 +346,7 @@ Kết quả: **fail**. Cách đo: Chrome 149 thật, import qua hộp thoại, g
 
 - **Diarization quyết định kết quả và tăng theo bình phương thời lượng:** thời gian = (1,331–1,362)×10⁻⁴ × thời lượng² (lệch ±1,2% trên bốn lần chạy). Dự đoán cho 7200 s: khoảng 116 phút; riêng diarization chạm 30 phút ở khoảng 61 phút audio. Chiếm 85–93% thời gian tác vụ; chạy trên một lõi CPU (container 110–125%), GPU trung bình 2–3% với 4,2 GiB chiếm giữ. Các lần chạy trước đó trên bản cài chính khớp (20/10: 1774 s, 16/10: 2583 s; lần chạy mới 1779 s và 2496 s). ASR tuyến tính và nhanh (0,07–0,08 s mỗi giây audio) (#71).
 - **Notes lỗi vì vượt trần vài byte:** ở bước reduce cấp 2 đầu tiên, câu trả lời của ChatGPT dài 10.706, 10.711 và 10.703 byte so với trần 10.700 (vượt 6, 11, 3 byte; HTTP 200, lần thử `primary`); toàn bộ 9,5–16 phút lượt gọi trước đó bị mất, không có lượt sửa hay checkpoint. Cả ba nguồn cần reduce cấp 2 đều lỗi; nguồn không cần (20/10) thành công (#72).
+- **Cỡ vượt trần là cận dưới (ghi chú thêm sau #99):** client ChatGPT ngừng đọc stream ngay khi tổng văn bản vượt trần (`src/asr_en_vi/chatgpt.py`, cùng logic ở `151f3e4`) và ghi số byte tại điểm đó. Vì vậy 10.706, 10.711 và 10.703 byte (vượt 6, 11, 3 byte) ở trên là cận dưới của độ dài thật, không phải độ dài đầy đủ của câu trả lời. Số liệu #16 giữ nguyên (mục 6.5, #102).
 - **Notes không tự chạy:** AC-13 viết một khoảng "từ bắt đầu xử lý đến khi cả transcript và notes sẵn" nhưng notes chờ một cú bấm; harness bấm sau 0,2–1,1 s, người thật có thể lâu hơn bất kỳ (#73).
 
 ### 6.4. Giới hạn của phép đo
@@ -356,6 +357,56 @@ Kết quả: **fail**. Cách đo: Chrome 149 thật, import qua hộp thoại, g
 4. Tải máy: swap đầy nhưng nhàn rỗi; load1 trung bình 1,5–1,6 (đỉnh 4,7–7,6); RAM khả dụng thấp nhất 14,9 GiB. GPU đỉnh khi ASR 6.685 MiB tổng (5.554 MiB runner), khi diarization 5.592 MiB; GPU trung bình khi ASR 83,9%; công suất tối đa 182 W; nhiệt tối đa 60 °C.
 
 Evidence: `EV/t7/composite/` (`summary.json`, `events.jsonl`, `metrics.json`, `dbfacts.json`, `gpu.csv`, `gpu-apps.csv`, `host.csv`, `worker-stats.csv`, `conn.jsonl`, `provider-last-diagnostic.json`), `EV/t7/fresh-13-10/`, `fresh-20-10/`, `fresh-16-10/`.
+
+### 6.5. Đo lại sau #71, #72, #74 (#99)
+
+Kết quả: **fail**. Transcript sẵn sau 10,4 phút (#16: 128,9 phút) nhưng notes vẫn lỗi `provider_output_too_large` sau 24,4 phút, nên không có mốc cả hai sẵn; ngay cả mốc tác vụ notes kết thúc lỗi (34,8 phút) đã vượt 30 phút. Bước chậm nhất chuyển từ diarization sang notes (70,0% thời gian).
+
+- **Revision, image:** main `4a88ec8` (`4a88ec8be964aa5b818d854ef207eb0a2905718f`; có #71 (PR #98), #72 (PR #94), #74 (PR #91)), image `asr-issue99:4a88ec8` (`sha256:651944db0134…`, nhãn `org.opencontainers.image.revision` khớp), schema 12. Chạy trên bản cài eval `asr-issue16-eval` với các volume sẵn có.
+- **Ngày đo:** 2026-10-25, 16:22–16:59 (giờ +07).
+- **Cách đo:** như mục 6. Chrome 149.0.7827.53 headless, import mẫu ghép `composite-2h.m4a` (7366,14 s, cùng tệp như mục 2.7) qua hộp thoại, gợi ý ngôn ngữ `en`, tự chép lời sau khi tạo bật, mạng có dây, một lần đo, giữ khóa `gpu.lock` suốt lần chạy. Mốc bắt đầu là request `POST /api/tasks` mà trang cuộc họp tự gửi; import (bấm tạo → trang cuộc họp) tính riêng, ngoài AC-13. Notes qua ChatGPT `gpt-5.6-sol`, medium, đầu ra English; harness bấm "Tạo notes" ngay khi nút bật và ghi khoảng chờ riêng. Không thử lại vì lỗi là giới hạn của sản phẩm, không phải sự cố môi trường (không có lỗi mạng, quota, máy chủ hay GPU).
+
+| | #99: main `4a88ec8` | Tỷ trọng trong 2.090,2 s | #16: `151f3e4` (cột mẫu 2 giờ, mục 6.1) |
+| --- | --- | --- | --- |
+| Upload / kiểm tra phía server (ngoài AC-13) | 0,24 s / 81,0 s (bấm tạo → trang cuộc họp: 81,4 s) | | 0,19 s / 81,2 s |
+| Nạp model ASR (`loading_model`) | 2,86 s | 0,1% | không ghi riêng |
+| ASR (`transcribing`) | 525,55 s, 14,0× thời gian thực | 25,1% | 510,0 s, 14,4× |
+| Diarization: nạp model (`loading_diarization_model`) | 4,26 s | 0,2% | không ghi riêng |
+| Diarization: giải mã đầu vào (`decoding_input`) | 2,85 s | 0,1% | không ghi riêng |
+| Diarization: chạy (`diarizing`) | 89,62 s | 4,3% | không ghi riêng |
+| **Diarization, tổng ba stage** | **96,73 s** (1,6 phút) | 4,6% | 7.222,6 s (nạp model + chạy) |
+| Segment / nhãn người nói / gắn cờ | 1706 / 13 / 733 | | 1838 / 12 / 817 |
+| **Transcript sẵn** (từ lúc bắt đầu xử lý) | **10,4 phút** (626,53 s theo UI; tác vụ chép lời xong ở 625,99 s) | | **128,9 phút** (7.734 s) |
+| Từ transcript sẵn tới lúc bấm "Tạo notes" (ghi riêng) | 0,75 s (tác vụ chép lời xong → `POST` notes); 0,17 s (UI báo transcript sẵn → bấm) | | 0,87 s (tác vụ chép lời xong → `POST` notes) |
+| Notes: chunk / byte nguồn / lượt gọi | 14 / 307.154 / 29 | | 16 / 340.521 / 25 |
+| Kết quả notes | **lỗi** `provider_output_too_large` ở lượt 29, sau 1.463,47 s (24,4 phút) | 70,0% | **lỗi** như trên ở lượt 25, sau 958,6 s (16,0 phút) |
+| **AC-13: bắt đầu → transcript và notes sẵn** | **không có mốc** (không lưu bản notes nào); tác vụ notes kết thúc lỗi ở 2.090,2 s (**34,8 phút**) | | không có mốc (tác vụ notes kết thúc lỗi sau 144,9 phút) |
+| Từ lúc bấm tạo (cộng import) tới khi tác vụ notes kết thúc lỗi | 2.171,6 s (36,2 phút) | | |
+
+Tỷ trọng tính trên cửa sổ AC-13 (`POST /api/tasks` → tác vụ notes kết thúc, 2.090,2 s); 0,1% còn lại là hai khoảng chờ (0,85 s trước khi nạp model ASR, 0,75 s trước `POST` notes). ASR lần này cho 1706 segment (#16: 1838), nên nguồn notes nhỏ hơn và ít chunk hơn.
+
+**Lượt gọi notes:**
+
+- 14 chunk, 29 lượt gọi ChatGPT nối tiếp: 29 kết nối ra ngoài, đều nằm trong cửa sổ notes, tối đa 1 kết nối cùng lúc (`conn.jsonl`, `metrics.json`).
+- 14 lượt đầu (bằng số chunk) mất 615 s, trung vị 41,3 s mỗi lượt; 15 lượt sau mất 847 s, trung vị 61,7 s mỗi lượt. Chỉ stage của lượt cuối được ghi (`reduce`, `recovery`); stage của các lượt trước không ghi.
+- Chẩn đoán lượt cuối (`provider-last-diagnostic.txt`): `stage` `reduce`, `attempt` `recovery`, lượt 29, `prompt_bytes` 25.432, `output_bytes` 10.701, `response_limit` 10.700, HTTP 200. `output_bytes` là cận dưới (mục 6.3).
+
+**Nguyên nhân:**
+
+- **Notes là bước chậm nhất:** 1.463,5 s, 70,0% cửa sổ AC-13 (ASR 25,1%, diarization 4,6%). Sau transcript chỉ còn 30 − 10,4 = 19,6 phút trong ngân sách; notes đã dùng 24,4 phút mà chưa tới lượt cuối. 29 lượt chạy nối tiếp (độ song song 1) và lượt reduce chậm hơn lượt chunk (#101).
+- **Diarization không còn là điểm nghẽn (#71):** 96,73 s so với 7.222,6 s ở #16 (nhanh gấp khoảng 75 lần); transcript sẵn nhanh gấp khoảng 12 lần. ASR gần như không đổi (525,55 s so với 510,0 s).
+- **Notes vẫn lỗi sau khi có lượt phục hồi (#72):** lượt 29 là lượt phục hồi của bước reduce và câu trả lời vẫn vượt trần 10.700 byte; không còn lượt phục hồi nào nên cả tác vụ lỗi, không lưu bản notes nào, mất toàn bộ 24,4 phút lượt gọi (#102).
+
+**Giới hạn của phép đo:**
+
+1. Một lần đo, một provider và model; độ trễ phụ thuộc giờ trong ngày; không gặp quota hay rate-limit. Mẫu 2 giờ vẫn là ghép (mục 6.4, điểm 1).
+2. Thời gian notes khi thành công chưa đo được: 24,4 phút là thời gian tới lúc lỗi ở bước reduce, trước lượt cuối, nên chỉ là cận dưới.
+3. Harness bấm "Tạo notes" ngay (0,17 s; 0,75 s); người thật có thể chờ lâu hơn và khoảng chờ đó cộng vào AC-13 (#73).
+4. `output_bytes` 10.701 là cận dưới; độ dài thật của câu trả lời ở lượt 29 không biết (#102).
+5. Tải máy: GPU nền 1.155 MiB (gồm một tiến trình python khác trên máy, không thuộc ASR, 260 MiB, có từ trước lần đo; worker bản cài chính nhàn rỗi, không giữ bộ nhớ GPU); khi ASR GPU trung bình 83,5%, đỉnh 6.652 MiB; khi diarization trung bình 90,0%, đỉnh 5.361 MiB; load1 trung bình 1,13 (đỉnh 3,37); RAM khả dụng thấp nhất 22,0 GiB; mạng có dây (`enp7s0`), Wi-Fi không dùng.
+6. Mốc chuyển stage lấy từ việc harness hỏi API tác vụ khoảng mỗi 0,7 s, nên thời gian từng stage (ghi tới 0,01 s) có sai số tới khoảng 1 s.
+
+Evidence: `EV99/composite99/` (`summary.json`, `events.jsonl`, `metrics.json`, `dbfacts.json`, `gpu.csv`, `gpu-apps.csv`, `host.csv`, `worker-stats.csv`, `conn.jsonl`, `provider-last-diagnostic.txt`, `lock.txt`), `EV99/setup/` (`swap-up.txt`, `restore-up.txt`). `EV99` là thư mục bằng chứng riêng tư của #99, ngoài repo (mục 11).
 
 ## 7. Tiêu chí 6: AC-14, thời gian đưa draft về mức dùng được
 
@@ -409,7 +460,7 @@ Người chấm là một agent (t10), một lượt chấm cho mỗi bản; nh�
 
 ### 8.3. Cơ chế chia/hợp nhất (AC-39)
 
-Kết luận AC-39: **fail** (t10 chấm partial; đổi theo quyết định của lead, mục 10.1). Tiêu đề yêu cầu xử lý đầy đủ transcript dài qua chia/hợp nhất; phép kiểm yêu cầu không bước nào vượt ngân sách và chất lượng như AC-02/03/05. Ở t7, mẫu 2 giờ và 2 trong 3 lần chạy dài khác (13/10, 16/10, qua ChatGPT) không ra notes vì đầu ra reduce cấp 2 vượt trần 10.700 byte (10.703–10.711 byte; mục 6, #72); AC-02 và AC-03 fail (mục 5).
+Kết luận AC-39: **fail** (t10 chấm partial; đổi theo quyết định của lead, mục 10.1). Tiêu đề yêu cầu xử lý đầy đủ transcript dài qua chia/hợp nhất; phép kiểm yêu cầu không bước nào vượt ngân sách và chất lượng như AC-02/03/05. Ở t7, mẫu 2 giờ và 2 trong 3 lần chạy dài khác (13/10, 16/10, qua ChatGPT) không ra notes vì đầu ra reduce cấp 2 vượt trần 10.700 byte (10.703–10.711 byte (cận dưới, mục 6.3); mục 6, #72); AC-02 và AC-03 fail (mục 5).
 
 Cơ chế vẫn đúng trên ba bản notes thành công. Trên cả ba bản: span sở hữu liên tục và đủ (mỗi segment thuộc đúng một chunk), mỗi chunk sau chunk đầu lặp đuôi chunk trước, mỗi chunk có một chỉ số lượt gọi, 398 / 521 / 484 tham chiếu trích dẫn (20/10, 13/10, 16/10) khớp mốc bắt đầu trong nguồn đã đóng băng (0 không giải được), 0 cảnh báo, mọi chunk đều đóng góp trích dẫn. Các segment được trích: 41,5% (20/10), 39,9% (13/10), 33,6% (16/10). Ba bản được chấm là bản thành công, không cần hợp nhất cấp 2; ba lần chạy cần cấp 2 ở t7 đều lỗi (mục 6, #72).
 
@@ -417,7 +468,7 @@ Evidence: `EV/t10/2026-10-13-scoring.md`, `2026-10-16-scoring.md`, `2026-10-20-s
 
 ## 9. Tiêu chí 8: danh sách follow-up
 
-Mỗi lỗi hoặc phần chưa đo ở mục 5–8 dẫn tới ít nhất một follow-up. Nội dung từng follow-up (quan sát, cách tái hiện không chứa nội dung cuộc họp, tiêu chí liên quan, bằng chứng) nằm trong issue tương ứng (nhãn `needs-triage`). Mức độ là ước lượng của worker; khi gộp lấy mức cao nhất ("medium-high" tính là high, "low-medium" tính là medium). #80, #88, #89: mức do người tổng hợp đặt. Không follow-up nào sửa mã sản phẩm trong đợt này.
+Mỗi lỗi hoặc phần chưa đo ở mục 5–8 dẫn tới ít nhất một follow-up. Nội dung từng follow-up (quan sát, cách tái hiện không chứa nội dung cuộc họp, tiêu chí liên quan, bằng chứng) nằm trong issue tương ứng (nhãn `needs-triage`). Mức độ là ước lượng của worker; khi gộp lấy mức cao nhất ("medium-high" tính là high, "low-medium" tính là medium). #80, #88, #89: mức do người tổng hợp đặt. #101 và #102 là follow-up của lần đo lại AC-13 (#99, mục 6.5), chưa phân mức. Không follow-up nào sửa mã sản phẩm trong đợt này.
 
 | FU | Tiêu đề | Mức độ | Tiêu chí |
 | --- | --- | --- | --- |
@@ -441,6 +492,8 @@ Mỗi lỗi hoặc phần chưa đo ở mục 5–8 dẫn tới ít nhất một
 | #87 | Phát hành: tag, image công khai, tài liệu cài đặt và artefact lệch ứng viên | medium | AC-17, AC-23, FE-02, FE-10 |
 | #88 | Bộ nghiệm thu thiếu cuộc họp toàn tiếng Anh, 2–3 người nói và mẫu 2 giờ thật | medium | tiêu chí 1; AC-01 |
 | #89 | Hoàn tất các kiểm tra nghiệm thu cần người vận hành, quota hoặc image công khai | medium | tiêu chí 3, 6, 7; AC-05, AC-14, AC-15, AC-17, AC-35..38, AC-44; FE-11, FE-12, FE-14, FE-16 |
+| #101 | Notes của bản ghi 2 giờ mất hơn 24 phút với 29 lượt gọi tuần tự, vượt ngân sách AC-13 | chưa phân mức | AC-13; tiêu chí 5 |
+| #102 | Notes bản ghi 2 giờ vẫn lỗi vượt trần đầu ra sau khi hết lượt phục hồi | chưa phân mức | AC-13; tiêu chí 5 |
 
 ## 10. Phương pháp và giới hạn
 
@@ -503,7 +556,7 @@ Các phần A–D của `needs-user-4` là tùy chọn; tại thời điểm vi�
 
 ## 11. Danh mục bằng chứng
 
-`EV` = thư mục bằng chứng riêng tư `asr-acceptance/issue-16` của đợt nghiệm thu (mode 700, ngoài repo). Ảnh chụp màn hình và JSON thô chứa nội dung cuộc họp nên chỉ nằm trong `EV`. Báo cáo từng worker, ma trận tiêu chí và nhật ký chạy nằm ở thư mục chạy riêng của lead, cũng ngoài repo.
+`EV` = thư mục bằng chứng riêng tư `asr-acceptance/issue-16` của đợt nghiệm thu (mode 700, ngoài repo). Ảnh chụp màn hình và JSON thô chứa nội dung cuộc họp nên chỉ nằm trong `EV`. Báo cáo từng worker, ma trận tiêu chí và nhật ký chạy nằm ở thư mục chạy riêng của lead, cũng ngoài repo. `EV99` = thư mục bằng chứng riêng tư của lần đo lại AC-13 (#99), cũng ngoài repo; ảnh chụp màn hình và JSON thô của lần đó chỉ nằm ở đó.
 
 | Thư mục | Nhiệm vụ | Nội dung (tên) |
 | --- | --- | --- |
@@ -518,3 +571,5 @@ Các phần A–D của `needs-user-4` là tùy chọn; tại thời điểm vi�
 | `EV/t8/` | t8 | `nf-{chrome,firefox}/`, `ac16n-*`, `ac19n-*`, `chips-real-*`, `faults-{a10,offline,cut,model,model2,apiid,prefs,nologin}/`, `step0-*`, `sim/`, `audit*/`, `LEDGER.md` |
 | `EV/t9/` | t9 | `<cấu hình>/`, `func-{chrome,firefox}[-dark]/`, `chrome-light-1440x1000-{intr,inuse}/`, `summary.json`, `matrix.md`, `seed.json`, `console-walk.json`, `backups/`, `logs/` |
 | `EV/t10/` | t10 | `2026-10-13-scoring.md`, `2026-10-16-scoring.md`, `2026-10-20-scoring.md`, `snapshot/`, `manifests.json`, `work/`, `ac06-nodate/`, `ac06-nodate-2/` |
+| `EV99/composite99/` | #99 | `summary.json`, `events.jsonl`, `metrics.json`, `dbfacts.json`, `gpu.csv`, `gpu-apps.csv`, `host.csv`, `worker-stats.csv`, `conn.jsonl`, `provider-last-diagnostic.txt`, `lock.txt`; `meeting.json`, `notes.json`, `shots/` (có nội dung cuộc họp, riêng tư) |
+| `EV99/setup/` | #99 | `swap-up.txt`, `restore-up.txt` (đổi image của bản cài eval sang `asr-issue99:4a88ec8` rồi trả về `asr-issue16:151f3e4`) |
