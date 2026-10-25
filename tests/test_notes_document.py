@@ -920,7 +920,7 @@ def test_chunk_and_reduction_prompts_keep_untrusted_source_and_chronology(snapsh
     assert f"aiming for {MAX_REDUCTION_TARGET_BYTES} bytes or less" in intermediate_prompt
     assert "Private title" not in chunk_prompt + reduction_prompt
     assert "private/audio" not in chunk_prompt + reduction_prompt
-    assert PROMPT_VERSION == "notes-hierarchical-v7"
+    assert PROMPT_VERSION == "notes-hierarchical-v8"
     assert MAX_CHUNK_OUTPUT_BYTES <= MAX_REPAIR_OUTPUT_BYTES
     assert MAX_REDUCTION_TARGET_BYTES < MAX_REDUCTION_OUTPUT_BYTES <= MAX_OUTPUT_BYTES
 
@@ -949,19 +949,19 @@ def test_primary_prompts_match_their_pinned_digests(snapshot, document):
     }
 
     assert digests == {
-        "en-single": "c1a8e2e16cbb4bb4",
-        "en-chunk": "5c0ca6d27509ebf7",
-        "en-reduce": "200022b95457a7a1",
-        "en-final": "a35308ec6f47f554",
-        "vi-single": "82a65c37e1e1b56d",
-        "vi-chunk": "5ff38fa0cd6452d7",
-        "vi-reduce": "33c5d95f255ca130",
-        "vi-final": "35ea3dc291924888",
+        "en-single": "153a03e24fcd6fe1",
+        "en-chunk": "f8acb7e060ccda9f",
+        "en-reduce": "ed7ced91d426643f",
+        "en-final": "d1c6507290a30e64",
+        "vi-single": "01dbc50b72a241e1",
+        "vi-chunk": "bb2303c7b0fab6d0",
+        "vi-reduce": "6af85d1f9e5d0634",
+        "vi-final": "9bc39b422824ae6f",
     }
 
 
-# Phrases of the telegraph and one-section rules, and of the whole-document hard budget. The
-# Vietnamese single and chunk prompts name proper and product names in an older sentence too, so
+# Phrases of the telegraph, one-section, decision-confidence and whole-document hard-budget rules.
+# The Vietnamese single and chunk prompts name proper and product names in an older sentence too, so
 # the proper-names marker runs on into the telegraph rule's list.
 _RULE_MARKERS = {
     "en": (
@@ -976,12 +976,25 @@ _RULE_MARKERS = {
         "context and purpose only, nothing stated in another section",
         "at most 3 items",
         "key_topics: never restate",
+        "key_topics: discussion points and rationale only",
+        "no item exists in decisions, open_questions, action_items or confirmation_items",
+        "if one exists, omit key_topics",
+        "add a short reason clause there",
+        "State each decision once in decisions",
+        "actions name only who does what",
+        "confirmation_items never repeat a decision or action",
+        "Decisions require explicit agreement in the source",
+        "jokes, brainstorming, unclear, contested or hedged statements",
+        "confirmation_items or open_questions",
+        "unclear time phrase is not a deadline",
+        "leave deadline fields null",
+        "keep the phrase in item text only if needed",
         "HARD document budget",
         "at most 350 words of item text",
         "owner/deadline fields come on top",
         "At most 5 key_topics items",
         "each item at most 10 words",
-        "At most 12 action_items",
+        "At most 16 action_items",
         "same owner and same deadline",
         "one phrase per action",
         "union of source_ids",
@@ -992,6 +1005,8 @@ _RULE_MARKERS = {
         "Never merge across sections",
         "merge a decision into an action (or vice versa)",
         "uncommitted proposals stay in confirmation_items",
+        "Before answering, delete any overview or key_topics item",
+        "confirm every distinct fact from the inputs is still present",
     ),
     "vi": (
         "văn phong telegraph: cụm từ thay câu",
@@ -1005,12 +1020,26 @@ _RULE_MARKERS = {
         "bối cảnh và mục đích không có ở nhóm khác",
         "tối đa 3 mục",
         "key_topics không nhắc lại",
+        "key_topics: chỉ giữ điểm thảo luận và lý do",
+        "chưa có mục tương ứng trong decisions, open_questions, action_items hoặc "
+        "confirmation_items",
+        "nếu đã có, bỏ mục key_topics",
+        "thêm một vế lý do ngắn vào mục đó",
+        "Nêu mỗi quyết định một lần trong decisions",
+        "action_items chỉ nêu ai làm gì",
+        "confirmation_items không lặp lại quyết định hay hành động",
+        "Chỉ đưa vào decisions khi nguồn thể hiện thỏa thuận rõ ràng",
+        "câu đùa, ý tưởng động não, phát biểu chưa rõ, còn tranh luận hoặc có từ rào đón",
+        "confirmation_items hoặc open_questions",
+        "Cụm thời gian chưa rõ không phải hạn chót",
+        "để các trường deadline null",
+        "chỉ giữ cụm đó trong văn bản mục nếu cần",
         "Ngân sách CỨNG cho tài liệu",
         "tối đa 350 từ trong nội dung các mục",
         "các trường owner/deadline tính thêm",
         "Tối đa 5 mục key_topics",
         "mỗi mục tối đa 10 từ",
-        "Tối đa 12 mục action_items",
+        "Tối đa 16 mục action_items",
         "cùng người phụ trách và cùng hạn chót",
         "mỗi hành động một cụm",
         "hợp nhất source_ids",
@@ -1021,6 +1050,8 @@ _RULE_MARKERS = {
         "Không gộp khác nhóm",
         "gộp quyết định vào hành động (hay ngược lại)",
         "đề xuất chưa thống nhất vẫn thuộc confirmation_items",
+        "Trước khi trả lời, xóa mọi mục overview hoặc key_topics",
+        "xác nhận mọi thông tin riêng biệt từ đầu vào vẫn còn",
     ),
 }
 _BUDGET_MARKERS = {
@@ -1030,7 +1061,7 @@ _BUDGET_MARKERS = {
         "owner/deadline fields come on top",
         "At most 5 key_topics items",
         "each item at most 10 words",
-        "At most 12 action_items",
+        "At most 16 action_items",
         "same owner and same deadline",
         "one phrase per action",
         "union of source_ids",
@@ -1041,6 +1072,8 @@ _BUDGET_MARKERS = {
         "Never merge across sections",
         "merge a decision into an action (or vice versa)",
         "uncommitted proposals stay in confirmation_items",
+        "Before answering, delete any overview or key_topics item",
+        "confirm every distinct fact from the inputs is still present",
     ),
     "vi": (
         "Ngân sách CỨNG cho tài liệu",
@@ -1048,7 +1081,7 @@ _BUDGET_MARKERS = {
         "các trường owner/deadline tính thêm",
         "Tối đa 5 mục key_topics",
         "mỗi mục tối đa 10 từ",
-        "Tối đa 12 mục action_items",
+        "Tối đa 16 mục action_items",
         "cùng người phụ trách và cùng hạn chót",
         "mỗi hành động một cụm",
         "hợp nhất source_ids",
@@ -1059,6 +1092,8 @@ _BUDGET_MARKERS = {
         "Không gộp khác nhóm",
         "gộp quyết định vào hành động (hay ngược lại)",
         "đề xuất chưa thống nhất vẫn thuộc confirmation_items",
+        "Trước khi trả lời, xóa mọi mục overview hoặc key_topics",
+        "xác nhận mọi thông tin riêng biệt từ đầu vào vẫn còn",
     ),
 }
 

@@ -12,7 +12,7 @@ from datetime import date, timedelta
 from typing import Any
 
 SCHEMA_VERSION = 1
-PROMPT_VERSION = "notes-hierarchical-v7"
+PROMPT_VERSION = "notes-hierarchical-v8"
 LEGACY_ENGLISH_PROMPT_VERSION = "notes-hierarchical-v4"
 _MAX_PROMPT_HARD_LIMIT_BYTES = 48_000
 # max_output_tokens includes hidden reasoning as well as the visible JSON.
@@ -689,38 +689,56 @@ _PLACEMENT_RULE = {
         "Put each fact in exactly one section, the most specific one. overview: context and "
         "purpose only, nothing stated in another section, at most 3 items. key_topics: never "
         "restate a decision, open question, action or confirmation item that has its own "
-        "section.\n"
+        "section. key_topics: discussion points and rationale only when no item exists in "
+        "decisions, open_questions, action_items or confirmation_items; if one exists, omit "
+        "key_topics and add a short reason clause there. State each decision once in decisions; "
+        "actions name only who does what; confirmation_items never repeat a decision or action. "
+        "Decisions require explicit agreement in the source. Put jokes, brainstorming, unclear, "
+        "contested or hedged statements in confirmation_items or open_questions. An unclear time "
+        "phrase is not a deadline: leave deadline fields null; keep the phrase in item text only "
+        "if needed.\n"
     ),
     "vi": (
         "Mỗi thông tin chỉ nằm ở đúng một nhóm, nhóm cụ thể nhất. overview chỉ nêu bối cảnh và "
         "mục đích không có ở nhóm khác, tối đa 3 mục. key_topics không nhắc lại quyết định, câu "
-        "hỏi, hành động hay mục cần xác nhận đã có ở nhóm riêng.\n"
+        "hỏi, hành động hay mục cần xác nhận đã có ở nhóm riêng. key_topics: chỉ giữ điểm thảo "
+        "luận và lý do khi chưa có mục tương ứng trong decisions, open_questions, action_items "
+        "hoặc confirmation_items; nếu đã có, bỏ mục key_topics và thêm một vế lý do ngắn vào "
+        "mục đó. Nêu mỗi quyết định một lần trong decisions; action_items chỉ nêu ai làm gì; "
+        "confirmation_items không lặp lại quyết định hay hành động. Chỉ đưa vào decisions khi "
+        "nguồn thể hiện thỏa thuận rõ ràng. Đưa câu đùa, ý tưởng động não, phát biểu chưa rõ, "
+        "còn tranh luận hoặc có từ rào đón vào confirmation_items hoặc open_questions. Cụm thời "
+        "gian chưa rõ không phải hạn chót: để các trường deadline null; chỉ giữ cụm đó trong văn "
+        "bản mục nếu cần.\n"
     ),
 }
 _LENGTH_BUDGET = {
     "en": (
         "HARD document budget: at most 350 words of item text across the whole document; "
         "owner/deadline fields come on top. At most 5 key_topics items; each item at most 10 "
-        "words. At most 12 action_items: merge actions with the same owner and same deadline "
+        "words. At most 16 action_items: merge actions with the same owner and same deadline "
         "into one item (one phrase per action, union of source_ids). To fit, merge related items "
         "within the same section into one item, listing every "
         "distinct fact as a short phrase separated by ';' and carrying the union of their "
         "source_ids (for example, several actions by one owner or several questions on one "
         "topic). Never "
         "drop a distinct fact. Never merge across sections or merge a decision into an action "
-        "(or vice versa); uncommitted proposals stay in confirmation_items.\n"
+        "(or vice versa); uncommitted proposals stay in confirmation_items. Before answering, "
+        "delete any overview or key_topics item that restates another section, and confirm every "
+        "distinct fact from the inputs is still present.\n"
     ),
     "vi": (
         "Ngân sách CỨNG cho tài liệu: tối đa 350 từ trong nội dung các mục trên toàn tài liệu; "
         "các trường owner/deadline tính thêm. Tối đa 5 mục key_topics; mỗi mục tối đa 10 từ. "
-        "Tối đa "
-        "12 mục action_items: gộp các hành động cùng người phụ trách và cùng hạn chót "
+        "Tối đa 16 mục action_items: gộp các hành động cùng người phụ trách và cùng hạn chót "
         "thành một mục (mỗi hành động một cụm, hợp nhất source_ids). Để đạt giới hạn, gộp các "
         "mục liên quan trong cùng nhóm thành một mục, liệt kê mọi thông tin "
         "riêng thành cụm ngắn, ngăn cách bằng ';' và dùng hợp nhất toàn bộ source_ids (ví dụ: "
         "nhiều hành động của một người phụ trách hoặc nhiều câu hỏi về một chủ đề). Không bỏ "
         "thông tin riêng biệt. Không gộp khác nhóm hoặc gộp quyết định vào hành động (hay ngược "
-        "lại); đề xuất chưa thống nhất vẫn thuộc confirmation_items.\n"
+        "lại); đề xuất chưa thống nhất vẫn thuộc confirmation_items. Trước khi trả lời, xóa mọi "
+        "mục overview hoặc key_topics nhắc lại nhóm khác, rồi xác nhận mọi thông tin riêng biệt "
+        "từ đầu vào vẫn còn.\n"
     ),
 }
 
