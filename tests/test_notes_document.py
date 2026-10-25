@@ -959,11 +959,12 @@ def test_primary_prompts_are_byte_identical_to_those_before_output_recovery(snap
 
 
 def test_each_recovery_aims_at_three_quarters_of_the_last_in_whole_hundreds():
-    assert [lower_output_target(aim) for aim in (8_000, 6_000, 128_000, 96_000)] == [
+    assert [lower_output_target(aim) for aim in (8_000, 6_000, 128_000, 96_000, 4_500)] == [
         6_000,
         4_500,
         96_000,
         72_000,
+        3_300,  # 3375 rounds down to the hundred below it
     ]
     for first in (MAX_CHUNK_OUTPUT_BYTES, MAX_REDUCTION_TARGET_BYTES, MAX_OUTPUT_BYTES):
         aims = [first]
@@ -973,6 +974,7 @@ def test_each_recovery_aims_at_three_quarters_of_the_last_in_whole_hundreds():
         assert all(aim > 0 and aim % 100 == 0 for aim in aims[1:])
     # The recoveries come on top of the planned calls and the one repair.
     assert 1 <= MAX_OUTPUT_RECOVERY_ATTEMPTS <= MAX_OUTPUT_RECOVERY_CALLS
+    assert (MAX_OUTPUT_RECOVERY_ATTEMPTS, MAX_OUTPUT_RECOVERY_CALLS) == (2, 4)  # as documented
     assert MAX_PROVIDER_CALLS == (
         MAX_NOTES_CHUNKS + MAX_REDUCTION_CALLS + 1 + MAX_OUTPUT_RECOVERY_CALLS
     )

@@ -1988,8 +1988,10 @@ def test_recoveries_are_capped_across_the_whole_task(tmp_path, monkeypatch):
     _tight_budget(monkeypatch)
 
     def respond(prompt, max_output_bytes):
-        if RECOVERY_MARK not in prompt:
-            raise _too_large(max_output_bytes + 5)  # the first ask of every request is too big
+        # The first ask of every request is too big. A chunk gets a fitting answer when asked
+        # again, but a reduction stays too big however often it is asked: only the cap stops it.
+        if RECOVERY_MARK not in prompt or "SOURCE_JSON:\n" not in prompt:
+            raise _too_large(max_output_bytes + 5)
         source_id = _source_segments(prompt)[0]["id"]
         document = _valid_document()
         document["overview"] = [{"text": "chunk " + "x" * 6_400, "source_ids": [source_id]}]
@@ -2068,3 +2070,97 @@ def test_a_smaller_answer_that_fails_validation_gets_the_one_repair(tmp_path):
     (manifest,) = manifests
     assert manifest["chunks"][0]["provider_call_index"] == 3
     assert (manifest["provider_calls"], manifest["output_recoveries"]) == (3, 1)
+
+
+def test_a_chunk_over_its_cap_is_asked_again_after_the_task_repair_was_spent(tmp_path):
+    from asr_en_vi.notes_document import MAX_CHUNK_OUTPUT_BYTES
+
+    second = _valid_document()
+    second["overview"][0]["source_ids"] = ["00001"]
+    adapter = NotesOnlyAdapter(
+        [
+            "not-json",
+            json.dumps(_valid_document()),
+            _too_large(MAX_CHUNK_OUTPUT_BYTES + 1),
+            json.dumps(second),
+            json.dumps(_valid_document()),
+        ]
+    )
+    provider = _provider(tmp_path, adapter)
+    manifests = []
+
+    result = _generate(provider, _chunked_snapshot(), on_coverage=manifests.append)
+
+    assert result["overview"]
+    # Chunk 1 and its repair, chunk 2 over its cap and asked again, then the final reduction.
+    _, repair, primary, asked_again, _ = adapter.calls
+    assert "INVALID_OUTPUT:" in repair.prompt and RECOVERY_MARK not in repair.prompt
+    assert RECOVERY_MARK not in primary.prompt and RECOVERY_MARK in asked_again.prompt
+    assert asked_again.prompt.startswith(primary.prompt)
+    (manifest,) = manifests
+    assert [chunk["provider_call_index"] for chunk in manifest["chunks"]] == [2, 4]
+    assert (manifest["provider_calls"], manifest["output_recoveries"]) == (5, 1)
+
+
+def test_final_synthesis_over_its_cap_is_asked_again_for_a_smaller_answer(tmp_path):
+    second = _valid_document()
+    second["overview"][0]["source_ids"] = ["00001"]
+    adapter = NotesOnlyAdapter(
+        [
+            json.dumps(_valid_document()),
+            json.dumps(second),
+            _too_large(MAX_OUTPUT_BYTES + 1),
+            json.dumps(_valid_document()),
+        ]
+    )
+    provider = _provider(tmp_path, adapter)
+    manifests = []
+
+    result = _generate(provider, _chunked_snapshot(), on_coverage=manifests.append)
+
+    assert result["overview"]
+    final, asked_again = adapter.calls[2:]
+    assert "final meeting-level notes" in final.prompt
+    assert RECOVERY_MARK not in final.prompt and RECOVERY_MARK in asked_again.prompt
+    assert asked_again.prompt.startswith(final.prompt)
+    assert _aim(asked_again.prompt) == 96_000  # three quarters of the 128000 byte cap
+    assert final.max_output_bytes == asked_again.max_output_bytes == MAX_OUTPUT_BYTES
+    (manifest,) = manifests
+    assert (manifest["provider_calls"], manifest["output_recoveries"]) == (4, 1)
+
+
+def test_a_lower_target_prompt_that_overruns_the_context_for_its_ids_is_not_sent(
+    tmp_path, monkeypatch
+):
+    from asr_en_vi import notes_document
+
+    scope = ("00000",)
+    assert notes_schema_json_bytes(scope) > notes_schema_json_bytes(())  # the ids widen the schema
+
+    def respond(prompt, max_output_bytes):
+        if len(adapter.calls) == 1:
+            # The lower aim fits the prompt cap but is one byte too many for the context left
+            # once the schema of this request's ids is counted: a check without the ids lets it go.
+            lowered = notes_document.build_recovery_prompt(
+                prompt, target_bytes=_lowered_aims(MAX_OUTPUT_BYTES, 1)[0], allowed_source_ids=scope
+            )
+            monkeypatch.setattr(
+                notes_document,
+                "_CONTEXT_INPUT_BUDGET_BYTES",
+                len(lowered.encode("utf-8"))
+                + notes_schema_json_bytes(scope)
+                + notes_document._CONTEXT_INPUT_HEADROOM_BYTES
+                - 1,
+            )
+        raise _too_large(max_output_bytes + 1)
+
+    adapter = NotesOnlyAdapter(responder=respond)
+    provider = _provider(tmp_path, adapter)
+
+    with pytest.raises(ChatGPTError) as failed:
+        _generate(provider, _snapshot())
+
+    assert failed.value.code == "provider_output_too_large"
+    assert len(adapter.calls) == 1
+    diagnostic = provider.store._read()["last_diagnostic"]
+    assert (diagnostic["stage"], diagnostic["attempt"]) == ("single", "primary")

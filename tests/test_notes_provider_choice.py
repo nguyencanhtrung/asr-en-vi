@@ -230,6 +230,28 @@ def test_antigravity_oversized_chunk_recovers_and_the_manifest_counts_it(tmp_pat
     assert (manifest["provider_calls"], manifest["output_recoveries"]) == (4, 1)
 
 
+def test_antigravity_oversized_chunk_is_asked_again_after_the_task_repair_was_spent(tmp_path):
+    adapter = FakeOmp(
+        replies=["not json", json.dumps(_valid_document()), _oversized(MAX_CHUNK_OUTPUT_BYTES)]
+    )
+    manifests = []
+
+    result = _generate(
+        _antigravity(tmp_path, adapter), _chunked_snapshot(), on_coverage=manifests.append
+    )
+
+    assert result["overview"]
+    # Chunk 1 and its repair, chunk 2 over its cap and asked again, then the final reduction.
+    prompts = [_original_prompt(prompt) for _, prompt in adapter.calls]
+    assert len(prompts) == 5
+    assert "INVALID_OUTPUT:" in prompts[1] and RECOVERY_MARK not in prompts[1]
+    assert RECOVERY_MARK not in prompts[2] and RECOVERY_MARK in prompts[3]
+    assert prompts[3].startswith(prompts[2]) and sum(RECOVERY_MARK in p for p in prompts) == 1
+    (manifest,) = manifests
+    assert [chunk["provider_call_index"] for chunk in manifest["chunks"]] == [2, 4]
+    assert (manifest["provider_calls"], manifest["output_recoveries"]) == (5, 1)
+
+
 def test_antigravity_document_that_stays_oversized_fails_as_before(tmp_path):
     adapter = FakeOmp(replies=[_oversized(MAX_OUTPUT_BYTES)] * (1 + MAX_OUTPUT_RECOVERY_ATTEMPTS))
 
