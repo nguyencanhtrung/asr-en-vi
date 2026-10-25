@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import hashlib
 import json
 from itertools import pairwise
 
@@ -11,7 +12,12 @@ from asr_en_vi.notes_document import (
     MAX_CHUNK_OUTPUT_BYTES,
     MAX_NOTES_CHUNKS,
     MAX_OUTPUT_BYTES,
+    MAX_OUTPUT_RECOVERY_ATTEMPTS,
+    MAX_OUTPUT_RECOVERY_CALLS,
     MAX_PRIMARY_PROMPT_BYTES,
+    MAX_PROMPT_BYTES,
+    MAX_PROVIDER_CALLS,
+    MAX_REDUCTION_CALLS,
     MAX_REDUCTION_OUTPUT_BYTES,
     MAX_REDUCTION_TARGET_BYTES,
     MAX_REPAIR_OUTPUT_BYTES,
@@ -25,8 +31,10 @@ from asr_en_vi.notes_document import (
     build_citations,
     build_notes_schema,
     build_prompt,
+    build_recovery_prompt,
     build_reduction_prompt,
     drop_overlap_duplicates,
+    lower_output_target,
     normalize_duplicate_source_refs,
     notes_schema_json_bytes,
     plan_source,
@@ -915,6 +923,83 @@ def test_chunk_and_reduction_prompts_keep_untrusted_source_and_chronology(snapsh
     assert PROMPT_VERSION == "notes-hierarchical-v6"
     assert MAX_CHUNK_OUTPUT_BYTES <= MAX_REPAIR_OUTPUT_BYTES
     assert MAX_REDUCTION_TARGET_BYTES < MAX_REDUCTION_OUTPUT_BYTES <= MAX_OUTPUT_BYTES
+
+
+def test_primary_prompts_are_byte_identical_to_those_before_output_recovery(snapshot, document):
+    """A recovery only resends a primary prompt with a suffix, so a run that needs none sends
+    the prompts it always did. If this fails, a primary prompt changed: bump PROMPT_VERSION and
+    regenerate the digests."""
+    digests = {}
+    for language in ("en", "vi"):
+        prompts = {
+            "single": build_prompt(snapshot, output_language=language),
+            "chunk": build_chunk_prompt(
+                snapshot, chunk_index=2, chunk_count=3, output_language=language
+            ),
+            "reduce": build_reduction_prompt(
+                snapshot, [document], final=False, output_language=language
+            ),
+            "final": build_reduction_prompt(
+                snapshot, [document], final=True, output_language=language
+            ),
+        }
+        for name, prompt in prompts.items():
+            digests[f"{language}-{name}"] = hashlib.sha256(prompt.encode()).hexdigest()[:16]
+
+    assert digests == {
+        "en-single": "5b80d8cc3adad2bc",
+        "en-chunk": "8d9e7415a449cf1d",
+        "en-reduce": "209dba5ab119d730",
+        "en-final": "d03eae90b1ca184b",
+        "vi-single": "74048d73407cddf5",
+        "vi-chunk": "e559fb6c3e2a1eb3",
+        "vi-reduce": "6cc78dae939bd66e",
+        "vi-final": "000fc697ba25aca6",
+    }
+
+
+def test_each_recovery_aims_at_three_quarters_of_the_last_in_whole_hundreds():
+    assert [lower_output_target(aim) for aim in (8_000, 6_000, 128_000, 96_000, 4_500)] == [
+        6_000,
+        4_500,
+        96_000,
+        72_000,
+        3_300,  # 3375 rounds down to the hundred below it
+    ]
+    for first in (MAX_CHUNK_OUTPUT_BYTES, MAX_REDUCTION_TARGET_BYTES, MAX_OUTPUT_BYTES):
+        aims = [first]
+        for _ in range(MAX_OUTPUT_RECOVERY_ATTEMPTS):
+            aims.append(lower_output_target(aims[-1]))
+        assert all(left > right for left, right in pairwise(aims))
+        assert all(aim > 0 and aim % 100 == 0 for aim in aims[1:])
+    # The recoveries come on top of the planned calls and the one repair.
+    assert 1 <= MAX_OUTPUT_RECOVERY_ATTEMPTS <= MAX_OUTPUT_RECOVERY_CALLS
+    assert (MAX_OUTPUT_RECOVERY_ATTEMPTS, MAX_OUTPUT_RECOVERY_CALLS) == (2, 4)  # as documented
+    assert MAX_PROVIDER_CALLS == (
+        MAX_NOTES_CHUNKS + MAX_REDUCTION_CALLS + 1 + MAX_OUTPUT_RECOVERY_CALLS
+    )
+
+
+def test_recovery_prompt_adds_a_lower_aim_in_both_languages_within_the_request_budget(snapshot):
+    scope = tuple(segment["id"] for segment in snapshot["segments"])
+    for language, wording in (
+        ("en", "aiming for 6000 bytes or less"),
+        ("vi", "hướng tới tối đa 6000 byte"),
+    ):
+        primary = build_prompt(snapshot, output_language=language)
+        recovery = build_recovery_prompt(
+            primary, target_bytes=6_000, allowed_source_ids=scope, output_language=language
+        )
+        assert recovery.startswith(primary)
+        assert wording in recovery[len(primary) :]
+        assert "INVALID_OUTPUT" not in recovery
+
+    fits = "x" * (MAX_PROMPT_BYTES - 1_000)
+    assert build_recovery_prompt(fits, target_bytes=6_000, allowed_source_ids=())
+    with pytest.raises(NotesDocumentError, match="request budget"):
+        build_recovery_prompt("x" * MAX_PROMPT_BYTES, target_bytes=6_000, allowed_source_ids=())
+    with pytest.raises(NotesDocumentError):
+        build_recovery_prompt(fits, target_bytes=6_000, allowed_source_ids=(), output_language="fr")
 
 
 def test_vietnamese_prompt_builders_localize_all_hierarchy_and_one_repair(snapshot, document):

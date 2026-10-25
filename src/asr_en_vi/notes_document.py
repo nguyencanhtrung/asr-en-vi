@@ -34,7 +34,11 @@ _PART_OVERLAP_CHARS = 300
 _PART_MARKER_MAX = 99  # the widest part marker, since MAX_NOTES_CHUNKS bounds the part count
 MAX_NOTES_CHUNKS = 24
 MAX_REDUCTION_CALLS = 24
-MAX_PROVIDER_CALLS = MAX_NOTES_CHUNKS + MAX_REDUCTION_CALLS + 1
+# A call over its output cap is asked again for a smaller answer: at most this many times per
+# request and this many calls per task. They come on top of the planned calls and the one repair.
+MAX_OUTPUT_RECOVERY_ATTEMPTS = 2
+MAX_OUTPUT_RECOVERY_CALLS = 4
+MAX_PROVIDER_CALLS = MAX_NOTES_CHUNKS + MAX_REDUCTION_CALLS + 1 + MAX_OUTPUT_RECOVERY_CALLS
 MAX_REDUCTION_LEVELS = 8
 NOTES_VALIDATION_REASON_CODES = frozenset(
     {"fields", "version", "json", "size", "items", "text", "source_ids", "action_fields"}
@@ -884,6 +888,37 @@ def build_chunk_prompt(
             output_language=output_language,
         ),
         allowed_source_ids=scope,
+        output_language=output_language,
+    )
+
+
+def lower_output_target(target_bytes: int) -> int:
+    """The next smaller output aim: three quarters of the last, rounded down to 100 bytes."""
+    return target_bytes * 3 // 4 // 100 * 100
+
+
+def _recovery_suffix(target_bytes: int, output_language: str) -> str:
+    if output_language == "en":
+        return (
+            "\nThe previous answer exceeded the output size limit. Answer again with the complete "
+            f"JSON document, aiming for {target_bytes} bytes or less. Shorten item text and "
+            "consolidate repetitions, but keep distinct points and their source IDs.\n"
+        )
+    return (
+        "\nCâu trả lời trước vượt quá giới hạn kích thước đầu ra. Hãy trả lời lại bằng toàn bộ "
+        f"tài liệu JSON, hướng tới tối đa {target_bytes} byte. Rút ngắn nội dung mục và gộp ý "
+        "lặp, nhưng giữ lại các ý riêng và mã nguồn của chúng.\n"
+    )
+
+
+def build_recovery_prompt(
+    prompt: str, *, target_bytes: int, allowed_source_ids: Any, output_language: str = "en"
+) -> str:
+    """Add a lower output aim to a primary prompt, within the same request budget."""
+    output_language = validate_output_language(output_language)
+    return _check_prompt(
+        prompt + _recovery_suffix(target_bytes, output_language),
+        allowed_source_ids=allowed_source_ids,
         output_language=output_language,
     )
 
