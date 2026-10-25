@@ -920,42 +920,81 @@ def test_chunk_and_reduction_prompts_keep_untrusted_source_and_chronology(snapsh
     assert f"aiming for {MAX_REDUCTION_TARGET_BYTES} bytes or less" in intermediate_prompt
     assert "Private title" not in chunk_prompt + reduction_prompt
     assert "private/audio" not in chunk_prompt + reduction_prompt
-    assert PROMPT_VERSION == "notes-hierarchical-v6"
+    assert PROMPT_VERSION == "notes-hierarchical-v7"
     assert MAX_CHUNK_OUTPUT_BYTES <= MAX_REPAIR_OUTPUT_BYTES
     assert MAX_REDUCTION_TARGET_BYTES < MAX_REDUCTION_OUTPUT_BYTES <= MAX_OUTPUT_BYTES
 
 
-def test_primary_prompts_are_byte_identical_to_those_before_output_recovery(snapshot, document):
+def _step_prompts(snapshot, document, language):
+    return {
+        "single": build_prompt(snapshot, output_language=language),
+        "chunk": build_chunk_prompt(
+            snapshot, chunk_index=2, chunk_count=3, output_language=language
+        ),
+        "reduce": build_reduction_prompt(
+            snapshot, [document], final=False, output_language=language
+        ),
+        "final": build_reduction_prompt(snapshot, [document], final=True, output_language=language),
+    }
+
+
+def test_primary_prompts_match_their_pinned_digests(snapshot, document):
     """A recovery only resends a primary prompt with a suffix, so a run that needs none sends
-    the prompts it always did. If this fails, a primary prompt changed: bump PROMPT_VERSION and
+    exactly these prompts. If this fails, a primary prompt changed: bump PROMPT_VERSION and
     regenerate the digests."""
-    digests = {}
-    for language in ("en", "vi"):
-        prompts = {
-            "single": build_prompt(snapshot, output_language=language),
-            "chunk": build_chunk_prompt(
-                snapshot, chunk_index=2, chunk_count=3, output_language=language
-            ),
-            "reduce": build_reduction_prompt(
-                snapshot, [document], final=False, output_language=language
-            ),
-            "final": build_reduction_prompt(
-                snapshot, [document], final=True, output_language=language
-            ),
-        }
-        for name, prompt in prompts.items():
-            digests[f"{language}-{name}"] = hashlib.sha256(prompt.encode()).hexdigest()[:16]
+    digests = {
+        f"{language}-{name}": hashlib.sha256(prompt.encode()).hexdigest()[:16]
+        for language in ("en", "vi")
+        for name, prompt in _step_prompts(snapshot, document, language).items()
+    }
 
     assert digests == {
-        "en-single": "5b80d8cc3adad2bc",
-        "en-chunk": "8d9e7415a449cf1d",
-        "en-reduce": "209dba5ab119d730",
-        "en-final": "d03eae90b1ca184b",
-        "vi-single": "74048d73407cddf5",
-        "vi-chunk": "e559fb6c3e2a1eb3",
-        "vi-reduce": "6cc78dae939bd66e",
-        "vi-final": "000fc697ba25aca6",
+        "en-single": "9d6d89fa640b5eb7",
+        "en-chunk": "8d3ab5c31388f6b4",
+        "en-reduce": "c93fe0707a701f7e",
+        "en-final": "4d64fb64075906f3",
+        "vi-single": "07326dbdbff3b6cb",
+        "vi-chunk": "48990321786b8947",
+        "vi-reduce": "bf445725eb595c4f",
+        "vi-final": "9b9d4ca7fb686420",
     }
+
+
+# Phrases of the telegraph and one-section rules, and of the whole-document length aim.
+_RULE_MARKERS = {
+    "en": (
+        "telegraph style: phrases, not sentences",
+        "numbers and original deadline phrases verbatim",
+        "exactly one section, the most specific one",
+        "at most 3 items",
+        "key_topics: never restate",
+    ),
+    "vi": (
+        "văn phong telegraph: cụm từ thay câu",
+        "số liệu và cụm từ hạn chót gốc",
+        "đúng một nhóm, nhóm cụ thể nhất",
+        "tối đa 3 mục",
+        "key_topics không nhắc lại",
+    ),
+}
+_LENGTH_AIM_MARKERS = {
+    "en": ("about 450 words", "Never drop or merge away"),
+    "vi": ("khoảng 450 từ", "Không bỏ hay gộp mất"),
+}
+
+
+@pytest.mark.parametrize("language", ["en", "vi"])
+@pytest.mark.parametrize("step", ["single", "chunk", "reduce", "final"])
+def test_every_step_asks_for_telegraph_style_and_one_section_per_fact(
+    snapshot, document, language, step
+):
+    prompt = _step_prompts(snapshot, document, language)[step]
+
+    for marker in _RULE_MARKERS[language]:
+        assert marker in prompt
+    # Chunk and intermediate steps carry no length aim, so they keep recall.
+    for marker in _LENGTH_AIM_MARKERS[language]:
+        assert (marker in prompt) is (step in {"single", "final"})
 
 
 def test_each_recovery_aims_at_three_quarters_of_the_last_in_whole_hundreds():

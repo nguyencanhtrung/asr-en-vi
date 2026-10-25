@@ -12,7 +12,7 @@ from datetime import date, timedelta
 from typing import Any
 
 SCHEMA_VERSION = 1
-PROMPT_VERSION = "notes-hierarchical-v6"
+PROMPT_VERSION = "notes-hierarchical-v7"
 LEGACY_ENGLISH_PROMPT_VERSION = "notes-hierarchical-v4"
 _MAX_PROMPT_HARD_LIMIT_BYTES = 48_000
 # max_output_tokens includes hidden reasoning as well as the visible JSON.
@@ -668,6 +668,54 @@ def provider_source(snapshot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Every step's prompt carries the style and placement rules. Only the single-call and final
+# prompts carry the whole-document length aim, so chunk and intermediate steps keep recall.
+_TELEGRAPH_RULE = {
+    "en": (
+        "Write telegraph style: phrases, not sentences; drop subjects, articles, filler and "
+        "connectives; broken grammar is fine. Keep proper names, product names, numbers and "
+        "original deadline phrases verbatim. "
+    ),
+    "vi": (
+        "Viết văn phong telegraph: cụm từ thay câu, bỏ chủ ngữ, mạo từ, từ thừa và từ nối, "
+        "chấp nhận sai ngữ pháp. Giữ nguyên tên riêng, tên sản phẩm, số liệu và cụm từ hạn chót "
+        "gốc. "
+    ),
+}
+_PLACEMENT_RULE = {
+    "en": (
+        "Put each fact in exactly one section, the most specific one. overview: context and "
+        "purpose only, nothing stated in another section, at most 3 items. key_topics: never "
+        "restate a decision, open question, action or confirmation item that has its own "
+        "section.\n"
+    ),
+    "vi": (
+        "Mỗi thông tin chỉ nằm ở đúng một nhóm, nhóm cụ thể nhất. overview chỉ nêu bối cảnh và "
+        "mục đích không có ở nhóm khác, tối đa 3 mục. key_topics không nhắc lại quyết định, câu "
+        "hỏi, hành động hay mục cần xác nhận đã có ở nhóm riêng.\n"
+    ),
+}
+_LENGTH_AIM = {
+    "en": (
+        "Aim for about 450 words of item text across the whole document. Never drop or merge "
+        "away a distinct decision, action, question or confirmation item to meet it; shorten "
+        "the wording instead.\n"
+    ),
+    "vi": (
+        "Hướng tới khoảng 450 từ nội dung mục cho cả tài liệu. Không bỏ hay gộp mất quyết định, "
+        "hành động, câu hỏi hoặc mục cần xác nhận riêng biệt để đạt mức này; hãy rút ngắn cách "
+        "diễn đạt.\n"
+    ),
+}
+
+
+def _style_rules(output_language: str, *, length_aim: bool) -> str:
+    rules = _TELEGRAPH_RULE[output_language] + _PLACEMENT_RULE[output_language]
+    if length_aim:
+        rules += _LENGTH_AIM[output_language]
+    return rules
+
+
 def _source_instructions(
     *,
     output_language: str = "en",
@@ -721,6 +769,7 @@ def _source_instructions(
             "dung. "
             "Không xuất URL, đường dẫn audio, Markdown hay thuộc tính bổ sung.\n"
         )
+    instructions += _style_rules(output_language, length_aim=chunk_index is None)
     if chunk_index is not None:
         if output_language == "en":
             instructions += (
@@ -1302,6 +1351,7 @@ def _reduction_instructions(*, final: bool, output_language: str = "en") -> str:
             "không có trong đó. Giữ nguyên tên riêng. "
             "Không xuất URL, Markdown hay thuộc tính bổ sung.\n"
         )
+    instructions += _style_rules(output_language, length_aim=final)
     if not final:
         if output_language == "en":
             instructions += (

@@ -251,7 +251,7 @@ def test_vietnamese_generation_localizes_chunk_repair_reduction_and_final_prompt
             source_ids = [payload["segments"][0]["id"]]
             document = _valid_document()
             document["overview"] = [
-                {"text": "Bản tóm tắt " + "x" * 7_200, "source_ids": source_ids}
+                {"text": "Bản tóm tắt " + "x" * 7_000, "source_ids": source_ids}
             ]
         else:
             payload = json.loads(prompt.split("SYNTHESIS_INPUT_JSON:\n", 1)[1].splitlines()[0])
@@ -1046,7 +1046,7 @@ def test_final_synthesis_uses_primary_budget_without_repair_reserve(tmp_path, mo
             "id": f"{index:032x}",
             "start_seconds": float(index),
             "end_seconds": float(index + 1),
-            "text": "source detail " + "x" * 18_000,
+            "text": "source detail " + "x" * 17_500,
         }
         for index in range(1, 5)
     ]
@@ -1110,7 +1110,7 @@ def test_final_repair_is_skipped_when_actual_prompt_budget_cannot_fit_it(tmp_pat
             "id": f"{index:032x}",
             "start_seconds": float(index),
             "end_seconds": float(index + 1),
-            "text": "source detail " + "x" * 18_000,
+            "text": "source detail " + "x" * 17_500,
         }
         for index in range(1, 5)
     ]
@@ -1165,7 +1165,7 @@ def test_intermediate_reduction_has_its_own_hard_output_budget(
             "id": f"{index:032x}",
             "start_seconds": float(index),
             "end_seconds": float(index + 1),
-            "text": "source detail " + "x" * 18_000,
+            "text": "source detail " + "x" * 17_500,
         }
         for index in range(1, 7)
     ]
@@ -1275,7 +1275,7 @@ def test_transport_failure_diagnostics_use_actual_stage_and_bounded_metadata(tmp
             "id": f"{index:032x}",
             "start_seconds": float(index),
             "end_seconds": float(index + 1),
-            "text": "source detail " + "x" * 18_000,
+            "text": "source detail " + "x" * 17_500,
         }
         for index in range(1, 7)
     ]
@@ -1792,7 +1792,7 @@ def _six_chunk_snapshot(monkeypatch):
             "id": f"{index:032x}",
             "start_seconds": float(index),
             "end_seconds": float(index + 1),
-            "text": "source detail " + "x" * 18_000,
+            "text": "source detail " + "x" * 17_500,
         }
         for index in range(1, 7)
     ]
