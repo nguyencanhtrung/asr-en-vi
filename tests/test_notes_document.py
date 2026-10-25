@@ -949,18 +949,18 @@ def test_primary_prompts_match_their_pinned_digests(snapshot, document):
     }
 
     assert digests == {
-        "en-single": "0e1c00ad626aae03",
-        "en-chunk": "081a85aa69a45ea2",
-        "en-reduce": "a15318ff6749ddb7",
-        "en-final": "a4d2c3eb36d24621",
-        "vi-single": "9e2af05135403e49",
-        "vi-chunk": "8a378d0c4b66cf13",
-        "vi-reduce": "33a00a608c813024",
-        "vi-final": "59f3f7753bc58700",
+        "en-single": "6f7d13e6bcba9316",
+        "en-chunk": "5c0ca6d27509ebf7",
+        "en-reduce": "200022b95457a7a1",
+        "en-final": "e33ac7908f1c8e91",
+        "vi-single": "66b43eda87824b96",
+        "vi-chunk": "5ff38fa0cd6452d7",
+        "vi-reduce": "33c5d95f255ca130",
+        "vi-final": "64962528cd36edfb",
     }
 
 
-# Phrases of the telegraph and one-section rules, and of the whole-document length aim. The
+# Phrases of the telegraph and one-section rules, and of the whole-document hard budget. The
 # Vietnamese single and chunk prompts name proper and product names in an older sentence too, so
 # the proper-names marker runs on into the telegraph rule's list.
 _RULE_MARKERS = {
@@ -968,6 +968,7 @@ _RULE_MARKERS = {
         "telegraph style: phrases, not sentences",
         "drop subjects, articles, filler and connectives",
         "broken grammar is fine",
+        "Each item at most 12 words",
         "hedges, conditions and negations",
         "proper names, product names",
         "numbers and original deadline phrases verbatim",
@@ -975,11 +976,24 @@ _RULE_MARKERS = {
         "context and purpose only, nothing stated in another section",
         "at most 3 items",
         "key_topics: never restate",
+        "HARD document budget",
+        "at most 400 words of item text",
+        "owner/deadline fields come on top",
+        "At most 5 key_topics items",
+        "each item at most 10 words",
+        "merge related items within the same section",
+        "distinct fact as a short phrase separated by ';'",
+        "union of their source_ids",
+        "Never drop a distinct fact",
+        "Never merge across sections",
+        "merge a decision into an action (or vice versa)",
+        "uncommitted proposals stay in confirmation_items",
     ),
     "vi": (
         "văn phong telegraph: cụm từ thay câu",
         "bỏ chủ ngữ, mạo từ, từ thừa và từ nối",
         "chấp nhận sai ngữ pháp",
+        "Mỗi mục tối đa 12 từ",
         "từ rào đón, điều kiện và phủ định",
         "tên riêng, tên sản phẩm, số liệu",
         "số liệu và cụm từ hạn chót gốc",
@@ -987,11 +1001,49 @@ _RULE_MARKERS = {
         "bối cảnh và mục đích không có ở nhóm khác",
         "tối đa 3 mục",
         "key_topics không nhắc lại",
+        "Ngân sách CỨNG cho tài liệu",
+        "tối đa 400 từ trong nội dung các mục",
+        "các trường owner/deadline tính thêm",
+        "Tối đa 5 mục key_topics",
+        "mỗi mục tối đa 10 từ",
+        "gộp các mục liên quan trong cùng nhóm",
+        "liệt kê mọi thông tin riêng thành cụm ngắn, ngăn cách bằng ';'",
+        "hợp nhất toàn bộ source_ids",
+        "Không bỏ thông tin riêng biệt",
+        "Không gộp khác nhóm",
+        "gộp quyết định vào hành động (hay ngược lại)",
+        "đề xuất chưa thống nhất vẫn thuộc confirmation_items",
     ),
 }
-_LENGTH_AIM_MARKERS = {
-    "en": ("about 450 words", "Never drop or merge away"),
-    "vi": ("khoảng 450 từ", "Không bỏ hay gộp mất"),
+_BUDGET_MARKERS = {
+    "en": (
+        "HARD document budget",
+        "at most 400 words of item text",
+        "owner/deadline fields come on top",
+        "At most 5 key_topics items",
+        "each item at most 10 words",
+        "merge related items within the same section",
+        "distinct fact as a short phrase separated by ';'",
+        "union of their source_ids",
+        "Never drop a distinct fact",
+        "Never merge across sections",
+        "merge a decision into an action (or vice versa)",
+        "uncommitted proposals stay in confirmation_items",
+    ),
+    "vi": (
+        "Ngân sách CỨNG cho tài liệu",
+        "tối đa 400 từ trong nội dung các mục",
+        "các trường owner/deadline tính thêm",
+        "Tối đa 5 mục key_topics",
+        "mỗi mục tối đa 10 từ",
+        "gộp các mục liên quan trong cùng nhóm",
+        "liệt kê mọi thông tin riêng thành cụm ngắn, ngăn cách bằng ';'",
+        "hợp nhất toàn bộ source_ids",
+        "Không bỏ thông tin riêng biệt",
+        "Không gộp khác nhóm",
+        "gộp quyết định vào hành động (hay ngược lại)",
+        "đề xuất chưa thống nhất vẫn thuộc confirmation_items",
+    ),
 }
 
 
@@ -1002,11 +1054,12 @@ def test_every_step_asks_for_telegraph_style_and_one_section_per_fact(
 ):
     prompt = _step_prompts(snapshot, document, language)[step]
 
+    # Chunk and intermediate steps carry no hard budget, so they keep recall.
     for marker in _RULE_MARKERS[language]:
-        assert marker in prompt
-    # Chunk and intermediate steps carry no length aim, so they keep recall.
-    for marker in _LENGTH_AIM_MARKERS[language]:
-        assert (marker in prompt) is (step in {"single", "final"})
+        if marker in _BUDGET_MARKERS[language]:
+            assert (marker in prompt) is (step in {"single", "final"})
+        else:
+            assert marker in prompt
 
 
 def test_each_recovery_aims_at_three_quarters_of_the_last_in_whole_hundreds():

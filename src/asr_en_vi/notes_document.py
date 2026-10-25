@@ -669,18 +669,19 @@ def provider_source(snapshot: dict[str, Any]) -> dict[str, Any]:
 
 
 # Every step's prompt carries the style and placement rules. Only the single-call and final
-# prompts carry the whole-document length aim, so chunk and intermediate steps keep recall.
+# prompts carry the whole-document hard budget, so chunk and intermediate steps keep recall.
 _TELEGRAPH_RULE = {
     "en": (
         "Write telegraph style: phrases, not sentences; drop subjects, articles, filler and "
-        "connectives; broken grammar is fine. Keep hedges, conditions and negations (maybe, if, "
-        "unless, not). Keep proper names, product names, numbers and original deadline phrases "
-        "verbatim. "
+        "connectives; broken grammar is fine. Each item at most 12 words. Keep hedges, conditions "
+        "and negations (maybe, if, unless, not). Keep proper names, product names, numbers and "
+        "original deadline phrases verbatim. "
     ),
     "vi": (
         "Viết văn phong telegraph: cụm từ thay câu, bỏ chủ ngữ, mạo từ, từ thừa và từ nối, "
-        "chấp nhận sai ngữ pháp. Giữ từ rào đón, điều kiện và phủ định (có thể, nếu, trừ khi, "
-        "không). Giữ nguyên tên riêng, tên sản phẩm, số liệu và cụm từ hạn chót gốc. "
+        "chấp nhận sai ngữ pháp. Mỗi mục tối đa 12 từ. Giữ từ rào đón, điều kiện và phủ định "
+        "(có thể, nếu, trừ khi, không). Giữ nguyên tên riêng, tên sản phẩm, số liệu và cụm từ "
+        "hạn chót gốc. "
     ),
 }
 _PLACEMENT_RULE = {
@@ -696,24 +697,33 @@ _PLACEMENT_RULE = {
         "hỏi, hành động hay mục cần xác nhận đã có ở nhóm riêng.\n"
     ),
 }
-_LENGTH_AIM = {
+_LENGTH_BUDGET = {
     "en": (
-        "Aim for about 450 words of item text across the whole document. Never drop or merge "
-        "away a distinct decision, action, question or confirmation item to meet it; shorten "
-        "the wording instead.\n"
+        "HARD document budget: at most 400 words of item text across the whole document; "
+        "owner/deadline fields come on top. At most 5 key_topics items; each item at most 10 "
+        "words. To fit, merge related items within the same section into one item, listing every "
+        "distinct fact as a short phrase separated by ';' and carrying the union of their "
+        "source_ids (for example, several actions by one owner or several questions on one "
+        "topic). Never "
+        "drop a distinct fact. Never merge across sections or merge a decision into an action "
+        "(or vice versa); uncommitted proposals stay in confirmation_items.\n"
     ),
     "vi": (
-        "Hướng tới khoảng 450 từ nội dung mục cho cả tài liệu. Không bỏ hay gộp mất quyết định, "
-        "hành động, câu hỏi hoặc mục cần xác nhận riêng biệt để đạt mức này; hãy rút ngắn cách "
-        "diễn đạt.\n"
+        "Ngân sách CỨNG cho tài liệu: tối đa 400 từ trong nội dung các mục trên toàn tài liệu; "
+        "các trường owner/deadline tính thêm. Tối đa 5 mục key_topics; mỗi mục tối đa 10 từ. Để "
+        "đạt giới hạn, gộp các mục liên quan trong cùng nhóm thành một mục, liệt kê mọi thông tin "
+        "riêng thành cụm ngắn, ngăn cách bằng ';' và dùng hợp nhất toàn bộ source_ids (ví dụ: "
+        "nhiều hành động của một người phụ trách hoặc nhiều câu hỏi về một chủ đề). Không bỏ "
+        "thông tin riêng biệt. Không gộp khác nhóm hoặc gộp quyết định vào hành động (hay ngược "
+        "lại); đề xuất chưa thống nhất vẫn thuộc confirmation_items.\n"
     ),
 }
 
 
-def _style_rules(output_language: str, *, length_aim: bool) -> str:
+def _style_rules(output_language: str, *, hard_budget: bool) -> str:
     rules = _TELEGRAPH_RULE[output_language] + _PLACEMENT_RULE[output_language]
-    if length_aim:
-        rules += _LENGTH_AIM[output_language]
+    if hard_budget:
+        rules += _LENGTH_BUDGET[output_language]
     return rules
 
 
@@ -770,7 +780,7 @@ def _source_instructions(
             "dung. "
             "Không xuất URL, đường dẫn audio, Markdown hay thuộc tính bổ sung.\n"
         )
-    instructions += _style_rules(output_language, length_aim=chunk_index is None)
+    instructions += _style_rules(output_language, hard_budget=chunk_index is None)
     if chunk_index is not None:
         if output_language == "en":
             instructions += (
@@ -1352,7 +1362,7 @@ def _reduction_instructions(*, final: bool, output_language: str = "en") -> str:
             "không có trong đó. Giữ nguyên tên riêng. "
             "Không xuất URL, Markdown hay thuộc tính bổ sung.\n"
         )
-    instructions += _style_rules(output_language, length_aim=final)
+    instructions += _style_rules(output_language, hard_budget=final)
     if not final:
         if output_language == "en":
             instructions += (
