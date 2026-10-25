@@ -21,6 +21,7 @@ COMMUNITY_1_REQUIRED_FILES = (
     Path("segmentation/pytorch_model.bin"),
 )
 _GIT_LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
+_SAMPLE_RATE = 16000
 DIARIZATION_ERROR_MESSAGES = {
     "diarization_decoder_unavailable": (
         "The local audio decoder is unavailable. "
@@ -178,25 +179,29 @@ def preflight_diarization_model(*, model_path: Path, device: str) -> None:
     _load_community_pipeline(model_path, device)
 
 
-def _validate_audio_decode(audio_path: Path, decoder_type) -> None:
-    """Decode a bounded prefix so long meetings are not copied into worker memory."""
+def _decode_waveform(audio_path: Path, decoder_type):
+    """Decode the whole recording once into a 16 kHz mono float32 waveform held in memory.
+
+    The decoder downmixes and resamples, so the full-rate samples never reach Python. The price is
+    one in-memory copy, about 0.9 GiB at the default 4 h cap. Given a path instead, pyannote
+    re-decodes the file from the start for every chunk it crops, and diarization time grows with
+    the square of the duration.
+    """
     try:
-        samples = decoder_type(str(audio_path)).get_samples_played_in_range(
-            start_seconds=0.0,
-            stop_seconds=1.0,
-        )
+        samples = decoder_type(
+            str(audio_path), sample_rate=_SAMPLE_RATE, num_channels=1
+        ).get_all_samples()
         waveform = samples.data
-        sample_rate = samples.sample_rate
         if (
-            waveform is None
-            or waveform.numel() < 1
-            or isinstance(sample_rate, bool)
-            or not isinstance(sample_rate, int)
-            or sample_rate < 1
+            samples.sample_rate != _SAMPLE_RATE
+            or waveform.ndim != 2
+            or waveform.shape[0] != 1
+            or waveform.shape[1] < 1
         ):
             raise ValueError("Audio decoder returned invalid samples")
     except Exception as error:
         raise DiarizationPhaseError("diarization_input_decode_failed", "decoding_input") from error
+    return waveform
 
 
 def diarize_file(
@@ -222,12 +227,12 @@ def diarize_file(
         except OSError as error:
             raise DiarizationPhaseError("diarization_input_decode_failed", stage) from error
         emit({"type": "stage", "stage": "decoding_input"})
-        _validate_audio_decode(resolved_audio, decoder_type)
+        waveform = _decode_waveform(resolved_audio, decoder_type)
 
         emit({"type": "stage", "stage": "diarizing"})
         stage = "diarizing"
         try:
-            output = pipeline(str(resolved_audio))
+            output = pipeline({"waveform": waveform, "sample_rate": _SAMPLE_RATE})
         except Exception as error:
             raise DiarizationPhaseError("diarization_failed", stage) from error
     except DiarizationPhaseError:
