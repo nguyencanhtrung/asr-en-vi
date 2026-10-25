@@ -220,13 +220,16 @@ def test_worker_runs_diarization_after_asr_in_a_separate_child_and_saves_speaker
     phase_log = tmp_path / "phases.log"
     monkeypatch.setenv("ASR_TEST_PHASE_LOG", str(phase_log))
     monkeypatch.setenv("HF_TOKEN", "setup-only-token")
+    monkeypatch.setenv("ORT_DISABLE_TELEMETRY", "0")
     _install_runner_shim(
         tmp_path,
         monkeypatch,
         """import json
 import os
 from pathlib import Path
-Path(os.environ["ASR_TEST_PHASE_LOG"]).write_text(f"asr-start:{os.getpid()}\\n", encoding="ascii")
+Path(os.environ["ASR_TEST_PHASE_LOG"]).write_text(
+    f"asr-start:{os.getpid()}:ort-{os.environ.get('ORT_DISABLE_TELEMETRY')}\\n", encoding="ascii"
+)
 events = [
     {"type": "segment", "id": "a" * 32, "start_seconds": 0.5, "end_seconds": 1.5,
      "text": "API gateway đang ready.", "avg_logprob": -0.2, "no_speech_prob": 0.03,
@@ -242,8 +245,9 @@ with Path(os.environ["ASR_TEST_PHASE_LOG"]).open("a", encoding="ascii") as log:
 import os
 from pathlib import Path
 log_path = Path(os.environ["ASR_TEST_PHASE_LOG"])
+ort = os.environ.get("ORT_DISABLE_TELEMETRY")
 with log_path.open("a", encoding="ascii") as log:
-    log.write(f"diarization-start:{os.getpid()}:token-{int('HF_TOKEN' in os.environ)}\\n")
+    log.write(f"diarization-start:{os.getpid()}:token-{int('HF_TOKEN' in os.environ)}:ort-{ort}\\n")
 turns = [
     {"type": "turn", "kind": kind, "start_seconds": 0.4, "end_seconds": 1.6,
      "speaker_id": "SPEAKER_00"}
@@ -272,7 +276,8 @@ with log_path.open("a", encoding="ascii") as log:
     assert lines[0].split(":")[1] == lines[1].split(":")[1]
     assert lines[2].split(":")[1] == lines[3].split(":")[1]
     assert lines[0].split(":")[1] != lines[2].split(":")[1]
-    assert lines[2].endswith(":token-0")
+    assert lines[0].endswith(":ort-1")
+    assert lines[2].endswith(":token-0:ort-1")
     generation = transcription_state(data_dir, meeting_ids[0])["generation"]
     segment = generation["segments"][0]
     assert segment["text"] == "API gateway đang ready."
@@ -709,6 +714,7 @@ def test_torch_cuda_preflight_uses_an_isolated_allocation_probe(monkeypatch):
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr(worker.subprocess, "run", fake_run)
+    monkeypatch.setenv("ORT_DISABLE_TELEMETRY", "0")
 
     worker._verify_torch_cuda()
 
@@ -717,6 +723,7 @@ def test_torch_cuda_preflight_uses_an_isolated_allocation_probe(monkeypatch):
     assert "device='cuda'" in observed["command"][2]
     assert observed["kwargs"]["timeout"] == 30
     assert observed["kwargs"]["check"] is False
+    assert observed["kwargs"]["env"]["ORT_DISABLE_TELEMETRY"] == "1"
 
 
 def test_torch_cuda_preflight_rejects_an_unusable_torch_runtime(monkeypatch):

@@ -110,6 +110,7 @@ def test_runner_loads_local_pipeline_with_telemetry_and_network_disabled(tmp_pat
     monkeypatch.setitem(sys.modules, "torchcodec.decoders", torchcodec_decoders)
     monkeypatch.setitem(sys.modules, "torch", torch)
     monkeypatch.setenv("HF_TOKEN", "setup-only-token")
+    monkeypatch.setenv("ORT_DISABLE_TELEMETRY", "0")
     events = []
 
     diarize_file(
@@ -146,6 +147,7 @@ def test_runner_loads_local_pipeline_with_telemetry_and_network_disabled(tmp_pat
     assert "HF_TOKEN" not in os.environ
     assert os.environ["HF_HUB_OFFLINE"] == "1"
     assert os.environ["PYANNOTE_METRICS_ENABLED"] == "0"
+    assert os.environ["ORT_DISABLE_TELEMETRY"] == "1"
 
 
 def test_runner_maps_audio_decoder_import_failure_to_a_stable_safe_error(monkeypatch):
@@ -181,12 +183,14 @@ def test_runtime_preflight_loads_offline_pipeline_and_moves_to_selected_device(
     pipeline = FakePipeline()
     _install_pipeline_modules(monkeypatch, pipeline)
     monkeypatch.setattr(diarization_runner, "load_audio_decoder", lambda: object())
+    monkeypatch.setenv("ORT_DISABLE_TELEMETRY", "0")
 
     preflight_diarization_model(model_path=model, device="cuda")
 
     assert observed == {"device": "device:cuda"}
     assert os.environ["HF_HUB_OFFLINE"] == "1"
     assert os.environ["TRANSFORMERS_OFFLINE"] == "1"
+    assert os.environ["ORT_DISABLE_TELEMETRY"] == "1"
 
 
 def test_runtime_preflight_cli_does_not_require_audio(tmp_path, monkeypatch, capsys):
