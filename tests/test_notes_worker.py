@@ -503,6 +503,8 @@ def test_notes_worker_publishes_no_revision_for_citations_its_source_does_not_ba
         (LEGACY_ENGLISH_PROMPT_VERSION, "en", True),
         (LEGACY_ENGLISH_PROMPT_VERSION, "vi", False),
         ("notes-hierarchical-v5", "en", False),
+        ("notes-hierarchical-v6", "en", False),
+        ("notes-hierarchical-v6", "vi", False),
     ],
 )
 def test_notes_runner_runs_only_the_current_prompt_and_the_legacy_english_contract(

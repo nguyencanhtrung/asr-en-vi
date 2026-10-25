@@ -673,13 +673,14 @@ def provider_source(snapshot: dict[str, Any]) -> dict[str, Any]:
 _TELEGRAPH_RULE = {
     "en": (
         "Write telegraph style: phrases, not sentences; drop subjects, articles, filler and "
-        "connectives; broken grammar is fine. Keep proper names, product names, numbers and "
-        "original deadline phrases verbatim. "
+        "connectives; broken grammar is fine. Keep hedges, conditions and negations (maybe, if, "
+        "unless, not). Keep proper names, product names, numbers and original deadline phrases "
+        "verbatim. "
     ),
     "vi": (
         "Viết văn phong telegraph: cụm từ thay câu, bỏ chủ ngữ, mạo từ, từ thừa và từ nối, "
-        "chấp nhận sai ngữ pháp. Giữ nguyên tên riêng, tên sản phẩm, số liệu và cụm từ hạn chót "
-        "gốc. "
+        "chấp nhận sai ngữ pháp. Giữ từ rào đón, điều kiện và phủ định (có thể, nếu, trừ khi, "
+        "không). Giữ nguyên tên riêng, tên sản phẩm, số liệu và cụm từ hạn chót gốc. "
     ),
 }
 _PLACEMENT_RULE = {

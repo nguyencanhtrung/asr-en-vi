@@ -1046,7 +1046,7 @@ def test_final_synthesis_uses_primary_budget_without_repair_reserve(tmp_path, mo
             "id": f"{index:032x}",
             "start_seconds": float(index),
             "end_seconds": float(index + 1),
-            "text": "source detail " + "x" * 17_500,
+            "text": "source detail " + "x" * 17_000,
         }
         for index in range(1, 5)
     ]
@@ -1057,7 +1057,7 @@ def test_final_synthesis_uses_primary_budget_without_repair_reserve(tmp_path, mo
             source_id = source["segments"][0]["id"]
             result = _valid_document()
             result["overview"] = [
-                {"text": "chunk summary " + "x" * 7_300, "source_ids": [source_id]}
+                {"text": "chunk summary " + "x" * 7_000, "source_ids": [source_id]}
             ]
             output = json.dumps(result, separators=(",", ":"))
             assert len(output.encode("utf-8")) <= max_output_bytes
@@ -1110,7 +1110,7 @@ def test_final_repair_is_skipped_when_actual_prompt_budget_cannot_fit_it(tmp_pat
             "id": f"{index:032x}",
             "start_seconds": float(index),
             "end_seconds": float(index + 1),
-            "text": "source detail " + "x" * 17_500,
+            "text": "source detail " + "x" * 17_000,
         }
         for index in range(1, 5)
     ]
@@ -1121,7 +1121,7 @@ def test_final_repair_is_skipped_when_actual_prompt_budget_cannot_fit_it(tmp_pat
             source_id = source["segments"][0]["id"]
             result = _valid_document()
             result["overview"] = [
-                {"text": "chunk summary " + "x" * 7_300, "source_ids": [source_id]}
+                {"text": "chunk summary " + "x" * 7_000, "source_ids": [source_id]}
             ]
             return json.dumps(result, separators=(",", ":"))
         assert "final meeting-level notes" in prompt
@@ -1165,7 +1165,7 @@ def test_intermediate_reduction_has_its_own_hard_output_budget(
             "id": f"{index:032x}",
             "start_seconds": float(index),
             "end_seconds": float(index + 1),
-            "text": "source detail " + "x" * 17_500,
+            "text": "source detail " + "x" * 17_000,
         }
         for index in range(1, 7)
     ]
@@ -1275,7 +1275,7 @@ def test_transport_failure_diagnostics_use_actual_stage_and_bounded_metadata(tmp
             "id": f"{index:032x}",
             "start_seconds": float(index),
             "end_seconds": float(index + 1),
-            "text": "source detail " + "x" * 17_500,
+            "text": "source detail " + "x" * 17_000,
         }
         for index in range(1, 7)
     ]
@@ -1792,7 +1792,7 @@ def _six_chunk_snapshot(monkeypatch):
             "id": f"{index:032x}",
             "start_seconds": float(index),
             "end_seconds": float(index + 1),
-            "text": "source detail " + "x" * 17_500,
+            "text": "source detail " + "x" * 17_000,
         }
         for index in range(1, 7)
     ]

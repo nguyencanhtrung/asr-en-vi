@@ -949,30 +949,42 @@ def test_primary_prompts_match_their_pinned_digests(snapshot, document):
     }
 
     assert digests == {
-        "en-single": "9d6d89fa640b5eb7",
-        "en-chunk": "8d3ab5c31388f6b4",
-        "en-reduce": "c93fe0707a701f7e",
-        "en-final": "4d64fb64075906f3",
-        "vi-single": "07326dbdbff3b6cb",
-        "vi-chunk": "48990321786b8947",
-        "vi-reduce": "bf445725eb595c4f",
-        "vi-final": "9b9d4ca7fb686420",
+        "en-single": "0e1c00ad626aae03",
+        "en-chunk": "081a85aa69a45ea2",
+        "en-reduce": "a15318ff6749ddb7",
+        "en-final": "a4d2c3eb36d24621",
+        "vi-single": "9e2af05135403e49",
+        "vi-chunk": "8a378d0c4b66cf13",
+        "vi-reduce": "33a00a608c813024",
+        "vi-final": "59f3f7753bc58700",
     }
 
 
-# Phrases of the telegraph and one-section rules, and of the whole-document length aim.
+# Phrases of the telegraph and one-section rules, and of the whole-document length aim. The
+# Vietnamese single and chunk prompts name proper and product names in an older sentence too, so
+# the proper-names marker runs on into the telegraph rule's list.
 _RULE_MARKERS = {
     "en": (
         "telegraph style: phrases, not sentences",
+        "drop subjects, articles, filler and connectives",
+        "broken grammar is fine",
+        "hedges, conditions and negations",
+        "proper names, product names",
         "numbers and original deadline phrases verbatim",
         "exactly one section, the most specific one",
+        "context and purpose only, nothing stated in another section",
         "at most 3 items",
         "key_topics: never restate",
     ),
     "vi": (
         "văn phong telegraph: cụm từ thay câu",
+        "bỏ chủ ngữ, mạo từ, từ thừa và từ nối",
+        "chấp nhận sai ngữ pháp",
+        "từ rào đón, điều kiện và phủ định",
+        "tên riêng, tên sản phẩm, số liệu",
         "số liệu và cụm từ hạn chót gốc",
         "đúng một nhóm, nhóm cụ thể nhất",
+        "bối cảnh và mục đích không có ở nhóm khác",
         "tối đa 3 mục",
         "key_topics không nhắc lại",
     ),
