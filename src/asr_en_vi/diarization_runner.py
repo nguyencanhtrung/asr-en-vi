@@ -121,6 +121,7 @@ def _set_offline_environment() -> None:
             "HF_HUB_DISABLE_TELEMETRY": "1",
             "PYANNOTE_METRICS_ENABLED": "0",
             "DO_NOT_TRACK": "1",
+            "ORT_DISABLE_TELEMETRY": "1",
         }
     )
     for name in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "HUGGINGFACEHUB_API_TOKEN", "HF_API_TOKEN"):
