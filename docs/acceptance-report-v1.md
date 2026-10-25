@@ -20,7 +20,7 @@ Cột cuối là phần nối vào dòng checkbox tương ứng của issue. S�
 | --- | --- | --- | --- |
 | 1 | Bộ nghiệm thu: EN, VI xen thuật ngữ Anh, code-switch; 2–3 người nói; mẫu 2 giờ; annotation trước | **chưa đạt** | `— Not done: không có cuộc họp toàn tiếng Anh; cả 3 bản ghi có khoảng 6 người nói, không có bản 2–3 người; mẫu 2 giờ là ghép audio 20/10 và 16/10, không phải một cuộc họp #88` |
 | 2 | Luồng import, transcript, diarization, notes qua từng provider, review, edit, rerun, history, copy/export, cancel, restart, delete trên Chrome và Firefox | **đạt** | `- [x]` (không thêm gì). Copy/xuất chỉ có cho notes; transcript không có control (mục 4) |
-| 3 | Đo AC-01..AC-49 và FE-01..FE-16 ở các viewport đã chốt; mỗi tiêu chí có bằng chứng pass/fail và sai lệch | **chưa đạt** | `— Not done: một số phần chưa đo được: nghe chip (AC-05), bấm giờ 16/10 (AC-14), đường pull và kết nối provider trên bản cài mới (AC-17), kết nối độc lập/ngắt kết nối/phiên mất hiệu lực/quota/billing (AC-35..38, AC-44) và phần UI tương ứng (FE-11, 12, 14, 16); AC-01 thiếu thể loại 1 #89 #87 #88` |
+| 3 | Đo AC-01..AC-49 và FE-01..FE-16 ở các viewport đã chốt; mỗi tiêu chí có bằng chứng pass/fail và sai lệch | **chưa đạt** | `— Not done: một số phần chưa đo được: nghe chip (AC-05), bấm giờ 16/10 (AC-14), luồng trên trình duyệt stable hiện hành (AC-15), đường pull và kết nối provider trên bản cài mới (AC-17), kết nối độc lập/ngắt kết nối/phiên mất hiệu lực/quota/billing (AC-35..38, AC-44) và phần UI tương ứng (FE-11, 12, 14, 16); AC-01 thiếu thể loại 1 #89 #87 #88` |
 | 4 | Báo cáo ghi phần cứng, driver/runtime, image, model/config, provider, quota, mạng, số lượt gọi/sửa, Recording | **đạt** | `- [x]` (quota không biết; lượt gọi t8-ChatGPT không đếm riêng, xem 2.6). Quota ghi là "không được người dùng nêu; bản cài không lưu" (mục 2) |
 | 5 | Mẫu 2 giờ đo từ bắt đầu xử lý đến khi transcript và notes sẵn; báo rõ có đạt 30 phút không | **chưa đạt** | `— Not done: mẫu 2 giờ (ghép) có transcript sẵn sau 128,9 phút (4,3 lần mục tiêu), notes lỗi provider_output_too_large nên không có mốc cả hai sẵn; không đạt mục tiêu 30 phút #71 #72 #73` |
 | 6 | Người vận hành đo thời gian đưa draft về mức dùng được; báo rõ có đạt 5–10 phút mỗi giờ họp không | **chưa đạt** | `— Not done: 16/10 không có draft notes để đo (#72 #76); 13/10 và 20/10 chỉ là ước lượng của người vận hành, 20/10 vượt mục tiêu (10,8 phút/giờ) #89` |
@@ -33,12 +33,12 @@ Tiêu chí 3, 5, 6 và 7 không được tick: chỉ tick khi tiêu chí đượ
 
 | Nhóm | Tổng | pass | partial | fail | not done |
 | --- | --- | --- | --- | --- | --- |
-| AC-01..AC-49 | 49 | 32 | 11 | 6 | 0 |
+| AC-01..AC-49 | 49 | 31 | 12 | 6 | 0 |
 | FE-01..FE-16 | 16 | 10 | 6 | 0 | 0 |
 | FE-17, FE-18 (ngoài phạm vi #16) | 2 | 2 | 0 | 0 | 0 |
 
 - **fail (6):** AC-02, AC-03, AC-10, AC-13, AC-17, AC-39.
-- **partial (11 AC):** AC-01, AC-04, AC-05, AC-06, AC-14, AC-29, AC-35, AC-36, AC-37, AC-38, AC-44.
+- **partial (12 AC):** AC-01, AC-04, AC-05, AC-06, AC-14, AC-15, AC-29, AC-35, AC-36, AC-37, AC-38, AC-44.
 - **partial (6 FE):** FE-02, FE-10, FE-11, FE-12, FE-14, FE-16.
 - Hàng gộp từ hai nửa (không có provider và có provider) lấy nửa xấu nhất; hàng đổi hoặc suy ra so với worker có ghi lý do ở cột "Ghi chú của người tổng hợp" (mục 5, danh sách tại mục 10).
 
@@ -51,7 +51,7 @@ Tiêu chí 3, 5, 6 và 7 không được tick: chỉ tick khi tiêu chí đượ
 - **AC-29 partial:** theme tối đầy đủ và thao tác được; chỉ lệch ở độ tương phản (#81).
 - **AC-14:** 13/10 8,0 phút/giờ (đạt, ước lượng); 20/10 10,8 phút/giờ (không đạt, ước lượng); 16/10 không đo (mục 7).
 - **FE-02 và FE-10 partial:** FE-02 theo quyết định của lead, đọc literal: tài liệu thiết kế ghi brand là "ASR EN VI" còn chữ hiển thị của wordmark là `ASR / EN VI` (tiêu đề trang và tên truy cập đúng; #86). FE-10: t4 pass phần UI demo, token và tài nguyên; mệnh đề chọn provider chưa được t4 đánh giá, FE-11 partial và AC-10 fail (mục 10.1).
-- Luồng đầy đủ trên Chrome 149 và Firefox 158 chạy được ở mọi bước có control (mục 4); 32/49 AC và 10/16 FE đạt trọn.
+- Luồng đầy đủ trên Chrome 149 và Firefox 158 chạy được ở mọi bước có control (mục 4); 31/49 AC và 10/16 FE đạt trọn.
 
 ## 2. Tiêu chí 4: môi trường đo
 
@@ -144,7 +144,7 @@ Bản sao nằm ở `EV/recordings/`; bản gốc trong `~/Downloads` chỉ đ�
 | --- | --- |
 | Chrome | Google Chrome 149.0.7827.53 (gói `google-chrome-stable` 149.0.7827.53-1), Playwright 1.64.0 `channel="chrome"`, headless |
 | Firefox | Firefox 158.0 (snap 158.0-2, kênh `latest/stable/ubuntu-24.04`), Playwright `channel="moz-firefox"`, headless; `TMPDIR` trong vùng snap, tệp upload dưới `$HOME`, theme tối và giảm chuyển động qua `firefox_user_prefs` |
-| Bản "ổn định" (AC-15) | Brief của đợt nghiệm thu chốt Chrome 149 và Firefox 158 là các bản stable thật, cài toàn hệ thống, dùng cho đợt đo; chưa đối chiếu với bản stable mới nhất tại ngày đo |
+| Bản "ổn định" (AC-15) | Không phải bản stable hiện hành tại ngày đo: Firefox `latest/stable` là 158.0.1-1 (phát hành 2026-10-20, `snap info firefox`); kho apt của Google có `google-chrome-stable` 156.0.8078.47-1 (`apt-cache policy`), bản 149 cài trên máy từ tháng 6/2026 |
 | Viewport | 1440×1000, 1280×800, 1024×768 (UI), thêm 360×740 cho FE-17/FE-18 |
 | Không dùng | Chromium/Firefox đóng gói kèm Playwright không dùng làm bằng chứng nghiệm thu; ngoại lệ duy nhất là kiểm tra dữ liệu ban đầu của t1 (`EV/setup/step4-browser.*`, Chromium đóng gói, không tiêu chí nào dựa vào nó); không dùng màn hình của người dùng |
 
@@ -249,7 +249,7 @@ Quy ước:
 | AC-12 | Tiến độ, hủy và lỗi hiển thị đúng | **pass** (t5 pass · t8 pass) | C+F, V1 | `EV/t5/flow-*/steps.jsonl` (S03, S10), `EV/t5/ac12-api/`, `ac12-chrome/`, `ac12-firefox/`; `EV/t8/nf-*/` (N14), `faults-cut/`, `faults-model2/`, `faults-offline/` | 7 đầu vào lỗi qua API (6 bị từ chối: 415, 422 ×4, 413; file m4a cắt cụt 60% được nhận không cảnh báo) và 5 qua hộp thoại; 2 lỗi xử lý; tác vụ lỗi, hủy hay gián đoạn không bao giờ hiện "Hoàn tất". Sai lệch về câu chữ và kiểm tra đầu vào | #82 #85 #86 | — |
 | AC-13 | Bản ghi 2 giờ xử lý trong tối đa 30 phút | **fail** (t7) | C, V1 | `EV/t7/composite/` (`summary.json`, `events.jsonl`, `metrics.json`, `dbfacts.json`, `gpu.csv`, `conn.jsonl`, `provider-last-diagnostic.json`), `EV/t7/fresh-13-10/`, `fresh-20-10/`, `fresh-16-10/` | Mẫu 2 giờ (ghép): transcript sẵn sau 128,9 phút; notes lỗi `provider_output_too_large` sau 16,0 phút; không có mốc cả hai sẵn (mục 6) | #71 #72 #73 | — |
 | AC-14 | Duyệt/sửa khoảng 5–10 phút mỗi giờ họp | **partial** (người vận hành, ước lượng) | — | báo cáo của người vận hành (không có tệp EV) | 13/10: 8,0 phút/giờ (trong khoảng); 20/10: 10,8 phút/giờ (vượt nhẹ); 16/10: không đo vì không có draft notes sau 3 lần thất bại. Ước lượng "khoảng 10 phút", không phải đồng hồ bấm (mục 7) | #72 #76 #89 | Không có worker chấm; kết luận dựng từ số liệu lead cung cấp |
-| AC-15 | Toàn bộ luồng chạy qua UI trên Chrome và Firefox | **pass** (suy ra từ t5 + t8) | C+F, V1 | `EV/t5/flow-chrome/`, `EV/t5/flow-firefox/`; `EV/t8/nf-chrome/`, `EV/t8/nf-firefox/` | Mở URL, nhập, xử lý, nghe lại, sửa, mở lịch sử, copy và xuất: pass ở cả hai trình duyệt. "Nghe lại" kiểm qua phần tử media (không nghe bằng tai). Trình duyệt là bản cài trên máy (Chrome: gói `google-chrome-stable`; Firefox: snap kênh `latest/stable/ubuntu-24.04`); chưa đối chiếu với bản stable mới nhất tại ngày đo | — | Suy ra: không worker nào có hàng AC-15. Dựng từ bảng bước ở mục 4. Giữ pass theo cơ sở: brief của đợt nghiệm thu chốt Chrome 149 và Firefox 158 là bản stable đã cài cho đợt đo (mục 2.8) |
+| AC-15 | Toàn bộ luồng chạy qua UI trên Chrome và Firefox | **partial** (suy ra từ t5 + t8) | C+F, V1 | `EV/t5/flow-chrome/`, `EV/t5/flow-firefox/`; `EV/t8/nf-chrome/`, `EV/t8/nf-firefox/` | Mở URL, nhập, xử lý, nghe lại, sửa, mở lịch sử, copy và xuất: pass ở cả hai trình duyệt. "Nghe lại" kiểm qua phần tử media (không nghe bằng tai). Trình duyệt là bản cài trên máy (Chrome: gói `google-chrome-stable`; Firefox: snap kênh `latest/stable/ubuntu-24.04`); không phải bản stable hiện hành tại ngày đo (Firefox 158.0.1, Chrome 156; mục 2.8), nên điều kiện "bản ổn định tại thời điểm kiểm thử" chưa đạt | #89 | Suy ra: không worker nào có hàng AC-15. Dựng từ bảng bước ở mục 4. partial theo review: luồng đạt trên Chrome 149 / Firefox 158.0, chưa chạy trên bản stable hiện hành |
 | AC-16 | Tác vụ đã nhận tiếp tục khi trình duyệt mất kết nối | **pass** (t5 pass · t8 pass) | C+F, V1 | `EV/t5/ac16-chrome/`, `ac16-firefox/`; `EV/t8/ac16n-chrome/`, `ac16n-firefox/` | Đóng tab, SIGKILL trình duyệt, ngắt kết nối 20–23 s: backend chạy tiếp; mở lại thấy tiến độ, chạy xong, ra kết quả (transcript và notes). Firefox, đóng tab, notes: backend vẫn chạy nhưng tác vụ lỗi vì OMP "Thinking loop" (2 lần), không do trình duyệt | #76 | — |
 | AC-17 | Cài mới từ source hoặc image công khai bằng Docker Compose | **fail** (t4: source fail · pull not done) | C, V1 (mẫu xử lý qua UI Chrome; không dùng Firefox) | `EV/t4-security/steps/s1-*.out`, `steps/s1-diag-mount.out`, `steps/s1-diag-control.out`, `logs/commands.tsv`, `state-sample1.json`; `net/ac17-pull-manifest-probe.txt`, `net/ac17-pull-image-labels.txt` | **Source:** `./scripts/start.sh` thoát 1 ở `model prepare` ("Read-only file system", Compose v5.1.4). Sau khi chép model thủ công mọi bước sau pass (build, kiểm tra, khởi động, QR, xử lý mẫu 90 s: 12 segment, 3 người nói, 19,9 s); build lần này dùng cache toàn bộ. **Pull:** không kiểm được (ứng viên chưa có image; image công khai `v0.1.0-rc.1` mang revision `f0179a1`, không phải ứng viên). Chưa kết nối provider từ UI trên bản cài mới | #70 #87 #89 | — |
 | AC-18 | Giữ lịch sử khi container được thay thế | **pass** (t5 pass · t8 pass) | C+F, V1 | `EV/t5/ac18/`; `EV/t8/nf-*/` (N15) | `up --force-recreate` 12,1 s, `down` rồi `up` 12,4 s: 2 container đổi ID, 3 volume giữ, hash DB và âm thanh y nguyên; lịch sử, chỉnh sửa, tên người nói, âm thanh (150,005 s) và notes hiện đủ ở cả hai trình duyệt. Tác vụ đang chạy lúc thay chuyển `interrupted` (`worker_stopped`), không tự chạy lại | — | — |
@@ -440,7 +440,7 @@ Mỗi lỗi hoặc phần chưa đo ở mục 5–8 dẫn tới ít nhất một
 | #86 | Chi tiết giao diện nhỏ: thông báo, vùng live, thứ tự Tab, tooltip, chân trang | low | AC-12, AC-27, AC-31, AC-42, FE-01, FE-02, FE-04, FE-08, FE-09, FE-15, FE-17 |
 | #87 | Phát hành: tag, image công khai, tài liệu cài đặt và artefact lệch ứng viên | medium | AC-17, AC-23, FE-02, FE-10 |
 | #88 | Bộ nghiệm thu thiếu cuộc họp toàn tiếng Anh, 2–3 người nói và mẫu 2 giờ thật | medium | tiêu chí 1; AC-01 |
-| #89 | Hoàn tất các kiểm tra nghiệm thu cần người vận hành, quota hoặc image công khai | medium | tiêu chí 3, 6, 7; AC-05, AC-14, AC-17, AC-35..38, AC-44; FE-11, FE-12, FE-14, FE-16 |
+| #89 | Hoàn tất các kiểm tra nghiệm thu cần người vận hành, quota hoặc image công khai | medium | tiêu chí 3, 6, 7; AC-05, AC-14, AC-15, AC-17, AC-35..38, AC-44; FE-11, FE-12, FE-14, FE-16 |
 
 ## 10. Phương pháp và giới hạn
 
@@ -452,7 +452,7 @@ Mỗi lỗi hoặc phần chưa đo ở mục 5–8 dẫn tới ít nhất một
 | Hàng | Worker | Báo cáo này | Lý do |
 | --- | --- | --- | --- |
 | AC-25 | t4: partial (chờ máy thứ hai) | pass, người vận hành báo cáo | Người vận hành báo 3/3 lần `curl` từ máy thứ hai không kết nối được; không có output chi tiết nên bằng chứng yếu hơn đo trực tiếp |
-| AC-15 | không có hàng riêng | pass, suy ra | Dựng từ bảng bước ở mục 4 (t5 + t8, hai trình duyệt); "bản ổn định tại thời điểm kiểm thử" hiểu theo brief của đợt nghiệm thu: Chrome 149 và Firefox 158 đã cài (mục 2.8) |
+| AC-15 | không có hàng riêng | partial, suy ra | Dựng từ bảng bước ở mục 4 (t5 + t8, hai trình duyệt); luồng đạt, nhưng Chrome 149 và Firefox 158.0 không phải bản stable hiện hành tại ngày đo (mục 2.8) |
 | Tiêu chí 2 của #16 | t5: partial; t8: pass | đạt | Phần partial của t5 là nửa notes chưa làm khi đó; t8 đã làm nửa này. Copy/xuất transcript không áp dụng (không có control) |
 | FE-08 | t6: partial; t9: pass | pass | t6 ghi partial vì nửa notes chưa làm và nêu lệch F8, F9; t9 đã làm nửa notes, ghi pass kèm lệch tương tự (F15, F18). Lệch giữ ở cột Sai lệch (#82 #83 #86), cùng cách xử lý như AC-12, AC-20, FE-15 |
 | AC-14 | không có worker | partial | Số liệu ước lượng của người vận hành (mục 7) |
@@ -496,7 +496,7 @@ Các phần A–D của `needs-user-4` là tùy chọn; tại thời điểm vi�
 7. **Khóa dùng chung:** t8, t9, t10 dùng khóa slot của bản cài eval nên có thời gian chờ (đến khoảng 13 phút); mọi lần bắt đầu xử lý đều kiểm `gpu.lock`.
 8. **Chấm chất lượng:** người chấm là một agent, một lượt, không đo tính ngẫu nhiên của notes. Notes khác provider và ngôn ngữ đầu ra theo từng bản ghi (ChatGPT/English cho 20/10; Antigravity/English cho 13/10; Antigravity/Tiếng Việt cho 16/10), nên so sánh giữa các bản ghi bị nhiễu. 16/10 được chấm trên **bản sao** notes của bản cài chính (prompt v6, trạng thái `stale`) trên transcript của annotation. 20/10 được chấm trên lần chạy ASR mới (661 segment) trong khi annotation bám transcript 736 segment; các mục được khớp theo thời gian và nghĩa, và lần chạy mới mất một câu then chốt mà lần trước có. 13/10 chỉ có lần chạy mới (827 segment).
 9. **Bản cài khác nhau:** mỗi nhóm đo dùng bản cài riêng (mục 2.2); số liệu hiệu năng và chất lượng đều từ bản cài eval.
-10. **Trình duyệt "stable":** Chrome 149.0.7827.53 và Firefox 158.0 (snap) là bản cài trên máy đo; không đối chiếu với bản stable mới nhất tại ngày đo.
+10. **Trình duyệt "stable":** Chrome 149.0.7827.53 và Firefox 158.0 (snap) là bản cài trên máy đo, không phải bản stable hiện hành tại ngày đo (Chrome 156, Firefox 158.0.1); AC-15 vì vậy partial.
 11. **Độ tương phản** được tính từ màu tính toán trong trang, không có đánh giá thị giác của người.
 12. **Độ rộng sidebar:** quy tắc ban đầu của t6 là 228 ±2 px; sau khi thấy tài liệu gọi 228 px là giá trị tham chiếu, t6 chấm lại theo ±10 px (sidebar đo được 236 px: pass). Tệp `EV/t6/<cấu hình>/results-empty.json` và `EV/t6/summary.json` chưa được ghi lại nên còn 28 hàng `SBW` ghi fail; tổng trong báo cáo t6 (2652 pass, 648 fail) đã tính theo quy tắc mới, còn tổng cộng từ `summary.json` là 2624 pass và 676 fail.
 13. **Cắt mạng FE-16 (t9):** một lần chạy (Chrome, theme tối) bị loại vì lỗi báo sau 43 s thay vì 3–5 s và giao diện không hiện lỗi; nguyên nhân chưa xác lập. Chạy lại 4/4 lần hiện lỗi sau 3–5 s. Bằng chứng: `EV/t9/backups/func-chrome-dark.invalid-network-run.json`.
