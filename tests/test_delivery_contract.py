@@ -894,3 +894,15 @@ def test_dependabot_maintains_each_delivery_dependency_ecosystem():
     ecosystems = {update["package-ecosystem"] for update in dependabot["updates"]}
 
     assert ecosystems == {"uv", "github-actions", "docker"}
+
+
+def test_recovery_shell_blocks_parse_without_rewriting_yaml_text() -> None:
+    workflow = load_yaml(PIPELINE_PATH)
+    for job_name in ("recovery-verify-platform", "recovery-publish"):
+        for step in workflow["jobs"][job_name]["steps"]:
+            if "run" not in step:
+                continue
+            result = subprocess.run(
+                ["bash", "-n"], input=step["run"], text=True, capture_output=True
+            )
+            assert result.returncode == 0, f"{job_name}/{step['name']}: {result.stderr}"

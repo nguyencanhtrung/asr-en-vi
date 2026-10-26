@@ -587,24 +587,24 @@ jobs:
           if [ "${inspect_status}" -eq 0 ]; then
             python3 - "${existing_raw}" \
               "${RUNNER_TEMP}/recovery-digests/expected-index-manifests.json" <<'PY'
-            import json
-            import sys
-            from pathlib import Path
+          import json
+          import sys
+          from pathlib import Path
 
-            existing = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-            expected = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
-            if not isinstance(existing.get("manifests"), list):
-                raise SystemExit("existing v0.1.0 is not an image index")
-            if not isinstance(expected, list):
-                raise SystemExit("expected recovery descriptors are malformed")
+          existing = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          expected = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+          if not isinstance(existing.get("manifests"), list):
+              raise SystemExit("existing v0.1.0 is not an image index")
+          if not isinstance(expected, list):
+              raise SystemExit("expected recovery descriptors are malformed")
 
-            def normalized(items):
-                return sorted(json.dumps(item, sort_keys=True, separators=(",", ":")) for item in items)
+          def normalized(items):
+              return sorted(json.dumps(item, sort_keys=True, separators=(",", ":")) for item in items)
 
-            if normalized(existing["manifests"]) != normalized(expected):
-                raise SystemExit("v0.1.0 already names a different image index")
-            print("existing v0.1.0 has the same image index descriptors; overwrite is identical")
-            PY
+          if normalized(existing["manifests"]) != normalized(expected):
+              raise SystemExit("v0.1.0 already names a different image index")
+          print("existing v0.1.0 has the same image index descriptors; overwrite is identical")
+          PY
           elif grep -Eqi 'manifest unknown|not found|404' "${existing_error}"; then
             echo "v0.1.0 image tag is absent; publication may create it"
           else
