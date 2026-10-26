@@ -684,12 +684,16 @@ def test_platform_images_publish_only_on_version_tags_with_native_runners():
     verify_step = next(
         step for step in publish_platform["steps"] if step["name"] == "Verify public platform image"
     )
+    assert "scripts/resolve-image-config.py" in verify_step["run"]
     assert "published_config_digest" in verify_step["run"]
     assert "{{.Id}}" not in verify_step["run"]
     assert 'test "${published_config_digest}" = "${candidate_config_digest}"' in verify_step["run"]
     assert verify_step["env"]["CANDIDATE_METADATA"] == "${{ steps.candidate.outputs.metadata }}"
-    assert verify_step["env"]["PUBLISHED_METADATA"] == "${{ steps.publish.outputs.metadata }}"
-    assert '<<< "${PUBLISHED_METADATA}"' in verify_step["run"]
+    assert verify_step["env"]["PUBLISHED_DIGEST"] == "${{ steps.publish.outputs.digest }}"
+    assert verify_step["env"]["RELEASE_PLATFORM"] == "${{ matrix.artifact }}"
+    assert "PUBLISHED_METADATA" not in verify_step["env"]
+    assert "PUBLISHED_METADATA" not in verify_step["run"]
+    assert '<<< "${CANDIDATE_METADATA}"' in verify_step["run"]
 
     export_digest = next(
         step for step in publish_platform["steps"] if step["name"] == "Export image digest"
@@ -701,6 +705,19 @@ def test_platform_images_publish_only_on_version_tags_with_native_runners():
     )
     assert upload_digest["with"]["name"] == "digest-${{ matrix.artifact }}"
     assert upload_digest["with"]["if-no-files-found"] == "error"
+
+
+def test_public_image_verification_run_block_is_valid_bash():
+    steps = load_yaml(PIPELINE_PATH)["jobs"]["publish-platform"]["steps"]
+    verify_step = next(step for step in steps if step["name"] == "Verify public platform image")
+    result = subprocess.run(
+        ["bash", "-n"],
+        input=verify_step["run"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_manifest_publish_waits_for_platform_images_and_attests_manifest_digest():
@@ -769,8 +786,5 @@ def test_every_action_is_pinned_to_an_immutable_commit():
     assert all(action_ref.fullmatch(action) for action in used_actions)
 
 
-def test_dependabot_maintains_each_delivery_dependency_ecosystem():
-    dependabot = load_yaml(DEPENDABOT_PATH)
-    ecosystems = {update["package-ecosystem"] for update in dependabot["updates"]}
-
-    assert ecosystems == {"uv", "github-actions", "docker"}
+def test_dependabot_pull_request_configuration_is_removed():
+    assert not DEPENDABOT_PATH.exists()

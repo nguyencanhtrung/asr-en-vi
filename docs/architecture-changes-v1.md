@@ -78,6 +78,61 @@ notes — chia chunk → trích xuất → hợp nhất → kiểm tra → rende
 
 Đã chuyển nguyên mục: [Pipeline notes](release/notes-v0.1.0.md).
 
+### #115 — Tắt PR Dependabot và xác minh config digest image công khai
+
+#### Vấn đề
+
+Metadata do BuildKit trả về sau khi push image có provenance và SBOM không bảo đảm chứa
+`containerimage.config.digest`; gate cũ vì vậy dừng sau khi push thành công. Dependabot cũng
+không còn là cơ chế cập nhật dependency được sử dụng trong repository.
+
+#### Nguyên nhân đo được
+
+Gate cũ đọc config digest từ `PUBLISHED_METADATA`, nhưng metadata published thực tế chỉ cung cấp
+index/manifest digest và attestations. Việc tra cứu image công khai phải đi qua index rồi child
+manifest đúng platform để lấy config descriptor.
+
+Nguồn: `tests/test_published_image_contract.py`, `tests/test_image_config.py` và workflow phát hành.
+
+#### Thay đổi thiết kế
+
+Xóa cấu hình Dependabot để ngăn tạo PR cập nhật version. Helper `scripts/resolve-image-config.py`
+dùng token GHCR anonymous, hash-check bytes của index, child manifest và config, bỏ qua descriptor
+attestation, rồi yêu cầu đúng một child Linux cho platform. Workflow so sánh config digest công khai
+với digest candidate trước các kiểm tra version, schema, revision và smoke; thứ tự publish source
+trước image và kiểm tra hai kiến trúc trước khi gắn tag không đổi.
+
+#### Số đo trước và sau
+
+| | Trước | Sau |
+| --- | --- | --- |
+| Nguồn config digest của gate | metadata published không ổn định | registry index → child manifest → config |
+| Số child native được chấp nhận | không xác minh | đúng 1 Linux child |
+
+Nguồn: `tests/test_delivery_contract.py`, `tests/test_image_config.py` và `tests/test_published_image_contract.py`.
+
+#### Đánh đổi và phương án đã loại
+
+- Tra cứu registry anonymous: chịu thêm ba request artifact read-only ngoài token, đổi lại xác minh artifact thực sự đã public.
+- Đọc lại metadata BuildKit sau push: loại vì metadata published có thể thiếu config digest khi có SBOM/provenance.
+- Giữ Dependabot version updates: loại theo quyết định của issue #115; security alerts không thay đổi.
+
+#### Follow-up
+
+- #115: giữ các test negative cho platform thiếu, trùng, unknown và config sai.
+
+#### Liên kết issue/PR
+
+[Issue #115](https://github.com/nguyencanhtrung/asr-en-vi/issues/115).
+
+#### Tag
+
+Kiến trúc
+
+#### Tài liệu đích
+
+- `docs/release/runtime-v0.1.0.md` — release publication verification.
+
 ## 4. Mốc AC-13 (#16 → #99 → #104)
 
 Đã chuyển bảng mốc và điều kiện đo vào [báo cáo nghiệm thu](acceptance-report-v1.md).

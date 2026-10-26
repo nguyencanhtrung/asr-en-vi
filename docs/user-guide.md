@@ -566,7 +566,7 @@ cả quality gate và container build thành công:
   manifest đa kiến trúc kèm SBOM, provenance và attestation.
 
 Workflow chỉ dùng `GITHUB_TOKEN`; không cần secret registry riêng. Các action được pin bằng commit
-SHA bất biến, còn Dependabot kiểm tra cập nhật hằng tuần cho uv, GitHub Actions và Docker base image.
+SHA bất biến; thay đổi dependency được kiểm tra qua quy trình review thủ công.
 
 Trong production image, Docker build context chỉ chứa `pyproject.toml`, `README.md`, `LICENSE`, `LICENSE.vi`, `uv.lock` và
 `src/asr_en_vi`. Hướng dẫn, tài liệu thiết kế và prototype không được đưa vào image.

@@ -212,14 +212,21 @@ jobs:
       - name: Verify public platform image
         env:
           PUBLISHED_IMAGE: ${{ env.IMAGE_NAME }}@${{ steps.publish.outputs.digest }}
+          PUBLISHED_DIGEST: ${{ steps.publish.outputs.digest }}
           CANDIDATE_METADATA: ${{ steps.candidate.outputs.metadata }}
-          PUBLISHED_METADATA: ${{ steps.publish.outputs.metadata }}
+          RELEASE_PLATFORM: ${{ matrix.artifact }}
         run: |
+          set -euo pipefail
           anonymous_config="$(mktemp -d)"
           trap 'rm -rf "${anonymous_config}"' EXIT
           DOCKER_CONFIG="${anonymous_config}" docker pull "${PUBLISHED_IMAGE}"
-          published_config_digest="$(jq -er '."containerimage.config.digest" // empty | select(test("^sha256:[0-9a-f]{64}$"))' \
-            <<< "${PUBLISHED_METADATA}")"
+          published_config_digest="$(
+            python3 scripts/resolve-image-config.py \
+              --repository "${GITHUB_REPOSITORY}" \
+              --published-digest "${PUBLISHED_DIGEST}" \
+              --platform "${RELEASE_PLATFORM}" |
+              jq -er '.config_digest // empty | select(test("^sha256:[0-9a-f]{64}$"))'
+          )"
           candidate_config_digest="$(jq -er '."containerimage.config.digest" // empty | select(test("^sha256:[0-9a-f]{64}$"))' \
             <<< "${CANDIDATE_METADATA}")"
           test "${published_config_digest}" = "${candidate_config_digest}"
