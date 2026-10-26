@@ -336,7 +336,7 @@ AC-13 cần transcript và notes của mẫu 2 giờ sẵn trong tối đa 30 ph
 - Ước tính token của đường mới là `ceil(UTF-8 bytes × 2 / 3)` trên prompt, schema, phần dự phòng repair và headroom; đường single-pass dành 65.536 token cho output và 4.000 token headroom. `PROMPT_VERSION` là `notes-hierarchical-v7`.
 - Schema enum nghiêm ngặt của structured outputs chỉ chứa tối đa 999 mã nguồn trong một scope. Với hơn 999 segment, pipeline gom các segment liên tiếp thành unit, `unit_size = ceil(n / 999)`; mỗi mục chịu giới hạn `200 // unit_size` unit và khi khôi phục sẽ trả lại toàn bộ mã segment thành viên.
 
-Nguồn: `report-research-1.md`; `capsule.yaml` D1–D3, D6–D8, D14; code tại HEAD (`src/asr_en_vi/notes_document.py`).
+Nguồn: PR #109 (AC checklist và Evidence); issue #104; giới hạn từ [Codex rust-v0.154.0 `codex-rs/protocol/src/openai_models.rs`](https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/protocol/src/openai_models.rs#L400-L525) và [ChatGPT model catalog](https://chatgpt.com/backend-api/codex/models?client_version=0.154.0); [OMP v18.5.0 `packages/catalog/src/models.json`](https://github.com/can1357/oh-my-pi/blob/v18.5.0/packages/catalog/src/models.json#L1); code tại `src/asr_en_vi/notes_document.py`.
 
 #### Thay đổi thiết kế
 
@@ -347,14 +347,14 @@ Nguồn: `report-research-1.md`; `capsule.yaml` D1–D3, D6–D8, D14; code tạ
 
 #### Số đo trước và sau
 
-Điều kiện trước là #99 trên mẫu ghép 2 giờ, ChatGPT `gpt-5.6-sol` medium, đường chunk/reduce bảo thủ: 14 chunk, 29 lượt tuần tự, notes lỗi sau 1.463,5 s và tác vụ kết thúc lỗi ở 2.090,2 s. Điều kiện sau là code tại HEAD `b78711d`, notes English, prompt `notes-hierarchical-v7`, ba lượt ChatGPT `gpt-5.6-sol` medium và một lượt Flash final chạy notes-only; nguồn trên 999 segment dùng citation units.
+Điều kiện trước là #99 trên mẫu ghép 2 giờ, ChatGPT `gpt-5.6-sol` medium, đường chunk/reduce bảo thủ: 14 chunk, 29 lượt tuần tự, notes lỗi sau 1.463,5 s và tác vụ kết thúc lỗi ở 2.090,2 s. Điều kiện sau là lượt đo final trên revision `b78711d`, notes English, prompt `notes-hierarchical-v7`, ba lượt ChatGPT `gpt-5.6-sol` medium và một lượt Flash final chạy notes-only; nguồn trên 999 segment dùng citation units.
 
 | Lượt | Segment / citation unit | POST → ready | Lượt gọi | Prompt B | Estimate → input (tỷ lệ) | Output / reasoning | Tìm thấy / partly / thiếu / bịa | Mơ hồ nâng (chắc / giáp ranh) | Bullet / từ / phút đọc |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: |
 | Single 1 | 661 / — | 116,5 s | 1 | 109.426 | 77.812 → 33.184 (2,34×) | 6.111 / 1.825 | 31 / 4 / 2 / 0 trên 37 | 2 / 3 | 85 / 1.585 / 6,9 |
 | Single 2 | 1.269 / 635 (unit 2) | 67,2 s | 1 | 186.630 | 127.849 → 56.286 (2,27×) | 3.451 / 482 | 28 / 7 / 3 / 0 trên 38 | 2 / 1 | 65 / 1.286 / 5,6 |
 | Single 3, mẫu ghép | 1.779 / 890 (unit 2) | 81,3 s | 1 | 262.375 | 179.196 → 77.048 (2,33×) | 4.258 / 239 | 48 / 19 / 8 / 0 trên 75 | 1 / 1 | 92 / 1.725 / 7,5 |
-| Flash final | 1.779 / 890 (unit 2) | 241,7 s | 1 | 262.375 | 179.312 → 96.692 (1,85×) | 33.200 / 28.325 | không chấm | — | 79 / 1.306 / 5,7 |
+| Flash final | 1.779 / 890 (unit 2) | 241,7 s | 1 | 262.375 | 179.312 → 96.692 (1,85×) | 33.200 / 28.325 | không chấm | — | 79 / 1.227 / 5,3 |
 | Baseline 20/10, chunked | — | — | — | — | — | — | baseline tìm thấy 34/37 | — | 63 / 1.458 / 6,3 |
 | Baseline 16/10, chunked | — | — | — | — | — | — | baseline tìm thấy 35/38 | — | 97 / 2.469 / 10,7 |
 
@@ -362,7 +362,7 @@ Số tìm thấy cộng partly (cận trên) của ba lượt sol là 35/37, 35/
 
 Ghi chú candidate trước (prompt v7, trước citation units): Flash thành công một lượt nhưng recall chỉ 37/75 so với baseline 69/75; không dùng làm số đo final.
 
-Nguồn: `report-tester-3b.md`; `report-tester-4b.md`; `report-tester-6b.md`; `report-tester-7a.md`. Số đo final là ba dòng `Per-run table`, `Scoring` và `Size` của tester-6b cùng dòng Flash của tester-7a; các baseline là hai dòng chunked trong bảng `Size` của tester-6b.
+Nguồn: PR #109 (AC checklist và Evidence); issue #104; lượt đo final và các baseline trong Evidence.
 
 #### Đánh đổi và phương án đã loại
 
@@ -373,7 +373,7 @@ Nguồn: `report-tester-3b.md`; `report-tester-4b.md`; `report-tester-6b.md`; `r
 
 #### Follow-up
 
-- #107: xử lý các ngày dự kiến và kế hoạch dưới `Items Requiring Confirmation`, không xếp chúng thành `Decisions`; AC-5 của #104 vẫn để **Not done** với các số đo trên.
+- #107: chuyển các ngày dự kiến và kế hoạch đã chốt trong cuộc họp từ `Items Requiring Confirmation` sang `Decisions`; các đề xuất chưa được thống nhất vẫn ở `Items Requiring Confirmation`; AC-5 của #104 vẫn để **Not done** với các số đo trên.
 - #108: nguồn dài hơn khoảng một giờ → chia thành các phần khoảng một giờ, chạy song song rồi hợp nhất một lượt.
 - #100: giữ mục tiêu mỗi ý một mục và schema sáu nhóm theo hàng đã cập nhật ở mục 5; bỏ mục tiêu đọc 2–3 phút, không còn là blocker của #104.
 

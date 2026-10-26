@@ -419,9 +419,9 @@ Kết quả về thời gian: **đạt theo số đo ghép**, nhưng không ph�
 | Single 3, mẫu ghép | 1.779 / 890 (unit 2) | ChatGPT `gpt-5.6-sol` medium | **81,3 s** | 1 | 179.196 → 77.048 (2,33×) | thành công; dùng trong số đo ghép AC-13 |
 | Flash final | 1.779 / 890 (unit 2) | Antigravity `gemini-3.8-flash` high | **241,7 s** | 1 | 179.312 → 96.692 (1,85×) | thành công; không chấm quality |
 
-Flash final output là 33.200 token, trong đó 28.325 reasoning; notes có 79 bullet, 1.306 từ, đọc 5,7 phút. Ghi chú candidate trước (prompt v7, trước citation units): Flash recall 37/75 so với baseline 69/75; không dùng làm số đo final. Về chất lượng, AC-5 của #104 vẫn **Not done**: ba lượt ChatGPT lần lượt tìm thấy 31/37, 28/38 và 48/75; partly là 4, 7 và 19; thiếu là 2, 3 và 8; 0 mục bịa. Các mục partly chủ yếu là ngày dự kiến/kế hoạch bị đặt dưới `Items Requiring Confirmation` thay vì `Decisions`. Việc đáp ứng ngưỡng thời gian không được dùng để tick AC-5.
+Flash final output là 33.200 token, trong đó 28.325 reasoning; notes có 79 bullet, 1.227 từ, đọc 5,3 phút. Ghi chú candidate trước (prompt v7, trước citation units): Flash recall 37/75 so với baseline 69/75; không dùng làm số đo final. Về chất lượng, AC-5 của #104 vẫn **Not done**: ba lượt ChatGPT lần lượt tìm thấy 31/37, 28/38 và 48/75; partly là 4, 7 và 19; thiếu là 2, 3 và 8; 0 mục bịa. Các mục partly chủ yếu là ngày dự kiến/kế hoạch bị đặt dưới `Items Requiring Confirmation` thay vì `Decisions`. Việc đáp ứng ngưỡng thời gian không được dùng để tick AC-5.
 
-Nguồn: `report-tester-3b.md` (transcript 651,7 s, notes POST sau 0,2 s và lần chạy liên tục 723,3 s); `report-tester-4b.md` (Flash candidate trước và recall); `report-tester-6b.md` (ba lượt sol final, grouped units, usage và scoring); `report-tester-7a.md` (Flash final); `capsule.yaml` D14–D17.
+Nguồn: PR #109 (AC checklist và Evidence); issue #104; lượt đo final.
 
 ## 7. Tiêu chí 6: AC-14, thời gian đưa draft về mức dùng được
 
