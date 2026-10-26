@@ -6,12 +6,13 @@ import argparse
 import json
 import math
 import os
-import re
 import sys
 import traceback
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from asr_en_vi.safe_logging import emit_safe_log
 
 COMMUNITY_1_REQUIRED_FILES = (
     Path("config.yaml"),
@@ -40,7 +41,6 @@ DIARIZATION_ERROR_MESSAGES = {
     ),
     "diarization_failed": "Local diarization failed. Check the worker logs and try again.",
 }
-_SAFE_CONTEXT_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}\Z")
 
 
 class DiarizationConfigurationError(RuntimeError):
@@ -275,21 +275,9 @@ def diarize_file(
         raise DiarizationPhaseError("diarization_failed", "collecting_result") from error
 
 
-def _safe_context_id(value: str) -> str:
-    return value if _SAFE_CONTEXT_ID.fullmatch(value) else "unknown"
-
-
 def _write_error_context(*, diagnostic_id: str, meeting_id: str, stage: str, code: str) -> None:
-    context = {
-        "event": "diarization_error",
-        "diagnostic_id": _safe_context_id(diagnostic_id),
-        "task_id": _safe_context_id(diagnostic_id),
-        "meeting_id": _safe_context_id(meeting_id),
-        "stage": stage,
-        "code": code,
-    }
-    sys.stderr.write(json.dumps(context, separators=(",", ":")) + "\n")
-    sys.stderr.flush()
+    del diagnostic_id, meeting_id
+    emit_safe_log(event="diarization_error", stage=stage, code=code)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -298,6 +286,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--audio", type=Path)
     parser.add_argument("--device", required=True, choices=("cpu", "cuda", "auto"))
     parser.add_argument("--check-runtime", action="store_true")
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="show local preflight and diarization traceback details",
+    )
     parser.add_argument("--diagnostic-id", default="unknown")
     parser.add_argument("--meeting-id", default="unknown")
     args = parser.parse_args(argv)
@@ -313,7 +306,8 @@ def main(argv: list[str] | None = None) -> int:
                 device=args.device,
             )
     except DiarizationPhaseError as error:
-        traceback.print_exc(file=sys.stderr)
+        if args.verbose:
+            traceback.print_exc(file=sys.stderr)
         code, message = safe_diarization_error(error.code, error.args[0])
         _write_error_context(
             diagnostic_id=args.diagnostic_id,
@@ -324,7 +318,8 @@ def main(argv: list[str] | None = None) -> int:
         _emit({"type": "error", "code": code, "message": message})
         return 1
     except Exception:
-        traceback.print_exc(file=sys.stderr)
+        if args.verbose:
+            traceback.print_exc(file=sys.stderr)
         code, message = safe_diarization_error(None, None)
         _write_error_context(
             diagnostic_id=args.diagnostic_id,

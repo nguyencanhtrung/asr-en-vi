@@ -16,7 +16,6 @@ import sys
 import tempfile
 import threading
 import time
-import traceback
 import uuid
 from contextlib import suppress
 from pathlib import Path
@@ -37,6 +36,7 @@ from asr_en_vi.runtime import (
     select_runtime,
     write_runtime_profile,
 )
+from asr_en_vi.safe_logging import emit_safe_log
 from asr_en_vi.storage import initialize
 from asr_en_vi.tasks import (
     TASK_ERROR_MESSAGES,
@@ -338,7 +338,7 @@ def _run_child(
             command,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
-            stderr=None,
+            stderr=subprocess.PIPE,
             bufsize=0,
             close_fds=True,
             pass_fds=(lock_fd,),
@@ -350,9 +350,13 @@ def _run_child(
             },
         )
         assert process.stdout is not None
-        descriptor = process.stdout.fileno()
+        assert process.stderr is not None
+        stdout_descriptor = process.stdout.fileno()
+        stderr_descriptor = process.stderr.fileno()
         pending = bytearray()
         reached_eof = False
+        stderr_eof = False
+        stderr_seen = False
         post_eof_deadline: float | None = None
         child_exit_time: float | None = None
         last_progress_write = 0.0
@@ -365,31 +369,42 @@ def _run_child(
             except (UnicodeDecodeError, ValueError, TypeError, json.JSONDecodeError):
                 return False
 
-        while not reached_eof or process.poll() is None:
-            if reached_eof:
-                assert post_eof_deadline is not None
-                remaining = max(0.0, post_eof_deadline - time.monotonic())
-                stop_event.wait(min(0.2, remaining))
-                readable = []
+        while not reached_eof or not stderr_eof or process.poll() is None:
+            descriptors = []
+            if not reached_eof:
+                descriptors.append(stdout_descriptor)
+            if not stderr_eof:
+                descriptors.append(stderr_descriptor)
+            if descriptors:
+                readable, _, _ = select.select(descriptors, [], [], 0.2)
             else:
-                readable, _, _ = select.select([descriptor], [], [], 0.2)
-            if readable:
-                chunk = os.read(descriptor, 65536)
+                stop_event.wait(0.2)
+                readable = []
+            for readable_descriptor in readable:
+                chunk = os.read(readable_descriptor, 65536)
+                if readable_descriptor == stderr_descriptor:
+                    if not chunk:
+                        stderr_eof = True
+                    else:
+                        stderr_seen = True
+                    continue
                 if not chunk:
                     reached_eof = True
                     post_eof_deadline = time.monotonic() + RUNNER_POST_EOF_GRACE_SECONDS
-                else:
-                    pending.extend(chunk)
-                    while b"\n" in pending:
-                        raw_line, _, remainder = pending.partition(b"\n")
-                        pending = bytearray(remainder)
-                        if len(raw_line) > MAX_CHILD_EVENT_LINE_BYTES or not consume_line(raw_line):
-                            result["protocol_error"] = True
-                            break
-                    if len(pending) > MAX_CHILD_EVENT_LINE_BYTES:
+                    continue
+                pending.extend(chunk)
+                while b"\n" in pending:
+                    raw_line, _, remainder = pending.partition(b"\n")
+                    pending = bytearray(remainder)
+                    if len(raw_line) > MAX_CHILD_EVENT_LINE_BYTES or not consume_line(raw_line):
                         result["protocol_error"] = True
-                    if result["protocol_error"]:
                         break
+                if len(pending) > MAX_CHILD_EVENT_LINE_BYTES:
+                    result["protocol_error"] = True
+                if result["protocol_error"]:
+                    break
+            if result["protocol_error"]:
+                break
 
             now = time.monotonic()
             runtime_state = task_runtime_state(settings.data_dir, task_id)
@@ -425,13 +440,17 @@ def _run_child(
                 child_exit_time = now
             if (
                 reached_eof
-                and process.poll() is None
+                and (process.poll() is None or not stderr_eof)
                 and post_eof_deadline is not None
                 and now >= post_eof_deadline
             ):
                 result["protocol_error"] = True
                 break
-            if child_exit_time is not None and not reached_eof and now - child_exit_time > 2:
+            if (
+                child_exit_time is not None
+                and (not reached_eof or not stderr_eof)
+                and now - child_exit_time > 2
+            ):
                 result["protocol_error"] = True
                 break
 
@@ -457,6 +476,12 @@ def _run_child(
                     time.sleep(0.5)
                 result["protocol_error"] = True
         result["return_code"] = process.returncode
+        if stderr_seen:
+            emit_safe_log(
+                event="child_stderr",
+                stage="child_process",
+                code="child_stderr_suppressed",
+            )
         return result
     except BaseException:
         if process is not None:
@@ -470,6 +495,8 @@ def _run_child(
     finally:
         if process is not None and process.stdout is not None:
             process.stdout.close()
+        if process is not None and process.stderr is not None:
+            process.stderr.close()
 
 
 def _finish_after_child_stop(
@@ -637,14 +664,7 @@ def _run_notes_task(
     except TaskError:
         finish_failure("notes_publication_failed", TASK_ERROR_MESSAGES["notes_publication_failed"])
     except (OSError, subprocess.SubprocessError, sqlite3.Error):
-        print(
-            json.dumps(
-                {"event": "notes_worker_error", "task_id": task_id, "code": "notes_failed"},
-                separators=(",", ":"),
-            ),
-            file=sys.stderr,
-            flush=True,
-        )
+        emit_safe_log(event="notes_error", stage="publishing", code="notes_failed")
         finish_failure("notes_failed", "Notes generation failed. Check the worker logs.")
 
 
@@ -680,15 +700,7 @@ def _run_task(
     def finish_error(code: str, message: str) -> None:
         if phase == "diarization":
             code, message = safe_diarization_error(code, message)
-        context = {
-            "event": f"{phase}_error",
-            "diagnostic_id": task_id,
-            "task_id": task_id,
-            "meeting_id": str(task["meeting_id"]),
-            "stage": state["stage"],
-            "code": code,
-        }
-        print(json.dumps(context, separators=(",", ":")), file=sys.stderr, flush=True)
+        emit_safe_log(event=f"{phase}_error", stage=state["stage"], code=code)
         elapsed = time.monotonic() - started
         _finish_after_child_stop(settings, task_id, owner_id, stop_event, elapsed)
         runtime_state = task_runtime_state(settings.data_dir, task_id)
@@ -907,16 +919,13 @@ def _run_task(
         if generation is None:
             _finish_after_child_stop(settings, task_id, owner_id, stop_event, elapsed)
     except RecordingError:
-        traceback.print_exc(file=sys.stderr)
         finish_error("recording_unavailable", "Meeting recording is unavailable to the worker.")
     except TaskError as error:
-        traceback.print_exc(file=sys.stderr)
         if phase == "publishing":
             finish_error("publication_failed", TASK_ERROR_MESSAGES["publication_failed"])
         else:
             finish_error(error.code, error.message)
     except (OSError, subprocess.SubprocessError):
-        traceback.print_exc(file=sys.stderr)
         if phase == "diarization":
             finish_error("diarization_failed", DIARIZATION_ERROR_MESSAGES["diarization_failed"])
         elif phase == "publishing":
@@ -926,7 +935,6 @@ def _run_task(
                 "runner_start_failed", "The local transcription runner could not be started."
             )
     except sqlite3.Error:
-        traceback.print_exc(file=sys.stderr)
         if phase == "publishing":
             finish_error("publication_failed", TASK_ERROR_MESSAGES["publication_failed"])
         elif phase == "diarization":
@@ -936,7 +944,6 @@ def _run_task(
                 "transcription_failed", "Local transcription failed. Check the worker logs."
             )
     except Exception:
-        traceback.print_exc(file=sys.stderr)
         if phase == "diarization":
             finish_error("diarization_failed", DIARIZATION_ERROR_MESSAGES["diarization_failed"])
         elif phase == "publishing":
@@ -1012,8 +1019,11 @@ def main() -> int:
         return 0 if is_healthy(settings.data_dir) else 1
     try:
         run_worker(settings)
-    except (RuntimeConfigurationError, WorkerAlreadyRunning) as error:
-        print(str(error), file=sys.stderr, flush=True)
+    except RuntimeConfigurationError:
+        emit_safe_log(event="worker_error", stage="worker_startup", code="runtime_unavailable")
+        return 1
+    except WorkerAlreadyRunning:
+        emit_safe_log(event="worker_error", stage="worker_startup", code="worker_already_running")
         return 1
     return 0
 

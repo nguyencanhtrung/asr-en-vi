@@ -151,8 +151,8 @@ def test_model_check_fails_cleanly_when_local_model_is_missing(tmp_path, monkeyp
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert str(missing) in captured.err
-    assert "not prepared" in captured.err
+    assert captured.err == "runtime_unavailable: selecting_runtime\n"
+    assert str(missing) not in captured.err
     assert "Traceback" not in captured.err
 
 
@@ -165,7 +165,7 @@ def test_model_check_accepts_the_same_prepared_model_as_runtime(tmp_path, monkey
     assert main(["model", "check"]) == 0
 
     captured = capsys.readouterr()
-    assert str(model) in captured.out
+    assert str(model) not in captured.out
     assert "ready" in captured.out
     assert captured.err == ""
 
@@ -182,7 +182,7 @@ def test_runtime_check_rejects_cuda_when_no_gpu_is_visible(tmp_path, monkeypatch
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "No NVIDIA GPU is visible" in captured.err
+    assert captured.err == "runtime_unavailable: selecting_runtime\n"
 
 
 def test_runtime_check_rejects_missing_cuda_libraries(tmp_path, monkeypatch, capsys):
@@ -192,7 +192,7 @@ def test_runtime_check_rejects_missing_cuda_libraries(tmp_path, monkeypatch, cap
     monkeypatch.setenv("ASR_COMPUTE_TYPE", "float16")
 
     def missing_library(name):
-        raise OSError(f"missing {name}")
+        raise OSError(f"missing {name} token=secret /private/cuda")
 
     monkeypatch.setattr(cli.ctranslate2, "get_cuda_device_count", lambda: 1)
     monkeypatch.setattr(cli.ctypes, "CDLL", missing_library)
@@ -201,7 +201,9 @@ def test_runtime_check_rejects_missing_cuda_libraries(tmp_path, monkeypatch, cap
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "CUDA runtime library is unavailable" in captured.err
+    assert captured.err == "runtime_unavailable: selecting_runtime\n"
+    assert "token=secret" not in captured.err
+    assert "/private/cuda" not in captured.err
 
 
 def test_runtime_check_reports_sanitized_diarization_preflight_failure(
@@ -261,10 +263,10 @@ def test_runtime_check_accepts_cuda_model_device_and_compute_type(tmp_path, monk
     assert main(["runtime", "check"]) == 0
 
     captured = capsys.readouterr()
-    assert str(model) in captured.out
+    assert str(model) not in captured.out
     assert "NVIDIA GPU is ready" in captured.out
     assert "Community-1 diarization model is ready on cuda" in captured.out
-    assert "float16" in captured.out
+    assert "float16" not in captured.out
     assert captured.err == ""
     assert preflight_calls == [(cli.Settings.from_env().diarization_model_path, "cuda", False)]
 
@@ -294,6 +296,7 @@ def test_diarization_preflight_isolated_process_accepts_only_safe_child_errors(
     )
     assert observed["command"][:3] == [sys.executable, "-m", "asr_en_vi.diarization_runner"]
     assert "--check-runtime" in observed["command"]
+    assert "--verbose" not in observed["command"]
     assert observed["kwargs"]["stderr"] is subprocess.DEVNULL
 
 
@@ -301,6 +304,7 @@ def test_diarization_preflight_verbose_mode_inherits_stderr(tmp_path, monkeypatc
     observed = {}
 
     def run(command, **kwargs):
+        observed["command"] = command
         observed.update(kwargs)
         return subprocess.CompletedProcess(command, 0, stdout="", stderr=None)
 
@@ -311,6 +315,7 @@ def test_diarization_preflight_verbose_mode_inherits_stderr(tmp_path, monkeypatc
         is None
     )
     assert observed["stderr"] is None
+    assert "--verbose" in observed["command"]
 
 
 def test_task_diagnose_prints_only_allowlisted_diarization_details(tmp_path, monkeypatch, capsys):

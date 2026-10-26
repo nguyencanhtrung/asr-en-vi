@@ -130,3 +130,10 @@ Upload và kết quả file có trạng thái bền để nhận biết file ch�
 - Thử nghiệm có chủ đích sau giai đoạn thiết kế: SIWC/OMP auth trong Docker, refresh/restart/disconnect, hủy, một request notes và ghi nhận model/quota; chọn mẫu được phép gửi provider. Chưa thực hiện bước này.
 - Với mẫu thật: EN, VI xen thuật ngữ, code-switch, nhiều người nói và ít nhất một bản hai giờ; kiểm tra timestamp, decisions/owners/deadlines, VRAM, thời gian và quota theo AC.
 - Q23–Q27 đã chốt; kiểm tra riêng sửa metadata/speaker theo phiên bản, retry HTTP không tạo thêm tác vụ, không tự gửi lại inference lỗi mạng, link chỉnh tay hỏng và giữ model trong suốt tác vụ. Những giới hạn kỹ thuật phụ thuộc phép đo được ghi thành kết quả đạt/chưa đạt, không yêu cầu người dùng tự đoán cấu hình.
+
+## Hồ sơ thay đổi cho v0.1.0
+
+Xem [bằng chứng và đánh đổi theo tag](release/privacy-v0.1.0.md),
+[các thay đổi notes](release/notes-v0.1.0.md) và
+[chỉ mục thay đổi](architecture-changes-v1.md). Số đo lịch sử giữ nguyên điều kiện
+và revision gốc; không phải phép đo lại artifact 0.1.0.

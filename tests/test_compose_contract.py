@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 import yaml
@@ -70,6 +71,7 @@ def test_provider_volume_is_created_for_runtime_uid_and_default_server_suppresse
     assert "PYANNOTE_METRICS_ENABLED=0" in dockerfile
     assert "HF_HUB_OFFLINE=1" in dockerfile
     assert "TRANSFORMERS_OFFLINE=1" in dockerfile
+    assert 'LD_LIBRARY_PATH="/opt/asr-media/lib:${LD_LIBRARY_PATH}"' in dockerfile
     assert "ARG OMP_VERSION=18.5.0" in dockerfile
     assert "b8413e6e085a423c7a9b1d7bc025c2af794923b6b6c57330a309639b6176c8a1" in dockerfile
     assert "1244860c58bb68a3a45390d4932e5c7983183ec8c12cb6848c1afd709de38a07" in dockerfile
@@ -87,7 +89,10 @@ def test_image_build_context_is_allowlisted_and_excludes_user_owned_files():
     assert "!uv.lock" in dockerignore
     assert "!src/asr_en_vi/**" in dockerignore
     assert "COPY ." not in dockerfile
-    assert "COPY pyproject.toml README.md uv.lock ./" in dockerfile
+    assert "COPY pyproject.toml README.md LICENSE LICENSE.vi uv.lock ./" in dockerfile
+    assert {"!LICENSE", "!LICENSE.vi"} <= set(dockerignore)
+    assert "COPY LICENSE LICENSE.vi /usr/local/share/licenses/asr-en-vi/" in dockerfile
+    assert 'org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"' in dockerfile
     assert "uv sync --locked --no-dev --no-editable" in dockerfile
     assert "nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04" in dockerfile
     assert "libpython3.12" in dockerfile
@@ -98,6 +103,53 @@ def test_image_build_context_is_allowlisted_and_excludes_user_owned_files():
     assert "prototype" not in dockerfile
     assert "docs/" not in dockerfile
     assert "/models/" in (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+
+def test_torchcodec_uses_cuda128_wheels_only_on_linux_aarch64():
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    sources = project["tool"]["uv"]["sources"]
+
+    assert sources["torch"][0] == {
+        "index": "pytorch-cu128",
+        "marker": "sys_platform == 'linux'",
+    }
+    assert sources["torchaudio"][0] == {
+        "index": "pytorch-cu128",
+        "marker": "sys_platform == 'linux'",
+    }
+    assert sources["torchcodec"][0] == {
+        "index": "pytorch-cu128",
+        "marker": "sys_platform == 'linux' and platform_machine == 'aarch64'",
+    }
+
+    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    torchcodec_packages = [
+        package for package in lock["package"] if package["name"] == "torchcodec"
+    ]
+    assert {package["source"]["registry"] for package in torchcodec_packages} == {
+        "https://pypi.org/simple",
+        "https://download.pytorch.org/whl/cu128",
+    }
+    cuda_package = next(
+        package
+        for package in torchcodec_packages
+        if package["source"]["registry"] == "https://download.pytorch.org/whl/cu128"
+    )
+    pypi_package = next(
+        package
+        for package in torchcodec_packages
+        if package["source"]["registry"] == "https://pypi.org/simple"
+    )
+    assert cuda_package["version"] == "0.11.1+cu128"
+    assert cuda_package["resolution-markers"] == [
+        "platform_machine == 'aarch64' and sys_platform == 'linux'"
+    ]
+    assert (
+        "platform_machine != 'aarch64' and sys_platform == 'linux'"
+        in pypi_package["resolution-markers"]
+    )
+    assert "cu13" not in (ROOT / "pyproject.toml").read_text(encoding="utf-8").lower()
+    assert "cu13" not in (ROOT / "uv.lock").read_text(encoding="utf-8").lower()
 
 
 def test_example_environment_selects_hardware_profiles_automatically():

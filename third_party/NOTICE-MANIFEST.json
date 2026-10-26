@@ -1,0 +1,3724 @@
+{
+  "blockers": [],
+  "declared_vs_reviewed": {
+    "ctranslate2": {
+      "declared": "MIT",
+      "reviewed": "MIT plus embedded native dependency review"
+    },
+    "cuda-toolkit": {
+      "declared": "",
+      "reviewed": "resolver-only; no standalone code license"
+    },
+    "flatbuffers": {
+      "declared": "Apache 2.0",
+      "reviewed": "Apache-2.0"
+    },
+    "primepy": {
+      "declared": "UNKNOWN",
+      "reviewed": "MIT at pinned upstream commit"
+    },
+    "tokenizers": {
+      "declared": "Apache classifier",
+      "reviewed": "Apache-2.0 root plus 127 cargo expressions"
+    }
+  },
+  "installed_notices": [
+    {
+      "actual_sha256": "a3b53644a76e70e289b25271b119c0a1aadaaf0db7a16225fb494fdc0e36c32a",
+      "archive_member": "pyannote_audio-4.0.7.dist-info/licenses/LICENSE",
+      "bytes": 1061,
+      "destination": "third_party/notices/python/pyannote-audio/4.0.7/LICENSE",
+      "id": "pyannote-audio-license",
+      "package": "pyannote-audio",
+      "reviewed_license": "MIT",
+      "sha256": "a3b53644a76e70e289b25271b119c0a1aadaaf0db7a16225fb494fdc0e36c32a",
+      "status": "collected",
+      "version": "4.0.7",
+      "wheel_artifact": "pyannote_audio-4.0.7.whl"
+    },
+    {
+      "actual_sha256": "aefc801980b3da4f6a50ad3445c8f886bb6d776909525339a552717154ef202a",
+      "archive_member": "pyannote/audio/models/embedding/wespeaker/LICENSE.WeSpeaker",
+      "bytes": 1309,
+      "destination": "third_party/notices/python/pyannote-audio/4.0.7/LICENSE.WeSpeaker",
+      "id": "pyannote-audio-wespeaker-license",
+      "package": "pyannote-audio embedded WeSpeaker",
+      "reviewed_license": "Apache-2.0",
+      "sha256": "aefc801980b3da4f6a50ad3445c8f886bb6d776909525339a552717154ef202a",
+      "status": "collected",
+      "version": "4.0.7",
+      "wheel_artifact": "pyannote_audio-4.0.7.whl"
+    },
+    {
+      "actual_sha256": "c1509124e929c7764871add4622d7d13ec44b3795a741f9b9206cba41a1a411c",
+      "archive_member": "pyannote_core-6.1.0.dist-info/licenses/LICENSE",
+      "bytes": 1119,
+      "destination": "third_party/notices/python/pyannote-core/6.1.0/LICENSE",
+      "id": "pyannote-core-license",
+      "package": "pyannote-core",
+      "reviewed_license": "MIT",
+      "sha256": "c1509124e929c7764871add4622d7d13ec44b3795a741f9b9206cba41a1a411c",
+      "status": "collected",
+      "version": "6.1.0",
+      "wheel_artifact": "pyannote_core-6.1.0.whl"
+    },
+    {
+      "actual_sha256": "c6e4a9657fb261c467f40acdd2cc3f4aea9ac6ac8ae14ca0d31aae4107276a13",
+      "archive_member": "pyannote_database-6.1.1.dist-info/licenses/LICENSE",
+      "bytes": 1071,
+      "destination": "third_party/notices/python/pyannote-database/6.1.1/LICENSE",
+      "id": "pyannote-database-license",
+      "package": "pyannote-database",
+      "reviewed_license": "MIT",
+      "sha256": "c6e4a9657fb261c467f40acdd2cc3f4aea9ac6ac8ae14ca0d31aae4107276a13",
+      "status": "collected",
+      "version": "6.1.1",
+      "wheel_artifact": "pyannote_database-6.1.1.whl"
+    },
+    {
+      "actual_sha256": "657c7e17d7360a3e885dc0b4d05a54bc7233222648ea4f6d347a0e516c4e9bdd",
+      "archive_member": "pyannote_metrics-4.2.0.dist-info/licenses/LICENSE",
+      "bytes": 1111,
+      "destination": "third_party/notices/python/pyannote-metrics/4.2.0/LICENSE",
+      "id": "pyannote-metrics-license",
+      "package": "pyannote-metrics",
+      "reviewed_license": "MIT",
+      "sha256": "657c7e17d7360a3e885dc0b4d05a54bc7233222648ea4f6d347a0e516c4e9bdd",
+      "status": "collected",
+      "version": "4.2.0",
+      "wheel_artifact": "pyannote_metrics-4.2.0.whl"
+    },
+    {
+      "actual_sha256": "a97ab58b8d241fadda4dd023ff7b25d801391b25631cc92a3513c58b45711ab8",
+      "archive_member": "pyannote_pipeline-4.1.0.dist-info/licenses/LICENSE",
+      "bytes": 1119,
+      "destination": "third_party/notices/python/pyannote-pipeline/4.1.0/LICENSE",
+      "id": "pyannote-pipeline-license",
+      "package": "pyannote-pipeline",
+      "reviewed_license": "MIT",
+      "sha256": "a97ab58b8d241fadda4dd023ff7b25d801391b25631cc92a3513c58b45711ab8",
+      "status": "collected",
+      "version": "4.1.0",
+      "wheel_artifact": "pyannote_pipeline-4.1.0.whl"
+    },
+    {
+      "actual_sha256": "3d442be935725319727e27b4b04e41deeedd1185b1740998c9f0ba3b51754f4d",
+      "archive_member": "pyannoteai_sdk-0.4.0.dist-info/licenses/LICENSE",
+      "bytes": 1067,
+      "destination": "third_party/notices/python/pyannoteai-sdk/0.4.0/LICENSE",
+      "id": "pyannoteai-sdk-license",
+      "package": "pyannoteai-sdk",
+      "reviewed_license": "MIT",
+      "sha256": "3d442be935725319727e27b4b04e41deeedd1185b1740998c9f0ba3b51754f4d",
+      "status": "collected",
+      "version": "0.4.0",
+      "wheel_artifact": "pyannoteai_sdk-0.4.0.whl"
+    },
+    {
+      "actual_sha256": "8487a9eae44e63ce55bb6d8a471a7fdadee6d1f9f2e923c2f1042e0ba9af85f9",
+      "archive_member": "pytorch_metric_learning-2.9.0.dist-info/LICENSE",
+      "bytes": 1090,
+      "destination": "third_party/notices/python/pytorch-metric-learning/2.9.0/LICENSE",
+      "id": "pytorch-metric-learning-license",
+      "package": "pytorch-metric-learning",
+      "reviewed_license": "MIT",
+      "sha256": "8487a9eae44e63ce55bb6d8a471a7fdadee6d1f9f2e923c2f1042e0ba9af85f9",
+      "status": "collected",
+      "version": "2.9.0",
+      "wheel_artifact": "pytorch_metric_learning-2.9.0.whl"
+    },
+    {
+      "actual_sha256": "7721633d0ddff43fae25ebfd405f8166a0ce730cbcec44f2f3ad9d5eb8ac9a6f",
+      "archive_member": "mkl-2025.3.0.dist-info/LICENSE.txt",
+      "bytes": 4105,
+      "destination": "third_party/notices/native/oneMKL/2025.3.0/LICENSE.txt",
+      "id": "onemkl-license",
+      "sha256": "7721633d0ddff43fae25ebfd405f8166a0ce730cbcec44f2f3ad9d5eb8ac9a6f",
+      "status": "collected",
+      "wheel_artifact": "mkl-2025.3.0-py2.py3-none-manylinux_2_28_x86_64.whl"
+    }
+  ],
+  "inventory_counts": {
+    "fonts": 3,
+    "python": 135,
+    "system": 347
+  },
+  "inventory_scope": "Installed runtime only; no models, credentials or user data inspected",
+  "notices": [
+    {
+      "actual_sha256": "54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb",
+      "bytes": 1115,
+      "declared_license": "MIT",
+      "destination": "third_party/notices/ctranslate2/4.8.3/LICENSE",
+      "expected_sha256": "54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb",
+      "hash_pinned": true,
+      "id": "ctranslate2-license",
+      "package": "ctranslate2",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-ctranslate2-license",
+      "reviewed_license": "MIT",
+      "sha256": "54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb",
+      "status": "collected",
+      "url": "https://raw.githubusercontent.com/OpenNMT/CTranslate2/v4.8.3/LICENSE",
+      "validated": true,
+      "version": "4.8.3"
+    },
+    {
+      "actual_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358,
+      "declared_license": "Apache 2.0",
+      "destination": "third_party/notices/flatbuffers/25.12.19/LICENSE",
+      "expected_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "hash_pinned": true,
+      "id": "flatbuffers-license",
+      "package": "flatbuffers",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-flatbuffers-license",
+      "reviewed_license": "Apache-2.0",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "status": "collected",
+      "url": "https://raw.githubusercontent.com/google/flatbuffers/v25.12.19/LICENSE",
+      "validated": true,
+      "version": "25.12.19"
+    },
+    {
+      "actual_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "bytes": 11357,
+      "declared_license": "Apache 2.0 classifier",
+      "destination": "third_party/notices/tokenizers/0.23.3/LICENSE",
+      "expected_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "hash_pinned": true,
+      "id": "tokenizers-license",
+      "package": "tokenizers",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-tokenizers-license",
+      "reviewed_license": "Apache-2.0",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "status": "collected",
+      "url": "https://raw.githubusercontent.com/huggingface/tokenizers/v0.23.3/LICENSE",
+      "validated": true,
+      "version": "0.23.3"
+    },
+    {
+      "actual_sha256": "1a06a1576544095ade4508462bc6c795c874a499e2abe12d21557e85a3741d9e",
+      "bytes": 1070,
+      "declared_license": "UNKNOWN metadata; MIT classifier",
+      "destination": "third_party/notices/primePy/1.3/LICENSE",
+      "expected_sha256": "1a06a1576544095ade4508462bc6c795c874a499e2abe12d21557e85a3741d9e",
+      "hash_pinned": true,
+      "id": "primepy-license",
+      "package": "primePy",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-primepy-license",
+      "reviewed_license": "MIT at upstream default commit 147a5746e7473fc70e3dadcc690831555cafab04",
+      "sha256": "1a06a1576544095ade4508462bc6c795c874a499e2abe12d21557e85a3741d9e",
+      "status": "collected",
+      "url": "https://raw.githubusercontent.com/janaindrajit/primePy/147a5746e7473fc70e3dadcc690831555cafab04/LICENSE",
+      "validated": true,
+      "version": "1.3"
+    },
+    {
+      "actual_sha256": "dd12452e1ae11e3282271aa5895d8175296b83e936a027209f9399d26a407d0f",
+      "bytes": 11521,
+      "declared_license": "Apache-2.0",
+      "destination": "third_party/notices/native/oneDNN/3.1.1/LICENSE",
+      "expected_sha256": "dd12452e1ae11e3282271aa5895d8175296b83e936a027209f9399d26a407d0f",
+      "hash_pinned": true,
+      "id": "onednn-license",
+      "package": "oneDNN",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-onednn-license",
+      "reviewed_license": "Apache-2.0",
+      "sha256": "dd12452e1ae11e3282271aa5895d8175296b83e936a027209f9399d26a407d0f",
+      "status": "collected",
+      "url": "https://raw.githubusercontent.com/uxlfoundation/oneDNN/v3.1.1/LICENSE",
+      "validated": true,
+      "version": "3.1.1"
+    },
+    {
+      "actual_sha256": "9117585dfc6b5cd0fafc063312f28a86ec82eb97bf68316dcefcaaa7fc11428e",
+      "bytes": 29825,
+      "declared_license": "third-party attribution manifest",
+      "destination": "third_party/notices/native/oneDNN/3.1.1/THIRD-PARTY-PROGRAMS",
+      "expected_sha256": "9117585dfc6b5cd0fafc063312f28a86ec82eb97bf68316dcefcaaa7fc11428e",
+      "hash_pinned": true,
+      "id": "onednn-third-party-programs",
+      "package": "oneDNN",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-onednn-third-party-programs",
+      "reviewed_license": "source-provided THIRD-PARTY-PROGRAMS",
+      "sha256": "9117585dfc6b5cd0fafc063312f28a86ec82eb97bf68316dcefcaaa7fc11428e",
+      "status": "collected",
+      "url": "https://raw.githubusercontent.com/uxlfoundation/oneDNN/v3.1.1/THIRD-PARTY-PROGRAMS",
+      "validated": true,
+      "version": "3.1.1"
+    },
+    {
+      "actual_sha256": "190b5a9c8d9723fe958ad33916bd7346d96fab3c5ea90832bb02d854f620fcff",
+      "bytes": 1548,
+      "declared_license": "BSD-3-Clause",
+      "destination": "third_party/notices/native/openblas/0.3.26/LICENSE",
+      "expected_sha256": "190b5a9c8d9723fe958ad33916bd7346d96fab3c5ea90832bb02d854f620fcff",
+      "hash_pinned": true,
+      "id": "openblas-0.3.26-license",
+      "package": "OpenBLAS",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-openblas-0.3.26-license",
+      "reviewed_license": "BSD-3-Clause; pinned by the CTranslate2 v4.8.3 ARM recipe",
+      "sha256": "190b5a9c8d9723fe958ad33916bd7346d96fab3c5ea90832bb02d854f620fcff",
+      "status": "collected",
+      "url": "https://raw.githubusercontent.com/OpenMathLib/OpenBLAS/v0.3.26/LICENSE",
+      "validated": true,
+      "version": "0.3.26"
+    },
+    {
+      "actual_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358,
+      "declared_license": "Apache-2.0",
+      "destination": "third_party/notices/native/ruy/363f252/LICENSE",
+      "expected_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "hash_pinned": true,
+      "id": "ruy-363f252-license",
+      "package": "ruy",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-ruy-363f252-license",
+      "reviewed_license": "Apache-2.0; pinned by the CTranslate2 v4.8.3 ARM recipe",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "status": "collected",
+      "url": "https://raw.githubusercontent.com/google/ruy/363f252289fb7a1fba1703d99196524698cb884d/LICENSE",
+      "validated": true,
+      "version": "363f252289fb7a1fba1703d99196524698cb884d"
+    },
+    {
+      "actual_sha256": "16c45f9d667442781f03fa198914cc39abcaa48ec5ed8f644643e554ca2fbf63",
+      "bytes": 1144,
+      "declared_license": "upstream release license",
+      "destination": "third_party/notices/omp/18.5.0/LICENSE",
+      "expected_sha256": "16c45f9d667442781f03fa198914cc39abcaa48ec5ed8f644643e554ca2fbf63",
+      "hash_pinned": true,
+      "id": "omp-license",
+      "package": "oh-my-pi",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-omp-license",
+      "reviewed_license": "source tag v18.5.0",
+      "sha256": "16c45f9d667442781f03fa198914cc39abcaa48ec5ed8f644643e554ca2fbf63",
+      "status": "collected",
+      "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.5.0/LICENSE",
+      "validated": true,
+      "version": "18.5.0"
+    },
+    {
+      "actual_sha256": "d0c2e7c05bb4d755044b13fa560be58d01ab7c980b87892400a979397e569a8b",
+      "bytes": 1076437,
+      "declared_license": "third-party attribution manifest",
+      "destination": "third_party/notices/omp/18.5.0/THIRD-PARTY-NOTICES.txt",
+      "expected_sha256": "d0c2e7c05bb4d755044b13fa560be58d01ab7c980b87892400a979397e569a8b",
+      "hash_pinned": true,
+      "id": "omp-third-party-notices",
+      "package": "oh-my-pi",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-omp-third-party-notices",
+      "reviewed_license": "source tag v18.5.0",
+      "sha256": "d0c2e7c05bb4d755044b13fa560be58d01ab7c980b87892400a979397e569a8b",
+      "status": "collected",
+      "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.5.0/THIRD-PARTY-NOTICES.txt",
+      "validated": true,
+      "version": "18.5.0"
+    },
+    {
+      "actual_sha256": "90179611795093ae17d4a6bc6e06da450a8e54bbeb147a065b4127e1e4b407a7",
+      "bytes": 1111,
+      "declared_license": "upstream package license",
+      "destination": "third_party/notices/omp/18.5.0/packages-natives-LICENSE",
+      "expected_sha256": "90179611795093ae17d4a6bc6e06da450a8e54bbeb147a065b4127e1e4b407a7",
+      "hash_pinned": true,
+      "id": "omp-natives-license",
+      "package": "oh-my-pi/natives",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-omp-natives-license",
+      "reviewed_license": "source tag v18.5.0",
+      "sha256": "90179611795093ae17d4a6bc6e06da450a8e54bbeb147a065b4127e1e4b407a7",
+      "status": "collected",
+      "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.5.0/packages/natives/LICENSE",
+      "validated": true,
+      "version": "18.5.0"
+    },
+    {
+      "actual_sha256": "d0c2e7c05bb4d755044b13fa560be58d01ab7c980b87892400a979397e569a8b",
+      "bytes": 1076437,
+      "declared_license": "third-party attribution manifest",
+      "destination": "third_party/notices/omp/18.5.0/packages-natives-THIRD-PARTY-NOTICES.txt",
+      "expected_sha256": "d0c2e7c05bb4d755044b13fa560be58d01ab7c980b87892400a979397e569a8b",
+      "hash_pinned": true,
+      "id": "omp-natives-third-party-notices",
+      "package": "oh-my-pi/natives",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-omp-natives-third-party-notices",
+      "reviewed_license": "source tag v18.5.0",
+      "sha256": "d0c2e7c05bb4d755044b13fa560be58d01ab7c980b87892400a979397e569a8b",
+      "status": "collected",
+      "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.5.0/packages/natives/THIRD-PARTY-NOTICES.txt",
+      "validated": true,
+      "version": "18.5.0"
+    },
+    {
+      "actual_sha256": "6722d4c310a2ec9ad869ede3371a648fe2cfc2baaf8e1ece2c35e1dccc05752c",
+      "bytes": 103460,
+      "declared_license": "NVIDIA CUDA EULA",
+      "destination": "third_party/notices/nvidia/base-image/cuda-12.8.1-EULA.html",
+      "expected_sha256": "6722d4c310a2ec9ad869ede3371a648fe2cfc2baaf8e1ece2c35e1dccc05752c",
+      "hash_pinned": true,
+      "id": "cuda-12.8.1-eula",
+      "package": "NVIDIA CUDA base",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-cuda-12.8.1-eula",
+      "reviewed_license": "CUDA 12.8.1 EULA; component eligibility remains image-specific",
+      "sha256": "6722d4c310a2ec9ad869ede3371a648fe2cfc2baaf8e1ece2c35e1dccc05752c",
+      "status": "collected",
+      "url": "https://docs.nvidia.com/cuda/archive/12.8.1/eula/index.html",
+      "validated": true,
+      "version": "12.8.1"
+    },
+    {
+      "actual_sha256": "8fb635fd3e464830fd511800aaf65966e0855637e98ed8c1545e66a9c47da733",
+      "bytes": 7352,
+      "declared_license": "PolyForm Noncommercial 1.0.0",
+      "destination": "third_party/notices/application/PolyForm-Noncommercial-1.0.0.html",
+      "expected_sha256": "8fb635fd3e464830fd511800aaf65966e0855637e98ed8c1545e66a9c47da733",
+      "hash_pinned": true,
+      "id": "polyform-noncommercial",
+      "package": "asr-en-vi",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-polyform-noncommercial",
+      "reviewed_license": "English authoritative; Vietnamese reference",
+      "sha256": "8fb635fd3e464830fd511800aaf65966e0855637e98ed8c1545e66a9c47da733",
+      "status": "collected",
+      "url": "https://polyformproject.org/licenses/noncommercial/1.0.0",
+      "validated": true,
+      "version": "0.1.0"
+    },
+    {
+      "actual_sha256": "15e84d7e2e7ab90fcef598b29cdf9cb9a97c0f9ddb459ad65ecd02c65f570d76",
+      "bytes": 298950,
+      "declared_license": "Intel oneAPI license overview",
+      "destination": "third_party/notices/native/oneMKL/2025/oneapi-license-overview-10-05-22.pdf",
+      "expected_sha256": "15e84d7e2e7ab90fcef598b29cdf9cb9a97c0f9ddb459ad65ecd02c65f570d76",
+      "hash_pinned": true,
+      "id": "onemkl-license-overview",
+      "package": "Intel oneMKL",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-onemkl-license-overview",
+      "reviewed_license": "Public terms artifact; exact wheel build materials remain unresolved",
+      "sha256": "15e84d7e2e7ab90fcef598b29cdf9cb9a97c0f9ddb459ad65ecd02c65f570d76",
+      "status": "collected",
+      "url": "https://cdrdv2-public.intel.com/686502/oneapi-license-overview-10-05-22.pdf",
+      "validated": true,
+      "version": "2025.3.0 terms family"
+    },
+    {
+      "actual_sha256": "aaf135472f81c5b4a0dca9367e5bb5e9750032b5bebe5442b36e4c0a47430df3",
+      "bytes": 17337,
+      "declared_license": "GPL-2.0-or-later family",
+      "destination": "third_party/notices/licenses/GPL-2.0-only.txt",
+      "expected_sha256": "aaf135472f81c5b4a0dca9367e5bb5e9750032b5bebe5442b36e4c0a47430df3",
+      "hash_pinned": true,
+      "id": "gpl-2.0-text",
+      "package": "Ubuntu GPL-bearing sources",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-gpl-2.0-text",
+      "reviewed_license": "Canonical SPDX GPL-2.0-only text",
+      "sha256": "aaf135472f81c5b4a0dca9367e5bb5e9750032b5bebe5442b36e4c0a47430df3",
+      "status": "collected",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/GPL-2.0-only.txt",
+      "validated": true,
+      "version": "GPL-2.0-only"
+    },
+    {
+      "actual_sha256": "fb981668c18a279e285fc4d83fba1e836cc84dd4daa73c9697d3cfd2d8aca6e0",
+      "bytes": 34674,
+      "declared_license": "GPL-3.0-or-later family",
+      "destination": "third_party/notices/licenses/GPL-3.0-only.txt",
+      "expected_sha256": "fb981668c18a279e285fc4d83fba1e836cc84dd4daa73c9697d3cfd2d8aca6e0",
+      "hash_pinned": true,
+      "id": "gpl-3.0-text",
+      "package": "Ubuntu GPL-bearing sources",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-gpl-3.0-text",
+      "reviewed_license": "Canonical SPDX GPL-3.0-only text",
+      "sha256": "fb981668c18a279e285fc4d83fba1e836cc84dd4daa73c9697d3cfd2d8aca6e0",
+      "status": "collected",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/GPL-3.0-only.txt",
+      "validated": true,
+      "version": "GPL-3.0-only"
+    },
+    {
+      "actual_sha256": "5749785c8bdefafcb5d798270ed0a967036fe2ca63dcedade1627565dfef81d2",
+      "bytes": 26001,
+      "declared_license": "LGPL-2.1 family",
+      "destination": "third_party/notices/licenses/LGPL-2.1-only.txt",
+      "expected_sha256": "5749785c8bdefafcb5d798270ed0a967036fe2ca63dcedade1627565dfef81d2",
+      "hash_pinned": true,
+      "id": "lgpl-2.1-text",
+      "package": "Ubuntu LGPL-bearing sources",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-lgpl-2.1-text",
+      "reviewed_license": "Canonical SPDX LGPL-2.1-only text",
+      "sha256": "5749785c8bdefafcb5d798270ed0a967036fe2ca63dcedade1627565dfef81d2",
+      "status": "collected",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/LGPL-2.1-only.txt",
+      "validated": true,
+      "version": "LGPL-2.1-only"
+    },
+    {
+      "actual_sha256": "996af0513df21f7496288951c41428a03c174e9e4a9d63665c57d670f845ccb1",
+      "bytes": 42098,
+      "declared_license": "LGPL-3.0 family",
+      "destination": "third_party/notices/licenses/LGPL-3.0-only.txt",
+      "expected_sha256": "996af0513df21f7496288951c41428a03c174e9e4a9d63665c57d670f845ccb1",
+      "hash_pinned": true,
+      "id": "lgpl-3.0-text",
+      "package": "Ubuntu LGPL-bearing sources",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-lgpl-3.0-text",
+      "reviewed_license": "Canonical SPDX LGPL-3.0-only text",
+      "sha256": "996af0513df21f7496288951c41428a03c174e9e4a9d63665c57d670f845ccb1",
+      "status": "collected",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/LGPL-3.0-only.txt",
+      "validated": true,
+      "version": "LGPL-3.0-only"
+    },
+    {
+      "actual_sha256": "7103d4f7f7e2f8ce10d282a05e0689637f8d6d9ef7b399d808d1da313e69b960",
+      "bytes": 3390,
+      "declared_license": "GPLv3 plus GCC Runtime Library Exception",
+      "destination": "third_party/notices/licenses/GCC-exception-3.1.txt",
+      "expected_sha256": "7103d4f7f7e2f8ce10d282a05e0689637f8d6d9ef7b399d808d1da313e69b960",
+      "hash_pinned": true,
+      "id": "gcc-runtime-exception-text",
+      "package": "GCC libgomp runtime",
+      "path": "/tmp/asr-issue17-bundle/downloads/notice-gcc-runtime-exception-text",
+      "reviewed_license": "Canonical SPDX GCC-exception-3.1 text; does not prove bundled wheel binary provenance",
+      "sha256": "7103d4f7f7e2f8ce10d282a05e0689637f8d6d9ef7b399d808d1da313e69b960",
+      "status": "collected",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/GCC-exception-3.1.txt",
+      "validated": true,
+      "version": "GCC-exception-3.1"
+    }
+  ],
+  "package_artifacts": [
+    {
+      "actual_sha256": "7e161eb031fcf2a5d81ce3a1cd8be4954c7df758d96cfaba57aeecc69a0c00ae",
+      "artifact_name": "ctranslate2-4.8.3-cp312-manylinux_x86_64.whl",
+      "bytes": 40256883,
+      "expected_sha256": "7e161eb031fcf2a5d81ce3a1cd8be4954c7df758d96cfaba57aeecc69a0c00ae",
+      "hash_pinned": true,
+      "id": "ctranslate2-wheel-amd64-cp312",
+      "kind": "wheel",
+      "package": "ctranslate2",
+      "path": "/tmp/asr-issue17-bundle/downloads/ctranslate2-4.8.3-cp312-manylinux_x86_64.whl",
+      "sha256": "7e161eb031fcf2a5d81ce3a1cd8be4954c7df758d96cfaba57aeecc69a0c00ae",
+      "status": "validated",
+      "url": "https://files.pythonhosted.org/packages/b4/39/438c9236c57443099763789ee009d6d43a65fb58283163fb0d6e6dadacd7/ctranslate2-4.8.3-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "validated": true,
+      "version": "4.8.3"
+    },
+    {
+      "actual_sha256": "7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4",
+      "artifact_name": "flatbuffers-25.12.19-py3-none-any.whl",
+      "bytes": 26661,
+      "expected_sha256": "7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4",
+      "hash_pinned": true,
+      "id": "flatbuffers-wheel",
+      "kind": "wheel",
+      "package": "flatbuffers",
+      "path": "/tmp/asr-issue17-bundle/downloads/flatbuffers-25.12.19-py3-none-any.whl",
+      "sha256": "7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4",
+      "status": "validated",
+      "url": "https://files.pythonhosted.org/packages/e8/2d/d2a548598be01649e2d46231d151a6c56d10b964d94043a335ae56ea2d92/flatbuffers-25.12.19-py2.py3-none-any.whl",
+      "validated": true,
+      "version": "25.12.19"
+    },
+    {
+      "actual_sha256": "376851d22bcf9d650a5c3090bb83e6cf9e895fbf0595369fa4cd43c1f69b5f87",
+      "artifact_name": "tokenizers-0.23.3-cp310-manylinux_x86_64.whl",
+      "bytes": 3396193,
+      "expected_sha256": "376851d22bcf9d650a5c3090bb83e6cf9e895fbf0595369fa4cd43c1f69b5f87",
+      "hash_pinned": true,
+      "id": "tokenizers-wheel-amd64",
+      "kind": "wheel",
+      "package": "tokenizers",
+      "path": "/tmp/asr-issue17-bundle/downloads/tokenizers-0.23.3-cp310-manylinux_x86_64.whl",
+      "sha256": "376851d22bcf9d650a5c3090bb83e6cf9e895fbf0595369fa4cd43c1f69b5f87",
+      "status": "validated",
+      "url": "https://files.pythonhosted.org/packages/3a/40/6706b82693715581457c6d5423eaa7faae576bb0526c5738a57085eb4449/tokenizers-0.23.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "validated": true,
+      "version": "0.23.3"
+    },
+    {
+      "actual_sha256": "cded33237c77caeef62944d32aa9a7ef42bdce2b3497e18d137e072a8c4be438",
+      "artifact_name": "tokenizers-0.23.3.tar.gz",
+      "bytes": 385286,
+      "expected_sha256": "cded33237c77caeef62944d32aa9a7ef42bdce2b3497e18d137e072a8c4be438",
+      "hash_pinned": true,
+      "id": "tokenizers-sdist",
+      "kind": "sdist",
+      "package": "tokenizers",
+      "path": "/tmp/asr-issue17-bundle/downloads/tokenizers-0.23.3.tar.gz",
+      "sha256": "cded33237c77caeef62944d32aa9a7ef42bdce2b3497e18d137e072a8c4be438",
+      "status": "validated",
+      "url": "https://files.pythonhosted.org/packages/e0/7c/2cabb2174e772636683008f2c5621949b645da7d303c596589e84516a184/tokenizers-0.23.3.tar.gz",
+      "validated": true,
+      "version": "0.23.3"
+    },
+    {
+      "actual_sha256": "5ed443718765be9bf7e2ff4c56cdff71b42140a15b39d054f9d99f0009e2317a",
+      "artifact_name": "primePy-1.3-py3-none-any.whl",
+      "bytes": 4040,
+      "expected_sha256": "5ed443718765be9bf7e2ff4c56cdff71b42140a15b39d054f9d99f0009e2317a",
+      "hash_pinned": true,
+      "id": "primepy-wheel",
+      "kind": "wheel",
+      "package": "primePy",
+      "path": "/tmp/asr-issue17-bundle/downloads/primePy-1.3-py3-none-any.whl",
+      "sha256": "5ed443718765be9bf7e2ff4c56cdff71b42140a15b39d054f9d99f0009e2317a",
+      "status": "validated",
+      "url": "https://files.pythonhosted.org/packages/74/c1/bb7e334135859c3a92ec399bc89293ea73f28e815e35b43929c8db6af030/primePy-1.3-py3-none-any.whl",
+      "validated": true,
+      "version": "1.3"
+    },
+    {
+      "actual_sha256": "25fd7e25344b0789a5984c75d89f054fcf1f180bef20c998e4befbac92de4669",
+      "artifact_name": "primePy-1.3.tar.gz",
+      "bytes": 3914,
+      "expected_sha256": "25fd7e25344b0789a5984c75d89f054fcf1f180bef20c998e4befbac92de4669",
+      "hash_pinned": true,
+      "id": "primepy-sdist",
+      "kind": "sdist",
+      "package": "primePy",
+      "path": "/tmp/asr-issue17-bundle/downloads/primePy-1.3.tar.gz",
+      "sha256": "25fd7e25344b0789a5984c75d89f054fcf1f180bef20c998e4befbac92de4669",
+      "status": "validated",
+      "url": "https://files.pythonhosted.org/packages/35/77/0cfa1b4697cfb5336f3a96e8bc73327f64610be3a64c97275f1801afb395/primePy-1.3.tar.gz",
+      "validated": true,
+      "version": "1.3"
+    },
+    {
+      "actual_sha256": "adc7906af4ecbf9a352f9dca5734eceb21daec281ccfcf5675e1d2f724fc2cba",
+      "artifact_name": "cuda_toolkit-12.8.1-py2.py3-none-any.whl",
+      "bytes": 2283,
+      "expected_sha256": "adc7906af4ecbf9a352f9dca5734eceb21daec281ccfcf5675e1d2f724fc2cba",
+      "hash_pinned": true,
+      "id": "cuda-toolkit-resolver-wheel",
+      "kind": "resolver-wheel",
+      "package": "cuda-toolkit",
+      "path": "/tmp/asr-issue17-bundle/downloads/cuda_toolkit-12.8.1-py2.py3-none-any.whl",
+      "sha256": "adc7906af4ecbf9a352f9dca5734eceb21daec281ccfcf5675e1d2f724fc2cba",
+      "status": "validated",
+      "url": "https://files.pythonhosted.org/packages/d4/c8/7dce3a0b15b42a3b58e7d96eb22a687d3bf2c44e01d149a6874629cd9938/cuda_toolkit-12.8.1-py2.py3-none-any.whl",
+      "validated": true,
+      "version": "12.8.1"
+    },
+    {
+      "actual_sha256": "852ea15c4d85bc34773e618267603ffca6a521669a74d33742692cc67fc700d6",
+      "artifact_name": "pyannote_audio-4.0.7.whl",
+      "bytes": 894598,
+      "expected_sha256": "852ea15c4d85bc34773e618267603ffca6a521669a74d33742692cc67fc700d6",
+      "hash_pinned": true,
+      "id": "pyannote-audio-wheel",
+      "kind": "wheel-for-existing-notices",
+      "package": "pyannote-audio",
+      "path": "/tmp/asr-issue17-bundle/downloads/pyannote_audio-4.0.7.whl",
+      "sha256": "852ea15c4d85bc34773e618267603ffca6a521669a74d33742692cc67fc700d6",
+      "status": "validated",
+      "url": "https://files.pythonhosted.org/packages/66/a3/1d03ed6c7669f7b94ce4a7ebe3b21f5c3b6331999a5680837e371e0a0537/pyannote_audio-4.0.7-py3-none-any.whl",
+      "validated": true,
+      "version": "4.0.7"
+    },
+    {
+      "actual_sha256": "44208a48a43d540b6a40c0ab07c1cb38c8deacfa3308de2608eb7dffa0e8cb88",
+      "artifact_name": "pyannote_core-6.1.0.whl",
+      "bytes": 57123,
+      "expected_sha256": "44208a48a43d540b6a40c0ab07c1cb38c8deacfa3308de2608eb7dffa0e8cb88",
+      "hash_pinned": true,
+      "id": "pyannote-core-wheel",
+      "kind": "wheel-for-existing-notices",
+      "package": "pyannote-core",
+      "path": "/tmp/asr-issue17-bundle/downloads/pyannote_core-6.1.0.whl",
+      "sha256": "44208a48a43d540b6a40c0ab07c1cb38c8deacfa3308de2608eb7dffa0e8cb88",
+      "status": "validated",
+      "url": "https://files.pythonhosted.org/packages/5a/67/ef9071e7d2c0e37161f6f566160afad8e14ccd14e47daa32a922a8934dbb/pyannote_core-6.1.0-py3-none-any.whl",
+      "validated": true,
+      "version": "6.1.0"
+    },
+    {
+      "actual_sha256": "36460c70ce9f50ff25c9ea365bc83ad625bb6b2494deccf6bd3fc750686ae684",
+      "artifact_name": "pyannote_database-6.1.1.whl",
+      "bytes": 53735,
+      "expected_sha256": "36460c70ce9f50ff25c9ea365bc83ad625bb6b2494deccf6bd3fc750686ae684",
+      "hash_pinned": true,
+      "id": "pyannote-database-wheel",
+      "kind": "wheel-for-existing-notices",
+      "package": "pyannote-database",
+      "path": "/tmp/asr-issue17-bundle/downloads/pyannote_database-6.1.1.whl",
+      "sha256": "36460c70ce9f50ff25c9ea365bc83ad625bb6b2494deccf6bd3fc750686ae684",
+      "status": "validated",
+      "url": "https://files.pythonhosted.org/packages/04/bf/6a6f5abaa4d9f803f34c9883ef5e316624eac6be0eaa87720216be9bba12/pyannote_database-6.1.1-py3-none-any.whl",
+      "validated": true,
+      "version": "6.1.1"
+    },
+    {
+      "actual_sha256": "4e933ed1d05e3ce76d5657e34f51c9a12362d148bf56decd4ea5051eed4f23db",
+      "artifact_name": "pyannote_metrics-4.2.0.whl",
+      "bytes": 52115,
+      "expected_sha256": "4e933ed1d05e3ce76d5657e34f51c9a12362d148bf56decd4ea5051eed4f23db",
+      "hash_pinned": true,
+      "id": "pyannote-metrics-wheel",
+      "kind": "wheel-for-existing-notices",
+      "package": "pyannote-metrics",
+      "path": "/tmp/asr-issue17-bundle/downloads/pyannote_metrics-4.2.0.whl",
+      "sha256": "4e933ed1d05e3ce76d5657e34f51c9a12362d148bf56decd4ea5051eed4f23db",
+      "status": "validated",
+      "url": "https://files.pythonhosted.org/packages/8d/30/0df61660a9c724f7bbfeaebf4b88d292ffc72c146990f403e5d3cc81364e/pyannote_metrics-4.2.0-py3-none-any.whl",
+      "validated": true,
+      "version": "4.2.0"
+    },
+    {
+      "actual_sha256": "0f0b303a5b7cea638ce2266f14a2ea539b8bb5441e336539f878cf8d8fb78dd6",
+      "artifact_name": "pyannote_pipeline-4.1.0.whl",
+      "bytes": 23899,
+      "expected_sha256": "0f0b303a5b7cea638ce2266f14a2ea539b8bb5441e336539f878cf8d8fb78dd6",
+      "hash_pinned": true,
+      "id": "pyannote-pipeline-wheel",
+      "kind": "wheel-for-existing-notices",
+      "package": "pyannote-pipeline",
+      "path": "/tmp/asr-issue17-bundle/downloads/pyannote_pipeline-4.1.0.whl",
+      "sha256": "0f0b303a5b7cea638ce2266f14a2ea539b8bb5441e336539f878cf8d8fb78dd6",
+      "status": "validated",
+      "url": "https://files.pythonhosted.org/packages/a2/41/86644f9e0beee6e39758ca192283eb24adcd890231855d641e6a97b19366/pyannote_pipeline-4.1.0-py3-none-any.whl",
+      "validated": true,
+      "version": "4.1.0"
+    },
+    {
+      "actual_sha256": "36a0175978e0427f27843d690eb4d1e8ec839009ea540516d6dfcdce749cd883",
+      "artifact_name": "pyannoteai_sdk-0.4.0.whl",
+      "bytes": 8886,
+      "expected_sha256": "36a0175978e0427f27843d690eb4d1e8ec839009ea540516d6dfcdce749cd883",
+      "hash_pinned": true,
+      "id": "pyannoteai-sdk-wheel",
+      "kind": "wheel-for-existing-notices",
+      "package": "pyannoteai-sdk",
+      "path": "/tmp/asr-issue17-bundle/downloads/pyannoteai_sdk-0.4.0.whl",
+      "sha256": "36a0175978e0427f27843d690eb4d1e8ec839009ea540516d6dfcdce749cd883",
+      "status": "validated",
+      "url": "https://files.pythonhosted.org/packages/f9/8d/16e62133ff748931e923c2d29a150a710c85283f533a4148adc42addb6a8/pyannoteai_sdk-0.4.0-py3-none-any.whl",
+      "validated": true,
+      "version": "0.4.0"
+    },
+    {
+      "actual_sha256": "d51646006dc87168f00cf954785db133a4c5aac81253877248737aa42ef6432a",
+      "artifact_name": "pytorch_metric_learning-2.9.0.whl",
+      "bytes": 127801,
+      "expected_sha256": "d51646006dc87168f00cf954785db133a4c5aac81253877248737aa42ef6432a",
+      "hash_pinned": true,
+      "id": "pytorch-metric-learning-wheel",
+      "kind": "wheel-for-existing-notices",
+      "package": "pytorch-metric-learning",
+      "path": "/tmp/asr-issue17-bundle/downloads/pytorch_metric_learning-2.9.0.whl",
+      "sha256": "d51646006dc87168f00cf954785db133a4c5aac81253877248737aa42ef6432a",
+      "status": "validated",
+      "url": "https://files.pythonhosted.org/packages/46/7d/73ef5052f57b7720cad00e16598db3592a5ef4826745ffca67a2f085d4dc/pytorch_metric_learning-2.9.0-py3-none-any.whl",
+      "validated": true,
+      "version": "2.9.0"
+    },
+    {
+      "actual_sha256": "7b81f5d2e034637b187ca58666878c4e8889988a78e39e0b6ee92e846568f660",
+      "artifact_name": "mkl-2025.3.0-py2.py3-none-manylinux_2_28_x86_64.whl",
+      "bytes": 195022935,
+      "expected_sha256": "7b81f5d2e034637b187ca58666878c4e8889988a78e39e0b6ee92e846568f660",
+      "hash_pinned": true,
+      "id": "onemkl-wheel-amd64",
+      "package": "mkl",
+      "path": "/tmp/asr-issue17-bundle/downloads/mkl-2025.3.0-py2.py3-none-manylinux_2_28_x86_64.whl",
+      "sha256": "7b81f5d2e034637b187ca58666878c4e8889988a78e39e0b6ee92e846568f660",
+      "status": "validated",
+      "url": "https://files.pythonhosted.org/packages/6d/b4/ef531295ed33b929c6c5214421eeebe370f1be22536b6956b4aaf18fdbc5/mkl-2025.3.0-py2.py3-none-manylinux_2_28_x86_64.whl",
+      "validated": true,
+      "version": "2025.3.0"
+    }
+  ],
+  "runtime_blockers": [
+    {
+      "blocking": false,
+      "detail": "Package copyright is retained in /usr/share/doc; held packages are included in inventory. cuda-libraries is metadata-only; cuda-compat driver libraries are covered by the CUDA 12.8.1 driver-library attachment and NGC derived-container terms. OpenSSL notice maps to libssl3t64. Final inventory and gate remain required.",
+      "id": "base-image-cuda-notices",
+      "notice_evidence": [
+        {
+          "path": "third_party/notices/nvidia/base-image/NGC-DL-CONTAINER-LICENSE",
+          "sha256": "e4196076c5496c4bb5509be61e3d1cddf36b92a449a10ece1779afce3c65e684"
+        },
+        {
+          "path": "third_party/notices/nvidia/base-image/cuda-12.8.1-EULA.html",
+          "sha256": "6722d4c310a2ec9ad869ede3371a648fe2cfc2baaf8e1ece2c35e1dccc05752c"
+        },
+        {
+          "path": "third_party/notices/nvidia/base-image/libcublas-12-8/copyright",
+          "sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07"
+        },
+        {
+          "path": "third_party/notices/nvidia/base-image/libcudnn9-cuda-12/copyright",
+          "sha256": "295a1b7118d3417f5d6a943e5f87b59e2a0631fb277129c3b15dee6248adc7cf"
+        },
+        {
+          "path": "third_party/notices/nvidia/base-image/libnccl2/copyright",
+          "sha256": "0f0174a6b4e0b33ac26375bf729533075b32f4c51a5b6802a3d742d7dcdc9a76"
+        }
+      ],
+      "packages": [
+        "libcublas-12-8",
+        "libcudnn9-cuda-12",
+        "libnccl2",
+        "cuda-compat-12-8",
+        "cuda-libraries-12-8",
+        "libssl3t64"
+      ],
+      "status": "mapped"
+    },
+    {
+      "audited_system_libgomp_sha256": "135f3c8f006d2fe5e68e51281c7974cb991a03de3bfb3593d68d174dfcf854d1",
+      "blocking": false,
+      "detail": "Container builder replaces bundled GNU OpenMP/Fortran/quadmath runtimes with corresponding Ubuntu runtime packages after checking exported symbols. Hashes are recorded and publication checks actual bytes. Matching GCC source is collected.",
+      "id": "ctranslate2-libgomp-provenance",
+      "legal_basis": [
+        "https://www.gnu.org/licenses/gcc-exception-3.1.en.html",
+        "https://www.gnu.org/licenses/gcc-exception-3.1-faq.html.en"
+      ],
+      "scope": "separately_shipped_runtime_library",
+      "status": "replaced-in-container",
+      "wheel_libgomp_sha256": "a43904e4fa297301d4640dc1bb3c8a3480b406f99e498eba9b1914b68aab604a",
+      "wheel_libgomp_soname": "libgomp-e985bcbb.so.1.0.0"
+    },
+    {
+      "blocking": false,
+      "detail": "The exact Intel oneMKL 2025.3.0 PyPI wheel includes Intel Simplified Software License October 2022; its bytes and package hash are preserved. Proprietary source is not required by these terms.",
+      "id": "onemkl-redistribution-terms-review",
+      "optional_provenance": "The wheel embeds oneMKL symbols, but exact Intel build inputs/third-party materials used to produce this wheel are not published in the CTranslate2 source archive.",
+      "status": "reviewed"
+    }
+  ],
+  "runtime_findings": [
+    {
+      "blocking": false,
+      "detail": "Package copyright is retained in /usr/share/doc; held packages are included in inventory. cuda-libraries is metadata-only; cuda-compat driver libraries are covered by the CUDA 12.8.1 driver-library attachment and NGC derived-container terms. OpenSSL notice maps to libssl3t64. Final inventory and gate remain required.",
+      "id": "base-image-cuda-notices",
+      "notice_evidence": [
+        {
+          "path": "third_party/notices/nvidia/base-image/NGC-DL-CONTAINER-LICENSE",
+          "sha256": "e4196076c5496c4bb5509be61e3d1cddf36b92a449a10ece1779afce3c65e684"
+        },
+        {
+          "path": "third_party/notices/nvidia/base-image/cuda-12.8.1-EULA.html",
+          "sha256": "6722d4c310a2ec9ad869ede3371a648fe2cfc2baaf8e1ece2c35e1dccc05752c"
+        },
+        {
+          "path": "third_party/notices/nvidia/base-image/libcublas-12-8/copyright",
+          "sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07"
+        },
+        {
+          "path": "third_party/notices/nvidia/base-image/libcudnn9-cuda-12/copyright",
+          "sha256": "295a1b7118d3417f5d6a943e5f87b59e2a0631fb277129c3b15dee6248adc7cf"
+        },
+        {
+          "path": "third_party/notices/nvidia/base-image/libnccl2/copyright",
+          "sha256": "0f0174a6b4e0b33ac26375bf729533075b32f4c51a5b6802a3d742d7dcdc9a76"
+        }
+      ],
+      "packages": [
+        "libcublas-12-8",
+        "libcudnn9-cuda-12",
+        "libnccl2",
+        "cuda-compat-12-8",
+        "cuda-libraries-12-8",
+        "libssl3t64"
+      ],
+      "status": "mapped"
+    },
+    {
+      "audited_system_libgomp_sha256": "135f3c8f006d2fe5e68e51281c7974cb991a03de3bfb3593d68d174dfcf854d1",
+      "blocking": false,
+      "detail": "Container builder replaces bundled GNU OpenMP/Fortran/quadmath runtimes with corresponding Ubuntu runtime packages after checking exported symbols. Hashes are recorded and publication checks actual bytes. Matching GCC source is collected.",
+      "id": "ctranslate2-libgomp-provenance",
+      "legal_basis": [
+        "https://www.gnu.org/licenses/gcc-exception-3.1.en.html",
+        "https://www.gnu.org/licenses/gcc-exception-3.1-faq.html.en"
+      ],
+      "scope": "separately_shipped_runtime_library",
+      "status": "replaced-in-container",
+      "wheel_libgomp_sha256": "a43904e4fa297301d4640dc1bb3c8a3480b406f99e498eba9b1914b68aab604a",
+      "wheel_libgomp_soname": "libgomp-e985bcbb.so.1.0.0"
+    },
+    {
+      "blocking": false,
+      "detail": "The exact Intel oneMKL 2025.3.0 PyPI wheel includes Intel Simplified Software License October 2022; its bytes and package hash are preserved. Proprietary source is not required by these terms.",
+      "id": "onemkl-redistribution-terms-review",
+      "optional_provenance": "The wheel embeds oneMKL symbols, but exact Intel build inputs/third-party materials used to produce this wheel are not published in the CTranslate2 source archive.",
+      "status": "reviewed"
+    }
+  ],
+  "schema": 1,
+  "status": "collected",
+  "task": "issue17-license-bundle",
+  "tokenizers_rust": {
+    "blockers": [],
+    "cargo_lock": {
+      "archive_member": "tokenizers-0.23.3/bindings/python/Cargo.lock",
+      "sha256": "afcedf7f2ebe008b068d7afd25e77f7d9d8e433c24153bc35a1eb5611083ee5b"
+    },
+    "components": [
+      {
+        "cargo_archive": {
+          "actual_sha256": "5a15f179cd60c4584b8a8c596927aadc462e27f2ca70c04e0071964a73ba7a75",
+          "bytes": 43413,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/ahash-0.8.12.crate",
+          "url": "https://crates.io/api/v1/crates/ahash/0.8.12/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "ahash",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/ahash-0.8.12/NOTICE.txt",
+        "purl": "pkg:cargo/ahash@0.8.12",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.8.12"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "c982642fa9e8606056828ee9a8505737230110bb1099153c79efe865c59d12ba",
+          "bytes": 184315,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/aho-corasick-1.1.5.crate",
+          "url": "https://crates.io/api/v1/crates/aho-corasick/1.1.5/download",
+          "validated": false
+        },
+        "license_expression": "Unlicense OR MIT",
+        "license_file_count": 2,
+        "name": "aho-corasick",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/aho-corasick-1.1.5/NOTICE.txt",
+        "purl": "pkg:cargo/aho-corasick@1.1.5",
+        "spdx_identifiers": [
+          "MIT",
+          "Unlicense"
+        ],
+        "status": "collected",
+        "version": "1.1.5"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "824a212faf96e9acacdbd09febd34438f8f711fb84e09a8916013cd7815ca28d",
+          "bytes": 28916,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/anstream-1.0.0.crate",
+          "url": "https://crates.io/api/v1/crates/anstream/1.0.0/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "anstream",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/anstream-1.0.0/NOTICE.txt",
+        "purl": "pkg:cargo/anstream@1.0.0",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.0.0"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000",
+          "bytes": 17787,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/anstyle-1.0.14.crate",
+          "url": "https://crates.io/api/v1/crates/anstyle/1.0.14/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "anstyle",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/anstyle-1.0.14/NOTICE.txt",
+        "purl": "pkg:cargo/anstyle@1.0.14",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.0.14"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "52ce7f38b242319f7cabaa6813055467063ecdc9d355bbb4ce0c68908cd8130e",
+          "bytes": 22042,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/anstyle-parse-1.0.0.crate",
+          "url": "https://crates.io/api/v1/crates/anstyle-parse/1.0.0/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "anstyle-parse",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/anstyle-parse-1.0.0/NOTICE.txt",
+        "purl": "pkg:cargo/anstyle-parse@1.0.0",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.0.0"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc",
+          "bytes": 10264,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/anstyle-query-1.1.5.crate",
+          "url": "https://crates.io/api/v1/crates/anstyle-query/1.1.5/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "anstyle-query",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/anstyle-query-1.1.5/NOTICE.txt",
+        "purl": "pkg:cargo/anstyle-query@1.1.5",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.1.5"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53",
+          "bytes": 18911,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/autocfg-1.5.1.crate",
+          "url": "https://crates.io/api/v1/crates/autocfg/1.5.1/download",
+          "validated": false
+        },
+        "license_expression": "Apache-2.0 OR MIT",
+        "license_file_count": 2,
+        "name": "autocfg",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/autocfg-1.5.1/NOTICE.txt",
+        "purl": "pkg:cargo/autocfg@1.5.1",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.5.1"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8",
+          "bytes": 61002,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/base64-0.13.1.crate",
+          "url": "https://crates.io/api/v1/crates/base64/0.13.1/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "base64",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/base64-0.13.1/NOTICE.txt",
+        "purl": "pkg:cargo/base64@0.13.1",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.13.1"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a",
+          "bytes": 23021,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/bitflags-1.3.2.crate",
+          "url": "https://crates.io/api/v1/crates/bitflags/1.3.2/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "bitflags",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/bitflags-1.3.2/NOTICE.txt",
+        "purl": "pkg:cargo/bitflags@1.3.2",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.3.2"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da",
+          "bytes": 51395,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/bitflags-2.13.1.crate",
+          "url": "https://crates.io/api/v1/crates/bitflags/2.13.1/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "bitflags",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/bitflags-2.13.1/NOTICE.txt",
+        "purl": "pkg:cargo/bitflags@2.13.1",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "2.13.1"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "dec551ab6e7578819132c713a93c022a05d60159dc86e7a7050223577484c55a",
+          "bytes": 12546,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/castaway-0.2.4.crate",
+          "url": "https://crates.io/api/v1/crates/castaway/0.2.4/download",
+          "validated": false
+        },
+        "license_expression": "MIT",
+        "license_file_count": 1,
+        "name": "castaway",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/castaway-0.2.4/NOTICE.txt",
+        "purl": "pkg:cargo/castaway@0.2.4",
+        "spdx_identifiers": [
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.2.4"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "0ad534f4357a5264cce5019c989cf66a4f0dc4e0d1b1d15f8aacec0ff7360273",
+          "bytes": 100602,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/cc-1.4.4.crate",
+          "url": "https://crates.io/api/v1/crates/cc/1.4.4/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "cc",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/cc-1.4.4/NOTICE.txt",
+        "purl": "pkg:cargo/cc@1.4.4",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.4.4"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801",
+          "bytes": 9360,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/cfg-if-1.0.4.crate",
+          "url": "https://crates.io/api/v1/crates/cfg-if/1.0.4/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "cfg-if",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/cfg-if-1.0.4/NOTICE.txt",
+        "purl": "pkg:cargo/cfg-if@1.0.4",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.0.4"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570",
+          "bytes": 8187,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/colorchoice-1.0.5.crate",
+          "url": "https://crates.io/api/v1/crates/colorchoice/1.0.5/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "colorchoice",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/colorchoice-1.0.5/NOTICE.txt",
+        "purl": "pkg:cargo/colorchoice@1.0.5",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.0.5"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "9dfdd1c2274d9aa354115b09dc9a901d6c5576818cdf70d14cae2bdb47df00ab",
+          "bytes": 88299,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/compact_str-0.9.1.crate",
+          "url": "https://crates.io/api/v1/crates/compact_str/0.9.1/download",
+          "validated": false
+        },
+        "license_expression": "MIT",
+        "license_file_count": 1,
+        "name": "compact_str",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/compact_str-0.9.1/NOTICE.txt",
+        "purl": "pkg:cargo/compact_str@0.9.1",
+        "spdx_identifiers": [
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.9.1"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "4fe5f465a4f6fee88fad41b85d990f84c835335e85b5d9e6e63e0d06d28cba7c",
+          "bytes": 34353,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/console-0.16.4.crate",
+          "url": "https://crates.io/api/v1/crates/console/0.16.4/download",
+          "validated": false
+        },
+        "license_expression": "MIT",
+        "license_file_count": 1,
+        "name": "console",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/console-0.16.4/NOTICE.txt",
+        "purl": "pkg:cargo/console@0.16.4",
+        "spdx_identifiers": [
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.16.4"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "5181e0de7b61eb03a81e347d6dd8797bae9da5146707b51077e2d71a54ec0ceb",
+          "bytes": 24141,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/crossbeam-deque-0.8.7.crate",
+          "url": "https://crates.io/api/v1/crates/crossbeam-deque/0.8.7/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "crossbeam-deque",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/crossbeam-deque-0.8.7/NOTICE.txt",
+        "purl": "pkg:cargo/crossbeam-deque@0.8.7",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.8.7"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "2d6914041f254d6e9176c01941b21115dcfb7089e55135a35411081bd106ef3f",
+          "bytes": 47545,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/crossbeam-epoch-0.9.20.crate",
+          "url": "https://crates.io/api/v1/crates/crossbeam-epoch/0.9.20/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "crossbeam-epoch",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/crossbeam-epoch-0.9.20/NOTICE.txt",
+        "purl": "pkg:cargo/crossbeam-epoch@0.9.20",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.9.20"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "61803da095bee82a81bb1a452ecc25d3b2f1416d1897eb86430c6159ef717c17",
+          "bytes": 46874,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/crossbeam-utils-0.8.22.crate",
+          "url": "https://crates.io/api/v1/crates/crossbeam-utils/0.8.22/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "crossbeam-utils",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/crossbeam-utils-0.8.22/NOTICE.txt",
+        "purl": "pkg:cargo/crossbeam-utils@0.8.22",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.8.22"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "5614204febbc33cc07a2806aa6440b904ac012b68eecc37f4493ea4a76455a3d",
+          "bytes": 94191,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/daachorse-3.0.3.crate",
+          "url": "https://crates.io/api/v1/crates/daachorse/3.0.3/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "daachorse",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/daachorse-3.0.3/NOTICE.txt",
+        "purl": "pkg:cargo/daachorse@3.0.3",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "3.0.3"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "fc7f46116c46ff9ab3eb1597a45688b6715c6e628b5c133e288e709a29bcb4ee",
+          "bytes": 37614,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/darling-0.20.11.crate",
+          "url": "https://crates.io/api/v1/crates/darling/0.20.11/download",
+          "validated": false
+        },
+        "license_expression": "MIT",
+        "license_file_count": 1,
+        "name": "darling",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/darling-0.20.11/NOTICE.txt",
+        "purl": "pkg:cargo/darling@0.20.11",
+        "spdx_identifiers": [
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.20.11"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "0d00b9596d185e565c2207a0b01f8bd1a135483d02d9b7b0a54b11da8d53412e",
+          "bytes": 68006,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/darling_core-0.20.11.crate",
+          "url": "https://crates.io/api/v1/crates/darling_core/0.20.11/download",
+          "validated": false
+        },
+        "license_expression": "MIT",
+        "license_file_count": 1,
+        "name": "darling_core",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/darling_core-0.20.11/NOTICE.txt",
+        "purl": "pkg:cargo/darling_core@0.20.11",
+        "spdx_identifiers": [
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.20.11"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "fc34b93ccb385b40dc71c6fceac4b2ad23662c7eeb248cf10d529b7e055b6ead",
+          "bytes": 2532,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/darling_macro-0.20.11.crate",
+          "url": "https://crates.io/api/v1/crates/darling_macro/0.20.11/download",
+          "validated": false
+        },
+        "license_expression": "MIT",
+        "license_file_count": 1,
+        "name": "darling_macro",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/darling_macro-0.20.11/NOTICE.txt",
+        "purl": "pkg:cargo/darling_macro@0.20.11",
+        "spdx_identifiers": [
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.20.11"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "8b1e3a325bc115f096c8b77bbf027a7c2592230e70be2d985be950d3d5e60ebe",
+          "bytes": 27054,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/dary_heap-0.3.9.crate",
+          "url": "https://crates.io/api/v1/crates/dary_heap/0.3.9/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "dary_heap",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/dary_heap-0.3.9/NOTICE.txt",
+        "purl": "pkg:cargo/dary_heap@0.3.9",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.3.9"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "e2953bfe4f93bbd20cc71198842756f77d161884c99ebbabc41d80231ded88d1",
+          "bytes": 34207,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/defmt-1.1.1.crate",
+          "url": "https://crates.io/api/v1/crates/defmt/1.1.1/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "defmt",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/defmt-1.1.1/NOTICE.txt",
+        "purl": "pkg:cargo/defmt@1.1.1",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.1.1"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "bad9c72e7ca2137e0dc3813245a0d282fd6daad32fd800af018306a9169b5fe8",
+          "bytes": 27937,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/defmt-macros-1.1.1.crate",
+          "url": "https://crates.io/api/v1/crates/defmt-macros/1.1.1/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "defmt-macros",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/defmt-macros-1.1.1/NOTICE.txt",
+        "purl": "pkg:cargo/defmt-macros@1.1.1",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.1.1"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "10d60334b3b2e7c9d91ef8150abfb6fa4c1c39ebbcf4a81c2e346aad939fee3e",
+          "bytes": 10881,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/defmt-parser-1.0.0.crate",
+          "url": "https://crates.io/api/v1/crates/defmt-parser/1.0.0/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 0,
+        "name": "defmt-parser",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/defmt-parser-1.0.0/NOTICE.txt",
+        "purl": "pkg:cargo/defmt-parser@1.0.0",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.0.0"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "507dfb09ea8b7fa618fcf76e953f4f5e192547945816d5358edffe39f6f94947",
+          "bytes": 36661,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/derive_builder-0.20.2.crate",
+          "url": "https://crates.io/api/v1/crates/derive_builder/0.20.2/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "derive_builder",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/derive_builder-0.20.2/NOTICE.txt",
+        "purl": "pkg:cargo/derive_builder@0.20.2",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.20.2"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "2d5bcf7b024d6835cfb3d473887cd966994907effbe9227e8c8219824d06c4e8",
+          "bytes": 31397,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/derive_builder_core-0.20.2.crate",
+          "url": "https://crates.io/api/v1/crates/derive_builder_core/0.20.2/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "derive_builder_core",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/derive_builder_core-0.20.2/NOTICE.txt",
+        "purl": "pkg:cargo/derive_builder_core@0.20.2",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.20.2"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "ab63b0e2bf4d5928aff72e83a7dace85d7bba5fe12dcc3c5a572d78caffd3f3c",
+          "bytes": 6360,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/derive_builder_macro-0.20.2.crate",
+          "url": "https://crates.io/api/v1/crates/derive_builder_macro/0.20.2/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "derive_builder_macro",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/derive_builder_macro-0.20.2/NOTICE.txt",
+        "purl": "pkg:cargo/derive_builder_macro@0.20.2",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.20.2"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "252afb9ae5eaa683babdc6a068b3f5726eb19e05070c731f9b2a23a7c3e8ed34",
+          "bytes": 22357,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/either-1.18.0.crate",
+          "url": "https://crates.io/api/v1/crates/either/1.18.0/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "either",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/either-1.18.0/NOTICE.txt",
+        "purl": "pkg:cargo/either@1.18.0",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.18.0"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "900d271a03799a1ee8d1ca9b19893b48ca674a9284fefcfb85f05e74ed314217",
+          "bytes": 15184,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/env_filter-2.0.0.crate",
+          "url": "https://crates.io/api/v1/crates/env_filter/2.0.0/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "env_filter",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/env_filter-2.0.0/NOTICE.txt",
+        "purl": "pkg:cargo/env_filter@2.0.0",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "2.0.0"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "de671bd27a75a797dc9ae289ba1e77276e75e2026408aab65185384e2d5cd3f6",
+          "bytes": 31884,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/env_logger-0.11.11.crate",
+          "url": "https://crates.io/api/v1/crates/env_logger/0.11.11/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "env_logger",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/env_logger-0.11.11/NOTICE.txt",
+        "purl": "pkg:cargo/env_logger@0.11.11",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.11.11"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb",
+          "bytes": 12002,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/errno-0.3.14.crate",
+          "url": "https://crates.io/api/v1/crates/errno/0.3.14/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "errno",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/errno-0.3.14/NOTICE.txt",
+        "purl": "pkg:cargo/errno@0.3.14",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.3.14"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "d817e038c30374a4bcb22f94d0a8a0e216958d4c3dcde369b1439fec4bdda6e6",
+          "bytes": 175210,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/esaxx-rs-0.1.10.crate",
+          "url": "https://crates.io/api/v1/crates/esaxx-rs/0.1.10/download",
+          "validated": false
+        },
+        "license_expression": "Apache-2.0",
+        "license_file_count": 1,
+        "name": "esaxx-rs",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/esaxx-rs-0.1.10/NOTICE.txt",
+        "purl": "pkg:cargo/esaxx-rs@0.1.10",
+        "spdx_identifiers": [
+          "Apache-2.0"
+        ],
+        "status": "collected",
+        "version": "0.1.10"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890",
+          "bytes": 31517,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/find-msvc-tools-0.1.11.crate",
+          "url": "https://crates.io/api/v1/crates/find-msvc-tools/0.1.11/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "find-msvc-tools",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/find-msvc-tools-0.1.11/NOTICE.txt",
+        "purl": "pkg:cargo/find-msvc-tools@0.1.11",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.1.11"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1",
+          "bytes": 11266,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/fnv-1.0.7.crate",
+          "url": "https://crates.io/api/v1/crates/fnv/1.0.7/download",
+          "validated": false
+        },
+        "license_expression": "Apache-2.0  OR  MIT",
+        "license_file_count": 2,
+        "name": "fnv",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/fnv-1.0.7/NOTICE.txt",
+        "purl": "pkg:cargo/fnv@1.0.7",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.0.7"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "b1f9e3d69d39e4862ffed03ed071a76f9a13ba1d9109d355b0f0aa6b15e393c4",
+          "bytes": 33165,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/futures-channel-0.3.34.crate",
+          "url": "https://crates.io/api/v1/crates/futures-channel/0.3.34/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "futures-channel",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/futures-channel-0.3.34/NOTICE.txt",
+        "purl": "pkg:cargo/futures-channel@0.3.34",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.3.34"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "92d699e522242e69e3003b94ecc1f960f3a5e015aa7c5d7486e65ad01dd94f5e",
+          "bytes": 14692,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/futures-core-0.3.34.crate",
+          "url": "https://crates.io/api/v1/crates/futures-core/0.3.34/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "futures-core",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/futures-core-0.3.34/NOTICE.txt",
+        "purl": "pkg:cargo/futures-core@0.3.34",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.3.34"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "9fb9654ba8355388abeb8dcb4fc62f511300867002afc858860463bdd9fe0c44",
+          "bytes": 11926,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/futures-macro-0.3.34.crate",
+          "url": "https://crates.io/api/v1/crates/futures-macro/0.3.34/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "futures-macro",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/futures-macro-0.3.34/NOTICE.txt",
+        "purl": "pkg:cargo/futures-macro@0.3.34",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.3.34"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "cd417de3d1d015fc3bfd2b1ea46dfc7bab72ef86f1cc7cc9c78e728b34a6d1fd",
+          "bytes": 11376,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/futures-task-0.3.34.crate",
+          "url": "https://crates.io/api/v1/crates/futures-task/0.3.34/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "futures-task",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/futures-task-0.3.34/NOTICE.txt",
+        "purl": "pkg:cargo/futures-task@0.3.34",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.3.34"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "0d50a92467f8ba5dd6e3ee5d4bd04d73ab2e4e1c44474a0674821dfce14b79bc",
+          "bytes": 169782,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/futures-util-0.3.34.crate",
+          "url": "https://crates.io/api/v1/crates/futures-util/0.3.34/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "futures-util",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/futures-util-0.3.34/NOTICE.txt",
+        "purl": "pkg:cargo/futures-util@0.3.34",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.3.34"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd",
+          "bytes": 50932,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/getrandom-0.3.4.crate",
+          "url": "https://crates.io/api/v1/crates/getrandom/0.3.4/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "getrandom",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/getrandom-0.3.4/NOTICE.txt",
+        "purl": "pkg:cargo/getrandom@0.3.4",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.3.4"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea",
+          "bytes": 11517,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/heck-0.5.0.crate",
+          "url": "https://crates.io/api/v1/crates/heck/0.5.0/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "heck",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/heck-0.5.0/NOTICE.txt",
+        "purl": "pkg:cargo/heck@0.5.0",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.5.0"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39",
+          "bytes": 3492,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/ident_case-1.0.1.crate",
+          "url": "https://crates.io/api/v1/crates/ident_case/1.0.1/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 1,
+        "name": "ident_case",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/ident_case-1.0.1/NOTICE.txt",
+        "purl": "pkg:cargo/ident_case@1.0.1",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.0.1"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "9433806cd6b4ec1aba79c021c7e4c58fb4c3b9977c085062e611ac929998fb0c",
+          "bytes": 70598,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/indicatif-0.18.6.crate",
+          "url": "https://crates.io/api/v1/crates/indicatif/0.18.6/download",
+          "validated": false
+        },
+        "license_expression": "MIT",
+        "license_file_count": 1,
+        "name": "indicatif",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/indicatif-0.18.6/NOTICE.txt",
+        "purl": "pkg:cargo/indicatif@0.18.6",
+        "spdx_identifiers": [
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.18.6"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695",
+          "bytes": 7548,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/is_terminal_polyfill-1.70.2.crate",
+          "url": "https://crates.io/api/v1/crates/is_terminal_polyfill/1.70.2/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "is_terminal_polyfill",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/is_terminal_polyfill-1.70.2/NOTICE.txt",
+        "purl": "pkg:cargo/is_terminal_polyfill@1.70.2",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.70.2"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285",
+          "bytes": 152715,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/itertools-0.14.0.crate",
+          "url": "https://crates.io/api/v1/crates/itertools/0.14.0/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "itertools",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/itertools-0.14.0/NOTICE.txt",
+        "purl": "pkg:cargo/itertools@0.14.0",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.14.0"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682",
+          "bytes": 15935,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/itoa-1.0.18.crate",
+          "url": "https://crates.io/api/v1/crates/itoa/1.0.18/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "itoa",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/itoa-1.0.18/NOTICE.txt",
+        "purl": "pkg:cargo/itoa@1.0.18",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.0.18"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "668b7183bd07af9a4885f5c35b0cc5c83c4607a913c16b7e17291832910d2dcc",
+          "bytes": 676554,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/jiff-0.2.35.crate",
+          "url": "https://crates.io/api/v1/crates/jiff/0.2.35/download",
+          "validated": false
+        },
+        "license_expression": "Unlicense OR MIT",
+        "license_file_count": 2,
+        "name": "jiff",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/jiff-0.2.35/NOTICE.txt",
+        "purl": "pkg:cargo/jiff@0.2.35",
+        "spdx_identifiers": [
+          "MIT",
+          "Unlicense"
+        ],
+        "status": "collected",
+        "version": "0.2.35"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "7feca88439efe53da3754500c1851dedf3cb36c524dd5cf8225cc0794de95d09",
+          "bytes": 127943,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/jiff-core-0.1.0.crate",
+          "url": "https://crates.io/api/v1/crates/jiff-core/0.1.0/download",
+          "validated": false
+        },
+        "license_expression": "Unlicense OR MIT",
+        "license_file_count": 2,
+        "name": "jiff-core",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/jiff-core-0.1.0/NOTICE.txt",
+        "purl": "pkg:cargo/jiff-core@0.1.0",
+        "spdx_identifiers": [
+          "MIT",
+          "Unlicense"
+        ],
+        "status": "collected",
+        "version": "0.1.0"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2",
+          "bytes": 851502,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/libc-0.2.189.crate",
+          "url": "https://crates.io/api/v1/crates/libc/0.2.189/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "libc",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/libc-0.2.189/NOTICE.txt",
+        "purl": "pkg:cargo/libc@0.2.189",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.2.189"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6",
+          "bytes": 53395,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/log-0.4.34.crate",
+          "url": "https://crates.io/api/v1/crates/log/0.4.34/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "log",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/log-0.4.34/NOTICE.txt",
+        "purl": "pkg:cargo/log@0.4.34",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.4.34"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "b3ae8f6d608c795738406608304d30a2dfbdc8e58e44f7ba43236da5208ded3c",
+          "bytes": 15329,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/macro_rules_attribute-0.2.3.crate",
+          "url": "https://crates.io/api/v1/crates/macro_rules_attribute/0.2.3/download",
+          "validated": false
+        },
+        "license_expression": "Apache-2.0 OR MIT OR Zlib",
+        "license_file_count": 3,
+        "name": "macro_rules_attribute",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/macro_rules_attribute-0.2.3/NOTICE.txt",
+        "purl": "pkg:cargo/macro_rules_attribute@0.2.3",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT",
+          "Zlib"
+        ],
+        "status": "collected",
+        "version": "0.2.3"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "fc04a4c58212d57930a24bf47d3fa87485264a3a054e9c10e042eb373573ad3c",
+          "bytes": 8272,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/macro_rules_attribute-proc_macro-0.2.3.crate",
+          "url": "https://crates.io/api/v1/crates/macro_rules_attribute-proc_macro/0.2.3/download",
+          "validated": false
+        },
+        "license_expression": "Apache-2.0 OR MIT OR Zlib",
+        "license_file_count": 3,
+        "name": "macro_rules_attribute-proc_macro",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/macro_rules_attribute-proc_macro-0.2.3/NOTICE.txt",
+        "purl": "pkg:cargo/macro_rules_attribute-proc_macro@0.2.3",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT",
+          "Zlib"
+        ],
+        "status": "collected",
+        "version": "0.2.3"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "3f607c237553f086e7043417a51df26b2eb899d3caff94e6a67592ff992fedc7",
+          "bytes": 51167,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/matrixmultiply-0.3.11.crate",
+          "url": "https://crates.io/api/v1/crates/matrixmultiply/0.3.11/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "matrixmultiply",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/matrixmultiply-0.3.11/NOTICE.txt",
+        "purl": "pkg:cargo/matrixmultiply@0.3.11",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.3.11"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98",
+          "bytes": 99165,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/memchr-2.8.3.crate",
+          "url": "https://crates.io/api/v1/crates/memchr/2.8.3/download",
+          "validated": false
+        },
+        "license_expression": "Unlicense OR MIT",
+        "license_file_count": 2,
+        "name": "memchr",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/memchr-2.8.3/NOTICE.txt",
+        "purl": "pkg:cargo/memchr@2.8.3",
+        "spdx_identifiers": [
+          "MIT",
+          "Unlicense"
+        ],
+        "status": "collected",
+        "version": "2.8.3"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a",
+          "bytes": 94841,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/minimal-lexical-0.2.1.crate",
+          "url": "https://crates.io/api/v1/crates/minimal-lexical/0.2.1/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 3,
+        "name": "minimal-lexical",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/minimal-lexical-0.2.1/NOTICE.txt",
+        "purl": "pkg:cargo/minimal-lexical@0.2.1",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.2.1"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "4b18443e9c262bfe8fa82f51666e2642c53393f7e5c27b3e1aeab922cff5b9d8",
+          "bytes": 110455,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/mio-1.2.3.crate",
+          "url": "https://crates.io/api/v1/crates/mio/1.2.3/download",
+          "validated": false
+        },
+        "license_expression": "MIT",
+        "license_file_count": 1,
+        "name": "mio",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/mio-1.2.3/NOTICE.txt",
+        "purl": "pkg:cargo/mio@1.2.3",
+        "spdx_identifiers": [
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.2.3"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "3341a273f6c9d5bef1908f17b7267bbab0e95c9bf69a0d4dcf8e9e1b2c76ef67",
+          "bytes": 15992,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/monostate-0.1.18.crate",
+          "url": "https://crates.io/api/v1/crates/monostate/0.1.18/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "monostate",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/monostate-0.1.18/NOTICE.txt",
+        "purl": "pkg:cargo/monostate@0.1.18",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.1.18"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "e4db6d5580af57bf992f59068d4ea26fd518574ff48d7639b255a36f9de6e7e9",
+          "bytes": 7862,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/monostate-impl-0.1.18.crate",
+          "url": "https://crates.io/api/v1/crates/monostate-impl/0.1.18/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "monostate-impl",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/monostate-impl-0.1.18/NOTICE.txt",
+        "purl": "pkg:cargo/monostate-impl@0.1.18",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.1.18"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "882ed72dce9365842bf196bdeedf5055305f11fc8c03dee7bb0194a6cad34841",
+          "bytes": 291026,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/ndarray-0.16.1.crate",
+          "url": "https://crates.io/api/v1/crates/ndarray/0.16.1/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "ndarray",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/ndarray-0.16.1/NOTICE.txt",
+        "purl": "pkg:cargo/ndarray@0.16.1",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.16.1"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "520080814a7a6b4a6e9070823bb24b4531daac8c4627e08ba5de8c5ef2f2752d",
+          "bytes": 243631,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/ndarray-0.17.2.crate",
+          "url": "https://crates.io/api/v1/crates/ndarray/0.17.2/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "ndarray",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/ndarray-0.17.2/NOTICE.txt",
+        "purl": "pkg:cargo/ndarray@0.17.2",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.17.2"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a",
+          "bytes": 117570,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/nom-7.1.3.crate",
+          "url": "https://crates.io/api/v1/crates/nom/7.1.3/download",
+          "validated": false
+        },
+        "license_expression": "MIT",
+        "license_file_count": 1,
+        "name": "nom",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/nom-7.1.3/NOTICE.txt",
+        "purl": "pkg:cargo/nom@7.1.3",
+        "spdx_identifiers": [
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "7.1.3"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "73f88a1307638156682bada9d7604135552957b7818057dcef22705b4d509495",
+          "bytes": 30352,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/num-complex-0.4.6.crate",
+          "url": "https://crates.io/api/v1/crates/num-complex/0.4.6/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "num-complex",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/num-complex-0.4.6/NOTICE.txt",
+        "purl": "pkg:cargo/num-complex@0.4.6",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.4.6"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "7ce2d95d4b3734dc35aa2f45e1aa22cd416814592a4f9d9205e11affd5b8e10b",
+          "bytes": 23502,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/num-integer-0.1.47.crate",
+          "url": "https://crates.io/api/v1/crates/num-integer/0.1.47/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "num-integer",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/num-integer-0.1.47/NOTICE.txt",
+        "purl": "pkg:cargo/num-integer@0.1.47",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.1.47"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841",
+          "bytes": 51631,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/num-traits-0.2.19.crate",
+          "url": "https://crates.io/api/v1/crates/num-traits/0.2.19/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "num-traits",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/num-traits-0.2.19/NOTICE.txt",
+        "purl": "pkg:cargo/num-traits@0.2.19",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.2.19"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "6a5b15d63a5ff39e378daed0e1340d3a5964703ea9712eb09a0dc66fade996f4",
+          "bytes": 86464,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/numpy-0.29.0.crate",
+          "url": "https://crates.io/api/v1/crates/numpy/0.29.0/download",
+          "validated": false
+        },
+        "license_expression": "BSD-2-Clause",
+        "license_file_count": 1,
+        "name": "numpy",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/numpy-0.29.0/NOTICE.txt",
+        "purl": "pkg:cargo/numpy@0.29.0",
+        "spdx_identifiers": [
+          "BSD-2-Clause"
+        ],
+        "status": "collected",
+        "version": "0.29.0"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50",
+          "bytes": 35010,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/once_cell-1.21.4.crate",
+          "url": "https://crates.io/api/v1/crates/once_cell/1.21.4/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "once_cell",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/once_cell-1.21.4/NOTICE.txt",
+        "purl": "pkg:cargo/once_cell@1.21.4",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.21.4"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "0cc3cbf698f9438986c11a880c90a6d04b9de27575afd28bbf45b154b6c709e2",
+          "bytes": 32075,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/onig-6.5.3.crate",
+          "url": "https://crates.io/api/v1/crates/onig/6.5.3/download",
+          "validated": false
+        },
+        "license_expression": "MIT",
+        "license_file_count": 1,
+        "name": "onig",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/onig-6.5.3/NOTICE.txt",
+        "purl": "pkg:cargo/onig@6.5.3",
+        "spdx_identifiers": [
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "6.5.3"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "1e68317604e77e53b85896388e1a803c1d21b74c899ec9e5e1112db90735edd7",
+          "bytes": 657340,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/onig_sys-69.9.3.crate",
+          "url": "https://crates.io/api/v1/crates/onig_sys/69.9.3/download",
+          "validated": false
+        },
+        "license_expression": "MIT",
+        "license_file_count": 2,
+        "name": "onig_sys",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/onig_sys-69.9.3/NOTICE.txt",
+        "purl": "pkg:cargo/onig_sys@69.9.3",
+        "spdx_identifiers": [
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "69.9.3"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a",
+          "bytes": 18374,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/paste-1.0.15.crate",
+          "url": "https://crates.io/api/v1/crates/paste/1.0.15/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "paste",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/paste-1.0.15/NOTICE.txt",
+        "purl": "pkg:cargo/paste@1.0.15",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.0.15"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4",
+          "bytes": 20361,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/pastey-0.2.3.crate",
+          "url": "https://crates.io/api/v1/crates/pastey/0.2.3/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "pastey",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/pastey-0.2.3/NOTICE.txt",
+        "purl": "pkg:cargo/pastey@0.2.3",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.2.3"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd",
+          "bytes": 31034,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/pin-project-lite-0.2.17.crate",
+          "url": "https://crates.io/api/v1/crates/pin-project-lite/0.2.17/download",
+          "validated": false
+        },
+        "license_expression": "Apache-2.0 OR MIT",
+        "license_file_count": 2,
+        "name": "pin-project-lite",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/pin-project-lite-0.2.17/NOTICE.txt",
+        "purl": "pkg:cargo/pin-project-lite@0.2.17",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.2.17"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548",
+          "bytes": 21370,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/pkg-config-0.3.34.crate",
+          "url": "https://crates.io/api/v1/crates/pkg-config/0.3.34/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "pkg-config",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/pkg-config-0.3.34/NOTICE.txt",
+        "purl": "pkg:cargo/pkg-config@0.3.34",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.3.34"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "05c8b63e8d9609db387f0324918f81d68fe27748f084ef092fb35954d0539a85",
+          "bytes": 202705,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/portable-atomic-1.15.0.crate",
+          "url": "https://crates.io/api/v1/crates/portable-atomic/1.15.0/download",
+          "validated": false
+        },
+        "license_expression": "Apache-2.0 OR MIT",
+        "license_file_count": 2,
+        "name": "portable-atomic",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/portable-atomic-1.15.0/NOTICE.txt",
+        "purl": "pkg:cargo/portable-atomic@1.15.0",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.15.0"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9",
+          "bytes": 22522,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/ppv-lite86-0.2.21.crate",
+          "url": "https://crates.io/api/v1/crates/ppv-lite86/0.2.21/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "ppv-lite86",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/ppv-lite86-0.2.21/NOTICE.txt",
+        "purl": "pkg:cargo/ppv-lite86@0.2.21",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.2.21"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9",
+          "bytes": 59588,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/proc-macro2-1.0.107.crate",
+          "url": "https://crates.io/api/v1/crates/proc-macro2/1.0.107/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "proc-macro2",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/proc-macro2-1.0.107/NOTICE.txt",
+        "purl": "pkg:cargo/proc-macro2@1.0.107",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.0.107"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "4688ddedf473e32662b9b067670129a8afb8c18e351482c70d62ba4a88171e8b",
+          "bytes": 1255741,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/pyo3-0.29.2.crate",
+          "url": "https://crates.io/api/v1/crates/pyo3/0.29.2/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 4,
+        "name": "pyo3",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/pyo3-0.29.2/NOTICE.txt",
+        "purl": "pkg:cargo/pyo3@0.29.2",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.29.2"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "b3ef68daa7316a3fac65e5e18b2203f010346de1c1c53456811a2624673ab046",
+          "bytes": 51487,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/pyo3-async-runtimes-0.29.0.crate",
+          "url": "https://crates.io/api/v1/crates/pyo3-async-runtimes/0.29.0/download",
+          "validated": false
+        },
+        "license_expression": "Apache-2.0",
+        "license_file_count": 1,
+        "name": "pyo3-async-runtimes",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/pyo3-async-runtimes-0.29.0/NOTICE.txt",
+        "purl": "pkg:cargo/pyo3-async-runtimes@0.29.0",
+        "spdx_identifiers": [
+          "Apache-2.0"
+        ],
+        "status": "collected",
+        "version": "0.29.0"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "f41027e41b4bd03f6e60f9f417fe24a6341a6bb744edd62b6f709f2a52ea30e9",
+          "bytes": 41104,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/pyo3-build-config-0.29.2.crate",
+          "url": "https://crates.io/api/v1/crates/pyo3-build-config/0.29.2/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "pyo3-build-config",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/pyo3-build-config-0.29.2/NOTICE.txt",
+        "purl": "pkg:cargo/pyo3-build-config@0.29.2",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.29.2"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "e591a95526fead067432c3b3a33fc74770b87b1e04e73671090d9c2055a2b327",
+          "bytes": 90029,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/pyo3-ffi-0.29.2.crate",
+          "url": "https://crates.io/api/v1/crates/pyo3-ffi/0.29.2/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "pyo3-ffi",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/pyo3-ffi-0.29.2/NOTICE.txt",
+        "purl": "pkg:cargo/pyo3-ffi@0.29.2",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.29.2"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "73225868fc1cd84eef2c3c230ddb91273bf1de46aeb8a4248da76d32a0924a1c",
+          "bytes": 9044,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/pyo3-macros-0.29.2.crate",
+          "url": "https://crates.io/api/v1/crates/pyo3-macros/0.29.2/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "pyo3-macros",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/pyo3-macros-0.29.2/NOTICE.txt",
+        "purl": "pkg:cargo/pyo3-macros@0.29.2",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.29.2"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "571575aa3749fa6216757dd47d2a3e7ef360f329a40f0666a9fbd14889024952",
+          "bytes": 93749,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/pyo3-macros-backend-0.29.2.crate",
+          "url": "https://crates.io/api/v1/crates/pyo3-macros-backend/0.29.2/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "pyo3-macros-backend",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/pyo3-macros-backend-0.29.2/NOTICE.txt",
+        "purl": "pkg:cargo/pyo3-macros-backend@0.29.2",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.29.2"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001",
+          "bytes": 31622,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/quote-1.0.47.crate",
+          "url": "https://crates.io/api/v1/crates/quote/1.0.47/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "quote",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/quote-1.0.47/NOTICE.txt",
+        "purl": "pkg:cargo/quote@1.0.47",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.0.47"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "b9ef1d0d795eb7d84685bca4f72f3649f064e6641543d3a8c415898726a57b41",
+          "bytes": 100216,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/rand-0.9.5.crate",
+          "url": "https://crates.io/api/v1/crates/rand/0.9.5/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 3,
+        "name": "rand",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/rand-0.9.5/NOTICE.txt",
+        "purl": "pkg:cargo/rand@0.9.5",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.9.5"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "d3022b5f1df60f26e1ffddd6c66e8aa15de382ae63b3a0c1bfc0e4d3e3f325cb",
+          "bytes": 18258,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/rand_chacha-0.9.0.crate",
+          "url": "https://crates.io/api/v1/crates/rand_chacha/0.9.0/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 3,
+        "name": "rand_chacha",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/rand_chacha-0.9.0/NOTICE.txt",
+        "purl": "pkg:cargo/rand_chacha@0.9.0",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.9.0"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "76afc826de14238e6e8c374ddcc1fa19e374fd8dd986b0d2af0d02377261d83c",
+          "bytes": 24129,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/rand_core-0.9.5.crate",
+          "url": "https://crates.io/api/v1/crates/rand_core/0.9.5/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 3,
+        "name": "rand_core",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/rand_core-0.9.5/NOTICE.txt",
+        "purl": "pkg:cargo/rand_core@0.9.5",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.9.5"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "60a357793950651c4ed0f3f52338f53b2f809f32d83a07f72909fa13e4c6c1e3",
+          "bytes": 7490,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/rawpointer-0.2.1.crate",
+          "url": "https://crates.io/api/v1/crates/rawpointer/0.2.1/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "rawpointer",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/rawpointer-0.2.1/NOTICE.txt",
+        "purl": "pkg:cargo/rawpointer@0.2.1",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.2.1"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "fb39b166781f92d482534ef4b4b1b2568f42613b53e5b6c160e24cfbfa30926d",
+          "bytes": 183391,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/rayon-1.12.0.crate",
+          "url": "https://crates.io/api/v1/crates/rayon/1.12.0/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "rayon",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/rayon-1.12.0/NOTICE.txt",
+        "purl": "pkg:cargo/rayon@1.12.0",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.12.0"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "2964d0cf57a3e7a06e8183d14a8b527195c706b7983549cd5462d5aa3747438f",
+          "bytes": 10659,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/rayon-cond-0.4.0.crate",
+          "url": "https://crates.io/api/v1/crates/rayon-cond/0.4.0/download",
+          "validated": false
+        },
+        "license_expression": "Apache-2.0 OR MIT",
+        "license_file_count": 2,
+        "name": "rayon-cond",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/rayon-cond-0.4.0/NOTICE.txt",
+        "purl": "pkg:cargo/rayon-cond@0.4.0",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.4.0"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91",
+          "bytes": 73151,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/rayon-core-1.13.0.crate",
+          "url": "https://crates.io/api/v1/crates/rayon-core/1.13.0/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "rayon-core",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/rayon-core-1.13.0/NOTICE.txt",
+        "purl": "pkg:cargo/rayon-core@1.13.0",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.13.0"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "f020237b6c8eed93db2e2cb53c00c60a8e1bc73da7d073199a1180401450218d",
+          "bytes": 157118,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/regex-1.13.1.crate",
+          "url": "https://crates.io/api/v1/crates/regex/1.13.1/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "regex",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/regex-1.13.1/NOTICE.txt",
+        "purl": "pkg:cargo/regex@1.13.1",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.13.1"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2",
+          "bytes": 628707,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/regex-automata-0.4.18.crate",
+          "url": "https://crates.io/api/v1/crates/regex-automata/0.4.18/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "regex-automata",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/regex-automata-0.4.18/NOTICE.txt",
+        "purl": "pkg:cargo/regex-automata@0.4.18",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.4.18"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4",
+          "bytes": 359055,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/regex-syntax-0.8.11.crate",
+          "url": "https://crates.io/api/v1/crates/regex-syntax/0.8.11/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 3,
+        "name": "regex-syntax",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/regex-syntax-0.8.11/NOTICE.txt",
+        "purl": "pkg:cargo/regex-syntax@0.8.11",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.8.11"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d",
+          "bytes": 14811,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/rustc-hash-2.1.3.crate",
+          "url": "https://crates.io/api/v1/crates/rustc-hash/2.1.3/download",
+          "validated": false
+        },
+        "license_expression": "Apache-2.0 OR MIT",
+        "license_file_count": 2,
+        "name": "rustc-hash",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/rustc-hash-2.1.3/NOTICE.txt",
+        "purl": "pkg:cargo/rustc-hash@2.1.3",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "2.1.3"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f",
+          "bytes": 21013,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/rustversion-1.0.23.crate",
+          "url": "https://crates.io/api/v1/crates/rustversion/1.0.23/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "rustversion",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/rustversion-1.0.23/NOTICE.txt",
+        "purl": "pkg:cargo/rustversion@1.0.23",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.0.23"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f",
+          "bytes": 52823,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/ryu-1.0.23.crate",
+          "url": "https://crates.io/api/v1/crates/ryu/1.0.23/download",
+          "validated": false
+        },
+        "license_expression": "Apache-2.0 OR BSL-1.0",
+        "license_file_count": 2,
+        "name": "ryu",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/ryu-1.0.23/NOTICE.txt",
+        "purl": "pkg:cargo/ryu@1.0.23",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "BSL-1.0"
+        ],
+        "status": "collected",
+        "version": "1.0.23"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba",
+          "bytes": 83669,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/serde-1.0.229.crate",
+          "url": "https://crates.io/api/v1/crates/serde/1.0.229/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "serde",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/serde-1.0.229/NOTICE.txt",
+        "purl": "pkg:cargo/serde@1.0.229",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.0.229"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "67dca2c9c51e58a4791a4b1ed58308b39c64224d349a935ab5039aa360942a48",
+          "bytes": 63100,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/serde_core-1.0.229.crate",
+          "url": "https://crates.io/api/v1/crates/serde_core/1.0.229/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "serde_core",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/serde_core-1.0.229/NOTICE.txt",
+        "purl": "pkg:cargo/serde_core@1.0.229",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.0.229"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348",
+          "bytes": 59864,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/serde_derive-1.0.229.crate",
+          "url": "https://crates.io/api/v1/crates/serde_derive/1.0.229/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "serde_derive",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/serde_derive-1.0.229/NOTICE.txt",
+        "purl": "pkg:cargo/serde_derive@1.0.229",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.0.229"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14",
+          "bytes": 156556,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/serde_json-1.0.151.crate",
+          "url": "https://crates.io/api/v1/crates/serde_json/1.0.151/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "serde_json",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/serde_json-1.0.151/NOTICE.txt",
+        "purl": "pkg:cargo/serde_json@1.0.151",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.0.151"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba",
+          "bytes": 19332,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/shlex-2.0.1.crate",
+          "url": "https://crates.io/api/v1/crates/shlex/2.0.1/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "shlex",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/shlex-2.0.1/NOTICE.txt",
+        "purl": "pkg:cargo/shlex@2.0.1",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "2.0.1"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b",
+          "bytes": 21668,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/signal-hook-registry-1.4.8.crate",
+          "url": "https://crates.io/api/v1/crates/signal-hook-registry/1.4.8/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "signal-hook-registry",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/signal-hook-registry-1.4.8/NOTICE.txt",
+        "purl": "pkg:cargo/signal-hook-registry@1.4.8",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.4.8"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5",
+          "bytes": 19080,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/slab-0.4.12.crate",
+          "url": "https://crates.io/api/v1/crates/slab/0.4.12/download",
+          "validated": false
+        },
+        "license_expression": "MIT",
+        "license_file_count": 1,
+        "name": "slab",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/slab-0.4.12/NOTICE.txt",
+        "purl": "pkg:cargo/slab@0.4.12",
+        "spdx_identifiers": [
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.4.12"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "b9be42f50aa861c555654aa3a37f52f4b1074bacf4e48fe0ef7fa584e80f1f0f",
+          "bytes": 32647,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/smallvec-1.16.0.crate",
+          "url": "https://crates.io/api/v1/crates/smallvec/1.16.0/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "smallvec",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/smallvec-1.16.0/NOTICE.txt",
+        "purl": "pkg:cargo/smallvec@1.16.0",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.16.0"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "5851699c4033c63636f7ea4cf7b7c1f1bf06d0cc03cfb42e711de5a5c46cf326",
+          "bytes": 557527,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/spm_precompiled-0.1.4.crate",
+          "url": "https://crates.io/api/v1/crates/spm_precompiled/0.1.4/download",
+          "validated": false
+        },
+        "license_expression": "Apache-2.0",
+        "license_file_count": 1,
+        "name": "spm_precompiled",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/spm_precompiled-0.1.4/NOTICE.txt",
+        "purl": "pkg:cargo/spm_precompiled@0.1.4",
+        "spdx_identifiers": [
+          "Apache-2.0"
+        ],
+        "status": "collected",
+        "version": "0.1.4"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f",
+          "bytes": 18480,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/static_assertions-1.1.0.crate",
+          "url": "https://crates.io/api/v1/crates/static_assertions/1.1.0/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "static_assertions",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/static_assertions-1.1.0/NOTICE.txt",
+        "purl": "pkg:cargo/static_assertions@1.1.0",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.1.0"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f",
+          "bytes": 14266,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/strsim-0.11.1.crate",
+          "url": "https://crates.io/api/v1/crates/strsim/0.11.1/download",
+          "validated": false
+        },
+        "license_expression": "MIT",
+        "license_file_count": 1,
+        "name": "strsim",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/strsim-0.11.1/NOTICE.txt",
+        "purl": "pkg:cargo/strsim@0.11.1",
+        "spdx_identifiers": [
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.11.1"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297",
+          "bytes": 307407,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/syn-2.0.119.crate",
+          "url": "https://crates.io/api/v1/crates/syn/2.0.119/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "syn",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/syn-2.0.119/NOTICE.txt",
+        "purl": "pkg:cargo/syn@2.0.119",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "2.0.119"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "e6275cddf4610d1775e6d1fe9469b2e77d0f39fd98fb7450901b821e0c53649f",
+          "bytes": 313047,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/syn-3.0.4.crate",
+          "url": "https://crates.io/api/v1/crates/syn/3.0.4/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "syn",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/syn-3.0.4/NOTICE.txt",
+        "purl": "pkg:cargo/syn@3.0.4",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "3.0.4"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca",
+          "bytes": 26928,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/target-lexicon-0.13.5.crate",
+          "url": "https://crates.io/api/v1/crates/target-lexicon/0.13.5/download",
+          "validated": false
+        },
+        "license_expression": "Apache-2.0 WITH LLVM-exception",
+        "license_file_count": 1,
+        "name": "target-lexicon",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/target-lexicon-0.13.5/NOTICE.txt",
+        "purl": "pkg:cargo/target-lexicon@0.13.5",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "LLVM-exception"
+        ],
+        "status": "collected",
+        "version": "0.13.5"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "ec86235f5fcc2a73650310756d2ac5b138a5780bbbdfae3eeccec992c435ba4f",
+          "bytes": 28969,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/thiserror-2.0.20.crate",
+          "url": "https://crates.io/api/v1/crates/thiserror/2.0.20/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "thiserror",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/thiserror-2.0.20/NOTICE.txt",
+        "purl": "pkg:cargo/thiserror@2.0.20",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "2.0.20"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "bc04cd3e1236dd4a98afca4569f2deb3f120e5422a4023be2cb683f8486292af",
+          "bytes": 21436,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/thiserror-impl-2.0.20.crate",
+          "url": "https://crates.io/api/v1/crates/thiserror-impl/2.0.20/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "thiserror-impl",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/thiserror-impl-2.0.20/NOTICE.txt",
+        "purl": "pkg:cargo/thiserror-impl@2.0.20",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "2.0.20"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "7afbf6e88718afcc138bad01d6ccc3051dbbc3b2ce9793d8b8a3aeb610969cfc",
+          "bytes": 215739,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/tokenizers-0.23.2.crate",
+          "url": "https://crates.io/api/v1/crates/tokenizers/0.23.2/download",
+          "validated": false
+        },
+        "license_expression": "Apache-2.0",
+        "license_file_count": 1,
+        "name": "tokenizers",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/tokenizers-0.23.2/NOTICE.txt",
+        "purl": "pkg:cargo/tokenizers@0.23.2?download_url=file:///home/runner/work/tokenizers/tokenizers/tokenizers",
+        "spdx_identifiers": [
+          "Apache-2.0"
+        ],
+        "status": "collected",
+        "version": "0.23.2"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed",
+          "bytes": 920101,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/tokio-1.53.1.crate",
+          "url": "https://crates.io/api/v1/crates/tokio/1.53.1/download",
+          "validated": false
+        },
+        "license_expression": "MIT",
+        "license_file_count": 1,
+        "name": "tokio",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/tokio-1.53.1/NOTICE.txt",
+        "purl": "pkg:cargo/tokio@1.53.1",
+        "spdx_identifiers": [
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.53.1"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "78773a2a397f451582ce068015985c33193cf6dea8b74d2a639fe457b2f07b0e",
+          "bytes": 16081,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/tokio-macros-2.7.2.crate",
+          "url": "https://crates.io/api/v1/crates/tokio-macros/2.7.2/download",
+          "validated": false
+        },
+        "license_expression": "MIT",
+        "license_file_count": 1,
+        "name": "tokio-macros",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/tokio-macros-2.7.2/NOTICE.txt",
+        "purl": "pkg:cargo/tokio-macros@2.7.2",
+        "spdx_identifiers": [
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "2.7.2"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75",
+          "bytes": 49298,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/unicode-ident-1.0.24.crate",
+          "url": "https://crates.io/api/v1/crates/unicode-ident/1.0.24/download",
+          "validated": false
+        },
+        "license_expression": "(MIT OR Apache-2.0) AND Unicode-3.0",
+        "license_file_count": 3,
+        "name": "unicode-ident",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/unicode-ident-1.0.24/NOTICE.txt",
+        "purl": "pkg:cargo/unicode-ident@1.0.24",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT",
+          "Unicode-3.0"
+        ],
+        "status": "collected",
+        "version": "1.0.24"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "43f613e4fa046e69818dd287fdc4bc78175ff20331479dab6e1b0f98d57062de",
+          "bytes": 91546,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/unicode-normalization-alignments-0.1.12.crate",
+          "url": "https://crates.io/api/v1/crates/unicode-normalization-alignments/0.1.12/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 3,
+        "name": "unicode-normalization-alignments",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/unicode-normalization-alignments-0.1.12/NOTICE.txt",
+        "purl": "pkg:cargo/unicode-normalization-alignments@0.1.12",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.1.12"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8",
+          "bytes": 112325,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/unicode-segmentation-1.13.3.crate",
+          "url": "https://crates.io/api/v1/crates/unicode-segmentation/1.13.3/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 3,
+        "name": "unicode-segmentation",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/unicode-segmentation-1.13.3/NOTICE.txt",
+        "purl": "pkg:cargo/unicode-segmentation@1.13.3",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.13.3"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254",
+          "bytes": 282768,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/unicode-width-0.2.2.crate",
+          "url": "https://crates.io/api/v1/crates/unicode-width/0.2.2/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 3,
+        "name": "unicode-width",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/unicode-width-0.2.2/NOTICE.txt",
+        "purl": "pkg:cargo/unicode-width@0.2.2",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.2.2"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e",
+          "bytes": 87298,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/unicode_categories-0.1.1.crate",
+          "url": "https://crates.io/api/v1/crates/unicode_categories/0.1.1/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "unicode_categories",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/unicode_categories-0.1.1/NOTICE.txt",
+        "purl": "pkg:cargo/unicode_categories@0.1.1",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.1.1"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "81e544489bf3d8ef66c953931f56617f423cd4b5494be343d9b9d3dda037b9a3",
+          "bytes": 8041,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/unit-prefix-0.5.2.crate",
+          "url": "https://crates.io/api/v1/crates/unit-prefix/0.5.2/download",
+          "validated": false
+        },
+        "license_expression": "MIT",
+        "license_file_count": 1,
+        "name": "unit-prefix",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/unit-prefix-0.5.2/NOTICE.txt",
+        "purl": "pkg:cargo/unit-prefix@0.5.2",
+        "spdx_identifiers": [
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.5.2"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821",
+          "bytes": 13499,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/utf8parse-0.2.2.crate",
+          "url": "https://crates.io/api/v1/crates/utf8parse/0.2.2/download",
+          "validated": false
+        },
+        "license_expression": "Apache-2.0 OR MIT",
+        "license_file_count": 2,
+        "name": "utf8parse",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/utf8parse-0.2.2/NOTICE.txt",
+        "purl": "pkg:cargo/utf8parse@0.2.2",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.2.2"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a",
+          "bytes": 15554,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/version_check-0.9.5.crate",
+          "url": "https://crates.io/api/v1/crates/version_check/0.9.5/download",
+          "validated": false
+        },
+        "license_expression": "MIT OR Apache-2.0",
+        "license_file_count": 2,
+        "name": "version_check",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/version_check-0.9.5/NOTICE.txt",
+        "purl": "pkg:cargo/version_check@0.9.5",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.9.5"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "556764e583adb45a9f8d413c2a147fa7e8d821e48e12b14fd560b607998b75eb",
+          "bytes": 284907,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/zerocopy-0.8.56.crate",
+          "url": "https://crates.io/api/v1/crates/zerocopy/0.8.56/download",
+          "validated": false
+        },
+        "license_expression": "BSD-2-Clause OR Apache-2.0 OR MIT",
+        "license_file_count": 3,
+        "name": "zerocopy",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/zerocopy-0.8.56/NOTICE.txt",
+        "purl": "pkg:cargo/zerocopy@0.8.56",
+        "spdx_identifiers": [
+          "Apache-2.0",
+          "BSD-2-Clause",
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "0.8.56"
+      },
+      {
+        "cargo_archive": {
+          "actual_sha256": "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b",
+          "bytes": 28612,
+          "expected_sha256": null,
+          "hash_pinned": false,
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/zmij-1.0.23.crate",
+          "url": "https://crates.io/api/v1/crates/zmij/1.0.23/download",
+          "validated": false
+        },
+        "license_expression": "MIT",
+        "license_file_count": 1,
+        "name": "zmij",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/zmij-1.0.23/NOTICE.txt",
+        "purl": "pkg:cargo/zmij@1.0.23",
+        "spdx_identifiers": [
+          "MIT"
+        ],
+        "status": "collected",
+        "version": "1.0.23"
+      }
+    ],
+    "sbom": {
+      "archive_member": "tokenizers-0.23.3.dist-info/sboms/tokenizers-python.cyclonedx.json",
+      "component_count": 127,
+      "sha256": "6faa23324b2b53b4a8da9b451a675610cc45e1a23e8c5bb0740c080064e1ba0d"
+    },
+    "schema": 1,
+    "source_metadata_mismatch": [
+      {
+        "component": "tokenizers",
+        "component_version": "0.23.2",
+        "python_version": "0.23.3"
+      }
+    ],
+    "spdx_texts": {
+      "Apache-2.0": {
+        "actual_sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff",
+        "bytes": 10280,
+        "expected_sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff",
+        "hash_pinned": true,
+        "path": "/tmp/asr-issue17-bundle/downloads/spdx/Apache-2.0.txt",
+        "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/Apache-2.0.txt",
+        "validated": true
+      },
+      "BSD-2-Clause": {
+        "actual_sha256": "f32fb3b417a194167cfad068223fc975ba96c5960513a10f66a3c28720aec1df",
+        "bytes": 1267,
+        "expected_sha256": "f32fb3b417a194167cfad068223fc975ba96c5960513a10f66a3c28720aec1df",
+        "hash_pinned": true,
+        "path": "/tmp/asr-issue17-bundle/downloads/spdx/BSD-2-Clause.txt",
+        "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/BSD-2-Clause.txt",
+        "validated": true
+      },
+      "BSL-1.0": {
+        "actual_sha256": "84c6ef3ea9e3254a54d0acf5d3e0c61ae011b8fef7dd6940591cf060e6380a8f",
+        "bytes": 1338,
+        "expected_sha256": "84c6ef3ea9e3254a54d0acf5d3e0c61ae011b8fef7dd6940591cf060e6380a8f",
+        "hash_pinned": true,
+        "path": "/tmp/asr-issue17-bundle/downloads/spdx/BSL-1.0.txt",
+        "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/BSL-1.0.txt",
+        "validated": true
+      },
+      "LLVM-exception": {
+        "actual_sha256": "e34c58338bd89d43e709e226610d8f32b3e3c47f4ad9a99a8dc1d4ac7842488e",
+        "bytes": 919,
+        "expected_sha256": "e34c58338bd89d43e709e226610d8f32b3e3c47f4ad9a99a8dc1d4ac7842488e",
+        "hash_pinned": true,
+        "path": "/tmp/asr-issue17-bundle/downloads/spdx/LLVM-exception.txt",
+        "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/LLVM-exception.txt",
+        "validated": true
+      },
+      "MIT": {
+        "actual_sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5",
+        "bytes": 1078,
+        "expected_sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5",
+        "hash_pinned": true,
+        "path": "/tmp/asr-issue17-bundle/downloads/spdx/MIT.txt",
+        "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt",
+        "validated": true
+      },
+      "Unicode-3.0": {
+        "actual_sha256": "f7db81051789b729fea528a63ec4c938fdcb93d9d61d97dc8cc2e9df6d47f2a1",
+        "bytes": 1995,
+        "expected_sha256": "f7db81051789b729fea528a63ec4c938fdcb93d9d61d97dc8cc2e9df6d47f2a1",
+        "hash_pinned": true,
+        "path": "/tmp/asr-issue17-bundle/downloads/spdx/Unicode-3.0.txt",
+        "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/Unicode-3.0.txt",
+        "validated": true
+      },
+      "Unlicense": {
+        "actual_sha256": "0bdebfeda07d45dada625ae1317c6f833186e798b171d0db640bcf32e92a8240",
+        "bytes": 1211,
+        "expected_sha256": "0bdebfeda07d45dada625ae1317c6f833186e798b171d0db640bcf32e92a8240",
+        "hash_pinned": true,
+        "path": "/tmp/asr-issue17-bundle/downloads/spdx/Unlicense.txt",
+        "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/Unlicense.txt",
+        "validated": true
+      },
+      "Zlib": {
+        "actual_sha256": "bfb1112d49db5b1daecdfef24bd7e2f3ea0bafb33aa67aa0ab51e2bf8407c03d",
+        "bytes": 838,
+        "expected_sha256": "bfb1112d49db5b1daecdfef24bd7e2f3ea0bafb33aa67aa0ab51e2bf8407c03d",
+        "hash_pinned": true,
+        "path": "/tmp/asr-issue17-bundle/downloads/spdx/Zlib.txt",
+        "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/Zlib.txt",
+        "validated": true
+      }
+    },
+    "status": "collected"
+  }
+}

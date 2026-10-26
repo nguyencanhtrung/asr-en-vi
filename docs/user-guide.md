@@ -20,7 +20,7 @@ cp .env.example .env
 
 Mặc định, script build `ASR_IMAGE` từ source trong checkout. Có thể dùng `--source` để ghi rõ
 chế độ này. `--pull` tải ảnh được chỉ định trong `ASR_IMAGE`; ảnh phải có tag version cụ thể như
-`ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1` hoặc digest `@sha256:...`, không dùng `local`,
+`ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0` hoặc digest `@sha256:...`, không dùng `local`,
 `latest` hay `edge`. Trước khi chạy service, script so sánh version ứng dụng và schema được hỗ trợ
 trong image với source checkout. `--offline` chỉ dùng image đã có trên máy và model đã chuẩn bị;
 chế độ này kiểm tra model local, không build, pull hoặc tải model. Mọi chế độ dùng cùng một giá trị
@@ -30,18 +30,26 @@ Chế độ source và pull chạy bước chuẩn bị ASR riêng, chỉ cho ph
 `model prepare` nếu model ASR còn thiếu. Khởi động offline chỉ kiểm tra model. Script chờ cả hai
 service healthy, rồi kiểm tra từ trong app rằng worker đang chạy và cả model chép lời lẫn
 Community-1 đều đọc được qua mount chỉ đọc.
-Chỉ sau khi kiểm tra này đạt, script mới in access link cùng QR trong terminal. Một container app
-chạy riêng bằng `docker run` không tự khởi động worker hoặc gắn model; dùng `./scripts/start.sh`
-cho bản cài mới. Có thể kiểm tra lại bản cài đang chạy bằng:
+Chỉ sau khi kiểm tra này đạt, terminal tương tác mới in access link cùng QR. Khi chạy qua pipe,
+CI hoặc redirect, script che access token và nhắc lệnh hiển thị rõ ràng:
+
+```sh
+docker compose exec -T app python -m asr_en_vi.cli access show
+```
+
+Một container app chạy riêng bằng `docker run` không tự khởi động worker hoặc gắn model; dùng
+`./scripts/start.sh` cho bản cài mới. Có thể kiểm tra lại bản cài đang chạy bằng:
 
 ```sh
 docker compose exec -T app python -m asr_en_vi.cli installation check
 docker compose exec -T app python -m asr_en_vi.cli version --json
 ```
 
-### Cài release candidate
+### Cài bản phát hành
 
-Các lệnh dưới đây dùng source tag và image cùng phiên bản `v0.1.0-rc.1` sau khi RC được phát hành.
+Các lệnh dưới đây dùng source tag `v0.1.0` và image `ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0` sau khi bản phát hành được công bố.
+Đây là ví dụ cú pháp, không phải xác nhận image có tag đó khớp candidate mới nhất.
+Khi cài bản công bố, dùng tag/commit/digest đã xác nhận trong release notes; không ghi đè tag cũ.
 Giữ nguyên `COMPOSE_PROJECT_NAME` và `ASR_MODEL_HOST_PATH` khi chạy lại để Compose dùng đúng
 volume và thư mục model. Chuẩn bị ASR khi còn online; chỉ tải Community-1 sau khi người vận hành
 đã chấp thuận điều kiện ở mục [Model speaker diarization local](#model-speaker-diarization-local).
@@ -49,24 +57,36 @@ volume và thư mục model. Chuẩn bị ASR khi còn online; chỉ tải Commu
 Tải source checkout đúng tag và build image từ source:
 
 ```sh
-git clone --branch v0.1.0-rc.1 --depth 1 https://github.com/nguyencanhtrung/asr-en-vi.git
+git clone --branch v0.1.0 --depth 1 https://github.com/nguyencanhtrung/asr-en-vi.git
 cd asr-en-vi
-export COMPOSE_PROJECT_NAME=asr-en-vi
+export COMPOSE_PROJECT_NAME=asr-source-v1
 export ASR_MODEL_HOST_PATH="$PWD/models"
-export ASR_IMAGE=asr-en-vi:v0.1.0-rc.1
+export ASR_IMAGE=asr-en-vi:v0.1.0
 ./scripts/start.sh --source
 ```
 
 Để cài từ image công khai, dùng checkout cùng tag và chạy:
 
 ```sh
-export COMPOSE_PROJECT_NAME=asr-en-vi
+export COMPOSE_PROJECT_NAME=asr-pull-v1
+export ASR_PORT=8766
 export ASR_MODEL_HOST_PATH="$PWD/models"
-export ASR_IMAGE=ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1
+export ASR_IMAGE=ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0
 ./scripts/start.sh --pull
 ```
 
-Image build từ source dùng tag local `asr-en-vi:v0.1.0-rc.1`, khác với image công khai trên GHCR, nên
+Hai tên project khác nhau tạo volume dữ liệu/token/provider riêng; cổng 8766 tránh
+đụng bản source đang chạy. Để cài độc lập trên máy khác, clone cùng source tag trước,
+cài Docker/Compose và chuẩn bị Community-1 như trên. Không sao chép `.env`, volume
+`auth` hoặc `provider` từ bản cài cũ. Dùng digest đã công bố trong `ASR_IMAGE` khi
+cần cố định artifact (`ghcr.io/nguyencanhtrung/asr-en-vi@sha256:...`).
+
+Mở access link của chính bản cài mới, chọn ChatGPT hoặc Google trên thanh workspace
+và hoàn tất đăng nhập bằng tài khoản của mình. Xem các mục kết nối provider bên dưới,
+đặc biệt ràng buộc Antigravity. Dùng một recording được phép để kiểm tra import,
+transcript, notes và export; trạng thái healthy không chứng minh provider dùng được.
+
+Image build từ source dùng tag local `asr-en-vi:v0.1.0`, khác với image công khai trên GHCR, nên
 tên image cho biết nó đến từ đâu. Mọi chế độ của `start.sh` so nhãn
 `org.opencontainers.image.revision` của image với commit của checkout và dừng nếu hai giá trị khác
 nhau; hãy checkout đúng tag hoặc chọn đúng image. Nếu checkout hoặc image không có revision
@@ -548,5 +568,5 @@ cả quality gate và container build thành công:
 Workflow chỉ dùng `GITHUB_TOKEN`; không cần secret registry riêng. Các action được pin bằng commit
 SHA bất biến, còn Dependabot kiểm tra cập nhật hằng tuần cho uv, GitHub Actions và Docker base image.
 
-Trong production image, Docker build context chỉ chứa `pyproject.toml`, `README.md`, `uv.lock` và
+Trong production image, Docker build context chỉ chứa `pyproject.toml`, `README.md`, `LICENSE`, `LICENSE.vi`, `uv.lock` và
 `src/asr_en_vi`. Hướng dẫn, tài liệu thiết kế và prototype không được đưa vào image.

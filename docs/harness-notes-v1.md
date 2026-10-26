@@ -14,8 +14,8 @@ Q12 sau khảo sát đã chọn hỗ trợ **ChatGPT và OMP + Google Antigravit
 
 | Thành phần | Bằng chứng local | Kết quả |
 |---|---|---|
-| OMP | `/home/mars/.local/bin/omp`, ELF chứa package metadata `@oh-my-pi/pi-coding-agent` và source bundle | Phiên bản `18.5.0`; upstream `can1357/oh-my-pi` |
-| Pi | [package.json](/home/mars/.nvm/versions/node/v24.13.0/lib/node_modules/@earendil-works/pi-coding-agent/package.json:2) | `@earendil-works/pi-coding-agent` `0.84.4`; binary `pi` trỏ tới `dist/bundle/cli.js` |
+| OMP | `$(command -v omp)`, ELF chứa package metadata `@oh-my-pi/pi-coding-agent` và source bundle | Phiên bản `18.5.0`; upstream `can1357/oh-my-pi` |
+| Pi | package.json (`@earendil-works/pi-coding-agent/package.json`, bản cài 0.84.4) | `@earendil-works/pi-coding-agent` `0.84.4`; binary `pi` trỏ tới `dist/bundle/cli.js` |
 
 Đây là phiên bản cài trên máy, không phải kết luận về phiên bản mới nhất. OMP được đọc tĩnh; không chạy startup vì có thể tự khám phá cấu hình cá nhân.
 
@@ -29,9 +29,9 @@ Q12 sau khảo sát đã chọn hỗ trợ **ChatGPT và OMP + Google Antigravit
 
 ## Pi: có thể dùng nhưng không thay thế OMP nguyên trạng
 
-- Pi cài trên máy có print/JSON/RPC, `--provider`, `--model`, `--no-session`, `--no-tools`, `--no-extensions`, `--no-skills`, `--no-prompt-templates`, `--no-context-files`. [CLI local](https://github.com/earendil-works/pi/tree/main/packages/coding-agent), [flags đã cài](/home/mars/.nvm/versions/node/v24.13.0/lib/node_modules/@earendil-works/pi-coding-agent/README.md:540)
-- Tài liệu provider của bản `0.84.4` liệt kê ChatGPT/Codex OAuth nhưng không liệt kê Antigravity/Gemini CLI OAuth. Source provider Google hiện dùng `GEMINI_API_KEY`; các mục Antigravity trong changelog cũ không đủ để suy ra hỗ trợ hiện tại. [Providers local](/home/mars/.nvm/versions/node/v24.13.0/lib/node_modules/@earendil-works/pi-coding-agent/docs/providers.md:15), [Google source local](/home/mars/.nvm/versions/node/v24.13.0/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/google.js:5)
-- SDK Pi có `ModelRuntime.login(providerId, type, interaction)`; `AuthInteraction` cung cấp `prompt`, `notify`, `signal`, các event URL/device code và prompt manual code. Có thể xây cầu nối UI qua SDK; tài liệu RPC đã cài không mô tả lệnh login tương ứng OMP. [SDK local](/home/mars/.nvm/versions/node/v24.13.0/lib/node_modules/@earendil-works/pi-coding-agent/docs/sdk.md:442), [Auth interaction local](/home/mars/.nvm/versions/node/v24.13.0/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/auth/types.d.ts:101)
+- Pi cài trên máy có print/JSON/RPC, `--provider`, `--model`, `--no-session`, `--no-tools`, `--no-extensions`, `--no-skills`, `--no-prompt-templates`, `--no-context-files`. [CLI local](https://github.com/earendil-works/pi/tree/main/packages/coding-agent), flags đã cài (`@earendil-works/pi-coding-agent/README.md`, bản cài 0.84.4)
+- Tài liệu provider của bản `0.84.4` liệt kê ChatGPT/Codex OAuth nhưng không liệt kê Antigravity/Gemini CLI OAuth. Source provider Google hiện dùng `GEMINI_API_KEY`; các mục Antigravity trong changelog cũ không đủ để suy ra hỗ trợ hiện tại. Providers local (`@earendil-works/pi-coding-agent/docs/providers.md`, bản cài 0.84.4), Google source local (`@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/google.js`, bản cài 0.84.4)
+- SDK Pi có `ModelRuntime.login(providerId, type, interaction)`; `AuthInteraction` cung cấp `prompt`, `notify`, `signal`, các event URL/device code và prompt manual code. Có thể xây cầu nối UI qua SDK; tài liệu RPC đã cài không mô tả lệnh login tương ứng OMP. SDK local (`@earendil-works/pi-coding-agent/docs/sdk.md`, bản cài 0.84.4), Auth interaction local (`@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/auth/types.d.ts`, bản cài 0.84.4)
 
 ## Ràng buộc cho adapter notes — gồm đề xuất và quyết định đã chốt
 

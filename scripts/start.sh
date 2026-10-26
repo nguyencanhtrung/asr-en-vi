@@ -103,7 +103,7 @@ case "$model_host_path" in
 esac
 if [ "$mode" = offline ]; then
     if [ ! -d "$model_host_path" ]; then
-        fail "Offline mode requires an existing prepared model directory: $model_host_path"
+        fail "startup_model_unavailable: offline mode requires prepared local models."
     fi
 else
     mkdir -p "$model_host_path"
@@ -131,9 +131,7 @@ print_community_1_download_guidance() {
     echo "Before downloading, accept the Community-1 conditions at:" >&2
     echo "  https://huggingface.co/pyannote/speaker-diarization-community-1" >&2
     echo "Authenticate on this host with: hf auth login --add-to-git-credential" >&2
-    echo "Then run:" >&2
-    echo "  git lfs install" >&2
-    echo "  git clone https://hf.co/pyannote/speaker-diarization-community-1 \"$diarization_model_path\"" >&2
+    echo "Run git lfs install, then clone Community-1 into the configured model directory." >&2
     echo "Move any incomplete copy out of the way before cloning." >&2
 }
 
@@ -146,22 +144,19 @@ for required_model_file in \
 do
     required_model_path="$diarization_model_path/$required_model_file"
     if [ ! -f "$required_model_path" ]; then
-        echo "Community-1 is incomplete at: $diarization_model_path" >&2
-        echo "Missing required file: $required_model_file" >&2
+        echo "startup_model_incomplete: stage=startup_model_validation" >&2
         print_community_1_download_guidance
         exit 1
     fi
     if [ ! -s "$required_model_path" ]; then
-        echo "Community-1 is incomplete at: $diarization_model_path" >&2
-        echo "Required file is empty: $required_model_file" >&2
+        echo "startup_model_incomplete: stage=startup_model_validation" >&2
         print_community_1_download_guidance
         exit 1
     fi
     lfs_pointer_prefix='version https://git-lfs.github.com/spec/v1'
     if dd if="$required_model_path" bs="${#lfs_pointer_prefix}" count=1 2>/dev/null | \
         LC_ALL=C grep -F -x "$lfs_pointer_prefix" >/dev/null 2>&1; then
-        echo "Community-1 is incomplete at: $diarization_model_path" >&2
-        echo "Required file is an unresolved Git LFS pointer: $required_model_file" >&2
+        echo "startup_model_incomplete: stage=startup_model_validation" >&2
         print_community_1_download_guidance
         exit 1
     fi
@@ -272,4 +267,10 @@ compose_runtime run --pull never --rm --no-deps worker python -m asr_en_vi.cli r
 compose_runtime up --pull never --no-build --detach --wait \
     --wait-timeout "${ASR_STARTUP_TIMEOUT:-120}"
 compose_runtime exec -T app python -m asr_en_vi.cli installation check
-compose_runtime exec -T app python -m asr_en_vi.cli access show
+if [ -t 1 ]; then
+    compose_runtime exec -T app python -m asr_en_vi.cli access show
+else
+    printf '%s\n' \
+        "Startup complete; access details are withheld from non-interactive output." \
+        "Run 'docker compose exec -T app python -m asr_en_vi.cli access show' to display the access link and QR."
+fi

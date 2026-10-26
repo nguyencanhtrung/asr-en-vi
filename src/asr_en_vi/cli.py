@@ -105,8 +105,8 @@ def _select_runtime(settings: Settings, *, require_model: bool = True):
             get_supported_compute_types=ctranslate2.get_supported_compute_types,
             require_model=require_model,
         )
-    except RuntimeConfigurationError as error:
-        print(str(error), file=sys.stderr)
+    except RuntimeConfigurationError:
+        print("runtime_unavailable: selecting_runtime", file=sys.stderr)
         return None
 
 
@@ -114,7 +114,7 @@ def check_model(settings: Settings) -> int:
     profile = _select_runtime(settings)
     if profile is None:
         return 1
-    print(f"Local ASR model is ready: {profile.model_path}")
+    print("Local ASR model is ready.")
     return 0
 
 
@@ -124,25 +124,22 @@ def prepare_model(settings: Settings) -> int:
         return 1
     try:
         prepared_model_directory(profile.model_path)
-        print(f"Local ASR model is ready: {profile.model_path}")
+        print("Local ASR model is ready.")
         return 0
     except ModelConfigurationError:
         pass
 
     repository = MODEL_REPOSITORIES[profile.device]
-    print(f"Downloading {repository} to {profile.model_path}...")
+    print("Preparing local ASR model...")
     try:
         from huggingface_hub import snapshot_download
 
         snapshot_download(repo_id=repository, local_dir=profile.model_path)
         prepared_model_directory(profile.model_path)
-    except (OSError, RuntimeError, ValueError, ModelConfigurationError) as error:
-        print(
-            f"Could not prepare local ASR model at {profile.model_path}: {error}",
-            file=sys.stderr,
-        )
+    except (OSError, RuntimeError, ValueError, ModelConfigurationError):
+        print("model_preparation_failed: model_preparation", file=sys.stderr)
         return 1
-    print(f"Local ASR model is ready: {profile.model_path}")
+    print("Local ASR model is ready.")
     return 0
 
 
@@ -165,13 +162,9 @@ def check_runtime(settings: Settings, *, verbose: bool = False) -> int:
             )
         return 1
     if profile.device == "cuda":
-        print(
-            f"NVIDIA GPU is ready; local ASR model: {profile.model_path} ({profile.compute_type})"
-        )
+        print("NVIDIA GPU is ready; local ASR runtime is ready.")
     else:
-        print(
-            f"CPU fallback is ready; local ASR model: {profile.model_path} ({profile.compute_type})"
-        )
+        print("CPU fallback is ready; local ASR runtime is ready.")
     print(f"Local Community-1 diarization model is ready on {profile.device}.")
     return 0
 
@@ -191,10 +184,7 @@ def check_installation(settings: Settings) -> int:
     except (ModelConfigurationError, DiarizationConfigurationError, OSError):
         print("Installation incomplete: the app cannot read the mounted models.", file=sys.stderr)
         return 1
-    print(
-        "Installation ready: worker and local models are visible to the app "
-        f"({profile.device}, {profile.compute_type}, {profile.model_name})."
-    )
+    print("Installation ready: worker and local models are visible to the app.")
     return 0
 
 
@@ -212,6 +202,8 @@ def _run_diarization_preflight(
         "--device",
         device,
     ]
+    if verbose:
+        command.append("--verbose")
     try:
         result = subprocess.run(
             command,

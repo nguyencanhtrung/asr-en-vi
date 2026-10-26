@@ -21,6 +21,7 @@ from asr_en_vi.notes_document import (
     build_citations,
     render_markdown,
 )
+from asr_en_vi.safe_logging import emit_safe_log
 from asr_en_vi.tasks import TaskError
 
 _PROVIDER_LABELS = {"chatgpt": "ChatGPT", "antigravity": "Google Antigravity"}
@@ -32,6 +33,7 @@ def _emit(event: dict[str, Any]) -> None:
 
 def run_notes_task(data_dir: Path, task_id: str, owner_id: str) -> int:
     provider_label = "The notes provider"
+    stage = "starting_notes"
     try:
         task, snapshot = load_notes_task_input(data_dir, task_id, owner_id=owner_id)
         provider_label = _PROVIDER_LABELS.get(task["notes_provider"], provider_label)
@@ -74,7 +76,8 @@ def run_notes_task(data_dir: Path, task_id: str, owner_id: str) -> int:
                 }
             )
             return 1
-        _emit({"type": "stage", "stage": "generating_notes"})
+        stage = "generating_notes"
+        _emit({"type": "stage", "stage": stage})
         coverage: dict[str, Any] = {}
         document = provider.generate_notes_document(
             snapshot=snapshot,
@@ -113,14 +116,7 @@ def run_notes_task(data_dir: Path, task_id: str, owner_id: str) -> int:
         return 1
     except Exception:
         # Do not log exception text because it can contain prompt or provider data.
-        print(
-            json.dumps(
-                {"event": "notes_error", "task_id": task_id, "code": "notes_failed"},
-                separators=(",", ":"),
-            ),
-            file=sys.stderr,
-            flush=True,
-        )
+        emit_safe_log(event="notes_error", stage=stage, code="notes_failed")
         _emit(
             {
                 "type": "error",

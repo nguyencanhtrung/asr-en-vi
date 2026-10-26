@@ -163,3 +163,10 @@ Người dùng đồng ý toàn bộ đề xuất Q23–Q27. Các quyết địn
 | Q27 — Chọn model trên UI | Một provider có nhiều model; người dùng muốn cân đối quota và chất lượng | Cho chọn provider + model trước mỗi lần chạy, nhớ lựa chọn gần nhất của từng provider và hiển thị rõ để đổi. Không đổi model giữa tác vụ hoặc khi model hết quota/không còn truy cập được. Danh sách lấy theo kết nối, model gợi ý và cấu hình phát hành chốt sau kiểm chứng; catalog không bảo đảm inference thành công |
 
 Phiên thiết kế đã thống nhất Q1–Q27. [Backend contract](backend-contract-v1.md) là bản tổng hợp kỹ thuật để triển khai; [spec](specification-v1.md) là chuẩn nghiệm thu. Không còn câu hỏi sản phẩm đang chờ trong phạm vi backend này. Việc chọn cấu hình phát hành, các ngưỡng vận hành và định dạng đầu vào phụ thuộc kiểm chứng bằng tài khoản/mẫu thật, không phải kết quả đã đạt. Chưa triển khai backend, đăng nhập, gửi dữ liệu họp hoặc benchmark trong phiên thiết kế.
+
+## Hồ sơ thay đổi cho v0.1.0
+
+Xem [bằng chứng và đánh đổi theo tag](release/runtime-v0.1.0.md),
+[các thay đổi notes](release/notes-v0.1.0.md) và
+[chỉ mục thay đổi](architecture-changes-v1.md). Số đo lịch sử giữ nguyên điều kiện
+và revision gốc; không phải phép đo lại artifact 0.1.0.

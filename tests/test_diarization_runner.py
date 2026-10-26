@@ -444,9 +444,7 @@ def test_child_error_allowlist_requires_known_code_and_exact_safe_message(code, 
     assert result_message == DIARIZATION_ERROR_MESSAGES[expected]
 
 
-def test_runner_emits_structured_safe_stderr_context_with_task_and_meeting_ids(
-    tmp_path, monkeypatch, capsys
-):
+def test_runner_default_safe_stderr_and_explicit_verbose_traceback(tmp_path, monkeypatch, capsys):
     model = _prepared_model(tmp_path / "model")
     audio = tmp_path / "recording.wav"
     audio.write_bytes(b"audio")
@@ -484,10 +482,31 @@ def test_runner_emits_structured_safe_stderr_context_with_task_and_meeting_ids(
     context = json.loads(captured.err.splitlines()[-1])
     assert context == {
         "event": "diarization_error",
-        "diagnostic_id": diagnostic_id,
-        "task_id": diagnostic_id,
-        "meeting_id": meeting_id,
         "stage": "decoding_input",
         "code": "diarization_input_decode_failed",
     }
-    assert "Traceback" in captured.err
+    assert diagnostic_id not in captured.err
+    assert meeting_id not in captured.err
+    assert "Traceback" not in captured.err
+
+    def fail_with_vendor_detail(**_kwargs):
+        raise RuntimeError("verbose diagnostic sentinel token=secret /private/model")
+
+    monkeypatch.setattr("asr_en_vi.diarization_runner.diarize_file", fail_with_vendor_detail)
+    assert (
+        main(
+            [
+                "--verbose",
+                "--model",
+                str(model),
+                "--audio",
+                str(audio),
+                "--device",
+                "cpu",
+            ]
+        )
+        == 1
+    )
+    verbose_captured = capsys.readouterr()
+    assert "Traceback" in verbose_captured.err
+    assert "verbose diagnostic sentinel" in verbose_captured.err
