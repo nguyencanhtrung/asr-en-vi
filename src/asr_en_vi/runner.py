@@ -7,11 +7,12 @@ import json
 import math
 import os
 import sys
-import traceback
 import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from asr_en_vi.safe_logging import emit_safe_log
 
 _REQUIRED_MODEL_FILES = (
     "model.bin",
@@ -170,7 +171,7 @@ def main() -> int:
         )
         return 2
     except Exception:
-        traceback.print_exc(file=sys.stderr)
+        emit_safe_log(event="runner_error", stage="unknown", code="transcription_failed")
         _emit(
             {
                 "type": "error",

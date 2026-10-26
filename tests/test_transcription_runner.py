@@ -56,7 +56,7 @@ def test_model_validation_rejects_vocabulary_fallback_and_bad_preprocessor(tmp_p
         prepared_model_directory(malformed_model)
 
 
-def test_runner_reports_traceback_to_stderr_without_exposing_it_in_protocol(
+def test_runner_reports_fixed_error_to_stderr_without_exposing_exception(
     tmp_path, monkeypatch, capsys
 ):
     model_dir = _prepared_model(tmp_path / "model")
@@ -64,7 +64,7 @@ def test_runner_reports_traceback_to_stderr_without_exposing_it_in_protocol(
     audio.write_bytes(b"audio")
 
     def fail_transcription(**_kwargs):
-        raise RuntimeError("diagnostic traceback sentinel")
+        raise RuntimeError("diagnostic traceback sentinel token=secret /private/model")
 
     monkeypatch.setattr(runner, "transcribe_file", fail_transcription)
     monkeypatch.setattr(
@@ -85,8 +85,13 @@ def test_runner_reports_traceback_to_stderr_without_exposing_it_in_protocol(
 
     assert runner.main() == 1
     captured = capsys.readouterr()
-    assert "Traceback (most recent call last)" in captured.err
-    assert "diagnostic traceback sentinel" in captured.err
+    assert captured.err == (
+        '{"event":"runner_error","stage":"unknown","code":"transcription_failed"}\n'
+    )
+    assert "Traceback" not in captured.err
+    assert "diagnostic traceback sentinel" not in captured.err
+    assert "token=secret" not in captured.err
+    assert "/private/model" not in captured.err
     assert '"code":"transcription_failed"' in captured.out
     assert "diagnostic traceback sentinel" not in captured.out
 

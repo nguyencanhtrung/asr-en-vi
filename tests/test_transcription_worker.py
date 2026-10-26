@@ -426,13 +426,10 @@ def test_worker_classifies_publication_failures(tmp_path, monkeypatch, capsys, f
     assert stored["error_code"] == "publication_failed"
     assert stored["error_message"] == TASK_ERROR_MESSAGES["publication_failed"]
     captured = capsys.readouterr()
-    assert "Traceback" in captured.err
+    assert "Traceback" not in captured.err
     contexts = [json.loads(line) for line in captured.err.splitlines() if line.startswith("{")]
     assert contexts[-1] == {
         "event": "publishing_error",
-        "diagnostic_id": task["id"],
-        "task_id": task["id"],
-        "meeting_id": meeting_ids[0],
         "stage": "publishing",
         "code": stored["error_code"],
     }
@@ -620,7 +617,7 @@ time.sleep(60)
     finally:
         os.close(lock_fd)
 
-    assert select_calls <= 2
+    assert select_calls <= 3
     assert transcription_state(data_dir, meeting_ids[0])["task"]["status"] == "failed"
     assert transcription_state(data_dir, meeting_ids[0])["generation"] is None
     assert transcription_state(data_dir, meeting_ids[0])["task"]["error_code"] == (
@@ -630,7 +627,7 @@ time.sleep(60)
         os.kill(int(pid_path.read_text(encoding="ascii")), 0)
 
 
-def test_worker_inherits_runner_stderr_for_container_logs(tmp_path, monkeypatch, capfd):
+def test_worker_suppresses_runner_stderr_without_leaking_child_output(tmp_path, monkeypatch, capfd):
     data_dir, model_dir, meeting_ids, settings, lock_fd = _worker_task_store(tmp_path)
     task = _accept_and_claim(data_dir, model_dir, meeting_ids[0])
     _install_runner_shim(
@@ -638,7 +635,7 @@ def test_worker_inherits_runner_stderr_for_container_logs(tmp_path, monkeypatch,
         monkeypatch,
         """import json
 import sys
-sys.stderr.write("runner diagnostic sentinel\\n")
+sys.stderr.write("runner diagnostic sentinel token=secret /private/recording\\n" * 4096)
 sys.stderr.flush()
 event = {"type": "error", "code": "transcription_failed", "message": "failed"}
 print(json.dumps(event), flush=True)
@@ -650,8 +647,17 @@ print(json.dumps(event), flush=True)
         os.close(lock_fd)
 
     captured = capfd.readouterr().err
-    assert "runner diagnostic sentinel" in captured
+    assert "runner diagnostic sentinel" not in captured
+    assert "token=secret" not in captured
+    assert "/private/recording" not in captured
+    assert task["id"] not in captured
+    assert meeting_ids[0] not in captured
     contexts = [json.loads(line) for line in captured.splitlines() if line.startswith("{")]
+    assert contexts[0] == {
+        "event": "child_stderr",
+        "stage": "child_process",
+        "code": "child_stderr_suppressed",
+    }
     assert contexts[-1]["event"] == "transcription_error"
     assert contexts[-1]["code"] == "transcription_failed"
     assert transcription_state(data_dir, meeting_ids[0])["task"]["status"] == "failed"
@@ -703,6 +709,7 @@ def test_diarization_command_passes_task_and_meeting_diagnostic_ids(tmp_path):
         "--meeting-id",
         meeting_id,
     ]
+    assert "--verbose" not in command
 
 
 def test_torch_cuda_preflight_uses_an_isolated_allocation_probe(monkeypatch):

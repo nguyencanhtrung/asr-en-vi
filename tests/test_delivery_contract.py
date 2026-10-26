@@ -256,9 +256,11 @@ def test_startup_rejects_incomplete_community_model_before_image_build(tmp_path)
     assert result.returncode != 0
     assert "compose -f compose.yaml build" not in result.docker_log
     guidance = result.stdout + result.stderr
+    assert "startup_model_incomplete: stage=startup_model_validation" in guidance
     assert "accept the Community-1 conditions" in guidance
     assert "hf auth login" in guidance
-    assert "git clone https://hf.co/pyannote/speaker-diarization-community-1" in guidance
+    assert "Run git lfs install" in guidance
+    assert str(tmp_path) not in guidance
     assert "anonymous" not in guidance.casefold()
 
 
@@ -273,21 +275,15 @@ def test_startup_checks_complete_community_model_then_preflights_before_services
         return next(i for i, line in enumerate(commands) if marker in line)
 
     build = command_index("compose -f compose.yaml build")
-    image_version = command_index("version --json --expect-version 0.1.0-rc.1")
+    image_version = command_index("version --json --expect-version 0.1.0")
     model_prepare = command_index("asr_en_vi.cli model prepare")
     runtime_check = command_index("asr_en_vi.cli runtime check")
     services = command_index("compose -f compose.yaml up --pull never --no-build")
     install_check = command_index("asr_en_vi.cli installation check")
-    access_link = command_index("asr_en_vi.cli access show")
-    assert (
-        build
-        < image_version
-        < model_prepare
-        < runtime_check
-        < services
-        < install_check
-        < access_link
-    )
+    assert build < image_version < model_prepare < runtime_check < services < install_check
+    assert "asr_en_vi.cli access show" not in commands
+    assert "access details are withheld from non-interactive output" in result.stdout
+    assert "docker compose exec -T app python -m asr_en_vi.cli access show" in result.stdout
     assert "--network none" in commands[image_version]
     assert "HF_HUB_OFFLINE=0" in commands[model_prepare]
     assert "TRANSFORMERS_OFFLINE=0" in commands[model_prepare]
@@ -316,8 +312,9 @@ def test_startup_rejects_git_lfs_pointer_before_image_build(tmp_path):
     )
 
     assert result.returncode != 0
-    assert "unresolved Git LFS pointer" in result.stderr
+    assert "startup_model_incomplete: stage=startup_model_validation" in result.stderr
     assert "hf auth login --add-to-git-credential" in result.stderr
+    assert str(tmp_path) not in result.stderr
     assert "compose -f compose.yaml build" not in result.docker_log
 
 
@@ -378,7 +375,7 @@ def test_pull_version_mismatch_stops_before_any_service_volume_is_mounted(tmp_pa
     )
 
     assert result.returncode != 0
-    assert "does not match source version 0.1.0-rc.1 and schema 12" in result.stderr
+    assert "does not match source version 0.1.0 and schema 12" in result.stderr
     commands = result.docker_log.splitlines()
     assert f"pull {image}" in commands
     assert any("version --json --expect-version" in line for line in commands)
@@ -552,7 +549,10 @@ def test_offline_mode_does_not_create_a_missing_model_directory(tmp_path):
     result = _run_start(tmp_path, args=("--offline",))
 
     assert result.returncode != 0
-    assert "requires an existing prepared model directory" in result.stderr
+    assert (
+        "startup_model_unavailable: offline mode requires prepared local models." in result.stderr
+    )
+    assert str(tmp_path) not in result.stderr
     assert not (tmp_path / "models").exists()
     assert result.docker_log
 
@@ -635,9 +635,10 @@ def test_platform_images_publish_only_on_version_tags_with_native_runners():
     }
 
     assert publish_platform["if"] == "startsWith(github.ref, 'refs/tags/v')"
-    assert publish_platform["needs"] == ["quality", "container"]
+    assert publish_platform["needs"] == ["release-record"]
+    assert jobs["release-record"]["needs"] == ["quality", "container"]
     assert publish_platform["timeout-minutes"] >= 60
-    assert publish_platform["permissions"] == {"contents": "read", "packages": "write"}
+    assert publish_platform["permissions"] == {"contents": "write", "packages": "write"}
     assert publish_platform["strategy"]["fail-fast"] is False
     matrix_entries = publish_platform["strategy"]["matrix"]["include"]
     assert {

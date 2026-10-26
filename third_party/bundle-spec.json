@@ -1,0 +1,723 @@
+{
+  "schema": 1,
+  "task": "issue17-license-bundle",
+  "application_version": "0.1.0",
+  "artifact_root_layout": {
+    "downloads": "downloads",
+    "source_manifests": "source-manifests",
+    "extracted": "extracted",
+    "debian_sources": "debian-sources"
+  },
+  "notice_artifacts": [
+    {
+      "id": "ctranslate2-license",
+      "package": "ctranslate2",
+      "version": "4.8.3",
+      "declared_license": "MIT",
+      "reviewed_license": "MIT",
+      "url": "https://raw.githubusercontent.com/OpenNMT/CTranslate2/v4.8.3/LICENSE",
+      "sha256": "54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb",
+      "destination": "notices/ctranslate2/4.8.3/LICENSE"
+    },
+    {
+      "id": "flatbuffers-license",
+      "package": "flatbuffers",
+      "version": "25.12.19",
+      "declared_license": "Apache 2.0",
+      "reviewed_license": "Apache-2.0",
+      "url": "https://raw.githubusercontent.com/google/flatbuffers/v25.12.19/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "destination": "notices/flatbuffers/25.12.19/LICENSE"
+    },
+    {
+      "id": "tokenizers-license",
+      "package": "tokenizers",
+      "version": "0.23.3",
+      "declared_license": "Apache 2.0 classifier",
+      "reviewed_license": "Apache-2.0",
+      "url": "https://raw.githubusercontent.com/huggingface/tokenizers/v0.23.3/LICENSE",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "destination": "notices/tokenizers/0.23.3/LICENSE"
+    },
+    {
+      "id": "primepy-license",
+      "package": "primePy",
+      "version": "1.3",
+      "declared_license": "UNKNOWN metadata; MIT classifier",
+      "reviewed_license": "MIT at upstream default commit 147a5746e7473fc70e3dadcc690831555cafab04",
+      "url": "https://raw.githubusercontent.com/janaindrajit/primePy/147a5746e7473fc70e3dadcc690831555cafab04/LICENSE",
+      "sha256": "1a06a1576544095ade4508462bc6c795c874a499e2abe12d21557e85a3741d9e",
+      "destination": "notices/primePy/1.3/LICENSE"
+    },
+    {
+      "id": "onednn-license",
+      "package": "oneDNN",
+      "version": "3.1.1",
+      "declared_license": "Apache-2.0",
+      "reviewed_license": "Apache-2.0",
+      "url": "https://raw.githubusercontent.com/uxlfoundation/oneDNN/v3.1.1/LICENSE",
+      "sha256": "dd12452e1ae11e3282271aa5895d8175296b83e936a027209f9399d26a407d0f",
+      "destination": "notices/native/oneDNN/3.1.1/LICENSE"
+    },
+    {
+      "id": "onednn-third-party-programs",
+      "package": "oneDNN",
+      "version": "3.1.1",
+      "declared_license": "third-party attribution manifest",
+      "reviewed_license": "source-provided THIRD-PARTY-PROGRAMS",
+      "url": "https://raw.githubusercontent.com/uxlfoundation/oneDNN/v3.1.1/THIRD-PARTY-PROGRAMS",
+      "sha256": "9117585dfc6b5cd0fafc063312f28a86ec82eb97bf68316dcefcaaa7fc11428e",
+      "destination": "notices/native/oneDNN/3.1.1/THIRD-PARTY-PROGRAMS"
+    },
+    {
+      "id": "omp-license",
+      "package": "oh-my-pi",
+      "version": "18.5.0",
+      "declared_license": "upstream release license",
+      "reviewed_license": "source tag v18.5.0",
+      "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.5.0/LICENSE",
+      "sha256": "16c45f9d667442781f03fa198914cc39abcaa48ec5ed8f644643e554ca2fbf63",
+      "destination": "notices/omp/18.5.0/LICENSE"
+    },
+    {
+      "id": "omp-third-party-notices",
+      "package": "oh-my-pi",
+      "version": "18.5.0",
+      "declared_license": "third-party attribution manifest",
+      "reviewed_license": "source tag v18.5.0",
+      "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.5.0/THIRD-PARTY-NOTICES.txt",
+      "sha256": "d0c2e7c05bb4d755044b13fa560be58d01ab7c980b87892400a979397e569a8b",
+      "destination": "notices/omp/18.5.0/THIRD-PARTY-NOTICES.txt"
+    },
+    {
+      "id": "omp-natives-license",
+      "package": "oh-my-pi/natives",
+      "version": "18.5.0",
+      "declared_license": "upstream package license",
+      "reviewed_license": "source tag v18.5.0",
+      "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.5.0/packages/natives/LICENSE",
+      "sha256": "90179611795093ae17d4a6bc6e06da450a8e54bbeb147a065b4127e1e4b407a7",
+      "destination": "notices/omp/18.5.0/packages-natives-LICENSE"
+    },
+    {
+      "id": "omp-natives-third-party-notices",
+      "package": "oh-my-pi/natives",
+      "version": "18.5.0",
+      "declared_license": "third-party attribution manifest",
+      "reviewed_license": "source tag v18.5.0",
+      "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.5.0/packages/natives/THIRD-PARTY-NOTICES.txt",
+      "sha256": "d0c2e7c05bb4d755044b13fa560be58d01ab7c980b87892400a979397e569a8b",
+      "destination": "notices/omp/18.5.0/packages-natives-THIRD-PARTY-NOTICES.txt"
+    },
+    {
+      "id": "cuda-12.8.1-eula",
+      "package": "NVIDIA CUDA base",
+      "version": "12.8.1",
+      "declared_license": "NVIDIA CUDA EULA",
+      "reviewed_license": "CUDA 12.8.1 EULA; component eligibility remains image-specific",
+      "url": "https://docs.nvidia.com/cuda/archive/12.8.1/eula/index.html",
+      "sha256": "6722d4c310a2ec9ad869ede3371a648fe2cfc2baaf8e1ece2c35e1dccc05752c",
+      "destination": "notices/nvidia/base-image/cuda-12.8.1-EULA.html"
+    },
+    {
+      "id": "polyform-noncommercial",
+      "package": "asr-en-vi",
+      "version": "0.1.0",
+      "declared_license": "PolyForm Noncommercial 1.0.0",
+      "reviewed_license": "English authoritative; Vietnamese reference",
+      "url": "https://polyformproject.org/licenses/noncommercial/1.0.0",
+      "sha256": "8fb635fd3e464830fd511800aaf65966e0855637e98ed8c1545e66a9c47da733",
+      "destination": "notices/application/PolyForm-Noncommercial-1.0.0.html"
+    },
+    {
+      "id": "onemkl-license-overview",
+      "package": "Intel oneMKL",
+      "version": "2025.3.0 terms family",
+      "declared_license": "Intel oneAPI license overview",
+      "reviewed_license": "Public terms artifact; exact wheel build materials remain unresolved",
+      "url": "https://cdrdv2-public.intel.com/686502/oneapi-license-overview-10-05-22.pdf",
+      "sha256": "15e84d7e2e7ab90fcef598b29cdf9cb9a97c0f9ddb459ad65ecd02c65f570d76",
+      "destination": "notices/native/oneMKL/2025/oneapi-license-overview-10-05-22.pdf"
+    },
+    {
+      "id": "gpl-2.0-text",
+      "package": "Ubuntu GPL-bearing sources",
+      "version": "GPL-2.0-only",
+      "declared_license": "GPL-2.0-or-later family",
+      "reviewed_license": "Canonical SPDX GPL-2.0-only text",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/GPL-2.0-only.txt",
+      "sha256": "aaf135472f81c5b4a0dca9367e5bb5e9750032b5bebe5442b36e4c0a47430df3",
+      "destination": "notices/licenses/GPL-2.0-only.txt"
+    },
+    {
+      "id": "gpl-3.0-text",
+      "package": "Ubuntu GPL-bearing sources",
+      "version": "GPL-3.0-only",
+      "declared_license": "GPL-3.0-or-later family",
+      "reviewed_license": "Canonical SPDX GPL-3.0-only text",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/GPL-3.0-only.txt",
+      "sha256": "fb981668c18a279e285fc4d83fba1e836cc84dd4daa73c9697d3cfd2d8aca6e0",
+      "destination": "notices/licenses/GPL-3.0-only.txt"
+    },
+    {
+      "id": "lgpl-2.1-text",
+      "package": "Ubuntu LGPL-bearing sources",
+      "version": "LGPL-2.1-only",
+      "declared_license": "LGPL-2.1 family",
+      "reviewed_license": "Canonical SPDX LGPL-2.1-only text",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/LGPL-2.1-only.txt",
+      "sha256": "5749785c8bdefafcb5d798270ed0a967036fe2ca63dcedade1627565dfef81d2",
+      "destination": "notices/licenses/LGPL-2.1-only.txt"
+    },
+    {
+      "id": "lgpl-3.0-text",
+      "package": "Ubuntu LGPL-bearing sources",
+      "version": "LGPL-3.0-only",
+      "declared_license": "LGPL-3.0 family",
+      "reviewed_license": "Canonical SPDX LGPL-3.0-only text",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/LGPL-3.0-only.txt",
+      "sha256": "996af0513df21f7496288951c41428a03c174e9e4a9d63665c57d670f845ccb1",
+      "destination": "notices/licenses/LGPL-3.0-only.txt"
+    },
+    {
+      "id": "gcc-runtime-exception-text",
+      "package": "GCC libgomp runtime",
+      "version": "GCC-exception-3.1",
+      "declared_license": "GPLv3 plus GCC Runtime Library Exception",
+      "reviewed_license": "Canonical SPDX GCC-exception-3.1 text; does not prove bundled wheel binary provenance",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/GCC-exception-3.1.txt",
+      "sha256": "7103d4f7f7e2f8ce10d282a05e0689637f8d6d9ef7b399d808d1da313e69b960",
+      "destination": "notices/licenses/GCC-exception-3.1.txt"
+    }
+  ],
+  "package_artifacts": [
+    {
+      "id": "ctranslate2-wheel-amd64-cp312",
+      "package": "ctranslate2",
+      "version": "4.8.3",
+      "kind": "wheel",
+      "url": "https://files.pythonhosted.org/packages/b4/39/438c9236c57443099763789ee009d6d43a65fb58283163fb0d6e6dadacd7/ctranslate2-4.8.3-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "7e161eb031fcf2a5d81ce3a1cd8be4954c7df758d96cfaba57aeecc69a0c00ae",
+      "artifact_name": "ctranslate2-4.8.3-cp312-manylinux_x86_64.whl"
+    },
+    {
+      "id": "flatbuffers-wheel",
+      "package": "flatbuffers",
+      "version": "25.12.19",
+      "kind": "wheel",
+      "url": "https://files.pythonhosted.org/packages/e8/2d/d2a548598be01649e2d46231d151a6c56d10b964d94043a335ae56ea2d92/flatbuffers-25.12.19-py2.py3-none-any.whl",
+      "sha256": "7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4",
+      "artifact_name": "flatbuffers-25.12.19-py3-none-any.whl"
+    },
+    {
+      "id": "tokenizers-wheel-amd64",
+      "package": "tokenizers",
+      "version": "0.23.3",
+      "kind": "wheel",
+      "url": "https://files.pythonhosted.org/packages/3a/40/6706b82693715581457c6d5423eaa7faae576bb0526c5738a57085eb4449/tokenizers-0.23.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "sha256": "376851d22bcf9d650a5c3090bb83e6cf9e895fbf0595369fa4cd43c1f69b5f87",
+      "artifact_name": "tokenizers-0.23.3-cp310-manylinux_x86_64.whl"
+    },
+    {
+      "id": "tokenizers-sdist",
+      "package": "tokenizers",
+      "version": "0.23.3",
+      "kind": "sdist",
+      "url": "https://files.pythonhosted.org/packages/e0/7c/2cabb2174e772636683008f2c5621949b645da7d303c596589e84516a184/tokenizers-0.23.3.tar.gz",
+      "sha256": "cded33237c77caeef62944d32aa9a7ef42bdce2b3497e18d137e072a8c4be438",
+      "artifact_name": "tokenizers-0.23.3.tar.gz"
+    },
+    {
+      "id": "primepy-wheel",
+      "package": "primePy",
+      "version": "1.3",
+      "kind": "wheel",
+      "url": "https://files.pythonhosted.org/packages/74/c1/bb7e334135859c3a92ec399bc89293ea73f28e815e35b43929c8db6af030/primePy-1.3-py3-none-any.whl",
+      "sha256": "5ed443718765be9bf7e2ff4c56cdff71b42140a15b39d054f9d99f0009e2317a",
+      "artifact_name": "primePy-1.3-py3-none-any.whl"
+    },
+    {
+      "id": "primepy-sdist",
+      "package": "primePy",
+      "version": "1.3",
+      "kind": "sdist",
+      "url": "https://files.pythonhosted.org/packages/35/77/0cfa1b4697cfb5336f3a96e8bc73327f64610be3a64c97275f1801afb395/primePy-1.3.tar.gz",
+      "sha256": "25fd7e25344b0789a5984c75d89f054fcf1f180bef20c998e4befbac92de4669",
+      "artifact_name": "primePy-1.3.tar.gz"
+    },
+    {
+      "id": "cuda-toolkit-resolver-wheel",
+      "package": "cuda-toolkit",
+      "version": "12.8.1",
+      "kind": "resolver-wheel",
+      "url": "https://files.pythonhosted.org/packages/d4/c8/7dce3a0b15b42a3b58e7d96eb22a687d3bf2c44e01d149a6874629cd9938/cuda_toolkit-12.8.1-py2.py3-none-any.whl",
+      "sha256": "adc7906af4ecbf9a352f9dca5734eceb21daec281ccfcf5675e1d2f724fc2cba",
+      "artifact_name": "cuda_toolkit-12.8.1-py2.py3-none-any.whl"
+    },
+    {
+      "id": "pyannote-audio-wheel",
+      "package": "pyannote-audio",
+      "version": "4.0.7",
+      "kind": "wheel-for-existing-notices",
+      "url": "https://files.pythonhosted.org/packages/66/a3/1d03ed6c7669f7b94ce4a7ebe3b21f5c3b6331999a5680837e371e0a0537/pyannote_audio-4.0.7-py3-none-any.whl",
+      "sha256": "852ea15c4d85bc34773e618267603ffca6a521669a74d33742692cc67fc700d6",
+      "artifact_name": "pyannote_audio-4.0.7.whl"
+    },
+    {
+      "id": "pyannote-core-wheel",
+      "package": "pyannote-core",
+      "version": "6.1.0",
+      "kind": "wheel-for-existing-notices",
+      "url": "https://files.pythonhosted.org/packages/5a/67/ef9071e7d2c0e37161f6f566160afad8e14ccd14e47daa32a922a8934dbb/pyannote_core-6.1.0-py3-none-any.whl",
+      "sha256": "44208a48a43d540b6a40c0ab07c1cb38c8deacfa3308de2608eb7dffa0e8cb88",
+      "artifact_name": "pyannote_core-6.1.0.whl"
+    },
+    {
+      "id": "pyannote-database-wheel",
+      "package": "pyannote-database",
+      "version": "6.1.1",
+      "kind": "wheel-for-existing-notices",
+      "url": "https://files.pythonhosted.org/packages/04/bf/6a6f5abaa4d9f803f34c9883ef5e316624eac6be0eaa87720216be9bba12/pyannote_database-6.1.1-py3-none-any.whl",
+      "sha256": "36460c70ce9f50ff25c9ea365bc83ad625bb6b2494deccf6bd3fc750686ae684",
+      "artifact_name": "pyannote_database-6.1.1.whl"
+    },
+    {
+      "id": "pyannote-metrics-wheel",
+      "package": "pyannote-metrics",
+      "version": "4.2.0",
+      "kind": "wheel-for-existing-notices",
+      "url": "https://files.pythonhosted.org/packages/8d/30/0df61660a9c724f7bbfeaebf4b88d292ffc72c146990f403e5d3cc81364e/pyannote_metrics-4.2.0-py3-none-any.whl",
+      "sha256": "4e933ed1d05e3ce76d5657e34f51c9a12362d148bf56decd4ea5051eed4f23db",
+      "artifact_name": "pyannote_metrics-4.2.0.whl"
+    },
+    {
+      "id": "pyannote-pipeline-wheel",
+      "package": "pyannote-pipeline",
+      "version": "4.1.0",
+      "kind": "wheel-for-existing-notices",
+      "url": "https://files.pythonhosted.org/packages/a2/41/86644f9e0beee6e39758ca192283eb24adcd890231855d641e6a97b19366/pyannote_pipeline-4.1.0-py3-none-any.whl",
+      "sha256": "0f0b303a5b7cea638ce2266f14a2ea539b8bb5441e336539f878cf8d8fb78dd6",
+      "artifact_name": "pyannote_pipeline-4.1.0.whl"
+    },
+    {
+      "id": "pyannoteai-sdk-wheel",
+      "package": "pyannoteai-sdk",
+      "version": "0.4.0",
+      "kind": "wheel-for-existing-notices",
+      "url": "https://files.pythonhosted.org/packages/f9/8d/16e62133ff748931e923c2d29a150a710c85283f533a4148adc42addb6a8/pyannoteai_sdk-0.4.0-py3-none-any.whl",
+      "sha256": "36a0175978e0427f27843d690eb4d1e8ec839009ea540516d6dfcdce749cd883",
+      "artifact_name": "pyannoteai_sdk-0.4.0.whl"
+    },
+    {
+      "id": "pytorch-metric-learning-wheel",
+      "package": "pytorch-metric-learning",
+      "version": "2.9.0",
+      "kind": "wheel-for-existing-notices",
+      "url": "https://files.pythonhosted.org/packages/46/7d/73ef5052f57b7720cad00e16598db3592a5ef4826745ffca67a2f085d4dc/pytorch_metric_learning-2.9.0-py3-none-any.whl",
+      "sha256": "d51646006dc87168f00cf954785db133a4c5aac81253877248737aa42ef6432a",
+      "artifact_name": "pytorch_metric_learning-2.9.0.whl"
+    },
+    {
+      "id": "onemkl-wheel-amd64",
+      "package": "mkl",
+      "version": "2025.3.0",
+      "url": "https://files.pythonhosted.org/packages/6d/b4/ef531295ed33b929c6c5214421eeebe370f1be22536b6956b4aaf18fdbc5/mkl-2025.3.0-py2.py3-none-manylinux_2_28_x86_64.whl",
+      "sha256": "7b81f5d2e034637b187ca58666878c4e8889988a78e39e0b6ee92e846568f660",
+      "artifact_name": "mkl-2025.3.0-py2.py3-none-manylinux_2_28_x86_64.whl"
+    }
+  ],
+  "installed_notice_artifacts": [
+    {
+      "id": "pyannote-audio-license",
+      "package": "pyannote-audio",
+      "version": "4.0.7",
+      "wheel_artifact": "pyannote_audio-4.0.7.whl",
+      "archive_member": "pyannote_audio-4.0.7.dist-info/licenses/LICENSE",
+      "sha256": "a3b53644a76e70e289b25271b119c0a1aadaaf0db7a16225fb494fdc0e36c32a",
+      "reviewed_license": "MIT",
+      "destination": "notices/python/pyannote-audio/4.0.7/LICENSE"
+    },
+    {
+      "id": "pyannote-audio-wespeaker-license",
+      "package": "pyannote-audio embedded WeSpeaker",
+      "version": "4.0.7",
+      "wheel_artifact": "pyannote_audio-4.0.7.whl",
+      "archive_member": "pyannote/audio/models/embedding/wespeaker/LICENSE.WeSpeaker",
+      "sha256": "aefc801980b3da4f6a50ad3445c8f886bb6d776909525339a552717154ef202a",
+      "reviewed_license": "Apache-2.0",
+      "destination": "notices/python/pyannote-audio/4.0.7/LICENSE.WeSpeaker"
+    },
+    {
+      "id": "pyannote-core-license",
+      "package": "pyannote-core",
+      "version": "6.1.0",
+      "wheel_artifact": "pyannote_core-6.1.0.whl",
+      "archive_member": "pyannote_core-6.1.0.dist-info/licenses/LICENSE",
+      "sha256": "c1509124e929c7764871add4622d7d13ec44b3795a741f9b9206cba41a1a411c",
+      "reviewed_license": "MIT",
+      "destination": "notices/python/pyannote-core/6.1.0/LICENSE"
+    },
+    {
+      "id": "pyannote-database-license",
+      "package": "pyannote-database",
+      "version": "6.1.1",
+      "wheel_artifact": "pyannote_database-6.1.1.whl",
+      "archive_member": "pyannote_database-6.1.1.dist-info/licenses/LICENSE",
+      "sha256": "c6e4a9657fb261c467f40acdd2cc3f4aea9ac6ac8ae14ca0d31aae4107276a13",
+      "reviewed_license": "MIT",
+      "destination": "notices/python/pyannote-database/6.1.1/LICENSE"
+    },
+    {
+      "id": "pyannote-metrics-license",
+      "package": "pyannote-metrics",
+      "version": "4.2.0",
+      "wheel_artifact": "pyannote_metrics-4.2.0.whl",
+      "archive_member": "pyannote_metrics-4.2.0.dist-info/licenses/LICENSE",
+      "sha256": "657c7e17d7360a3e885dc0b4d05a54bc7233222648ea4f6d347a0e516c4e9bdd",
+      "reviewed_license": "MIT",
+      "destination": "notices/python/pyannote-metrics/4.2.0/LICENSE"
+    },
+    {
+      "id": "pyannote-pipeline-license",
+      "package": "pyannote-pipeline",
+      "version": "4.1.0",
+      "wheel_artifact": "pyannote_pipeline-4.1.0.whl",
+      "archive_member": "pyannote_pipeline-4.1.0.dist-info/licenses/LICENSE",
+      "sha256": "a97ab58b8d241fadda4dd023ff7b25d801391b25631cc92a3513c58b45711ab8",
+      "reviewed_license": "MIT",
+      "destination": "notices/python/pyannote-pipeline/4.1.0/LICENSE"
+    },
+    {
+      "id": "pyannoteai-sdk-license",
+      "package": "pyannoteai-sdk",
+      "version": "0.4.0",
+      "wheel_artifact": "pyannoteai_sdk-0.4.0.whl",
+      "archive_member": "pyannoteai_sdk-0.4.0.dist-info/licenses/LICENSE",
+      "sha256": "3d442be935725319727e27b4b04e41deeedd1185b1740998c9f0ba3b51754f4d",
+      "reviewed_license": "MIT",
+      "destination": "notices/python/pyannoteai-sdk/0.4.0/LICENSE"
+    },
+    {
+      "id": "pytorch-metric-learning-license",
+      "package": "pytorch-metric-learning",
+      "version": "2.9.0",
+      "wheel_artifact": "pytorch_metric_learning-2.9.0.whl",
+      "archive_member": "pytorch_metric_learning-2.9.0.dist-info/LICENSE",
+      "sha256": "8487a9eae44e63ce55bb6d8a471a7fdadee6d1f9f2e923c2f1042e0ba9af85f9",
+      "reviewed_license": "MIT",
+      "destination": "notices/python/pytorch-metric-learning/2.9.0/LICENSE"
+    },
+    {
+      "id": "onemkl-license",
+      "wheel_artifact": "mkl-2025.3.0-py2.py3-none-manylinux_2_28_x86_64.whl",
+      "archive_member": "mkl-2025.3.0.dist-info/LICENSE.txt",
+      "sha256": "7721633d0ddff43fae25ebfd405f8166a0ce730cbcec44f2f3ad9d5eb8ac9a6f",
+      "destination": "notices/native/oneMKL/2025.3.0/LICENSE.txt"
+    }
+  ],
+  "source_artifacts": [
+    {
+      "id": "ctranslate2-source",
+      "package": "ctranslate2",
+      "version": "4.8.3",
+      "kind": "upstream-source",
+      "url": "https://github.com/OpenNMT/CTranslate2/archive/refs/tags/v4.8.3.tar.gz",
+      "sha256": "255009e3f25808e67d4c3500fd69e74076d814a62784eaf544b39fc5a472bcd9",
+      "artifact_name": "ctranslate2-4.8.3.tar.gz"
+    },
+    {
+      "id": "onednn-source",
+      "package": "oneDNN",
+      "version": "3.1.1",
+      "kind": "native-build-source",
+      "url": "https://github.com/uxlfoundation/oneDNN/archive/refs/tags/v3.1.1.tar.gz",
+      "sha256": "d1cd58f57b2308d362a9bc474acbc21524cb879cf5d8779b460c718f0fac82d6",
+      "artifact_name": "oneDNN-3.1.1.tar.gz"
+    },
+    {
+      "id": "flatbuffers-source",
+      "package": "flatbuffers",
+      "version": "25.12.19",
+      "kind": "upstream-source",
+      "url": "https://github.com/google/flatbuffers/archive/refs/tags/v25.12.19.tar.gz",
+      "sha256": "f81c3162b1046fe8b84b9a0dbdd383e24fdbcf88583b9cb6028f90d04d90696a",
+      "artifact_name": "flatbuffers-25.12.19.tar.gz"
+    },
+    {
+      "id": "tokenizers-source",
+      "package": "tokenizers",
+      "version": "0.23.3",
+      "kind": "sdist-source",
+      "url": "https://files.pythonhosted.org/packages/e0/7c/2cabb2174e772636683008f2c5621949b645da7d303c596589e84516a184/tokenizers-0.23.3.tar.gz",
+      "sha256": "cded33237c77caeef62944d32aa9a7ef42bdce2b3497e18d137e072a8c4be438",
+      "artifact_name": "tokenizers-0.23.3.tar.gz"
+    },
+    {
+      "id": "primepy-source",
+      "package": "primePy",
+      "version": "1.3",
+      "kind": "sdist-source",
+      "url": "https://files.pythonhosted.org/packages/35/77/0cfa1b4697cfb5336f3a96e8bc73327f64610be3a64c97275f1801afb395/primePy-1.3.tar.gz",
+      "sha256": "25fd7e25344b0789a5984c75d89f054fcf1f180bef20c998e4befbac92de4669",
+      "artifact_name": "primePy-1.3.tar.gz"
+    },
+    {
+      "id": "gcc-14-source",
+      "package": "gcc-14",
+      "version": "14.2.0-4ubuntu2~24.04.1",
+      "kind": "debian-source",
+      "source_package": "gcc-14",
+      "required_for": "bundled libgomp GPLv3 plus GCC Runtime Library Exception provenance"
+    },
+    {
+      "id": "ffmpeg-8.1.2",
+      "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+      "sha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c",
+      "artifact_name": "ffmpeg-8.1.2.tar.xz"
+    },
+    {
+      "id": "pyav-source-18.1.0",
+      "url": "https://github.com/PyAV-Org/PyAV/archive/refs/tags/v18.1.0.tar.gz",
+      "sha256": "030ed12f0d33ffdc4144439dfc3d48d6f7355e1e50bfc08ccaa3ed6b3a587f5f",
+      "artifact_name": "pyav-source-v18.1.0.tar.gz"
+    }
+  ],
+  "ctranslate2_submodules": [
+    {
+      "name": "cpu_features",
+      "commit": "8a494eb1e158ec2050e5f699a504fbc9b896a43b",
+      "url": "https://github.com/google/cpu_features/archive/8a494eb1e158ec2050e5f699a504fbc9b896a43b.tar.gz",
+      "sha256": "9b2019dae7608630ab985129a5c3263fc788e4f82e26965a8d8c33b8c035802e",
+      "artifact_name": "ctranslate2-cpu_features-8a494eb.tar.gz"
+    },
+    {
+      "name": "cutlass",
+      "commit": "bbe579a9e3beb6ea6626d9227ec32d0dae119a49",
+      "url": "https://github.com/NVIDIA/cutlass/archive/bbe579a9e3beb6ea6626d9227ec32d0dae119a49.tar.gz",
+      "sha256": "9fa1da6be3d2d9207b801d5768cbced59c202444a8c84b82325b0670f47f9d48",
+      "artifact_name": "ctranslate2-cutlass-bbe579a.tar.gz"
+    },
+    {
+      "name": "cxxopts",
+      "commit": "44380e5a44706ab7347f400698c703eb2a196202",
+      "url": "https://github.com/jarro2783/cxxopts/archive/44380e5a44706ab7347f400698c703eb2a196202.tar.gz",
+      "sha256": "022c823236b96a5136b59eff12e7434cdbbdaab03969a3b71f25ff94e36307e2",
+      "artifact_name": "ctranslate2-cxxopts-44380e5.tar.gz"
+    },
+    {
+      "name": "googletest",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "url": "https://github.com/google/googletest/archive/f8d7d77c06936315286eb55f8de22cd23c188571.tar.gz",
+      "sha256": "7ff5db23de232a39cbb5c9f5143c355885e30ac596161a6b9fc50c4538bfbf01",
+      "artifact_name": "ctranslate2-googletest-f8d7d77.tar.gz"
+    },
+    {
+      "name": "ruy",
+      "commit": "363f252289fb7a1fba1703d99196524698cb884d",
+      "url": "https://github.com/google/ruy/archive/363f252289fb7a1fba1703d99196524698cb884d.tar.gz",
+      "sha256": "3c2181c9134896784d5d0494e2638c43127de4da2ddf81b3a64c06311fb17432",
+      "artifact_name": "ctranslate2-ruy-363f252.tar.gz"
+    },
+    {
+      "name": "spdlog",
+      "commit": "76fb40d95455f249bd70824ecfcae7a8f0930fa3",
+      "url": "https://github.com/gabime/spdlog/archive/76fb40d95455f249bd70824ecfcae7a8f0930fa3.tar.gz",
+      "sha256": "4530d53b86d45228a5b8982a8f4fe7d95d3ba8e1944858d3f663732c7e949cb7",
+      "artifact_name": "ctranslate2-spdlog-76fb40d.tar.gz"
+    },
+    {
+      "name": "thrust",
+      "commit": "b5fe509fd11a925f90d6495176707cc1184eed9d",
+      "url": "https://github.com/NVIDIA/cccl/archive/b5fe509fd11a925f90d6495176707cc1184eed9d.tar.gz",
+      "sha256": "668fe16c9ac38924923495dedab104d45316699e039f7afb964204615901fa19",
+      "artifact_name": "ctranslate2-thrust-b5fe509.tar.gz"
+    }
+  ],
+  "tokenizers_spdx": {
+    "version": "v3.27.0",
+    "base_url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text",
+    "licenses": {
+      "MIT": "MIT.txt",
+      "Apache-2.0": "Apache-2.0.txt",
+      "Unicode-3.0": "Unicode-3.0.txt",
+      "BSL-1.0": "BSL-1.0.txt",
+      "Zlib": "Zlib.txt",
+      "BSD-2-Clause": "BSD-2-Clause.txt",
+      "LLVM-exception": "LLVM-exception.txt",
+      "Unlicense": "Unlicense.txt"
+    },
+    "sha256": {
+      "MIT.txt": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5",
+      "Apache-2.0.txt": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff",
+      "Unicode-3.0.txt": "f7db81051789b729fea528a63ec4c938fdcb93d9d61d97dc8cc2e9df6d47f2a1",
+      "BSL-1.0.txt": "84c6ef3ea9e3254a54d0acf5d3e0c61ae011b8fef7dd6940591cf060e6380a8f",
+      "Zlib.txt": "bfb1112d49db5b1daecdfef24bd7e2f3ea0bafb33aa67aa0ab51e2bf8407c03d",
+      "BSD-2-Clause.txt": "f32fb3b417a194167cfad068223fc975ba96c5960513a10f66a3c28720aec1df",
+      "LLVM-exception.txt": "e34c58338bd89d43e709e226610d8f32b3e3c47f4ad9a99a8dc1d4ac7842488e",
+      "Unlicense.txt": "0bdebfeda07d45dada625ae1317c6f833186e798b171d0db640bcf32e92a8240"
+    }
+  },
+  "runtime_blockers": [
+    {
+      "id": "base-image-cuda-notices",
+      "blocking": false,
+      "status": "mapped",
+      "detail": "Package copyright is retained in /usr/share/doc; held packages are included in inventory. cuda-libraries is metadata-only; cuda-compat driver libraries are covered by the CUDA 12.8.1 driver-library attachment and NGC derived-container terms. OpenSSL notice maps to libssl3t64. Final inventory and gate remain required.",
+      "packages": [
+        "libcublas-12-8",
+        "libcudnn9-cuda-12",
+        "libnccl2",
+        "cuda-compat-12-8",
+        "cuda-libraries-12-8",
+        "libssl3t64"
+      ],
+      "notice_evidence": [
+        {
+          "path": "third_party/notices/nvidia/base-image/NGC-DL-CONTAINER-LICENSE",
+          "sha256": "e4196076c5496c4bb5509be61e3d1cddf36b92a449a10ece1779afce3c65e684"
+        },
+        {
+          "path": "third_party/notices/nvidia/base-image/cuda-12.8.1-EULA.html",
+          "sha256": "6722d4c310a2ec9ad869ede3371a648fe2cfc2baaf8e1ece2c35e1dccc05752c"
+        },
+        {
+          "path": "third_party/notices/nvidia/base-image/libcublas-12-8/copyright",
+          "sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07"
+        },
+        {
+          "path": "third_party/notices/nvidia/base-image/libcudnn9-cuda-12/copyright",
+          "sha256": "295a1b7118d3417f5d6a943e5f87b59e2a0631fb277129c3b15dee6248adc7cf"
+        },
+        {
+          "path": "third_party/notices/nvidia/base-image/libnccl2/copyright",
+          "sha256": "0f0174a6b4e0b33ac26375bf729533075b32f4c51a5b6802a3d742d7dcdc9a76"
+        }
+      ]
+    },
+    {
+      "id": "ctranslate2-libgomp-provenance",
+      "blocking": false,
+      "status": "replaced-in-container",
+      "detail": "Container builder replaces bundled GNU OpenMP/Fortran/quadmath runtimes with corresponding Ubuntu runtime packages after checking exported symbols. Hashes are recorded and publication checks actual bytes. Matching GCC source is collected.",
+      "legal_basis": [
+        "https://www.gnu.org/licenses/gcc-exception-3.1.en.html",
+        "https://www.gnu.org/licenses/gcc-exception-3.1-faq.html.en"
+      ],
+      "scope": "separately_shipped_runtime_library",
+      "wheel_libgomp_soname": "libgomp-e985bcbb.so.1.0.0",
+      "wheel_libgomp_sha256": "a43904e4fa297301d4640dc1bb3c8a3480b406f99e498eba9b1914b68aab604a",
+      "audited_system_libgomp_sha256": "135f3c8f006d2fe5e68e51281c7974cb991a03de3bfb3593d68d174dfcf854d1"
+    },
+    {
+      "id": "onemkl-redistribution-terms-review",
+      "blocking": false,
+      "status": "reviewed",
+      "detail": "The exact Intel oneMKL 2025.3.0 PyPI wheel includes Intel Simplified Software License October 2022; its bytes and package hash are preserved. Proprietary source is not required by these terms.",
+      "optional_provenance": "The wheel embeds oneMKL symbols, but exact Intel build inputs/third-party materials used to produce this wheel are not published in the CTranslate2 source archive."
+    }
+  ],
+  "source_exclusions": [
+    {
+      "name": "cuda-cudart-12-8",
+      "version": "12.8.90-1",
+      "copyright_sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07",
+      "reason": "Shared CUDA toolkit EULA mentions GPL for CUDA-GDB; this runtime package does not contain CUDA-GDB. Preserve EULA and reject images with CUDA-GDB in the publication gate."
+    },
+    {
+      "name": "cuda-nvrtc-12-8",
+      "version": "12.8.93-1",
+      "copyright_sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07",
+      "reason": "Shared CUDA toolkit EULA mentions GPL for CUDA-GDB; this runtime package does not contain CUDA-GDB. Preserve EULA and reject images with CUDA-GDB in the publication gate."
+    },
+    {
+      "name": "cuda-nvtx-12-8",
+      "version": "12.8.90-1",
+      "copyright_sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07",
+      "reason": "Shared CUDA toolkit EULA mentions GPL for CUDA-GDB; this runtime package does not contain CUDA-GDB. Preserve EULA and reject images with CUDA-GDB in the publication gate."
+    },
+    {
+      "name": "cuda-opencl-12-8",
+      "version": "12.8.90-1",
+      "copyright_sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07",
+      "reason": "Shared CUDA toolkit EULA mentions GPL for CUDA-GDB; this runtime package does not contain CUDA-GDB. Preserve EULA and reject images with CUDA-GDB in the publication gate."
+    },
+    {
+      "name": "cuda-toolkit-12-8-config-common",
+      "version": "12.8.90-1",
+      "copyright_sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07",
+      "reason": "Shared CUDA toolkit EULA mentions GPL for CUDA-GDB; this runtime package does not contain CUDA-GDB. Preserve EULA and reject images with CUDA-GDB in the publication gate."
+    },
+    {
+      "name": "cuda-toolkit-12-config-common",
+      "version": "12.8.90-1",
+      "copyright_sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07",
+      "reason": "Shared CUDA toolkit EULA mentions GPL for CUDA-GDB; this runtime package does not contain CUDA-GDB. Preserve EULA and reject images with CUDA-GDB in the publication gate."
+    },
+    {
+      "name": "cuda-toolkit-config-common",
+      "version": "12.8.90-1",
+      "copyright_sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07",
+      "reason": "Shared CUDA toolkit EULA mentions GPL for CUDA-GDB; this runtime package does not contain CUDA-GDB. Preserve EULA and reject images with CUDA-GDB in the publication gate."
+    },
+    {
+      "name": "libcublas-12-8",
+      "version": "12.8.4.1-1",
+      "copyright_sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07",
+      "reason": "Shared CUDA toolkit EULA mentions GPL for CUDA-GDB; this runtime package does not contain CUDA-GDB. Preserve EULA and reject images with CUDA-GDB in the publication gate."
+    },
+    {
+      "name": "libcufft-12-8",
+      "version": "11.3.3.83-1",
+      "copyright_sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07",
+      "reason": "Shared CUDA toolkit EULA mentions GPL for CUDA-GDB; this runtime package does not contain CUDA-GDB. Preserve EULA and reject images with CUDA-GDB in the publication gate."
+    },
+    {
+      "name": "libcufile-12-8",
+      "version": "1.13.1.3-1",
+      "copyright_sha256": "914cd25373688c84376dcb553e2054c22a9d57f2a7603ec93c46151dc1b4db9f",
+      "reason": "Shared CUDA toolkit EULA mentions GPL for CUDA-GDB; this runtime package does not contain CUDA-GDB. Preserve EULA and reject images with CUDA-GDB in the publication gate."
+    },
+    {
+      "name": "libcurand-12-8",
+      "version": "10.3.9.90-1",
+      "copyright_sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07",
+      "reason": "Shared CUDA toolkit EULA mentions GPL for CUDA-GDB; this runtime package does not contain CUDA-GDB. Preserve EULA and reject images with CUDA-GDB in the publication gate."
+    },
+    {
+      "name": "libcusolver-12-8",
+      "version": "11.7.3.90-1",
+      "copyright_sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07",
+      "reason": "Shared CUDA toolkit EULA mentions GPL for CUDA-GDB; this runtime package does not contain CUDA-GDB. Preserve EULA and reject images with CUDA-GDB in the publication gate."
+    },
+    {
+      "name": "libcusparse-12-8",
+      "version": "12.5.8.93-1",
+      "copyright_sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07",
+      "reason": "Shared CUDA toolkit EULA mentions GPL for CUDA-GDB; this runtime package does not contain CUDA-GDB. Preserve EULA and reject images with CUDA-GDB in the publication gate."
+    },
+    {
+      "name": "libnpp-12-8",
+      "version": "12.3.3.100-1",
+      "copyright_sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07",
+      "reason": "Shared CUDA toolkit EULA mentions GPL for CUDA-GDB; this runtime package does not contain CUDA-GDB. Preserve EULA and reject images with CUDA-GDB in the publication gate."
+    },
+    {
+      "name": "libnvfatbin-12-8",
+      "version": "12.8.90-1",
+      "copyright_sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07",
+      "reason": "Shared CUDA toolkit EULA mentions GPL for CUDA-GDB; this runtime package does not contain CUDA-GDB. Preserve EULA and reject images with CUDA-GDB in the publication gate."
+    },
+    {
+      "name": "libnvjitlink-12-8",
+      "version": "12.8.93-1",
+      "copyright_sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07",
+      "reason": "Shared CUDA toolkit EULA mentions GPL for CUDA-GDB; this runtime package does not contain CUDA-GDB. Preserve EULA and reject images with CUDA-GDB in the publication gate."
+    },
+    {
+      "name": "libnvjpeg-12-8",
+      "version": "12.3.5.92-1",
+      "copyright_sha256": "e2c71babfd18a8e69542dd7e9ca018f9caa438094001a58e6bc4d8c999bf0d07",
+      "reason": "Shared CUDA toolkit EULA mentions GPL for CUDA-GDB; this runtime package does not contain CUDA-GDB. Preserve EULA and reject images with CUDA-GDB in the publication gate."
+    }
+  ]
+}

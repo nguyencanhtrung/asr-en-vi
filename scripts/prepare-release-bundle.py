@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""Collect corresponding source for the exact loaded platform image before publication."""
+
+import argparse
+import hashlib
+import json
+import re
+import subprocess
+import sys
+import tarfile
+from pathlib import Path
+
+
+def prepare(image: str, output: Path, version: str) -> Path:
+    output.mkdir(parents=True, exist_ok=True)
+    schema_match = re.search(
+        r"^SCHEMA_VERSION = (\d+)$",
+        Path("src/asr_en_vi/storage.py").read_text(),
+        flags=re.MULTILINE,
+    )
+    if schema_match is None:
+        raise RuntimeError("Cannot determine source schema version")
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "--entrypoint",
+            "python",
+            image,
+            "-m",
+            "asr_en_vi.cli",
+            "version",
+            "--json",
+            "--expect-version",
+            version,
+            "--expect-schema",
+            schema_match.group(1),
+        ],
+        check=True,
+    )
+    inventory = output / "runtime-inventory.json"
+    with Path("scripts/release-inventory.py").open("rb") as source, inventory.open("wb") as target:
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "-i",
+                "--network",
+                "none",
+                "--entrypoint",
+                "python",
+                image,
+                "-",
+            ],
+            stdin=source,
+            stdout=target,
+            check=True,
+        )
+    report = json.loads(inventory.read_text())
+    image_metadata = json.loads(
+        subprocess.check_output(["docker", "image", "inspect", image], text=True)
+    )[0]
+    report["artifact"] = {
+        "image_id": image_metadata["Id"],
+        "revision": image_metadata.get("Config", {})
+        .get("Labels", {})
+        .get("org.opencontainers.image.revision", "unknown"),
+        "version": version,
+        "schema": int(schema_match.group(1)),
+    }
+    inventory.write_text(json.dumps(report, indent=2) + "\n")
+    notice_root = Path("third_party/notices")
+    expected_notices = {
+        str(path.relative_to(notice_root)): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in notice_root.rglob("*")
+        if path.is_file()
+    }
+    # Check readable bytes as the default image user, not only the build recipe.
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "--entrypoint",
+            "python",
+            image,
+            "-c",
+            """
+import hashlib,json,sysconfig,shutil,sys
+from pathlib import Path
+assert shutil.which('cuda-gdb') is None
+assert not list(Path('/usr/local').glob('cuda*/bin/cuda-gdb*'))
+base=Path('/usr/local/share/licenses/asr-en-vi')
+assert (base/'LICENSE').is_file() and (base/'LICENSE.vi').is_file()
+for name, expected in json.loads(sys.argv[1]).items():
+    assert hashlib.sha256((base/'third-party'/name).read_bytes()).hexdigest()==expected
+r=json.loads((base/'openmp-runtime.json').read_text())
+root=Path(sysconfig.get_paths()['purelib'])
+patterns=('libgomp*.so*','libgfortran*.so*','libquadmath*.so*')
+actual={str(p.relative_to(root)) for pattern in patterns for p in root.rglob(pattern)}
+assert actual=={item['path'] for item in r['replacements']}
+for item in r['replacements']:
+    expected=hashlib.sha256(Path(item['source']).read_bytes()).hexdigest()
+    assert hashlib.sha256((root/item['path']).read_bytes()).hexdigest()==expected
+assert not list(root.glob('av.libs/libx26*.so*'))
+import ctypes,av
+codec=ctypes.CDLL('/opt/asr-media/lib/libavcodec.so')
+codec.avcodec_license.restype=ctypes.c_char_p
+assert codec.avcodec_license().decode()=='LGPL version 2.1 or later'
+assert 'libx264' not in av.codecs_available and 'libx265' not in av.codecs_available
+import ctranslate2
+assert ctranslate2.get_supported_compute_types('cpu')
+""",
+            json.dumps(expected_notices),
+        ],
+        check=True,
+    )
+    artifacts = output / "source-artifacts"
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/collect-release-sources.py",
+            "--inventory",
+            str(inventory),
+            "--artifact-root",
+            str(artifacts),
+        ],
+        check=True,
+    )
+    manifest_path = artifacts / "source-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    if manifest["status"] != "collected":
+        raise RuntimeError("Corresponding source is incomplete")
+    archive_path = output / "corresponding-source.tar.gz"
+    # All downloaded source packages are retained with their manifests/indexes.
+    # The source collector does not download binary wheels.
+    with tarfile.open(archive_path, "w:gz") as archive:
+        archive.add(artifacts, arcname="source-artifacts")
+        archive.add(inventory, arcname="runtime-inventory.json")
+        archive.add("third_party/notices", arcname="notices")
+        archive.add("Dockerfile", arcname="build/Dockerfile")
+        archive.add("scripts/build-lgpl-media.sh", arcname="build/build-lgpl-media.sh")
+        archive.add("scripts/use-system-openmp.py", arcname="build/use-system-openmp.py")
+        archive.add("uv.lock", arcname="build/uv.lock")
+        archive.add("pyproject.toml", arcname="build/pyproject.toml")
+    checksum = hashlib.file_digest(archive_path.open("rb"), "sha256").hexdigest()
+    (output / "SHA256SUMS").write_text(f"{checksum}  {archive_path.name}\n")
+    return archive_path
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("image")
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--version", required=True)
+    args = parser.parse_args()
+    print(prepare(args.image, args.output.resolve(), args.version))

@@ -19,6 +19,20 @@ provider you choose, and every note links back to the moment in the recording it
 
 </div>
 
+## Screenshot provenance
+
+The two README screenshots are reproducible synthetic examples, not acceptance evidence. Regenerate
+them with:
+
+```sh
+uv run python scripts/capture-readme.py
+```
+
+The script reads only the repository [synthetic fixture](tests/fixtures/readme-demo.json), starts a
+fresh temporary local app, uses a stub notes provider, captures at 1440 × 1000, and rejects
+non-loopback browser requests. It does not read recordings, credentials or provider sessions, run
+ASR/inference, or use a user's browser.
+
 ## Overview
 
 ASR EN VI is a self-hosted web app for meeting recordings. You upload a recording and get back a
@@ -77,9 +91,9 @@ services. It then prints an access link and a QR code. Open that exact link (the
 is `http://127.0.0.1:8765`), then connect ChatGPT or Google from the workspace header.
 
 To install a release, check out its tag and run `./scripts/start.sh --pull` with a versioned
-`ASR_IMAGE` such as `ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1`, or `--source` to build it.
+`ASR_IMAGE` such as `ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0`, or `--source` to build it.
 After setup, `--offline` starts without network access. See
-[Cài release candidate](docs/user-guide.md#cài-release-candidate).
+[Cài bản phát hành](docs/user-guide.md#cài-bản-phát-hành).
 
 ## Documentation
 
@@ -88,6 +102,7 @@ The project documentation is written in Vietnamese.
 | Topic | Document |
 | --- | --- |
 | Operations: configuration, models, notes providers, tokens, CI/CD | [User guide](docs/user-guide.md) |
+| Public release: component inventory, remaining gates, draft notes | [Release dossier](docs/release/README.md) · [Release notes](docs/release/notes-v1.md) |
 | Product context and vocabulary | [PRODUCT.md](PRODUCT.md) · [CONTEXT.md](CONTEXT.md) |
 | Specification | [Specification v1](docs/specification-v1.md) |
 | Design | [Design system](DESIGN.md) · [Frontend](docs/frontend-design-v1.md) · [Backend](docs/backend-design-v1.md) · [Backend contract](docs/backend-contract-v1.md) |
@@ -96,8 +111,15 @@ The project documentation is written in Vietnamese.
 
 ## License
 
-This project is intended for public, **non-commercial** use. A license text has not been applied
-yet. The candidate is
-[PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0); see
-[ADR 0003](docs/adr/0003-public-source-noncommercial.md). Commercial use needs separate permission
-from the owner. Third-party dependencies and models keep their own licenses.
+Original project code is licensed under [PolyForm Noncommercial 1.0.0](LICENSE).
+The **English license is authoritative**; a [Vietnamese reference translation](LICENSE.vi)
+is provided. Commercial use, including use for a commercial business's internal meetings,
+requires separate permission from [the owner](https://github.com/nguyencanhtrung).
+Uses expressly permitted by the license's Noncommercial Organizations section remain permitted.
+Third-party dependencies, fonts and models retain their own licenses.
+
+Mã gốc của dự án dùng [PolyForm Noncommercial 1.0.0](LICENSE). **Bản tiếng Anh là bản chính**;
+[bản tiếng Việt](LICENSE.vi) chỉ để tham khảo. Dùng cho mục đích thương mại, kể cả tổng kết
+cuộc họp nội bộ phục vụ kinh doanh, cần được [chủ sở hữu](https://github.com/nguyencanhtrung)
+cho phép riêng. Các mục đích được cho phép rõ ràng trong phần Tổ chức phi thương mại vẫn
+được phép. Dependency, font và model bên thứ ba giữ license riêng.

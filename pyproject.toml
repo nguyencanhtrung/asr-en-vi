@@ -1,8 +1,10 @@
 [project]
 name = "asr-en-vi"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 description = "Local-first meeting notes workspace"
 readme = "README.md"
+license = "PolyForm-Noncommercial-1.0.0"
+license-files = ["LICENSE", "LICENSE.vi"]
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "av>=11,<19",
@@ -38,6 +40,16 @@ include = [
     "src/asr_en_vi/web/*.css",
     "src/asr_en_vi/web/*.js",
     "src/asr_en_vi/web/fonts/*",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src/asr_en_vi",
+    "/pyproject.toml",
+    "/README.md",
+    "/LICENSE",
+    "/LICENSE.vi",
+    "/uv.lock",
 ]
 
 [tool.pytest.ini_options]

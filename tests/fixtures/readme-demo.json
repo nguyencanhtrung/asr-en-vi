@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "meeting": {
+    "title": "Launch planning · English + Tiếng Việt",
+    "date": "2026-10-21",
+    "language_hint": "en",
+    "duration_seconds": 245.0
+  },
+  "speakers": [
+    {"id": "SPEAKER_00", "name": "Alex"},
+    {"id": "SPEAKER_01", "name": "Linh"},
+    {"id": "SPEAKER_02", "name": "Jordan"}
+  ],
+  "segments": [
+    {
+      "start_seconds": 12.0,
+      "end_seconds": 22.0,
+      "speaker_id": "SPEAKER_00",
+      "text": "Let's review the launch plan and the API gateway."
+    },
+    {
+      "start_seconds": 28.0,
+      "end_seconds": 39.0,
+      "speaker_id": "SPEAKER_01",
+      "text": "Mình cần chốt authentication flow trước khi gửi staging."
+    },
+    {
+      "start_seconds": 45.0,
+      "end_seconds": 56.0,
+      "speaker_id": "SPEAKER_02",
+      "text": "We'll verify the migration and share the checklist tomorrow."
+    }
+  ],
+  "notes": {
+    "output_language": "en",
+    "overview": [
+      {
+        "text": "The team reviewed the launch plan and API gateway.",
+        "source_indices": [0]
+      },
+      {
+        "text": "The authentication flow needs a staging check.",
+        "source_indices": [1]
+      }
+    ],
+    "key_topics": [
+      {
+        "text": "Release readiness and authentication.",
+        "source_indices": [0, 1]
+      }
+    ],
+    "decisions": [
+      {
+        "text": "Validate the migration in staging before release.",
+        "source_indices": [2]
+      }
+    ],
+    "open_questions": [
+      {
+        "text": "Who owns the final security review?",
+        "source_indices": [1]
+      }
+    ],
+    "action_items": [
+      {
+        "text": "Share the staging checklist.",
+        "source_indices": [2],
+        "owner": "Jordan",
+        "deadline_text": "tomorrow",
+        "deadline_date": null
+      }
+    ],
+    "confirmation_items": [
+      {
+        "text": "Confirm the final release window.",
+        "source_indices": [0]
+      }
+    ]
+  }
+}
