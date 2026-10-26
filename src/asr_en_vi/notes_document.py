@@ -12,7 +12,7 @@ from datetime import date, timedelta
 from typing import Any
 
 SCHEMA_VERSION = 1
-PROMPT_VERSION = "notes-hierarchical-v7"
+PROMPT_VERSION = "notes-hierarchical-v8"
 LEGACY_ENGLISH_PROMPT_VERSION = "notes-hierarchical-v4"
 _MAX_PROMPT_HARD_LIMIT_BYTES = 48_000
 # max_output_tokens includes hidden reasoning as well as the visible JSON.
@@ -1008,6 +1008,58 @@ def provider_source(snapshot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_TELEGRAPH_RULE = {
+    "en": (
+        "Write each item in telegraph style: short phrases, not sentences; drop subjects, "
+        "articles, "
+        "filler words and connectives; ungrammatical text is fine. Keep names, product "
+        "names, numbers and original deadline phrases exactly. Telegraph style never drops "
+        "details that matter: who, what, numbers, dates, deadlines and the stated reason. "
+    ),
+    "vi": (
+        "Viết mỗi mục theo kiểu ghi chú: dùng cụm từ ngắn thay câu; bỏ chủ ngữ, mạo từ, từ thừa "
+        "và từ nối; câu không đúng ngữ pháp vẫn được. Giữ nguyên tên riêng, tên sản phẩm, "
+        "số liệu và cụm từ hạn chót gốc. Văn phong ghi chú không bao giờ được bỏ các chi tiết "
+        "quan trọng: ai, việc gì, số liệu, ngày tháng, hạn chót và lý do được nêu. "
+    ),
+}
+_PLACEMENT_RULE = {
+    "en": (
+        "Put each fact in exactly one section in the whole document. Never put a fact in two "
+        "sections or twice in one section. When a point fits several sections, use the first "
+        "section that fits, in this order: action_items for a committed task; decisions for an "
+        "agreed outcome, plan, schedule or planned date; open_questions for an unresolved "
+        "question; confirmation_items for a proposal or tentative point that nobody agreed to; "
+        "key_topics for discussion and rationale only; and overview for at most 3 items of "
+        "context and purpose. An action item must not restate its decision: the decision states "
+        "the agreed outcome, and the action states the task, owner and deadline. Before answering, "
+        "compare each item with every other item and remove or rewrite any restatement. key_topics "
+        "keeps only reasoning that no other item states. Agreed plans, schedules and planned dates "
+        "are decisions with source IDs. Only proposals that nobody agreed to go to "
+        "confirmation_items.\n"
+    ),
+    "vi": (
+        "Mỗi thông tin chỉ xuất hiện đúng một lần trong toàn bộ tài liệu. Không đặt một thông tin "
+        "vào hai nhóm hoặc lặp lại thông tin đó hai lần trong cùng một nhóm. Khi một ý phù hợp "
+        "với nhiều nhóm, hãy dùng nhóm đầu tiên phù hợp theo thứ tự sau: action_items cho việc đã "
+        "cam kết; decisions cho kết quả, kế hoạch, lịch trình hoặc ngày dự kiến đã thống nhất; "
+        "open_questions cho câu hỏi chưa được giải quyết; confirmation_items cho đề xuất hoặc ý "
+        "tạm thời chưa được ai thống nhất; key_topics chỉ cho phần thảo luận và lý do; và overview "
+        "cho tối đa 3 ý về bối cảnh và mục đích. Một action item không được nhắc lại quyết định "
+        "của nó: quyết định nêu kết quả đã thống nhất, còn action nêu việc cần làm, người phụ "
+        "trách và hạn chót. Trước khi trả lời, hãy so sánh từng mục với mọi mục khác và xóa hoặc "
+        "viết lại "
+        "mọi ý lặp lại. key_topics chỉ giữ lại phần lý giải mà không mục nào khác nêu. Kế hoạch, "
+        "lịch trình và ngày dự kiến đã thống nhất là decisions và phải có mã nguồn. Chỉ đề xuất mà "
+        "chưa ai thống nhất mới được đưa vào confirmation_items.\n"
+    ),
+}
+
+
+def _style_rules(output_language: str) -> str:
+    return _TELEGRAPH_RULE[output_language] + _PLACEMENT_RULE[output_language]
+
+
 def _source_instructions(
     *,
     output_language: str = "en",
@@ -1062,6 +1114,7 @@ def _source_instructions(
             "dung. "
             "Không xuất URL, đường dẫn audio, Markdown hay thuộc tính bổ sung.\n"
         )
+    instructions += _style_rules(output_language)
     if chunk_index is None and budget is not None and budget.uses_token_estimate:
         if output_language == "en":
             instructions += (
@@ -1805,8 +1858,9 @@ def _reduction_instructions(*, final: bool, output_language: str = "en") -> str:
             "detail. "
             "Use only the source IDs cited by input summaries. Do not invent facts, decisions, "
             "owners, "
-            "deadlines or missing context. Preserve unresolved ambiguity; proposals remain in "
-            "confirmation_items unless later source-ordered summaries record a decision. "
+            "deadlines or missing context. Preserve unresolved ambiguity; only proposals nobody "
+            "agreed to remain in confirmation_items, unless later source-ordered summaries record "
+            "a decision. "
             "The integer "
             "source_order values are generated from the saved transcript: "
             "lower values are earlier, "
@@ -1834,11 +1888,10 @@ def _reduction_instructions(*, final: bool, output_language: str = "en") -> str:
             "chi tiết nguồn. Chỉ dùng mã nguồn được trích dẫn trong các bản tóm tắt. Không tự thêm "
             "sự việc, quyết định, người phụ trách, hạn chót hay ngữ cảnh còn thiếu. "
             "Giữ lại điểm chưa "
-            "rõ; "
-            "đề xuất vẫn thuộc confirmation_items trừ khi bản tóm tắt theo thứ tự "
-            "nguồn phía sau ghi "
-            "nhận "
-            "quyết định. source_order là số nguyên được tạo từ transcript đã lưu: "
+            "rõ; chỉ đề xuất chưa được thống nhất mới thuộc confirmation_items, trừ khi bản "
+            "tóm tắt "
+            "theo thứ tự nguồn phía sau ghi nhận quyết định. source_order là số nguyên được tạo từ "
+            "transcript đã lưu: "
             "số nhỏ hơn xuất "
             "hiện "
             "sớm hơn và quyết định sau có thể thay thế đề xuất trước. "
@@ -1856,6 +1909,7 @@ def _reduction_instructions(*, final: bool, output_language: str = "en") -> str:
             "không có trong đó. Giữ nguyên tên riêng. "
             "Không xuất URL, Markdown hay thuộc tính bổ sung.\n"
         )
+    instructions += _style_rules(output_language)
     if not final:
         if output_language == "en":
             instructions += (

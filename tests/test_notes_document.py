@@ -921,7 +921,7 @@ def test_chunk_and_reduction_prompts_keep_untrusted_source_and_chronology(snapsh
     assert f"aiming for {MAX_REDUCTION_TARGET_BYTES} bytes or less" in intermediate_prompt
     assert "Private title" not in chunk_prompt + reduction_prompt
     assert "private/audio" not in chunk_prompt + reduction_prompt
-    assert PROMPT_VERSION == "notes-hierarchical-v7"
+    assert PROMPT_VERSION == "notes-hierarchical-v8"
     assert MAX_CHUNK_OUTPUT_BYTES <= MAX_REPAIR_OUTPUT_BYTES
     assert MAX_REDUCTION_TARGET_BYTES < MAX_REDUCTION_OUTPUT_BYTES <= MAX_OUTPUT_BYTES
 
@@ -951,36 +951,123 @@ def test_budgeted_single_pass_pins_the_full_completeness_clause_in_both_language
     assert vietnamese_clause not in conservative + chunk
 
 
+_SINGLE_PASS_BUDGET = notes_budget("chatgpt", "gpt-5.6-sol")
+
+
+def _step_prompts(snapshot, document, language):
+    return {
+        "single": build_prompt(
+            snapshot,
+            output_language=language,
+            budget=_SINGLE_PASS_BUDGET,
+        ),
+        "chunk": build_chunk_prompt(
+            snapshot,
+            chunk_index=2,
+            chunk_count=3,
+            output_language=language,
+        ),
+        "reduce": build_reduction_prompt(
+            snapshot,
+            [document],
+            final=False,
+            output_language=language,
+        ),
+        "final": build_reduction_prompt(
+            snapshot,
+            [document],
+            final=True,
+            output_language=language,
+        ),
+    }
+
+
+_RULE_MARKERS = {
+    "en": (
+        "Write each item in telegraph style: short phrases, not sentences",
+        "drop subjects, articles, filler words and connectives",
+        "ungrammatical text is fine",
+        "Keep names, product names, numbers and original deadline phrases exactly",
+        "Telegraph style never drops details that matter: who, what, numbers, dates, deadlines "
+        "and the stated reason",
+        "Put each fact in exactly one section in the whole document",
+        "Never put a fact in two sections or twice in one section",
+        "When a point fits several sections, use the first section that fits, in this order",
+        "action_items for a committed task",
+        "decisions for an agreed outcome, plan, schedule or planned date",
+        "open_questions for an unresolved question",
+        "confirmation_items for a proposal or tentative point that nobody agreed to",
+        "key_topics for discussion and rationale only",
+        "overview for at most 3 items of context and purpose",
+        "An action item must not restate its decision",
+        "the decision states the agreed outcome, and the action states the task, owner and "
+        "deadline",
+        "Before answering, compare each item with every other item and remove or rewrite any "
+        "restatement",
+        "key_topics keeps only reasoning that no other item states",
+        "Agreed plans, schedules and planned dates are decisions with source IDs",
+        "Only proposals that nobody agreed to go to confirmation_items",
+    ),
+    "vi": (
+        "Viết mỗi mục theo kiểu ghi chú: dùng cụm từ ngắn thay câu",
+        "bỏ chủ ngữ, mạo từ, từ thừa và từ nối",
+        "câu không đúng ngữ pháp vẫn được",
+        "Giữ nguyên tên riêng, tên sản phẩm, số liệu và cụm từ hạn chót gốc",
+        "Văn phong ghi chú không bao giờ được bỏ các chi tiết quan trọng: ai, việc gì, số liệu, "
+        "ngày tháng, hạn chót và lý do được nêu",
+        "Mỗi thông tin chỉ xuất hiện đúng một lần trong toàn bộ tài liệu",
+        "Không đặt một thông tin vào hai nhóm hoặc lặp lại thông tin đó hai lần trong cùng một "
+        "nhóm",
+        "Khi một ý phù hợp với nhiều nhóm, hãy dùng nhóm đầu tiên phù hợp theo thứ tự sau",
+        "action_items cho việc đã cam kết",
+        "decisions cho kết quả, kế hoạch, lịch trình hoặc ngày dự kiến đã thống nhất",
+        "open_questions cho câu hỏi chưa được giải quyết",
+        "confirmation_items cho đề xuất hoặc ý tạm thời chưa được ai thống nhất",
+        "key_topics chỉ cho phần thảo luận và lý do",
+        "overview cho tối đa 3 ý về bối cảnh và mục đích",
+        "Một action item không được nhắc lại quyết định của nó",
+        "quyết định nêu kết quả đã thống nhất, còn action nêu việc cần làm, người phụ trách và "
+        "hạn chót",
+        "Trước khi trả lời, hãy so sánh từng mục với mọi mục khác và xóa hoặc viết lại mọi ý "
+        "lặp lại",
+        "key_topics chỉ giữ lại phần lý giải mà không mục nào khác nêu",
+        "Kế hoạch, lịch trình và ngày dự kiến đã thống nhất là decisions và phải có mã nguồn",
+        "Chỉ đề xuất mà chưa ai thống nhất mới được đưa vào confirmation_items",
+    ),
+}
+
+
+@pytest.mark.parametrize("language", ["en", "vi"])
+@pytest.mark.parametrize("step", ["single", "chunk", "reduce", "final"])
+def test_every_notes_step_in_both_languages_uses_shared_style_and_placement_rules(
+    snapshot, document, language, step
+):
+    assert _SINGLE_PASS_BUDGET.uses_token_estimate
+    prompt = _step_prompts(snapshot, document, language)[step]
+
+    for marker in _RULE_MARKERS[language]:
+        assert marker in prompt
+
+
 def test_primary_prompts_are_byte_identical_to_those_before_output_recovery(snapshot, document):
     """A recovery only resends a primary prompt with a suffix, so a run that needs none sends
     the prompts it always did. If this fails, a primary prompt changed: bump PROMPT_VERSION and
     regenerate the digests."""
     digests = {}
     for language in ("en", "vi"):
-        prompts = {
-            "single": build_prompt(snapshot, output_language=language),
-            "chunk": build_chunk_prompt(
-                snapshot, chunk_index=2, chunk_count=3, output_language=language
-            ),
-            "reduce": build_reduction_prompt(
-                snapshot, [document], final=False, output_language=language
-            ),
-            "final": build_reduction_prompt(
-                snapshot, [document], final=True, output_language=language
-            ),
-        }
+        prompts = _step_prompts(snapshot, document, language)
         for name, prompt in prompts.items():
             digests[f"{language}-{name}"] = hashlib.sha256(prompt.encode()).hexdigest()[:16]
 
     assert digests == {
-        "en-single": "5b80d8cc3adad2bc",
-        "en-chunk": "8d9e7415a449cf1d",
-        "en-reduce": "209dba5ab119d730",
-        "en-final": "d03eae90b1ca184b",
-        "vi-single": "74048d73407cddf5",
-        "vi-chunk": "e559fb6c3e2a1eb3",
-        "vi-reduce": "6cc78dae939bd66e",
-        "vi-final": "000fc697ba25aca6",
+        "en-single": "54a88e983dc2b8d0",
+        "en-chunk": "6a0bbe86fdf81a20",
+        "en-reduce": "a748b416c809803d",
+        "en-final": "c6214212d48b23b4",
+        "vi-single": "7393a66ef4100b56",
+        "vi-chunk": "35cc655ea1ea3ffb",
+        "vi-reduce": "e802ebec55c431dc",
+        "vi-final": "2beca0621b7453f6",
     }
 
 
