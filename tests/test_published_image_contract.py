@@ -14,7 +14,7 @@ ROOT = Path(__file__).parents[1]
 IMAGE = "ghcr.io/example/asr@sha256:" + "a" * 64
 
 
-@pytest.mark.parametrize("failure", ["", "pull", "identity", "version", "revision"])
+@pytest.mark.parametrize("failure", ["", "pull", "config", "version", "revision"])
 def test_published_image_gate_uses_anonymous_digest_and_stops_on_mismatch(tmp_path, failure):
     workflow = yaml.safe_load((ROOT / ".github/workflows/pipeline.yml").read_text())
     steps = workflow["jobs"]["publish-platform"]["steps"]
@@ -25,6 +25,10 @@ def test_published_image_gate_uses_anonymous_digest_and_stops_on_mismatch(tmp_pa
     assert gate["env"]["PUBLISHED_IMAGE"] == (
         "${{ env.IMAGE_NAME }}@${{ steps.publish.outputs.digest }}"
     )
+    assert gate["env"]["PUBLISHED_DIGEST"] == "${{ steps.publish.outputs.digest }}"
+    assert "PUBLISHED_METADATA" not in gate["env"]
+    assert "PUBLISHED_METADATA" not in gate["run"]
+    assert "scripts/resolve-image-config.py" in gate["run"]
     source = tmp_path / "src/asr_en_vi"
     source.mkdir(parents=True)
     shutil.copyfile(ROOT / "src/asr_en_vi/storage.py", source / "storage.py")
@@ -32,11 +36,23 @@ def test_published_image_gate_uses_anonymous_digest_and_stops_on_mismatch(tmp_pa
     runner_temp = tmp_path / "runner-temp"
     runner_temp.mkdir()
     candidate_config_digest = "sha256:" + "c" * 64
-    published_config_digest = "sha256:" + ("d" * 64 if failure == "identity" else "c" * 64)
+    published_config_digest = "sha256:" + ("d" * 64 if failure == "config" else "c" * 64)
     candidate_metadata = json.dumps({"containerimage.config.digest": candidate_config_digest})
-    published_metadata = json.dumps({"containerimage.config.digest": published_config_digest})
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
+    python = fake_bin / "python3"
+    python.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "if sys.argv[1:] and sys.argv[1] == 'scripts/resolve-image-config.py':\n"
+        "    assert '--repository' in sys.argv\n"
+        "    assert '--published-digest' in sys.argv\n"
+        "    assert '--platform' in sys.argv\n"
+        "    print(json.dumps({'config_digest': os.environ['RESOLVED_CONFIG_DIGEST']}))\n"
+        "else:\n"
+        "    os.execv(sys.executable, [sys.executable, *sys.argv[1:]])\n"
+    )
+    python.chmod(0o755)
     docker = fake_bin / "docker"
     docker.write_text(
         f"#!{sys.executable}\n"
@@ -80,13 +96,16 @@ def test_published_image_gate_uses_anonymous_digest_and_stops_on_mismatch(tmp_pa
             "PATH": f"{fake_bin}:{os.environ['PATH']}",
             "DOCKER_CONFIG": str(inherited_config),
             "PUBLISHED_IMAGE": IMAGE,
+            "PUBLISHED_DIGEST": IMAGE.split("@", 1)[1],
+            "GITHUB_REPOSITORY": "example/asr",
+            "RELEASE_PLATFORM": "amd64",
             "GITHUB_REF_NAME": "v0.1.0",
             "GITHUB_SHA": "b" * 40,
             "TRACE": str(trace),
             "RUNNER_TEMP": str(runner_temp),
             "FAILURE": failure,
             "CANDIDATE_METADATA": candidate_metadata,
-            "PUBLISHED_METADATA": published_metadata,
+            "RESOLVED_CONFIG_DIGEST": published_config_digest,
             "PYTHONPATH": str(ROOT / "src"),
         },
         capture_output=True,
@@ -99,7 +118,7 @@ def test_published_image_gate_uses_anonymous_digest_and_stops_on_mismatch(tmp_pa
     if failure:
         assert result.returncode != 0
         assert not (tmp_path / "smoke-image.txt").exists()
-        assert len(calls) == {"pull": 1, "identity": 1, "version": 2, "revision": 3}[failure]
+        assert len(calls) == {"pull": 1, "config": 1, "version": 2, "revision": 3}[failure]
     else:
         assert result.returncode == 0, result.stderr
         assert (tmp_path / "smoke-image.txt").read_text() == IMAGE

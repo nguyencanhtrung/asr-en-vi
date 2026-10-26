@@ -71,6 +71,34 @@ NOTES_BELOW_SOURCE = """() => {
   document.querySelector("#notes-source-view").after(notes);
 }"""
 
+# The real wheel reaches Chromium immediately, but its delivery to the page can be queued after
+# the input call returns. Hold one real event at the browser boundary and deliver it after the
+# original helper's 50 ms stability poll; the acknowledgement fix must wait for this receipt. The
+# Web Animation clock remains real while the page's Playwright clock is paused.
+DELAYED_WHEEL_DELIVERY = """() => {
+  let delayed = true;
+  window.addEventListener("wheel", event => {
+    if (!delayed) return;
+    delayed = false;
+    const deltaX = event.deltaX;
+    const deltaY = event.deltaY;
+    event.stopImmediatePropagation();
+    const delay = document.createElement("div");
+    delay.style.cssText = "position:fixed;left:-10px;width:1px;height:1px;" +
+      "opacity:0;pointer-events:none";
+    document.body.append(delay);
+    delay.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 100 }).finished.then(() => {
+      delay.remove();
+      window.dispatchEvent(new WheelEvent("wheel", {
+        deltaX,
+        deltaY,
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
+  }, { capture: true, passive: false });
+}"""
+
 
 def seed_long_transcript(data_dir: Path, count: int = SEGMENT_COUNT) -> str:
     """A completed transcript of back-to-back two-second segments, tall enough to scroll."""
@@ -438,7 +466,16 @@ def user_scrolls(page, gesture):
     move nothing, so only their own listeners (not the scroll listener) can notice them."""
     if gesture == "wheel":
         page.mouse.move(640, 300)
+        page.evaluate(
+            """() => {
+              window.__browserWheelReceipt = false;
+              window.addEventListener("wheel", () => {
+                queueMicrotask(() => { window.__browserWheelReceipt = true; });
+              }, { once: true, passive: true });
+            }"""
+        )
         page.mouse.wheel(0, 200)
+        wait_for(page, "() => window.__browserWheelReceipt === true", timeout=5.0)
     elif gesture == "keyboard":
         page.keyboard.press("End")
     elif gesture == "touch":
@@ -470,6 +507,22 @@ def test_no_following_for_two_seconds_after_a_manual_scroll(live, signed_in, ges
     settle(page)
 
     before = user_scrolls(page, gesture)
+    assert play_at(page, 10) == before
+    page.clock.run_for(QUIET_MS - 100)
+    assert play_at(page, 11) == before
+    page.clock.run_for(200)
+    assert play_at(page, 12) != before
+
+
+def test_wheel_delivery_is_received_before_manual_scroll_assertion(live, signed_in):
+    page = open_meeting(live, signed_in, reduced_motion="reduce")
+    freeze_clock(page)
+    play_at(page, 0, paused=True)
+    scroll_to(page, page.evaluate("document.documentElement.scrollHeight"))
+    settle(page)
+    page.evaluate(DELAYED_WHEEL_DELIVERY)
+
+    before = user_scrolls(page, "wheel")
     assert play_at(page, 10) == before
     page.clock.run_for(QUIET_MS - 100)
     assert play_at(page, 11) == before
