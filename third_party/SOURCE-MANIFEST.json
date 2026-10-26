@@ -1,11 +1,11 @@
 {
-  "artifact_manifest": "/tmp/asr-issue17-bundle/source-manifest.json",
+  "artifact_manifest": "/tmp/asr-issue17-package-check/output/source-artifacts/source-manifest.json",
   "blocker_count": 0,
   "blockers": [],
-  "collected_group_count": 156,
-  "gpl_lgpl_binary_record_count": 246,
+  "collected_group_count": 157,
+  "gpl_lgpl_binary_record_count": 248,
   "official_index_count": 18,
   "schema": 1,
-  "source_group_count": 156,
+  "source_group_count": 157,
   "status": "collected"
 }

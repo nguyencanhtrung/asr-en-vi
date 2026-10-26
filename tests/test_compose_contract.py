@@ -126,9 +126,7 @@ def test_torchcodec_uses_cuda128_wheels_only_on_linux_aarch64():
     torchcodec_packages = [
         package for package in lock["package"] if package["name"] == "torchcodec"
     ]
-    assert {
-        package["source"]["registry"] for package in torchcodec_packages
-    } == {
+    assert {package["source"]["registry"] for package in torchcodec_packages} == {
         "https://pypi.org/simple",
         "https://download.pytorch.org/whl/cu128",
     }
@@ -146,9 +144,10 @@ def test_torchcodec_uses_cuda128_wheels_only_on_linux_aarch64():
     assert cuda_package["resolution-markers"] == [
         "platform_machine == 'aarch64' and sys_platform == 'linux'"
     ]
-    assert "platform_machine != 'aarch64' and sys_platform == 'linux'" in pypi_package[
-        "resolution-markers"
-    ]
+    assert (
+        "platform_machine != 'aarch64' and sys_platform == 'linux'"
+        in pypi_package["resolution-markers"]
+    )
     assert "cu13" not in (ROOT / "pyproject.toml").read_text(encoding="utf-8").lower()
     assert "cu13" not in (ROOT / "uv.lock").read_text(encoding="utf-8").lower()
 

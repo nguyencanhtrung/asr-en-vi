@@ -671,9 +671,7 @@ def test_platform_images_publish_only_on_version_tags_with_native_runners():
     assert '"${RUNNER_TEMP}/candidate-image-id"' in source_step["run"]
 
     verify_step = next(
-        step
-        for step in publish_platform["steps"]
-        if step["name"] == "Verify public platform image"
+        step for step in publish_platform["steps"] if step["name"] == "Verify public platform image"
     )
     assert "pulled_image_id" in verify_step["run"]
     assert "{{.Id}}" in verify_step["run"]
