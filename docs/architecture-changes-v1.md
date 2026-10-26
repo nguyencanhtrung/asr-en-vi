@@ -50,7 +50,7 @@ notes — chia chunk → trích xuất → hợp nhất → kiểm tra → rende
 
 ## 3. Các thay đổi và lần đo đã merge
 
-Theo thứ tự merge: PR #91, #94, #98, #103.
+Theo thứ tự merge: PR #91, #94, #98, #103, #109.
 
 ### #74 / PR #91 — Tắt telemetry ONNX Runtime trong tiến trình con của worker
 
@@ -323,7 +323,75 @@ Hiệu năng
 - `docs/acceptance-report-v1.md` mục 6.5 (PR #103 đã cập nhật), cùng mục 1.1, 1.3 và 5.1 (AC-13).
 - Release notes (#17): kết quả nghiệm thu AC-13 và giới hạn đã biết.
 
-## 4. Mốc AC-13 (#16 → #99)
+### #104 / PR #109 — Notes một lượt theo context thật của model
+
+#### Vấn đề
+
+AC-13 cần transcript và notes của mẫu 2 giờ sẵn trong tối đa 30 phút từ `POST /api/tasks`. Trước #104, planner dùng ngân sách bảo thủ tương đương context 64K: mẫu ghép 2 giờ cần 14 chunk và 29 lượt gọi tuần tự; #99 mất 1.463,5 s ở notes rồi lỗi `provider_output_too_large`, tác vụ kết thúc lỗi sau 2.090,2 s. #104 mở đường một lượt chỉ khi transcript vừa ngân sách thật của đúng hai cấu hình chủ sở hữu; nguồn quá lớn và model khác vẫn dùng chia/hợp nhất hiện có.
+
+#### Nguyên nhân đo được
+
+- Giới hạn thực của `gpt-5.6-sol` là context 272.000 token; Codex dùng 95%, tương đương 258.400 token có thể lập kế hoạch. Không có trần output model được công bố; ứng dụng giữ guard body 1 MiB cho request ChatGPT, và các lần gọi thật đã đạt các kích thước được đo.
+- `gemini-3.8-flash` qua OMP có context 1.048.576 token và trần 65.536 token cho output, gồm cả thinking; RPC frame của ứng dụng là 1 MiB. Vì vậy trần transport và trần token phải được kiểm riêng.
+- Ước tính token của đường mới là `ceil(UTF-8 bytes × 2 / 3)` trên prompt, schema, phần dự phòng repair và headroom; đường single-pass dành 65.536 token cho output và 4.000 token headroom. `PROMPT_VERSION` là `notes-hierarchical-v7`.
+- Schema enum nghiêm ngặt của structured outputs chỉ chứa tối đa 999 mã nguồn trong một scope. Với hơn 999 segment, pipeline gom các segment liên tiếp thành unit, `unit_size = ceil(n / 999)`; mỗi mục chịu giới hạn `200 // unit_size` unit và khi khôi phục sẽ trả lại toàn bộ mã segment thành viên.
+
+Nguồn: PR #109 (AC checklist và Evidence); issue #104; giới hạn từ [Codex rust-v0.154.0 `codex-rs/protocol/src/openai_models.rs`](https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/protocol/src/openai_models.rs#L400-L525) và [ChatGPT model catalog](https://chatgpt.com/backend-api/codex/models?client_version=0.154.0); [OMP v18.5.0 `packages/catalog/src/models.json`](https://github.com/can1357/oh-my-pi/blob/v18.5.0/packages/catalog/src/models.json#L1); code tại `src/asr_en_vi/notes_document.py`.
+
+#### Thay đổi thiết kế
+
+- Thêm bảng ngân sách tĩnh theo cặp `(provider, model)` đúng hai cấu hình: ChatGPT `gpt-5.6-sol` và Antigravity `gemini-3.8-flash`. Cặp khác giữ ngân sách bảo thủ trước #104.
+- Chỉ chọn single-pass khi phép kiểm context, request guard và repair reserve cùng đạt. Chunk/reduce giữ các trần transport hiện có; không chuyển prompt rút gọn của #100 vào đường này.
+- Giữ enum source ID bằng citation units thay vì đổi sang chuỗi tự do. Các unit liên tiếp có cùng alias trong prompt; validator vẫn kiểm tra scope và bước restore mở alias thành các segment gốc.
+- Prompt single-pass thêm điều khoản bao quát: một mục riêng cho mỗi chủ đề, quyết định, câu hỏi, hành động và mục cần xác nhận khác nhau trong toàn bộ cuộc họp, theo thứ tự nguồn; mục ngắn nhưng không được bỏ hoặc gộp ý riêng. Prompt chunk/reduce không đổi. Việc ghi usage chỉ giữ số đếm `input/output/reasoning`, estimate và kích thước prompt, không ghi nội dung.
+
+#### Số đo trước và sau
+
+Điều kiện trước là #99 trên mẫu ghép 2 giờ, ChatGPT `gpt-5.6-sol` medium, đường chunk/reduce bảo thủ: 14 chunk, 29 lượt tuần tự, notes lỗi sau 1.463,5 s và tác vụ kết thúc lỗi ở 2.090,2 s. Điều kiện sau là lượt đo final trên revision `b78711d`, notes English, prompt `notes-hierarchical-v7`, ba lượt ChatGPT `gpt-5.6-sol` medium và một lượt Flash final chạy notes-only; nguồn trên 999 segment dùng citation units.
+
+| Lượt | Segment / citation unit | POST → ready | Lượt gọi | Prompt B | Estimate → input (tỷ lệ) | Output / reasoning | Tìm thấy / partly / thiếu / bịa | Mơ hồ nâng (chắc / giáp ranh) | Bullet / từ / phút đọc |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: |
+| Single 1 | 661 / — | 116,5 s | 1 | 109.426 | 77.812 → 33.184 (2,34×) | 6.111 / 1.825 | 31 / 4 / 2 / 0 trên 37 | 2 / 3 | 85 / 1.585 / 6,9 |
+| Single 2 | 1.269 / 635 (unit 2) | 67,2 s | 1 | 186.630 | 127.849 → 56.286 (2,27×) | 3.451 / 482 | 28 / 7 / 3 / 0 trên 38 | 2 / 1 | 65 / 1.286 / 5,6 |
+| Single 3, mẫu ghép | 1.779 / 890 (unit 2) | 81,3 s | 1 | 262.375 | 179.196 → 77.048 (2,33×) | 4.258 / 239 | 48 / 19 / 8 / 0 trên 75 | 1 / 1 | 92 / 1.725 / 7,5 |
+| Flash final | 1.779 / 890 (unit 2) | 241,7 s | 1 | 262.375 | 179.312 → 96.692 (1,85×) | 33.200 / 28.325 | không chấm | — | 79 / 1.227 / 5,3 |
+| Baseline 20/10, chunked | — | — | — | — | — | — | baseline tìm thấy 34/37 | — | 63 / 1.458 / 6,3 |
+| Baseline 16/10, chunked | — | — | — | — | — | — | baseline tìm thấy 35/38 | — | 97 / 2.469 / 10,7 |
+
+Số tìm thấy cộng partly (cận trên) của ba lượt sol là 35/37, 35/38 và 67/75; ba lượt sol đều có 0 mục bịa. Flash final không chấm quality. Các mục partly được ghi nhận chủ yếu vì ngày dự kiến và kế hoạch được đặt dưới `Items Requiring Confirmation` thay vì `Decisions`. Các lượt đã ghi quality đều có estimate lớn hơn `input_tokens`; tỷ lệ thực tế trong bảng là phép chia estimate cho `input_tokens`.
+
+Ghi chú candidate trước (prompt v7, trước citation units): Flash thành công một lượt nhưng recall chỉ 37/75 so với baseline 69/75; không dùng làm số đo final.
+
+Nguồn: PR #109 (AC checklist và Evidence); issue #104; lượt đo final và các baseline trong Evidence.
+
+#### Đánh đổi và phương án đã loại
+
+- Chọn single-pass chỉ cho model và nguồn vừa ngân sách thật. Đánh đổi: nguồn quá lớn vẫn có nhiều lượt gọi; các nguồn trên 999 segment dùng citation unit nên độ hạt của tham chiếu thô hơn trong prompt, nhưng restore vẫn trả đủ segment gốc.
+- Loại schema `source_id` dạng chuỗi không có enum: candidate trước từng trả `unknown_source_id`; output 21.527 B vượt giới hạn repair 8.000 B nên không còn repair, làm cả lượt single-pass lỗi.
+- Điều khoản completeness là cần thiết nhưng chưa đủ: Flash v7 vẫn chỉ tìm thấy 37/75, partly 21 và thiếu 17; không dùng nó làm bằng chứng đã đạt AC-5.
+- Hoãn phương án chia nguồn dài thành các phần khoảng một giờ chạy song song rồi hợp nhất một lượt sang #108. Không đưa quy tắc rút ngắn của #100 vào PR này; chủ sở hữu đã bỏ mục tiêu đọc 2–3 phút, nên không rút ngắn các notes mới theo mục tiêu đó.
+
+#### Follow-up
+
+- #107: chuyển các ngày dự kiến và kế hoạch đã chốt trong cuộc họp từ `Items Requiring Confirmation` sang `Decisions`; các đề xuất chưa được thống nhất vẫn ở `Items Requiring Confirmation`; AC-5 của #104 vẫn để **Not done** với các số đo trên.
+- #108: nguồn dài hơn khoảng một giờ → chia thành các phần khoảng một giờ, chạy song song rồi hợp nhất một lượt.
+- #100: giữ mục tiêu mỗi ý một mục và schema sáu nhóm theo hàng đã cập nhật ở mục 5; bỏ mục tiêu đọc 2–3 phút, không còn là blocker của #104.
+
+#### Liên kết issue/PR
+
+Issue #104, PR #109; liên quan #99, #100, #101, #102, #107, #108.
+
+#### Tag
+
+Notes; Hiệu năng
+
+#### Tài liệu đích
+
+- `docs/backend-contract-v1.md` mục 5 (ngân sách, single-pass, citation và phục hồi).
+- `docs/backend-design-v1.md` mục 4 và 8 (Q17–Q18, model/provider và đánh đổi chia/hợp nhất).
+- `docs/acceptance-report-v1.md` mục 6.6 và hàng AC-13 (mốc đo #104); release notes (#17) cho giới hạn đã biết.
+
+## 4. Mốc AC-13 (#16 → #99 → #104)
 
 AC-13: bản ghi 2 giờ có transcript và notes sẵn để duyệt trong tối đa 30 phút kể từ `POST /api/tasks`. Mẫu ghép 2 giờ (7366 s) là audio của hai bản ghi nối nhau.
 
@@ -333,8 +401,9 @@ AC-13: bản ghi 2 giờ có transcript và notes sẵn để duyệt trong tố
 | #72 / PR #94 | `3c96052` | bản ghi 13/10 (75 phút) | notes thành công sau 798,5 s, 16 lượt gọi, 1 lượt phục hồi (trước: lỗi ở lượt 13 sau 571,3 s) | không đo mẫu 2 giờ |
 | #71 / PR #98 | `d515f36` | mẫu ghép 2 giờ | diarization 103,0 s (trước 7.222,6 s); import → transcript sẵn 768 s | không đo notes |
 | #99 / PR #103 | `4a88ec8` (có #71, #72, #74) | mẫu ghép 2 giờ | transcript sẵn 626,5 s (10,4 phút); notes lỗi ở lượt 29 sau 1.463,5 s; tác vụ notes kết thúc lỗi ở 2.090,2 s (34,8 phút) | fail |
+| #104 / PR #109 | `b78711d` | mẫu ghép 2 giờ, số đo ghép | **651,7 s transcript (lần chạy timed) + 0,2 s + 81,3 s notes = 733,2 s (12,2 phút)**; một lần chạy timed trên candidate trước là 723,3 s | đạt về thời gian, nhưng số đo 733,2 s là composed, không phải một lần chạy liên tục |
 
-Nguồn: mục tương ứng của từng PR ở mục 3; `docs/acceptance-report-v1.md` mục 6.1 và 6.5. #74 (PR #91) không nhằm giảm thời gian và đã có trong image đo của #99. Bước chậm nhất chuyển từ diarization (#16) sang notes (#99, 70,0%). Còn lại để đạt: notes ra được (#102), vừa phần còn lại 19,6 phút sau transcript (#101), và quyết định cú bấm "Tạo notes" có nằm trong mốc hay không (#73).
+Nguồn: mục tương ứng của từng PR ở mục 3; `docs/acceptance-report-v1.md` mục 6.1, 6.5 và 6.6. #74 (PR #91) không nhằm giảm thời gian và đã có trong image đo của #99. Bước chậm nhất chuyển từ diarization (#16) sang notes (#99), rồi notes còn 67,2–116,5 s ở các lượt single-pass final. #104 có mốc thời gian composed dưới 30 phút; chất lượng AC-5 còn theo dõi ở #107 và phương án nguồn dài ở #108.
 
 ## 5. Đang làm / tiếp theo
 
@@ -342,8 +411,7 @@ Việc mở liên quan tới các thay đổi trên. Khi PR của một việc t
 
 | # | Việc | Số đo nền | Tag dự kiến | Quan hệ |
 | --- | --- | --- | --- | --- |
-| #100 | Notes cực ngắn: đọc trong 2–3 phút, mỗi ý ở đúng một mục (văn phong telegraph, giữ schema sáu mục) | bản 20/10 (56 phút): 63 mục, 10.294 ký tự Markdown, đọc khoảng 7 phút; sinh output 46–50 s mỗi lượt gọi. Đích: ≤ 600 từ, ngắn hơn ≥ 50% ký tự, số mục tìm thấy không giảm (20/10: 34/37, 16/10: 35/38, 13/10: 50/51) | Notes | chặn #104 |
-| #104 | Notes một lượt khi transcript vừa context thật của model (`gpt-5.6-sol` high, Antigravity Flash 3.8 high) | `MAX_PROMPT_BYTES` = 32.129 từ giả định context 64K và 1 byte = 1 token (chưa kiểm chứng với provider); mẫu ghép 2 giờ cần 14 chunk, 29 lượt gọi tuần tự | Notes, Hiệu năng | bị chặn bởi #100; liên quan #101, #102 |
+| #100 | Notes cực ngắn: mỗi ý ở đúng một mục (văn phong telegraph, giữ schema sáu mục) | bản 20/10 (56 phút): 63 mục, 10.294 ký tự Markdown, đọc khoảng 7 phút; sinh output 46–50 s mỗi lượt gọi. Đích: ≤ 600 từ, ngắn hơn ≥ 50% ký tự, số mục tìm thấy không giảm (20/10: 34/37, 16/10: 35/38, 13/10: 50/51) | Notes | không còn chặn #104; mục tiêu đọc 2–3 phút đã bỏ |
 | #101 | Notes của bản ghi 2 giờ mất hơn 24 phút với 29 lượt gọi tuần tự | notes 1.463,5 s = 70% mốc AC-13; trung bình 50,5 s mỗi lượt; 8 lượt cuối 62–77 s. Hướng (chưa quyết): gọi song song chunk độc lập, giảm số lượt hoặc tầng reduce, rút ngắn output (#100) | Hiệu năng, Notes | chặn #17 |
 | #102 | Notes vẫn lỗi vượt trần đầu ra sau khi hết lượt phục hồi | lượt 29: `output_bytes` 10.701 so với trần 10.700 (cận dưới); mục tiêu 8000 → 6000 → 4500 không giới hạn được độ dài thật | Notes | chặn #17 |
 | #73 | Notes không tự chạy sau transcript: quyết định đặc tả cho cách đo AC-13 | người vận hành phải bấm "Tạo notes"; công cụ đo bấm sau 0,2–1,1 s, người thật không có giới hạn | Kiến trúc | quyết định đổi mốc đo AC-13 |

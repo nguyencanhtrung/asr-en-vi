@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -131,6 +132,11 @@ def run_notes_task(data_dir: Path, task_id: str, owner_id: str) -> int:
 
 
 def main() -> int:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        stream=sys.stderr,
+    )
     parser = argparse.ArgumentParser(prog="asr-en-vi-notes-runner")
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--task-id", required=True)

@@ -12,7 +12,7 @@ from datetime import date, timedelta
 from typing import Any
 
 SCHEMA_VERSION = 1
-PROMPT_VERSION = "notes-hierarchical-v6"
+PROMPT_VERSION = "notes-hierarchical-v7"
 LEGACY_ENGLISH_PROMPT_VERSION = "notes-hierarchical-v4"
 _MAX_PROMPT_HARD_LIMIT_BYTES = 48_000
 # max_output_tokens includes hidden reasoning as well as the visible JSON.
@@ -20,11 +20,136 @@ _MAX_PROMPT_HARD_LIMIT_BYTES = 48_000
 NOTES_MAX_OUTPUT_TOKENS = 25_000
 _CONTEXT_INPUT_BUDGET_BYTES = 64_000 - NOTES_MAX_OUTPUT_TOKENS - 4_000
 _CONTEXT_INPUT_HEADROOM_BYTES = 1_024
+NOTES_CONTEXT_HEADROOM_TOKENS = 4_000
+# A 2/3 estimate assumes at least 1.5 UTF-8 bytes per token. Typical text here averages
+# 2.5-4 bytes per token, so this leaves at least a 40% margin against provider input usage.
+NOTES_TOKEN_ESTIMATE_NUMERATOR = 2
+NOTES_TOKEN_ESTIMATE_DENOMINATOR = 3
+
+# Source: ChatGPT model catalog via Codex rust-v0.154.0 (gpt-5.6-sol context_window).
+CHATGPT_GPT_5_6_SOL_CONTEXT_WINDOW_TOKENS = 272_000
+# Source: Codex rust-v0.154.0 effective_context_window_percent = 95.
+CHATGPT_GPT_5_6_SOL_USABLE_CONTEXT_TOKENS = 258_400
+# Source: issue-104 decision D1; the request reserves this output/reasoning allocation.
+CHATGPT_GPT_5_6_SOL_OUTPUT_RESERVE_TOKENS = 65_536
+# Source: issue-104 decision D1; direct ChatGPT notes request guard.
+CHATGPT_GPT_5_6_SOL_REQUEST_BODY_BYTES = 1 * 1024 * 1024
+
+# Source: OMP v18.5.0 catalog entry gemini-3.8-flash contextWindow.
+ANTIGRAVITY_GEMINI_3_8_FLASH_CONTEXT_WINDOW_TOKENS = 1_048_576
+# Source: OMP v18.5.0 catalog maxTokens, including Gemini thinking tokens.
+ANTIGRAVITY_GEMINI_3_8_FLASH_OUTPUT_RESERVE_TOKENS = 65_536
+# Source: OMP v18.5.0 RPC v1 frame limit used by this application.
+ANTIGRAVITY_GEMINI_3_8_FLASH_REQUEST_FRAME_BYTES = 1 * 1024 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class NotesBudget:
+    """The static planning and transport limits for one pinned provider/model pair."""
+
+    provider: str | None
+    model: str | None
+    context_window_tokens: int
+    usable_context_tokens: int
+    output_reserve_tokens: int
+    request_guard_bytes: int
+    uses_token_estimate: bool
+
+
+# Chunk/reduce transport keeps today's provider-specific request budget; the selected Antigravity
+# owner model uses the same 1 MiB RPC-frame budget for single pass.
+def conservative_notes_budget(provider: object = None) -> NotesBudget:
+    selected_provider = provider if isinstance(provider, str) else None
+    request_guard_bytes = (
+        ANTIGRAVITY_GEMINI_3_8_FLASH_REQUEST_FRAME_BYTES
+        if selected_provider == "antigravity"
+        else 128 * 1024
+    )
+    return NotesBudget(
+        provider=selected_provider,
+        model=None,
+        context_window_tokens=64_000,
+        usable_context_tokens=_CONTEXT_INPUT_BUDGET_BYTES,
+        output_reserve_tokens=NOTES_MAX_OUTPUT_TOKENS,
+        request_guard_bytes=request_guard_bytes,
+        uses_token_estimate=False,
+    )
+
+
+_CONSERVATIVE_NOTES_BUDGET = NotesBudget(
+    provider=None,
+    model=None,
+    context_window_tokens=64_000,
+    usable_context_tokens=_CONTEXT_INPUT_BUDGET_BYTES,
+    output_reserve_tokens=NOTES_MAX_OUTPUT_TOKENS,
+    request_guard_bytes=128 * 1024,
+    uses_token_estimate=False,
+)
+
+# Exactly the two owner configurations. Unknown pairs intentionally resolve to the conservative
+# constants above, preserving the pre-issue-104 byte/token and request-body behavior.
+NOTES_BUDGETS: dict[tuple[str, str], NotesBudget] = {
+    ("chatgpt", "gpt-5.6-sol"): NotesBudget(
+        provider="chatgpt",
+        model="gpt-5.6-sol",
+        context_window_tokens=CHATGPT_GPT_5_6_SOL_CONTEXT_WINDOW_TOKENS,
+        usable_context_tokens=CHATGPT_GPT_5_6_SOL_USABLE_CONTEXT_TOKENS,
+        output_reserve_tokens=CHATGPT_GPT_5_6_SOL_OUTPUT_RESERVE_TOKENS,
+        request_guard_bytes=CHATGPT_GPT_5_6_SOL_REQUEST_BODY_BYTES,
+        uses_token_estimate=True,
+    ),
+    ("antigravity", "gemini-3.8-flash"): NotesBudget(
+        provider="antigravity",
+        model="gemini-3.8-flash",
+        context_window_tokens=ANTIGRAVITY_GEMINI_3_8_FLASH_CONTEXT_WINDOW_TOKENS,
+        usable_context_tokens=ANTIGRAVITY_GEMINI_3_8_FLASH_CONTEXT_WINDOW_TOKENS,
+        output_reserve_tokens=ANTIGRAVITY_GEMINI_3_8_FLASH_OUTPUT_RESERVE_TOKENS,
+        request_guard_bytes=ANTIGRAVITY_GEMINI_3_8_FLASH_REQUEST_FRAME_BYTES,
+        uses_token_estimate=True,
+    ),
+}
+
+
+def notes_budget(provider: object = None, model: object = None) -> NotesBudget:
+    """Resolve the pinned model budget, falling back to today's conservative behavior."""
+    if isinstance(provider, str) and isinstance(model, str):
+        selected = NOTES_BUDGETS.get((provider, model))
+        if selected is not None:
+            return selected
+        conservative = conservative_notes_budget(provider)
+        return NotesBudget(
+            provider=conservative.provider,
+            model=model,
+            context_window_tokens=conservative.context_window_tokens,
+            usable_context_tokens=conservative.usable_context_tokens,
+            output_reserve_tokens=conservative.output_reserve_tokens,
+            request_guard_bytes=conservative.request_guard_bytes,
+            uses_token_estimate=conservative.uses_token_estimate,
+        )
+    return _CONSERVATIVE_NOTES_BUDGET
+
+
+def estimate_notes_tokens(utf8_bytes: int, budget: NotesBudget | None = None) -> int:
+    """Estimate input tokens from UTF-8 bytes using the selected model's convention."""
+    if type(utf8_bytes) is not int or utf8_bytes < 0:
+        raise ValueError("utf8_bytes must be a non-negative integer")
+    selected = _CONSERVATIVE_NOTES_BUDGET if budget is None else budget
+    if not selected.uses_token_estimate:
+        return utf8_bytes
+    return (
+        utf8_bytes * NOTES_TOKEN_ESTIMATE_NUMERATOR + NOTES_TOKEN_ESTIMATE_DENOMINATOR - 1
+    ) // NOTES_TOKEN_ESTIMATE_DENOMINATOR
+
+
+# OpenAI strict structured outputs allow at most 1,000 enum values in total; schema_version
+# consumes one, so an enum scope may contain at most 999 source IDs.
 MAX_SOURCE_IDS_PER_SCOPE = 999
 MAX_SOURCE_REFS_PER_ITEM = 200
 MAX_OUTPUT_BYTES = 128_000
 MAX_CHUNK_OUTPUT_BYTES = 8_000
 MAX_REPAIR_OUTPUT_BYTES = 8_000
+# JSON escaping can expand a permitted UTF-8 repair payload by up to six bytes per input byte.
+MAX_REPAIR_SERIALIZED_BYTES = MAX_REPAIR_OUTPUT_BYTES * 6
 MAX_TOTAL_SOURCE_BYTES = 1_000_000
 # Whole trailing segments of a chunk, at most this many prompt bytes, open the next chunk;
 # a segment larger than this is never repeated.
@@ -94,29 +219,56 @@ def _validated_source_scope(allowed_source_ids: Any) -> tuple[str, ...]:
             reason_code="source_ids",
             detail_code="invalid_source_list",
         ) from error
-    if (
-        len(scope) > MAX_SOURCE_IDS_PER_SCOPE
-        or any(not isinstance(source_id, str) for source_id in scope)
-        or len(set(scope)) != len(scope)
-    ):
+    if any(not isinstance(source_id, str) for source_id in scope) or len(set(scope)) != len(scope):
         raise NotesDocumentError(
-            "The notes citation scope exceeds its supported bounds.",
+            "The notes citation scope is invalid.",
             reason_code="source_ids",
             detail_code="invalid_source_list",
         )
     return scope
 
 
-def build_notes_schema(allowed_source_ids: Any) -> dict[str, Any]:
+def _unique_source_ids(source_ids: Sequence[str]) -> tuple[str, ...]:
+    """Return source IDs once, preserving their first appearance order."""
+    return tuple(dict.fromkeys(source_ids))
+
+
+def _source_ref_limit(max_unit_size: object = 1) -> int:
+    if type(max_unit_size) is not int or max_unit_size < 1:
+        raise NotesDocumentError(
+            "The notes citation unit size is invalid.",
+            reason_code="source_ids",
+            detail_code="invalid_source_list",
+        )
+    limit = MAX_SOURCE_REFS_PER_ITEM // max_unit_size
+    if limit < 1:
+        raise NotesDocumentError(
+            "The notes citation units exceed their supported bounds.",
+            reason_code="source_ids",
+            detail_code="invalid_source_list",
+        )
+    return limit
+
+
+def build_notes_schema(allowed_source_ids: Any, *, max_unit_size: int = 1) -> dict[str, Any]:
     """Build the strict provider schema for exactly one request's citation scope."""
     scope = _validated_source_scope(allowed_source_ids)
-    source_items: dict[str, Any] = {"$ref": "#/$defs/source_id"} if scope else {"type": "string"}
+    if len(scope) > MAX_SOURCE_IDS_PER_SCOPE:
+        raise NotesDocumentError(
+            "The notes citation scope exceeds its supported bounds for this schema.",
+            reason_code="source_ids",
+            detail_code="invalid_source_list",
+        )
+    source_ref_limit = _source_ref_limit(max_unit_size) if scope else 0
+    source_items: dict[str, Any] = (
+        {"type": "string"} if not scope else {"$ref": "#/$defs/source_id"}
+    )
 
     properties: dict[str, Any] = {"text": {"type": "string"}}
     source_ids: dict[str, Any] = {
         "type": "array",
         "items": source_items,
-        "maxItems": MAX_SOURCE_REFS_PER_ITEM if scope else 0,
+        "maxItems": source_ref_limit,
     }
     properties["source_ids"] = source_ids
 
@@ -165,12 +317,111 @@ def build_notes_schema(allowed_source_ids: Any) -> dict[str, Any]:
     return schema
 
 
-def notes_schema_json_bytes(allowed_source_ids: Any) -> int:
-    schema = build_notes_schema(allowed_source_ids)
+def notes_schema_json_bytes(allowed_source_ids: Any, *, max_unit_size: int = 1) -> int:
+    schema = build_notes_schema(allowed_source_ids, max_unit_size=max_unit_size)
     return len(
         json.dumps(schema, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode(
             "utf-8"
         )
+    )
+
+
+def build_notes_provider_message(prompt: str, schema: dict[str, Any]) -> str:
+    """Append the schema contract used by the Antigravity notes request."""
+    schema_json = json.dumps(schema, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    return (
+        f"{prompt}\n\nReturn only one JSON object, with no Markdown fence and no "
+        "text before or after it. It must validate against this JSON Schema and use "
+        f"only the source IDs the schema allows:\n{schema_json}"
+    )
+
+
+def notes_provider_input_bytes(
+    prompt: str,
+    allowed_source_ids: Any,
+    *,
+    budget: NotesBudget | None = None,
+    max_unit_size: int = 1,
+) -> int:
+    """Count the UTF-8 bytes represented as provider input, including the notes schema."""
+    selected = _CONSERVATIVE_NOTES_BUDGET if budget is None else budget
+    schema = build_notes_schema(allowed_source_ids, max_unit_size=max_unit_size)
+    if selected.provider == "antigravity":
+        return len(build_notes_provider_message(prompt, schema).encode("utf-8"))
+    return len(prompt.encode("utf-8")) + len(
+        json.dumps(schema, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode(
+            "utf-8"
+        )
+    )
+
+
+def build_chatgpt_notes_request_body(
+    *,
+    model: str,
+    prompt: str,
+    schema: dict[str, Any],
+    reasoning_effort: str,
+    budget: NotesBudget,
+) -> dict[str, Any]:
+    """Build the pure ChatGPT notes body used by both planning and the HTTP adapter."""
+    body: dict[str, Any] = {
+        "model": model,
+        "max_output_tokens": budget.output_reserve_tokens,
+        "input": [{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "meeting_notes_v1",
+                "strict": True,
+                "schema": schema,
+            }
+        },
+        "store": False,
+        "stream": True,
+    }
+    if reasoning_effort != "default":
+        body["reasoning"] = {"effort": reasoning_effort}
+    return body
+
+
+def notes_request_body_bytes(
+    prompt: str,
+    allowed_source_ids: Any,
+    *,
+    budget: NotesBudget | None = None,
+    max_unit_size: int = 1,
+) -> int:
+    """Return the serialized request/frame size for a model-specific notes transport."""
+    selected = _CONSERVATIVE_NOTES_BUDGET if budget is None else budget
+    schema = build_notes_schema(allowed_source_ids, max_unit_size=max_unit_size)
+    if selected.provider == "chatgpt":
+        # Include the largest supported reasoning metadata in planning so the run-time body
+        # remains under the guard for every selected effort, including the default omission.
+        body = build_chatgpt_notes_request_body(
+            model=selected.model or "",
+            prompt=prompt,
+            schema=schema,
+            reasoning_effort="xhigh",
+            budget=selected,
+        )
+        return len(
+            json.dumps(body, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode(
+                "utf-8"
+            )
+        )
+    if selected.provider == "antigravity":
+        # _prompt_for_text uses a 12-byte token_urlsafe ID, which is 16 ASCII characters.
+        frame = {
+            "id": "x" * 16,
+            "type": "prompt",
+            "message": build_notes_provider_message(prompt, schema),
+        }
+        return len(json.dumps(frame, ensure_ascii=True, separators=(",", ":")).encode("utf-8")) + 1
+    return notes_provider_input_bytes(
+        prompt,
+        allowed_source_ids,
+        budget=selected,
+        max_unit_size=max_unit_size,
     )
 
 
@@ -206,6 +457,15 @@ def _repair_prefix(output_language: str) -> str:
     return _REPAIR_PREFIX if output_language == "en" else _REPAIR_PREFIX_VI
 
 
+def _worst_case_repair_output() -> str:
+    """Return a permitted repair payload whose JSON escaping reaches the six-byte bound."""
+    payload = "\x00" * MAX_REPAIR_OUTPUT_BYTES
+    serialized_payload = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+    if len(serialized_payload) - 2 != MAX_REPAIR_SERIALIZED_BYTES:
+        raise NotesDocumentError("The bounded repair serialization rule is invalid.")
+    return payload
+
+
 def _repair_reserve_bytes(output_language: str) -> int:
     return len(_repair_prefix(output_language).encode("utf-8")) + MAX_REPAIR_OUTPUT_BYTES
 
@@ -232,12 +492,28 @@ class NotesSourceProjection:
     """A transient ID-only view used for provider prompts and citation validation."""
 
     snapshot: dict[str, Any]
-    alias_to_original: dict[str, str]
+    alias_to_original: dict[str, str | tuple[str, ...]]
+
+    @property
+    def max_unit_size(self) -> int:
+        return max(
+            (
+                len(originals) if isinstance(originals, tuple) else 1
+                for originals in self.alias_to_original.values()
+            ),
+            default=1,
+        )
 
     def project_chunk(self, chunk: dict[str, Any]) -> dict[str, Any]:
-        original_to_alias = {
-            original_id: alias for alias, original_id in self.alias_to_original.items()
-        }
+        original_to_alias: dict[str, str] = {}
+        for alias, originals in self.alias_to_original.items():
+            members = (originals,) if isinstance(originals, str) else originals
+            for original_id in members:
+                if original_id in original_to_alias:
+                    raise NotesDocumentError(
+                        "The notes source projection maps an ID more than once."
+                    )
+                original_to_alias[original_id] = alias
         try:
             projected = copy.deepcopy(chunk)
             segments = projected["segments"]
@@ -263,8 +539,19 @@ def _base36_alias(value: int) -> str:
     return encoded.rjust(5, "0")
 
 
-def project_source_snapshot(snapshot: dict[str, Any]) -> NotesSourceProjection:
-    """Copy a source snapshot and replace only its segment IDs with bounded aliases."""
+def _compact_base36_alias(value: int) -> str:
+    return _base36_alias(value).lstrip("0") or "0"
+
+
+def project_source_snapshot(
+    snapshot: dict[str, Any], *, citation_units: bool = False
+) -> NotesSourceProjection:
+    """Copy a source snapshot and replace segment IDs with bounded provider aliases.
+
+    When ``citation_units`` is true, consecutive source segments are grouped into units sized
+    to keep the citation enum within the provider's strict 999-ID limit. Every unit member keeps
+    its own source fields, while restoration expands the shared alias back to all original IDs.
+    """
     try:
         source_segments = snapshot["segments"]
         if not isinstance(source_segments, list):
@@ -292,15 +579,38 @@ def project_source_snapshot(snapshot: dict[str, Any]) -> NotesSourceProjection:
     if len(original_ids) > 36**5:
         raise NotesDocumentError("The transcript has too many segments to project safely.")
 
-    retained = {source_id for source_id in original_ids if encoded_lengths[source_id] <= 7}
-    used = set(retained)
-    alias_to_original: dict[str, str] = {}
-    candidate = 0
     try:
         projected = copy.deepcopy(snapshot)
     except (TypeError, ValueError, copy.Error) as error:
         raise NotesDocumentError("The transcript snapshot cannot be copied safely.") from error
 
+    alias_to_original: dict[str, str | tuple[str, ...]] = {}
+    if citation_units:
+        if len(original_ids) <= MAX_SOURCE_IDS_PER_SCOPE:
+            raise NotesDocumentError(
+                "Citation units are only needed for a source larger than the strict ID limit.",
+                reason_code="source_ids",
+                detail_code="invalid_source_list",
+            )
+        unit_size = math.ceil(len(original_ids) / MAX_SOURCE_IDS_PER_SCOPE)
+        unit_count = math.ceil(len(original_ids) / unit_size)
+        if unit_count > MAX_SOURCE_IDS_PER_SCOPE:
+            raise NotesDocumentError(
+                "The transcript has too many citation units for the strict notes schema.",
+                reason_code="source_ids",
+                detail_code="invalid_source_list",
+            )
+        for unit_index, start in enumerate(range(0, len(original_ids), unit_size)):
+            members = tuple(original_ids[start : start + unit_size])
+            alias = _compact_base36_alias(unit_index)
+            alias_to_original[alias] = members
+            for segment in projected["segments"][start : start + len(members)]:
+                segment["id"] = alias
+        return NotesSourceProjection(projected, alias_to_original)
+
+    retained = {source_id for source_id in original_ids if encoded_lengths[source_id] <= 7}
+    used = set(retained)
+    candidate = 0
     for segment, original_id in zip(projected["segments"], original_ids, strict=True):
         if original_id in retained:
             alias = original_id
@@ -326,9 +636,12 @@ def project_source_snapshot(snapshot: dict[str, Any]) -> NotesSourceProjection:
     return NotesSourceProjection(projected, alias_to_original)
 
 
-def normalize_duplicate_source_refs(document: object, allowed_source_ids: Any) -> object:
+def normalize_duplicate_source_refs(
+    document: object, allowed_source_ids: Any, *, max_unit_size: int = 1
+) -> object:
     """Stable-deduplicate only well-formed, in-scope citation arrays at provider ingress."""
     scope = set(_validated_source_scope(allowed_source_ids))
+    source_ref_limit = _source_ref_limit(max_unit_size) if scope else 0
     if not isinstance(document, dict):
         return document
     normalized = copy.deepcopy(document)
@@ -342,7 +655,7 @@ def normalize_duplicate_source_refs(document: object, allowed_source_ids: Any) -
             references = item.get("source_ids")
             if (
                 isinstance(references, list)
-                and len(references) <= MAX_SOURCE_REFS_PER_ITEM
+                and len(references) <= source_ref_limit
                 and all(isinstance(ref, str) and ref in scope for ref in references)
                 and len(set(references)) != len(references)
             ):
@@ -375,18 +688,39 @@ def drop_overlap_duplicates(
 
 
 def restore_source_refs(
-    document: dict[str, Any], alias_to_original: dict[str, str]
+    document: dict[str, Any], alias_to_original: dict[str, str | Sequence[str]]
 ) -> dict[str, Any]:
-    """Restore aliases only in citation arrays, leaving all note text untouched."""
-    if (
-        not isinstance(document, dict)
-        or not isinstance(alias_to_original, dict)
-        or any(
-            not isinstance(alias, str) or not isinstance(original, str)
-            for alias, original in alias_to_original.items()
+    """Restore aliases only in citation arrays, expanding grouped aliases in source order."""
+    normalized_mapping: dict[str, tuple[str, ...]] = {}
+    flattened: list[str] = []
+    if not isinstance(document, dict) or not isinstance(alias_to_original, dict):
+        raise NotesDocumentError(
+            "The notes citations do not match their source projection.",
+            reason_code="source_ids",
+            detail_code="invalid_source_list",
         )
-        or len(set(alias_to_original.values())) != len(alias_to_original)
-    ):
+    for alias, originals in alias_to_original.items():
+        if isinstance(originals, str):
+            members = (originals,)
+        elif isinstance(originals, (list, tuple)) and all(
+            isinstance(original, str) for original in originals
+        ):
+            members = tuple(originals)
+        else:
+            raise NotesDocumentError(
+                "The notes citations do not match their source projection.",
+                reason_code="source_ids",
+                detail_code="invalid_source_list",
+            )
+        if not isinstance(alias, str) or not members or len(set(members)) != len(members):
+            raise NotesDocumentError(
+                "The notes citations do not match their source projection.",
+                reason_code="source_ids",
+                detail_code="invalid_source_list",
+            )
+        normalized_mapping[alias] = members
+        flattened.extend(members)
+    if len(set(flattened)) != len(flattened):
         raise NotesDocumentError(
             "The notes citations do not match their source projection.",
             reason_code="source_ids",
@@ -426,13 +760,17 @@ def restore_source_refs(
                     reason_code="source_ids",
                     detail_code="invalid_source_list",
                 )
-            if any(source_id not in alias_to_original for source_id in references):
+            if any(source_id not in normalized_mapping for source_id in references):
                 raise NotesDocumentError(
                     "The notes citations do not match their source projection.",
                     reason_code="source_ids",
                     detail_code="unknown_source_id",
                 )
-            item["source_ids"] = [alias_to_original[source_id] for source_id in references]
+            item["source_ids"] = [
+                original_id
+                for source_id in references
+                for original_id in normalized_mapping[source_id]
+            ]
     return restored
 
 
@@ -479,8 +817,10 @@ def validate_document(
     snapshot: dict[str, Any],
     *,
     max_output_bytes: int = MAX_OUTPUT_BYTES,
+    max_unit_size: int = 1,
 ) -> dict[str, Any]:
     """Check every field and source ID before producing a canonical owned copy."""
+    source_ref_limit = _source_ref_limit(max_unit_size)
     if not isinstance(document, dict) or set(document) != set(NOTES_SCHEMA["required"]):
         raise NotesDocumentError(
             "The notes document must contain all six sections and its version.",
@@ -516,7 +856,7 @@ def validate_document(
             references = item["source_ids"]
             if (
                 not isinstance(references, list)
-                or len(references) > MAX_SOURCE_REFS_PER_ITEM
+                or len(references) > source_ref_limit
                 or any(not isinstance(ref, str) for ref in references)
             ):
                 raise NotesDocumentError(
@@ -673,6 +1013,7 @@ def _source_instructions(
     output_language: str = "en",
     chunk_index: int | None = None,
     chunk_count: int | None = None,
+    budget: NotesBudget | None = None,
 ) -> str:
     output_language = validate_output_language(output_language)
     if output_language == "en":
@@ -721,6 +1062,23 @@ def _source_instructions(
             "dung. "
             "Không xuất URL, đường dẫn audio, Markdown hay thuộc tính bổ sung.\n"
         )
+    if chunk_index is None and budget is not None and budget.uses_token_estimate:
+        if output_language == "en":
+            instructions += (
+                "This transcript is the entire meeting in one request. Give every distinct topic, "
+                "decision, open question, action item and confirmation item its own item, covering "
+                "the whole meeting from start to end in source order. Long meetings need many "
+                "items. Keep each item short, but do not drop or merge distinct points to save "
+                "space.\n"
+            )
+        else:
+            instructions += (
+                "Transcript này là toàn bộ cuộc họp trong một yêu cầu. Hãy tạo một mục riêng cho "
+                "từng chủ đề, quyết định, câu hỏi còn bỏ ngỏ, hành động và mục cần xác nhận khác "
+                "nhau, bao quát toàn bộ cuộc họp từ đầu đến cuối theo thứ tự nguồn. Cuộc họp dài "
+                "cần nhiều mục. Giữ mỗi mục ngắn, nhưng không được bỏ hoặc gộp các ý riêng để "
+                "tiết kiệm không gian.\n"
+            )
     if chunk_index is not None:
         if output_language == "en":
             instructions += (
@@ -769,9 +1127,13 @@ def _source_prompt(
     output_language: str = "en",
     chunk_index: int | None = None,
     chunk_count: int | None = None,
+    budget: NotesBudget | None = None,
 ) -> str:
     instructions = _source_instructions(
-        output_language=output_language, chunk_index=chunk_index, chunk_count=chunk_count
+        output_language=output_language,
+        chunk_index=chunk_index,
+        chunk_count=chunk_count,
+        budget=budget,
     )
     prompt = (
         instructions
@@ -801,13 +1163,60 @@ def _check_prompt(
     allowed_source_ids: Any,
     reserve_repair: bool = False,
     output_language: str = "en",
+    budget: NotesBudget | None = None,
+    max_unit_size: int = 1,
 ) -> str:
     output_language = validate_output_language(output_language)
+    selected_budget = _CONSERVATIVE_NOTES_BUDGET if budget is None else budget
     try:
         prompt_bytes = len(prompt.encode("utf-8"))
     except UnicodeEncodeError as error:
         raise NotesDocumentError("The notes prompt is not valid UTF-8.") from error
-    schema_bytes = notes_schema_json_bytes(allowed_source_ids)
+    schema_bytes = notes_schema_json_bytes(allowed_source_ids, max_unit_size=max_unit_size)
+    if selected_budget.uses_token_estimate:
+        if (
+            estimate_notes_tokens(prompt_bytes + schema_bytes, selected_budget)
+            + selected_budget.output_reserve_tokens
+            + NOTES_CONTEXT_HEADROOM_TOKENS
+            > selected_budget.usable_context_tokens
+        ):
+            raise NotesDocumentError("The notes prompt exceeds the safe model context budget.")
+        if (
+            notes_request_body_bytes(
+                prompt,
+                allowed_source_ids,
+                budget=selected_budget,
+                max_unit_size=max_unit_size,
+            )
+            > selected_budget.request_guard_bytes
+        ):
+            raise NotesDocumentError("The notes prompt exceeds the provider request-size guard.")
+        if reserve_repair:
+            repair_prompt = _repair_prompt(
+                prompt,
+                _worst_case_repair_output(),
+                output_language=output_language,
+            )
+            if (
+                estimate_notes_tokens(
+                    len(repair_prompt.encode("utf-8")) + schema_bytes,
+                    selected_budget,
+                )
+                + selected_budget.output_reserve_tokens
+                + NOTES_CONTEXT_HEADROOM_TOKENS
+                > selected_budget.usable_context_tokens
+                or notes_request_body_bytes(
+                    repair_prompt,
+                    allowed_source_ids,
+                    budget=selected_budget,
+                    max_unit_size=max_unit_size,
+                )
+                > selected_budget.request_guard_bytes
+            ):
+                raise NotesDocumentError(
+                    "The notes prompt leaves no room for the bounded schema repair."
+                )
+        return prompt
     if prompt_bytes > MAX_PROMPT_BYTES:
         raise NotesDocumentError(
             f"The notes prompt exceeds the {MAX_PROMPT_BYTES:,}-byte request budget."
@@ -832,11 +1241,11 @@ def _source_scope_ids(snapshot: dict[str, Any]) -> tuple[str, ...]:
 
 def _checked_source_scope(snapshot: dict[str, Any], allowed_source_ids: Any) -> tuple[str, ...]:
     scope = (
-        _source_scope_ids(snapshot)
+        _unique_source_ids(_source_scope_ids(snapshot))
         if allowed_source_ids is None
         else _validated_source_scope(allowed_source_ids)
     )
-    if scope != _source_scope_ids(snapshot):
+    if scope != _unique_source_ids(_source_scope_ids(snapshot)):
         raise NotesDocumentError("The notes prompt scope does not match its supplied source.")
     return scope
 
@@ -847,18 +1256,22 @@ def build_prompt(
     allowed_source_ids: Any = None,
     invalid_output: str | None = None,
     output_language: str = "en",
+    budget: NotesBudget | None = None,
+    max_unit_size: int = 1,
 ) -> str:
     """Build one complete-source request, including an optional bounded repair payload."""
     output_language = validate_output_language(output_language)
     scope = _checked_source_scope(snapshot, allowed_source_ids)
     return _check_prompt(
         _repair_prompt(
-            _source_prompt(snapshot, output_language=output_language),
+            _source_prompt(snapshot, output_language=output_language, budget=budget),
             invalid_output,
             output_language=output_language,
         ),
         allowed_source_ids=scope,
         output_language=output_language,
+        budget=budget,
+        max_unit_size=max_unit_size,
     )
 
 
@@ -870,6 +1283,8 @@ def build_chunk_prompt(
     allowed_source_ids: Any = None,
     invalid_output: str | None = None,
     output_language: str = "en",
+    budget: NotesBudget | None = None,
+    max_unit_size: int = 1,
 ) -> str:
     """Build one source-local extraction request for a planned chunk."""
     output_language = validate_output_language(output_language)
@@ -883,12 +1298,15 @@ def build_chunk_prompt(
                 output_language=output_language,
                 chunk_index=chunk_index,
                 chunk_count=chunk_count,
+                budget=budget,
             ),
             invalid_output,
             output_language=output_language,
         ),
         allowed_source_ids=scope,
         output_language=output_language,
+        budget=budget,
+        max_unit_size=max_unit_size,
     )
 
 
@@ -912,7 +1330,13 @@ def _recovery_suffix(target_bytes: int, output_language: str) -> str:
 
 
 def build_recovery_prompt(
-    prompt: str, *, target_bytes: int, allowed_source_ids: Any, output_language: str = "en"
+    prompt: str,
+    *,
+    target_bytes: int,
+    allowed_source_ids: Any,
+    output_language: str = "en",
+    budget: NotesBudget | None = None,
+    max_unit_size: int = 1,
 ) -> str:
     """Add a lower output aim to a primary prompt, within the same request budget."""
     output_language = validate_output_language(output_language)
@@ -920,6 +1344,8 @@ def build_recovery_prompt(
         prompt + _recovery_suffix(target_bytes, output_language),
         allowed_source_ids=allowed_source_ids,
         output_language=output_language,
+        budget=budget,
+        max_unit_size=max_unit_size,
     )
 
 
@@ -940,13 +1366,49 @@ def _chunk_prompt_for_budget(
 
 
 def _fits_repairable_prompt(
-    prompt: str, allowed_source_ids: Any, *, output_language: str = "en"
+    prompt: str,
+    allowed_source_ids: Any,
+    *,
+    output_language: str = "en",
+    budget: NotesBudget | None = None,
+    max_unit_size: int = 1,
 ) -> bool:
+    selected_budget = _CONSERVATIVE_NOTES_BUDGET if budget is None else budget
     try:
         prompt_bytes = len(prompt.encode("utf-8"))
-        schema_bytes = notes_schema_json_bytes(allowed_source_ids)
+        schema_bytes = notes_schema_json_bytes(allowed_source_ids, max_unit_size=max_unit_size)
     except (NotesDocumentError, UnicodeEncodeError):
         return False
+    if selected_budget.uses_token_estimate:
+        try:
+            repair_prompt = _repair_prompt(
+                prompt,
+                _worst_case_repair_output(),
+                output_language=output_language,
+            )
+            repair_bytes = len(repair_prompt.encode("utf-8"))
+            return (
+                estimate_notes_tokens(repair_bytes + schema_bytes, selected_budget)
+                + selected_budget.output_reserve_tokens
+                + NOTES_CONTEXT_HEADROOM_TOKENS
+                <= selected_budget.usable_context_tokens
+                and notes_request_body_bytes(
+                    prompt,
+                    allowed_source_ids,
+                    budget=selected_budget,
+                    max_unit_size=max_unit_size,
+                )
+                <= selected_budget.request_guard_bytes
+                and notes_request_body_bytes(
+                    repair_prompt,
+                    allowed_source_ids,
+                    budget=selected_budget,
+                    max_unit_size=max_unit_size,
+                )
+                <= selected_budget.request_guard_bytes
+            )
+        except (NotesDocumentError, UnicodeEncodeError, TypeError, ValueError):
+            return False
     return (
         prompt_bytes
         <= min(
@@ -962,11 +1424,22 @@ def _fits_repairable_prompt(
 
 
 def prompt_fits_repair(
-    prompt: str, *, allowed_source_ids: Any, output_language: str = "en"
+    prompt: str,
+    *,
+    allowed_source_ids: Any,
+    output_language: str = "en",
+    budget: NotesBudget | None = None,
+    max_unit_size: int = 1,
 ) -> bool:
     """Whether the request leaves space for schema, context and one bounded repair."""
     output_language = validate_output_language(output_language)
-    return _fits_repairable_prompt(prompt, allowed_source_ids, output_language=output_language)
+    return _fits_repairable_prompt(
+        prompt,
+        allowed_source_ids,
+        output_language=output_language,
+        budget=budget,
+        max_unit_size=max_unit_size,
+    )
 
 
 def _coverage_manifest(
@@ -1132,6 +1605,46 @@ def _split_segment(
     return units
 
 
+def select_notes_source_projection(
+    snapshot: dict[str, Any],
+    *,
+    output_language: str = "en",
+    budget: NotesBudget | None = None,
+) -> NotesSourceProjection:
+    """Select the normal or grouped projection for one planned notes task.
+
+    Grouped citation IDs are considered only for an owner budget and only when the complete
+    source, including its bounded repair, fits as one request. A source that still needs chunks
+    keeps the normal projection so conservative chunk/reduce behavior remains unchanged.
+    """
+    output_language = validate_output_language(output_language)
+    selected_budget = _CONSERVATIVE_NOTES_BUDGET if budget is None else budget
+    projection = project_source_snapshot(snapshot)
+    segment_count = len(projection.snapshot.get("segments", ()))
+    if not selected_budget.uses_token_estimate or segment_count <= MAX_SOURCE_IDS_PER_SCOPE:
+        return projection
+
+    grouped = project_source_snapshot(snapshot, citation_units=True)
+    scope = _unique_source_ids(_source_scope_ids(grouped.snapshot))
+    try:
+        prompt = _source_prompt(
+            grouped.snapshot,
+            output_language=output_language,
+            budget=selected_budget,
+        )
+        _check_prompt(
+            prompt,
+            allowed_source_ids=scope,
+            output_language=output_language,
+            budget=selected_budget,
+            reserve_repair=True,
+            max_unit_size=grouped.max_unit_size,
+        )
+    except NotesDocumentError:
+        return projection
+    return grouped
+
+
 def _trailing_overlap(
     owned: list[tuple[dict[str, Any], dict[str, Any]]],
 ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
@@ -1151,11 +1664,27 @@ def _trailing_overlap(
     return kept[::-1]
 
 
+def _max_unit_size_from_snapshot(snapshot: dict[str, Any]) -> int:
+    counts: dict[str, int] = {}
+    try:
+        segments = snapshot["segments"]
+        for segment in segments:
+            source_id = segment["id"]
+            counts[source_id] = counts.get(source_id, 0) + 1
+    except (KeyError, TypeError):
+        return 1
+    return max(counts.values(), default=1)
+
+
 def plan_source(
     snapshot: dict[str, Any],
     *,
     projected_snapshot: dict[str, Any] | None = None,
     output_language: str = "en",
+    provider: str | None = None,
+    model: str | None = None,
+    budget: NotesBudget | None = None,
+    max_unit_size: int | None = None,
 ) -> NotesPlan:
     """Plan original-ID chunks against projected prompts and their actual schemas.
 
@@ -1164,12 +1693,24 @@ def plan_source(
     any chunk becomes several parts that keep its id and time range.
     """
     output_language = validate_output_language(output_language)
+    selected_budget = notes_budget(provider, model) if budget is None else budget
     source = provider_source(snapshot)
-    planning_snapshot = (
-        projected_snapshot
-        if projected_snapshot is not None
-        else project_source_snapshot(snapshot).snapshot
-    )
+    if projected_snapshot is not None:
+        planning_snapshot = projected_snapshot
+        selected_unit_size = (
+            _max_unit_size_from_snapshot(planning_snapshot)
+            if max_unit_size is None
+            else max_unit_size
+        )
+    else:
+        selected_projection = select_notes_source_projection(
+            snapshot,
+            output_language=output_language,
+            budget=selected_budget,
+        )
+        planning_snapshot = selected_projection.snapshot
+        selected_unit_size = selected_projection.max_unit_size
+    _source_ref_limit(selected_unit_size)
     prompt_source = provider_source(planning_snapshot)
     if len(source["segments"]) != len(prompt_source["segments"]):
         raise NotesDocumentError("The projected notes source does not preserve segment positions.")
@@ -1187,9 +1728,19 @@ def plan_source(
         )
 
     source_ids = [segment["id"] for segment in source["segments"]]
-    full_prompt = _source_prompt(planning_snapshot, output_language=output_language)
-    full_scope = tuple(segment["id"] for segment in prompt_source["segments"])
-    if _fits_repairable_prompt(full_prompt, full_scope, output_language=output_language):
+    full_prompt = _source_prompt(
+        planning_snapshot,
+        output_language=output_language,
+        budget=selected_budget,
+    )
+    full_scope = _unique_source_ids(tuple(segment["id"] for segment in prompt_source["segments"]))
+    if _fits_repairable_prompt(
+        full_prompt,
+        full_scope,
+        output_language=output_language,
+        budget=selected_budget,
+        max_unit_size=selected_unit_size,
+    ):
         return NotesPlan((snapshot,), False, _coverage_manifest(source_ids, (snapshot,)))
 
     def fits(prompt_segments: list[dict[str, Any]]) -> bool:
@@ -1199,6 +1750,9 @@ def plan_source(
             ),
             tuple(item["id"] for item in prompt_segments),
             output_language=output_language,
+            # Oversize owner-model sources keep today's conservative chunk/reduction behavior.
+            budget=conservative_notes_budget(provider),
+            max_unit_size=selected_unit_size,
         )
 
     units: list[tuple[dict[str, Any], dict[str, Any]]] = []
@@ -1372,6 +1926,7 @@ def build_reduction_prompt(
     final: bool,
     invalid_output: str | None = None,
     output_language: str = "en",
+    budget: NotesBudget | None = None,
 ) -> str:
     """Build a bounded chronological reduction request with an optional repair payload."""
     output_language = validate_output_language(output_language)
@@ -1390,6 +1945,7 @@ def build_reduction_prompt(
         ),
         allowed_source_ids=allowed_source_ids,
         output_language=output_language,
+        budget=budget,
     )
 
 

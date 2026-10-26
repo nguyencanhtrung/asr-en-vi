@@ -21,8 +21,22 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from asr_en_vi.notes_document import build_notes_schema
-from asr_en_vi.notes_pipeline import generate_notes_document as generate_notes_pipeline
+from asr_en_vi.notes_document import (
+    NotesBudget,
+    build_notes_provider_message,
+    build_notes_schema,
+    estimate_notes_tokens,
+    notes_budget,
+    notes_provider_input_bytes,
+    notes_request_body_bytes,
+)
+from asr_en_vi.notes_pipeline import (
+    generate_notes_document as generate_notes_pipeline,
+)
+from asr_en_vi.notes_pipeline import (
+    log_notes_provider_call,
+    log_notes_validation_failure,
+)
 
 OMP_VERSION = "18.5.0"
 ANTIGRAVITY_PROVIDER_ID = "google-antigravity"
@@ -148,6 +162,7 @@ class AntigravityError(RuntimeError):
         self.status_code = status_code
         self.code = code if re.fullmatch(r"[a-z0-9_]{1,80}", code) else "provider_error"
         self.message = message
+        self.diagnostics: dict[str, Any] = {}
 
     @property
     def public_message(self) -> str:
@@ -424,6 +439,7 @@ class OmpRpcAdapter:
     def __init__(self, directory: Path, *, executable: str = "omp") -> None:
         self.directory = Path(directory)
         self.executable = executable
+        self.last_notes_usage: dict[str, int] = {}
         self.agent_dir = self.directory / "agent"
         self.home_dir = self.directory / "home"
         self.workspace_dir = self.directory / "workspace"
@@ -722,6 +738,18 @@ class OmpRpcAdapter:
             message = frame.get("message")
             if not isinstance(message, dict) or message.get("role") != "assistant":
                 return
+            usage = message.get("usage")
+            observed_usage = getattr(getattr(client, "adapter", None), "last_notes_usage", None)
+            if isinstance(usage, dict) and isinstance(observed_usage, dict):
+                observed_usage.clear()
+                for source_name, log_name in (
+                    ("input", "input_tokens"),
+                    ("output", "output_tokens"),
+                    ("reasoningTokens", "reasoning_tokens"),
+                ):
+                    value = usage.get(source_name)
+                    if type(value) is int and value >= 0:
+                        observed_usage[log_name] = value
             content = message.get("content")
             if not isinstance(content, list):
                 return
@@ -797,6 +825,7 @@ class OmpRpcAdapter:
 
     def generate(self, model: str, prompt: str, thinking_level: str = "high") -> str:
         """Run one prompt in a fresh OMP process, so no call sees an earlier conversation."""
+        self.last_notes_usage = {}
         with _RpcClient(self, isolate_session=False) as client:
             self._select_model(client, model, thinking_level)
             return self._prompt_for_text(client, prompt, RPC_NOTES_INFERENCE_TIMEOUT_SECONDS) or ""
@@ -1352,32 +1381,70 @@ class AntigravityProvider:
                 attempt: str,
                 provider_call_index: int,
                 prompt_bytes: int,
+                budget: NotesBudget,
+                max_unit_size: int = 1,
             ) -> str:
-                schema = json.dumps(
-                    build_notes_schema(allowed_source_ids),
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                    allow_nan=False,
-                )
-                message = (
-                    f"{prompt}\n\nReturn only one JSON object, with no Markdown fence and no "
-                    "text before or after it. It must validate against this JSON Schema and use "
-                    f"only the source IDs the schema allows:\n{schema}"
+                observed_usage = getattr(self.adapter, "last_notes_usage", None)
+                if isinstance(observed_usage, dict):
+                    observed_usage.clear()
+                schema = build_notes_schema(allowed_source_ids, max_unit_size=max_unit_size)
+                message = build_notes_provider_message(prompt, schema)
+                estimated_input_tokens = estimate_notes_tokens(
+                    notes_provider_input_bytes(
+                        prompt,
+                        allowed_source_ids,
+                        budget=budget,
+                        max_unit_size=max_unit_size,
+                    ),
+                    budget,
                 )
                 try:
+                    if (
+                        notes_request_body_bytes(
+                            prompt,
+                            allowed_source_ids,
+                            budget=budget,
+                            max_unit_size=max_unit_size,
+                        )
+                        > budget.request_guard_bytes
+                    ):
+                        raise AntigravityError(
+                            413,
+                            "provider_request_too_large",
+                            "The notes request exceeds the Antigravity notes frame limit.",
+                        )
                     return _strip_json_fence(
                         self.adapter.generate(model, message, normalize_effort(reasoning_effort))
                     )
                 except AntigravityError as error:
                     self._record_provider_failure(error)
                     raise
+                finally:
+                    log_notes_provider_call(
+                        provider="antigravity",
+                        model=model,
+                        stage=stage,
+                        attempt=attempt,
+                        provider_call_index=provider_call_index,
+                        prompt_bytes=prompt_bytes,
+                        estimated_input_tokens=estimated_input_tokens,
+                        usage=getattr(self.adapter, "last_notes_usage", None),
+                    )
 
-            def invalid_output_error(_diagnostics: dict[str, Any]) -> AntigravityError:
-                return AntigravityError(
+            def invalid_output_error(diagnostics: dict[str, Any]) -> AntigravityError:
+                safe_diagnostics = log_notes_validation_failure(
+                    provider="antigravity",
+                    model=model,
+                    diagnostics=diagnostics,
+                    budget=notes_budget("antigravity", model),
+                )
+                error = AntigravityError(
                     502,
                     "notes_invalid_output",
                     "Antigravity returned notes that did not match the saved transcript.",
                 )
+                error.diagnostics = safe_diagnostics
+                return error
 
             return generate_notes_pipeline(
                 snapshot=snapshot,
@@ -1388,6 +1455,8 @@ class AntigravityProvider:
                     413, "notes_synthesis_limit_exceeded", message
                 ),
                 on_coverage=on_coverage,
+                provider="antigravity",
+                model=model,
             )
 
     def verify(self, model: str) -> dict[str, Any]:
