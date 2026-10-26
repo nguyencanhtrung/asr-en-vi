@@ -662,6 +662,23 @@ def test_platform_images_publish_only_on_version_tags_with_native_runners():
     assert build_step["with"]["provenance"] == "mode=max"
     assert build_step["with"]["sbom"] is True
 
+    source_step = next(
+        step
+        for step in publish_platform["steps"]
+        if step["name"] == "Publish corresponding source before image"
+    )
+    assert "candidate_image_id" in source_step["run"]
+    assert '"${RUNNER_TEMP}/candidate-image-id"' in source_step["run"]
+
+    verify_step = next(
+        step
+        for step in publish_platform["steps"]
+        if step["name"] == "Verify public platform image"
+    )
+    assert "pulled_image_id" in verify_step["run"]
+    assert "{{.Id}}" in verify_step["run"]
+    assert 'test "${pulled_image_id}" = "${candidate_image_id}"' in verify_step["run"]
+
     export_digest = next(
         step for step in publish_platform["steps"] if step["name"] == "Export image digest"
     )

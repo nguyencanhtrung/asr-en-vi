@@ -87,8 +87,11 @@ git clone https://hf.co/pyannote/speaker-diarization-community-1 \
 ```
 
 `start.sh` downloads any missing Whisper model, builds the image and starts the `app` and `worker`
-services. It then prints an access link and a QR code. Open that exact link (the default address
-is `http://127.0.0.1:8765`), then connect ChatGPT or Google from the workspace header.
+services. On an interactive terminal it prints an access link and a QR code. When stdout is a
+pipe, redirect or CI log, access details are withheld; run `docker compose exec -T app python -m
+asr_en_vi.cli access show` explicitly when you want to display them. Open that exact link (the
+default address is `http://127.0.0.1:8765`), then connect ChatGPT or Google from the workspace
+header.
 
 To install a release, check out its tag and run `./scripts/start.sh --pull` with a versioned
 `ASR_IMAGE` such as `ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0`, or `--source` to build it.

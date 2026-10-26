@@ -47,6 +47,15 @@ def test_inventory_does_not_infer_license_from_presence_of_notice(tmp_path):
     assert inventory.distribution_record(distribution)["needs_license_identification"]
 
 
+def test_inventory_detects_wrapped_gnu_license_prose_and_abbreviations():
+    assert inventory.has_gnu_license_text("GNU Lesser General Public\nLicense, version 2.1")
+    assert inventory.has_gnu_license_text("This package is distributed under the LGPL-2.1+")
+    assert inventory.has_gnu_license_text("See /usr/share/common-licenses/GPL.")
+    assert not inventory.has_gnu_license_text(
+        "Copyright 2026 Example; terms are reviewed separately."
+    )
+
+
 def test_system_inventory_includes_held_installed_packages(monkeypatch):
     monkeypatch.setattr(inventory.shutil, "which", lambda name: "/usr/bin/dpkg-query")
     monkeypatch.setattr(
@@ -54,12 +63,14 @@ def test_system_inventory_includes_held_installed_packages(monkeypatch):
         "run",
         lambda *args, **kwargs: SimpleNamespace(
             stdout=(
-                "example-installed\t1\tamd64\tinstall ok installed\n"
-                "example-held\t2\tamd64\thold ok installed\n"
-                "example-removed\t3\tamd64\tdeinstall ok config-files\n"
+                "example-installed\t1\tamd64\tinstall ok installed\texample-source\t1\n"
+                "example-held\t2\tamd64\thold ok installed\texample-source\t2\n"
+                "example-removed\t3\tamd64\tdeinstall ok config-files\texample-source\t3\n"
             )
         ),
     )
     packages = inventory.system_packages()
     assert [package["name"] for package in packages] == ["example-held", "example-installed"]
     assert packages[0]["dpkg_status"] == "hold ok installed"
+    assert packages[0]["source_package"] == "example-source"
+    assert packages[0]["source_version"] == "2"

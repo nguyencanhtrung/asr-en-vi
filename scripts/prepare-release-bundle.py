@@ -92,7 +92,7 @@ def prepare(image: str, output: Path, version: str) -> Path:
             image,
             "-c",
             """
-import hashlib,json,sysconfig,shutil,sys
+import ctypes,hashlib,json,shutil,sys,sysconfig,tempfile,wave
 from pathlib import Path
 assert shutil.which('cuda-gdb') is None
 assert not list(Path('/usr/local').glob('cuda*/bin/cuda-gdb*'))
@@ -109,10 +109,36 @@ for item in r['replacements']:
     expected=hashlib.sha256(Path(item['source']).read_bytes()).hexdigest()
     assert hashlib.sha256((root/item['path']).read_bytes()).hexdigest()==expected
 assert not list(root.glob('av.libs/libx26*.so*'))
-import ctypes,av
-codec=ctypes.CDLL('/opt/asr-media/lib/libavcodec.so')
-codec.avcodec_license.restype=ctypes.c_char_p
-assert codec.avcodec_license().decode()=='LGPL version 2.1 or later'
+with tempfile.TemporaryDirectory() as directory:
+    source=Path(directory)/'input.wav'
+    with wave.open(str(source),'wb') as output:
+        output.setnchannels(1)
+        output.setsampwidth(2)
+        output.setframerate(16000)
+        output.writeframes(b'\\x01\\x00'*16000)
+    # Load TorchCodec first: this is the path that previously selected Ubuntu's
+    # GPL FFmpeg before PyAV's RPATH had a chance to help.
+    from torchcodec.decoders import AudioDecoder
+    decoded=AudioDecoder(source).get_all_samples()
+    assert decoded.data.numel() > 0
+    import av
+    with av.open(str(source)) as container:
+        frames=[frame for frame in container.decode(audio=0)]
+    assert frames and sum(frame.samples for frame in frames) > 0
+mapped={
+    fields[-1].split(' (deleted)',1)[0]
+    for line in Path('/proc/self/maps').read_text().splitlines()
+    for fields in [line.split()]
+    if len(fields) >= 6 and fields[-1].startswith('/')
+}
+codec_maps=sorted(path for path in mapped if '/libavcodec.so' in path)
+assert any(path.startswith('/opt/asr-media/lib/libavcodec.so') for path in codec_maps), codec_maps
+assert not [path for path in codec_maps if not path.startswith('/opt/asr-media/lib/')], codec_maps
+assert not any('/libx264.so' in path or '/libx265.so' in path for path in mapped), sorted(mapped)
+for path in codec_maps:
+    codec=ctypes.CDLL(path)
+    codec.avcodec_license.restype=ctypes.c_char_p
+    assert codec.avcodec_license().decode()=='LGPL version 2.1 or later'
 assert 'libx264' not in av.codecs_available and 'libx265' not in av.codecs_available
 import ctranslate2
 assert ctranslate2.get_supported_compute_types('cpu')

@@ -290,7 +290,8 @@ def load_inventory_groups(
         ):
             continue
         licenses = " ".join(package.get("debian_license_fields", []))
-        if "GPL" not in licenses and "LGPL" not in licenses:
+        has_gnu_license = package.get("license_detection") == "gnu-prose"
+        if "GPL" not in licenses and "LGPL" not in licenses and not has_gnu_license:
             continue
         hits = binary_by_key.get((package["name"], package["version"]), [])
         if not hits:
@@ -299,6 +300,10 @@ def load_inventory_groups(
                     "binary_package": package["name"],
                     "version": package["version"],
                     "architecture": package.get("architecture"),
+                    "source_package": package.get("source_package"),
+                    "source_version": package.get("source_version"),
+                    "license_fields": package.get("debian_license_fields", []),
+                    "license_detection": package.get("license_detection", "unknown"),
                     "reason": (
                         "exact binary package/version absent from downloaded official indexes"
                     ),
@@ -322,7 +327,10 @@ def load_inventory_groups(
                 "name": package["name"],
                 "version": package["version"],
                 "architecture": package.get("architecture"),
+                "source_package": package.get("source_package"),
+                "source_version": package.get("source_version"),
                 "license_fields": package.get("debian_license_fields", []),
+                "license_detection": package.get("license_detection", "unknown"),
             }
         )
         group["binary_indexes"].append(binary["index"])
@@ -534,6 +542,40 @@ def collect(
         inventory, binary_indexes, spec.get("source_exclusions", [])
     )
     source_records = find_source_records(source_indexes)
+
+    # A package can be absent from the downloaded binary indexes while its
+    # installed dpkg record still gives the exact source identity.  Prefer an
+    # official Sources record for that identity so its index and file hashes are
+    # retained in the manifest; only use Launchpad as the final fallback.
+    source_metadata_unmapped: list[dict] = []
+    for item in unmapped:
+        source_key = (item.get("source_package"), item.get("source_version"))
+        candidates = source_records.get(source_key, []) if all(source_key) else []
+        if not candidates:
+            source_metadata_unmapped.append(item)
+            continue
+        group = groups.setdefault(
+            source_key,
+            {
+                "source_package": source_key[0],
+                "source_version": source_key[1],
+                "binary_packages": [],
+                "binary_indexes": [],
+                "resolution": "dpkg-source-metadata",
+            },
+        )
+        group["binary_packages"].append(
+            {
+                "name": item["binary_package"],
+                "version": item["version"],
+                "architecture": item.get("architecture"),
+                "source_package": item.get("source_package"),
+                "source_version": item.get("source_version"),
+                "license_fields": item.get("license_fields", []),
+                "license_detection": item.get("license_detection", "unknown"),
+            }
+        )
+
     group_jobs: list[tuple[dict, dict, str]] = []
     unresolved_sources: list[dict] = []
     for key, group in sorted(groups.items()):
@@ -590,20 +632,25 @@ def collect(
 
     launchpad_groups: dict[tuple[str, str], dict] = {}
     remaining_unmapped: list[dict] = []
-    for item in unmapped:
-        source_name = launchpad_source_alias(item["binary_package"])
+    for item in source_metadata_unmapped:
+        source_name = item.get("source_package") or launchpad_source_alias(item["binary_package"])
         if source_name is None:
             remaining_unmapped.append(item)
             continue
-        key = (source_name, item["version"])
+        source_version = item.get("source_version") or item["version"]
+        key = (source_name, source_version)
         group = launchpad_groups.setdefault(
             key,
             {
                 "source_package": source_name,
-                "source_version": item["version"],
+                "source_version": source_version,
                 "binary_packages": [],
                 "binary_indexes": [],
-                "resolution": "launchpad-versioned-source-page",
+                "resolution": (
+                    "launchpad-dpkg-source-metadata"
+                    if item.get("source_package")
+                    else "launchpad-versioned-source-page"
+                ),
             },
         )
         group["binary_packages"].append(
@@ -611,7 +658,10 @@ def collect(
                 "name": item["binary_package"],
                 "version": item["version"],
                 "architecture": item.get("architecture"),
-                "license_fields": [],
+                "source_package": item.get("source_package"),
+                "source_version": item.get("source_version"),
+                "license_fields": item.get("license_fields", []),
+                "license_detection": item.get("license_detection", "unknown"),
             }
         )
 
@@ -688,6 +738,7 @@ def collect(
                 for package in inventory.get("system_packages", [])
                 if "GPL" in " ".join(package.get("debian_license_fields", []))
                 or "LGPL" in " ".join(package.get("debian_license_fields", []))
+                or package.get("license_detection") == "gnu-prose"
             ),
             "source_group_count": len(source_group_records),
             "collected_group_count": sum(

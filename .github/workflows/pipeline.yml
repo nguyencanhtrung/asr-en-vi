@@ -176,7 +176,10 @@ jobs:
           output="${RUNNER_TEMP}/release-sources"
           python3 scripts/prepare-release-bundle.py asr-release:candidate \
             --version "${GITHUB_REF_NAME#v}" --output "${output}"
-          image_id="$(docker image inspect --format '{{.Id}}' asr-release:candidate)"
+          candidate_image_id="$(docker image inspect --format '{{.Id}}' asr-release:candidate)"
+          test -n "${candidate_image_id}"
+          printf '%s\n' "${candidate_image_id}" > "${RUNNER_TEMP}/candidate-image-id"
+          image_id="${candidate_image_id}"
           name="corresponding-source-${RELEASE_PLATFORM}-${image_id#sha256:}.tar.gz"
           mv "${output}/corresponding-source.tar.gz" "${output}/${name}"
           (cd "${output}" && sha256sum "${name}" > "${name}.sha256")
@@ -207,6 +210,10 @@ jobs:
           anonymous_config="$(mktemp -d)"
           trap 'rm -rf "${anonymous_config}"' EXIT
           DOCKER_CONFIG="${anonymous_config}" docker pull "${PUBLISHED_IMAGE}"
+          candidate_image_id="$(cat "${RUNNER_TEMP}/candidate-image-id")"
+          test -n "${candidate_image_id}"
+          pulled_image_id="$(docker image inspect --format '{{.Id}}' "${PUBLISHED_IMAGE}")"
+          test "${pulled_image_id}" = "${candidate_image_id}"
           expected_version="${GITHUB_REF_NAME#v}"
           expected_schema="$(sed -n 's/^SCHEMA_VERSION = \([0-9][0-9]*\)$/\1/p' src/asr_en_vi/storage.py)"
           test -n "${expected_schema}"

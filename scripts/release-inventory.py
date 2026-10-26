@@ -16,6 +16,20 @@ import shutil
 import subprocess
 from pathlib import Path
 
+GNU_LICENSE_TEXT_RE = re.compile(
+    r"(?:\bGNU\s+(?:(?:Lesser|Library)\s+)?General\s+Public\s+License\b"
+    r"|\bL?GPL(?:\s*(?:v(?:ersion)?\s*)?\d+(?:\.\d+)*(?:\s+(?:or later|only))?)?\b"
+    r"|common-licenses/(?:L?GPL)\b)",
+    re.IGNORECASE,
+)
+
+
+def has_gnu_license_text(text: str) -> bool:
+    """Detect GNU license prose after treating wrapped lines as whitespace."""
+
+    normalized = re.sub(r"\s+", " ", text)
+    return bool(GNU_LICENSE_TEXT_RE.search(normalized))
+
 
 def file_record(path: Path, name: str) -> dict[str, str]:
     return {"path": name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
@@ -59,7 +73,15 @@ def system_packages() -> list[dict]:
     if not shutil.which("dpkg-query"):
         raise RuntimeError("dpkg-query is required; run inside the Ubuntu runtime image")
     result = subprocess.run(
-        ["dpkg-query", "-W", "-f=${Package}\t${Version}\t${Architecture}\t${Status}\n"],
+        # Keep the installed source identity alongside the binary identity.  A binary
+        # index can be incomplete for a base-image package even when the source index
+        # still contains the exact corresponding source record.
+        [
+            "dpkg-query",
+            "-W",
+            "-f=${Package}\t${Version}\t${Architecture}\t${Status}"
+            "\t${source:Package}\t${source:Version}\n",
+        ],
         check=True,
         text=True,
         capture_output=True,
@@ -67,31 +89,51 @@ def system_packages() -> list[dict]:
     )
     packages = []
     for line in result.stdout.splitlines():
-        name, version, architecture, status = line.split("\t", 3)
+        fields = line.split("\t")
+        if len(fields) == 4:
+            name, version, architecture, status = fields
+            source_package = source_version = None
+        elif len(fields) == 6:
+            name, version, architecture, status, source_package, source_version = fields
+            source_package = source_package or None
+            source_version = source_version or None
+        else:
+            raise RuntimeError(f"unexpected dpkg-query record: {line!r}")
         if status.split()[-1:] != ["installed"]:
             continue
         copyright_path = Path("/usr/share/doc") / name / "copyright"
         license_fields = []
+        license_text_contains_gnu = False
         if copyright_path.is_file():
             copyright_text = copyright_path.read_text(errors="replace")
             license_fields = sorted(
                 set(re.findall(r"^License:[ \t]*(.+)$", copyright_text, flags=re.MULTILINE))
             )
             # Older Debian copyright files are prose, not DEP-5 fields.
-            # Conservatively include their source obligations as well.
-            if re.search(
-                r"GNU (?:Lesser |Library )?General Public License|common-licenses/(?:L?GPL)",
-                copyright_text,
-                re.I,
-            ):
+            # Include only prose with an explicit GNU/GPL/LGPL marker.  An empty
+            # DEP-5 field is uncertainty, not evidence that the package is license-free.
+            license_text_contains_gnu = has_gnu_license_text(copyright_text)
+            if license_text_contains_gnu:
                 license_fields.append("GPL/LGPL mentioned in copyright text; review exact terms")
+        license_fields = sorted(set(license_fields))
+        if license_text_contains_gnu:
+            license_detection = "gnu-prose"
+        elif license_fields:
+            license_detection = "dep5"
+        elif copyright_path.is_file():
+            license_detection = "unknown"
+        else:
+            license_detection = "missing"
         packages.append(
             {
                 "name": name,
                 "version": version,
                 "architecture": architecture,
+                "source_package": source_package,
+                "source_version": source_version,
                 "dpkg_status": status,
                 "debian_license_fields": license_fields,
+                "license_detection": license_detection,
                 "copyright": file_record(copyright_path, str(copyright_path))
                 if copyright_path.is_file()
                 else None,

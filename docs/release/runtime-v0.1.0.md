@@ -70,6 +70,13 @@ với FFmpeg 8.1.2 nguyên bản, `--disable-gpl --disable-nonfree --disable-aut
 Không dùng patch đổi nhóm license của codec. FFmpeg CLI hệ thống vẫn là chương
 trình riêng dùng cho chuẩn hóa media; nguồn Ubuntu của nó đi cùng release.
 
+Runtime prepend `/opt/asr-media/lib` vào `LD_LIBRARY_PATH` và giữ phần còn lại của
+đường dẫn NVIDIA kế thừa. Gate decode thực tế bằng cả TorchCodec và PyAV, sau đó đọc
+`/proc/self/maps` để xác nhận `libavcodec` đến từ `/opt/asr-media/lib` và không có
+`libx264`/`libx265` hoặc `libavcodec` hệ thống. TorchCodec `0.11.1` giữ PyPI trên
+amd64; Linux aarch64 dùng wheel `0.11.1+cu128` từ index PyTorch chính thức, cùng
+Torch/Torchaudio `2.11.0+cu128`; không thêm CUDA 13.
+
 Các bản GNU OpenMP, Fortran và quadmath nhúng trong wheel được thay bằng runtime
 Ubuntu. Bước build so sánh toàn bộ symbol export có version, dừng nếu thiếu,
 và giữ nguyên filename mà wheel tham chiếu. Hash trước/sau và package nguồn

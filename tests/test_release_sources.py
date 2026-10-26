@@ -41,6 +41,83 @@ def test_source_field_defaults_to_binary_version():
     assert sources.source_from_binary_field(binary) == ("example", "1.2-3")
 
 
+def test_unmapped_binary_uses_exact_dpkg_source_metadata_before_launchpad(monkeypatch, tmp_path):
+    binary_index = {
+        "suite": "noble",
+        "component": "main",
+        "kind": "binary",
+        "path": str(tmp_path / "Packages.gz"),
+    }
+    source_index = {
+        "suite": "noble",
+        "component": "main",
+        "kind": "source",
+        "path": str(tmp_path / "Sources.gz"),
+    }
+    source_record = {
+        "Package": "libxcrypt",
+        "Version": "4.4.36-4build1",
+        "Directory": "pool/main/libx/libxcrypt",
+        "Checksums-Sha256": "abc 3 libxcrypt.dsc",
+    }
+
+    monkeypatch.setattr(
+        sources,
+        "ensure_indexes",
+        lambda *args, **kwargs: ([binary_index, source_index], []),
+    )
+    monkeypatch.setattr(
+        sources,
+        "parse_index",
+        lambda path, source: [source_record] if source else [],
+    )
+    collected_groups = []
+
+    def collect_group(group, *args, **kwargs):
+        collected_groups.append(group)
+        return {**group, "status": "collected", "errors": []}
+
+    monkeypatch.setattr(sources, "collect_one_source_group", collect_group)
+    monkeypatch.setattr(
+        sources,
+        "collect_launchpad_group",
+        lambda *args, **kwargs: pytest.fail("Launchpad alias fallback was used"),
+    )
+    monkeypatch.setattr(sources, "collect_explicit_sources", lambda *args, **kwargs: ([], []))
+    monkeypatch.setattr(sources, "write_json", lambda *args, **kwargs: None)
+
+    manifest = sources.collect(
+        {},
+        {
+            "architecture": "x86_64",
+            "system_packages": [
+                {
+                    "name": "libcrypt1",
+                    "version": "1:4.4.36-4build1",
+                    "architecture": "amd64",
+                    "source_package": "libxcrypt",
+                    "source_version": "4.4.36-4build1",
+                    "debian_license_fields": ["GPL/LGPL mentioned in copyright text"],
+                    "license_detection": "gnu-prose",
+                    "copyright": None,
+                }
+            ],
+        },
+        tmp_path / "artifacts",
+        True,
+        1,
+    )
+
+    assert manifest["status"] == "collected"
+    assert len(collected_groups) == 1
+    assert collected_groups[0]["resolution"] == "dpkg-source-metadata"
+    assert (collected_groups[0]["source_package"], collected_groups[0]["source_version"]) == (
+        "libxcrypt",
+        "4.4.36-4build1",
+    )
+    assert collected_groups[0]["binary_packages"][0]["name"] == "libcrypt1"
+
+
 def test_validate_archive_reads_real_tar_input(tmp_path):
     archive = tmp_path / "source.tar.gz"
     with tarfile.open(archive, "w:gz") as output:

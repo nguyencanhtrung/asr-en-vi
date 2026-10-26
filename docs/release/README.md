@@ -12,7 +12,10 @@ package hệ thống của image kiểm thử local, gồm cả package bị apt
 Trường `artifact` xác định đúng image; đây không phải chứng nhận image công bố.
 Các license metadata, hash notice và quyết định phân phối được phân biệt.
 PyAV được build từ source với FFmpeg 8.1.2 LGPL 2.1 nguyên bản; không phân phối
-bản vendor nhúng x264/x265. FFmpeg CLI hệ thống và PyAV là hai bản build riêng.
+bản vendor nhúng x264/x265. FFmpeg CLI hệ thống và PyAV là hai bản build riêng. Runtime
+đặt `/opt/asr-media/lib` ở đầu `LD_LIBRARY_PATH` nhưng giữ các đường dẫn NVIDIA kế thừa.
+TorchCodec `0.11.1` dùng PyPI trên amd64; Linux aarch64 dùng wheel `+cu128` chính thức,
+khớp Torch/Torchaudio CUDA 12.8 hiện có, không thêm CUDA 13.
 
 - Ứng dụng: PolyForm Noncommercial 1.0.0; hai bản license trong wheel, sdist và image.
 - Python và native dependencies: [bundle notice](../../third_party/README.md),
@@ -40,14 +43,16 @@ bản vendor nhúng x264/x265. FFmpeg CLI hệ thống và PyAV là hai bản bu
 ## Bundle cho đúng artifact
 
 `scripts/prepare-release-bundle.py IMAGE --version 0.1.0 --output DIR` kiểm tra
-version, actual OpenMP bytes và không có CUDA-GDB; xuất inventory, thu thập nguồn
-đúng version và tạo tarball/hash. Pipeline upload source archive tới GitHub
+version, actual OpenMP bytes, decode TorchCodec/PyAV và thư viện FFmpeg thực sự trong
+`/proc/self/maps`, đồng thời từ chối libavcodec hệ thống hoặc x264/x265 GPL và CUDA-GDB;
+xuất inventory, thu thập nguồn đúng version và tạo tarball/hash. Pipeline upload source archive tới GitHub
 Release công khai **trước** khi push image platform. Tên archive chứa kiến trúc
 và image configuration digest. Manifest ghi từng source URL/hash; không dùng
 image ID local thay cho registry manifest digest.
 
 Sau push, pipeline pull digest bằng Docker config rỗng, kiểm tra version/revision
-và chạy smoke media/health. Chỉ tạo tag image đa kiến trúc khi cả platform pass.
+và đối chiếu configuration ID của image đã pull với candidate đã dùng để tạo source
+archive, rồi chạy smoke media/health. Chỉ tạo tag image đa kiến trúc khi cả platform pass.
 Đây chưa thay thế smoke cài mới và kết nối provider sau công bố.
 
 ## Quyền riêng tư

@@ -14,7 +14,7 @@ ROOT = Path(__file__).parents[1]
 IMAGE = "ghcr.io/example/asr@sha256:" + "a" * 64
 
 
-@pytest.mark.parametrize("failure", ["", "pull", "version", "revision"])
+@pytest.mark.parametrize("failure", ["", "pull", "identity", "version", "revision"])
 def test_published_image_gate_uses_anonymous_digest_and_stops_on_mismatch(tmp_path, failure):
     workflow = yaml.safe_load((ROOT / ".github/workflows/pipeline.yml").read_text())
     steps = workflow["jobs"]["publish-platform"]["steps"]
@@ -29,6 +29,10 @@ def test_published_image_gate_uses_anonymous_digest_and_stops_on_mismatch(tmp_pa
     source.mkdir(parents=True)
     shutil.copyfile(ROOT / "src/asr_en_vi/storage.py", source / "storage.py")
     trace = tmp_path / "trace.jsonl"
+    runner_temp = tmp_path / "runner-temp"
+    runner_temp.mkdir()
+    candidate_id = "sha256:" + "c" * 64
+    (runner_temp / "candidate-image-id").write_text(candidate_id + "\n")
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     docker = fake_bin / "docker"
@@ -53,7 +57,10 @@ def test_published_image_gate_uses_anonymous_digest_and_stops_on_mismatch(tmp_pa
         "    from asr_en_vi.cli import main\n"
         "    sys.exit(main(args[args.index('-m') + 2:]))\n"
         "elif args[:2] == ['image', 'inspect']:\n"
-        "    print('wrong' if failure == 'revision' else os.environ['GITHUB_SHA'])\n"
+        "    if args[args.index('--format') + 1] == '{{.Id}}':\n"
+        "        print('sha256:' + ('d' * 64 if failure == 'identity' else 'c' * 64))\n"
+        "    else:\n"
+        "        print('wrong' if failure == 'revision' else os.environ['GITHUB_SHA'])\n"
         "else:\n"
         "    sys.exit(99)\n"
     )
@@ -77,6 +84,7 @@ def test_published_image_gate_uses_anonymous_digest_and_stops_on_mismatch(tmp_pa
             "GITHUB_REF_NAME": "v0.1.0",
             "GITHUB_SHA": "b" * 40,
             "TRACE": str(trace),
+            "RUNNER_TEMP": str(runner_temp),
             "FAILURE": failure,
             "PYTHONPATH": str(ROOT / "src"),
         },
@@ -90,7 +98,7 @@ def test_published_image_gate_uses_anonymous_digest_and_stops_on_mismatch(tmp_pa
     if failure:
         assert result.returncode != 0
         assert not (tmp_path / "smoke-image.txt").exists()
-        assert len(calls) == {"pull": 1, "version": 2, "revision": 3}[failure]
+        assert len(calls) == {"pull": 1, "identity": 2, "version": 3, "revision": 4}[failure]
     else:
         assert result.returncode == 0, result.stderr
         assert (tmp_path / "smoke-image.txt").read_text() == IMAGE

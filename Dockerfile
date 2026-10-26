@@ -67,6 +67,7 @@ RUN apt-get update \
 FROM python-base AS runtime
 ARG VCS_REF=unknown
 ENV PATH="/app/.venv/bin:${PATH}" \
+    LD_LIBRARY_PATH="/opt/asr-media/lib:${LD_LIBRARY_PATH}" \
     MPLCONFIGDIR=/tmp/matplotlib \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

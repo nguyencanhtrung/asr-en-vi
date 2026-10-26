@@ -53,8 +53,13 @@ Image dùng runtime GNU của Ubuntu cho các wheel, thay các bản OpenMP/Fort
 quadmath nhúng không có nguồn build xác định. Tên thư viện được giữ và symbol
 export được kiểm tra trước khi thay. PyAV dùng FFmpeg 8.1.2 LGPL nguyên bản,
 không nhúng x264/x265 từ vendor wheel. Hash trước/sau nằm trong `openmp-runtime.json` ở thư mục license của
-image. Đây là thay đổi runtime; số đo hiệu năng lịch sử không xác nhận hiệu năng
-của artifact mới.
+image. TorchCodec `0.11.1` dùng wheel PyPI trên amd64 và wheel `+cu128` chính thức
+trên Linux aarch64 để khớp Torch/Torchaudio CUDA 12.8; không thêm CUDA 13. Đây là
+thay đổi runtime; số đo hiệu năng lịch sử không xác nhận hiệu năng của artifact mới.
+
+Mốc #104 ghi **733,2 s (12,2 phút)** cho transcript timed 651,7 s, khoảng 0,2 s và
+notes 81,3 s. Đây là số đo composed, không phải một lần chạy liên tục; không phải
+phép đo lại artifact release này.
 
 ## Google Antigravity
 
