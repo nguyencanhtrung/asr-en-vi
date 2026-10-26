@@ -1,0 +1,798 @@
+{
+  "schema": 1,
+  "task": "issue17-platform-native-coverage",
+  "source_evidence": {
+    "official_arm_recipe": {
+      "url": "https://raw.githubusercontent.com/OpenNMT/CTranslate2/v4.8.3/python/tools/prepare_build_environment_linux.sh",
+      "sha256": "e075680b5730c2ebdfe0c0b3eb07cbcd4dfcb5a3ea1a6d31253d30a7291c1ced",
+      "openblas_version": "0.3.26",
+      "openblas_license": "native/openblas/0.3.26/LICENSE",
+      "ruy_commit": "363f252289fb7a1fba1703d99196524698cb884d",
+      "ruy_license": "native/ruy/363f252/LICENSE"
+    },
+    "source_manifest_path": "third_party/bundle-spec.json",
+    "provenance_path": "native/ctranslate2/4.8.3/PROVENANCE.md"
+  },
+  "platforms": {
+    "amd64": {
+      "machines": [
+        "x86_64",
+        "amd64"
+      ],
+      "required_notice_hashes": {
+        "ctranslate2/4.8.3/LICENSE": "54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb",
+        "tokenizers/0.23.3/LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "native/ctranslate2/4.8.3/PROVENANCE.md": "3ca1cbd652d938c91da8b417144ac2ba9d2283fb1f824053390bf59149e238cf",
+        "native/oneDNN/3.1.1/LICENSE": "dd12452e1ae11e3282271aa5895d8175296b83e936a027209f9399d26a407d0f",
+        "native/oneDNN/3.1.1/THIRD-PARTY-PROGRAMS": "9117585dfc6b5cd0fafc063312f28a86ec82eb97bf68316dcefcaaa7fc11428e",
+        "native/oneMKL/2025.3.0/LICENSE.txt": "7721633d0ddff43fae25ebfd405f8166a0ce730cbcec44f2f3ad9d5eb8ac9a6f",
+        "tokenizers/0.23.3/rust-license-manifest.json": "3d20c247e1e84e6ae5b826b97430722f86cff444c00e44c639309424a0f570e4",
+        "tokenizers/0.23.3/PROVENANCE.md": "66afc2522384a1a886b9ce801e1a8d95d750a398d8db0766b1d6696308a00d75",
+        "tokenizers/0.23.3/tokenizers-python.cyclonedx.json": "6faa23324b2b53b4a8da9b451a675610cc45e1a23e8c5bb0740c080064e1ba0d",
+        "tokenizers/0.23.3/Cargo.lock": "afcedf7f2ebe008b068d7afd25e77f7d9d8e433c24153bc35a1eb5611083ee5b",
+        "tokenizers/0.23.3/rust/version_check-0.9.5/NOTICE.txt": "3127b2aadca8efe6f196ca32331462c3b7a061f90762c5e03a35a3b82d5b60ae",
+        "tokenizers/0.23.3/rust/rand-0.9.5/NOTICE.txt": "8cde327f1c054fde139c63b26bfb9eec1a415e34353411da054b0edec74445c7",
+        "tokenizers/0.23.3/rust/itertools-0.14.0/NOTICE.txt": "ec0352f15f79872a1c937902622f51601ee3319cd2304fba638bd0783b1339e0",
+        "tokenizers/0.23.3/rust/ppv-lite86-0.2.21/NOTICE.txt": "996a47d93223ca907fbead7aa5383d8e2b676a67095146cbd82ccb43cebb9dcc",
+        "tokenizers/0.23.3/rust/onig-6.5.3/NOTICE.txt": "940a07cf9c11299f7ea0a1d3ce74c0e843ab26d52a0fdbda5a554e46a74b70f9",
+        "tokenizers/0.23.3/rust/derive_builder_core-0.20.2/NOTICE.txt": "b65506a24bd0184fa3c04bf366462d053c8f01ac4a3d158fd8487266fa944f55",
+        "tokenizers/0.23.3/rust/crossbeam-utils-0.8.22/NOTICE.txt": "dc4eaf19391f17c96c39f2850af1c454053d9e4ac11e21e805762e4599570a47",
+        "tokenizers/0.23.3/rust/dary_heap-0.3.9/NOTICE.txt": "ea702f805e64ce33a817633370d334496f1fdb96b9c368a0699e554dd0923bba",
+        "tokenizers/0.23.3/rust/minimal-lexical-0.2.1/NOTICE.txt": "03d33154e4badae8605f9b3cb5ffa3474ff752e3dd0237fea931b94c5d376f2b",
+        "tokenizers/0.23.3/rust/futures-macro-0.3.34/NOTICE.txt": "d2a45ceff00821a738d0cc6766c7a2412f2a276a41d37a0e1336938b50567560",
+        "tokenizers/0.23.3/rust/smallvec-1.16.0/NOTICE.txt": "4541a694760957143b67a670d1f55db99c91858054458c4c4720ea1da24ab224",
+        "tokenizers/0.23.3/rust/matrixmultiply-0.3.11/NOTICE.txt": "4e8bf37be7d17d1e8bea083c7695640f33e2084c9ca980c17d014dcb4e29759f",
+        "tokenizers/0.23.3/rust/serde_json-1.0.151/NOTICE.txt": "b5f4a2fdf83db34fc1397aabe842b57bc1b37319cc7e06e785e693abc1d89993",
+        "tokenizers/0.23.3/rust/darling_core-0.20.11/NOTICE.txt": "5d9ee8207c7260e7a85a2f972aef5c8e77b214ff4d1c5a12197c4034eb0e190a",
+        "tokenizers/0.23.3/rust/futures-util-0.3.34/NOTICE.txt": "37365b467375ab752b9d51295b5319f692e7ab4af5f200a75161cf9c677e9a23",
+        "tokenizers/0.23.3/rust/rayon-1.12.0/NOTICE.txt": "d9a09da75a8b7e27b7cf3cb090bb0a55d9c7a7031c36425c4fc027573650e273",
+        "tokenizers/0.23.3/rust/num-integer-0.1.47/NOTICE.txt": "08e9d7ca6e8d7c73ef90d593e74884f7e6ef3a3a297c3a9d660e6ed2595fbdf6",
+        "tokenizers/0.23.3/rust/regex-syntax-0.8.11/NOTICE.txt": "75712cfef1289da83cc19555fdd4b734572cbb03b0656814308482c32cda5012",
+        "tokenizers/0.23.3/rust/zmij-1.0.23/NOTICE.txt": "42ca43f4434276c3d30ac56b4d2147a53535ced793d2d7cd19be3a045823775a",
+        "tokenizers/0.23.3/rust/rustc-hash-2.1.3/NOTICE.txt": "f59b84f5eee1ad19836fccf80652f0fe1b92ddcff8e6b73389fdcb4dfc71fdf6",
+        "tokenizers/0.23.3/rust/rustversion-1.0.23/NOTICE.txt": "79d10dc769b56028cce8942fa1774c0e2b485b77d68047cb0808698fdda0a591",
+        "tokenizers/0.23.3/rust/num-complex-0.4.6/NOTICE.txt": "ea6534a17569bc152382d67f0935dff02d71da3549df1cdea7caf11fbeb62b04",
+        "tokenizers/0.23.3/rust/rand_chacha-0.9.0/NOTICE.txt": "86e1d419577665b869dc27c9bc81c1ed3d3649c922a41dd24dc693e9ab1efb2e",
+        "tokenizers/0.23.3/rust/serde_derive-1.0.229/NOTICE.txt": "b5fa2a0fd06afe3e7b4b7008aa62cb35dff5ec57d5fb49e87fce31fc4e3355b1",
+        "tokenizers/0.23.3/rust/env_logger-0.11.11/NOTICE.txt": "a08b200d11f199ad606bfd03c8f59321086615bbfb0d687adb075bbed8ced9f8",
+        "tokenizers/0.23.3/rust/heck-0.5.0/NOTICE.txt": "44b67cc8dcea217fb67f84d9c2fa35e2a7d18777356a9cfc74ac994207c2d75e",
+        "tokenizers/0.23.3/rust/castaway-0.2.4/NOTICE.txt": "48102e384b4682472c0081e6e4157f987b26e2ce53e2d78fe962f8118207cfcc",
+        "tokenizers/0.23.3/rust/bitflags-2.13.1/NOTICE.txt": "ea27b3f9e29edd7fc8c5afbb5e462f03fbd35acae6d0e8ac5f7ad455db5499cd",
+        "tokenizers/0.23.3/rust/derive_builder-0.20.2/NOTICE.txt": "0514035f27b3d8bfe3238319ea9fa33d8b286eb800f51a206ae7dbf212ac92b9",
+        "tokenizers/0.23.3/rust/pyo3-async-runtimes-0.29.0/NOTICE.txt": "a079aae499e372ab7339d9c09a8f5360b49b46a2ea66020d4de1e62559cb71ca",
+        "tokenizers/0.23.3/rust/pin-project-lite-0.2.17/NOTICE.txt": "b9020afd04ed02bec8688bb7bc3bdb80273eaa541674b81aa1f79a29ca2aa49e",
+        "tokenizers/0.23.3/rust/env_filter-2.0.0/NOTICE.txt": "b3c432125b0b9140c315b68de5bfdea30c18bab613f000474e33b600535236cd",
+        "tokenizers/0.23.3/rust/tokio-1.53.1/NOTICE.txt": "d716c4f3a74ebef770d1548d2752739ba43f1bedc4a1e9cfee655905fa88c102",
+        "tokenizers/0.23.3/rust/rand_core-0.9.5/NOTICE.txt": "b10771bc5864d833f4761947c8109ac3cffa9eda5500d4afd23bd3079ba0c6fd",
+        "tokenizers/0.23.3/rust/monostate-impl-0.1.18/NOTICE.txt": "e9a210f863506fd14db44bd120b2737589e7e7743079c369f74990441e1afd4f",
+        "tokenizers/0.23.3/rust/getrandom-0.3.4/NOTICE.txt": "ae2547c898b7ac9f2797d6673bda7fe6ef0ad64256d9a916af4e6b6c379d4385",
+        "tokenizers/0.23.3/rust/rayon-core-1.13.0/NOTICE.txt": "fed3194fa4946edd2f77e54b0eaeaebf25912bf4bb86770065d3fb06ff7aa0c3",
+        "tokenizers/0.23.3/rust/nom-7.1.3/NOTICE.txt": "db483a997b836557b45defc3a86977ca2e75ef0f706c306d826f3ee13f2151b7",
+        "tokenizers/0.23.3/rust/find-msvc-tools-0.1.11/NOTICE.txt": "2da790a7c65ee895ef57368a4d712b5ca344abed94748ea2b60ec0218476a927",
+        "tokenizers/0.23.3/rust/daachorse-3.0.3/NOTICE.txt": "88b6fd5901dccd6c82a8fbfc03ae80417ee6582461cb5edbbff3c431f713e738",
+        "tokenizers/0.23.3/rust/serde-1.0.229/NOTICE.txt": "1c45e835315efd87372f60328a4861d0970b3225234e56c7b9e25bf8bbba202c",
+        "tokenizers/0.23.3/rust/unicode-segmentation-1.13.3/NOTICE.txt": "5684065a8981381184de566b3c31dd33a78648cb90db15f86eb650bbf7930d25",
+        "tokenizers/0.23.3/rust/derive_builder_macro-0.20.2/NOTICE.txt": "a9a92cdd478da05afe837e737f7e4ac2523246c8d3781eab03e01f324f10d38f",
+        "tokenizers/0.23.3/rust/unicode_categories-0.1.1/NOTICE.txt": "b8403dd598908d4c15751e53c2f48f9f6d987269a298b8d227b119fccacbf896",
+        "tokenizers/0.23.3/rust/rayon-cond-0.4.0/NOTICE.txt": "00f8d1d92c8e0add40e341cfde6bc0d6916ee1012027b6c09cd4d151701da514",
+        "tokenizers/0.23.3/rust/shlex-2.0.1/NOTICE.txt": "f4d0a644140216d67409227875daeca14078a97d45f34012ff7bb3d6db72a076",
+        "tokenizers/0.23.3/rust/numpy-0.29.0/NOTICE.txt": "179203868ed03de41c14ba9f8778b976913f5079375adc17c4ea6eb534151e0b",
+        "tokenizers/0.23.3/rust/thiserror-impl-2.0.20/NOTICE.txt": "bba19e9dfa28a3d2963f8893022dbf8d16a8d086b3bbf44412533a67926544d3",
+        "tokenizers/0.23.3/rust/tokio-macros-2.7.2/NOTICE.txt": "7c1e4a353cce908cea3830e6dc43899ddf20efe25a5ae42c1456a2eb3784ae5d",
+        "tokenizers/0.23.3/rust/macro_rules_attribute-proc_macro-0.2.3/NOTICE.txt": "65b5e77d0d877405c53af6b5c53ea7e3c742e405a10763f342e86b54f3836e91",
+        "tokenizers/0.23.3/rust/pyo3-0.29.2/NOTICE.txt": "a580bc626249d7f4b1b6eef71297a361db1fd8160f2ffdbc331b96325b87400d",
+        "tokenizers/0.23.3/rust/onig_sys-69.9.3/NOTICE.txt": "b22fefc3e18ae5e9bd5e2fa14a14db17bb94d6bb9b52c415fb2fd9448df2f6ac",
+        "tokenizers/0.23.3/rust/memchr-2.8.3/NOTICE.txt": "371806ae7067bbbc03fb7d6841577e191a2c6838fe42777581c9f4b181b58198",
+        "tokenizers/0.23.3/rust/pyo3-macros-0.29.2/NOTICE.txt": "381450120c3de8ef70961fbc3b15a54b54af1dfc1ebaecb4e3b1a9adc9e10c92",
+        "tokenizers/0.23.3/rust/pyo3-ffi-0.29.2/NOTICE.txt": "fb97b1c1f94f1f2d9224df1ddabb6b45dbdbad90cb9164ea0cb02a42ceb99212",
+        "tokenizers/0.23.3/rust/zerocopy-0.8.56/NOTICE.txt": "130a8f3947ed30a3a29adacb4be55560e418737adf1bda9be630b3b608d66991",
+        "tokenizers/0.23.3/rust/defmt-macros-1.1.1/NOTICE.txt": "1fa2f11ab867987162c19f61a7d6b15c6a5b6c4f7ab27202d3879fb1bddff57b",
+        "tokenizers/0.23.3/rust/slab-0.4.12/NOTICE.txt": "bd120571235d8566db951e9d50bb7124641052c3e3ef0428a856d94129ce106a",
+        "tokenizers/0.23.3/rust/static_assertions-1.1.0/NOTICE.txt": "97759172aab5b2c84b2522f9ca96739875582c95abb70cbf77817989d27ab7d1",
+        "tokenizers/0.23.3/rust/serde_core-1.0.229/NOTICE.txt": "ea27ec661693d5d96523a546923f189d0fc03a13e1e5d9813446c74d0268c7ad",
+        "tokenizers/0.23.3/rust/either-1.18.0/NOTICE.txt": "d4e494ab34215037b3265f6cfe9642b474fde7f30b00e63b6dbe45ee7f247750",
+        "tokenizers/0.23.3/rust/spm_precompiled-0.1.4/NOTICE.txt": "7e38d605fb7329fdfff0facea9ed2ec120c645f0609b9ebff0a7e46adc33127a",
+        "tokenizers/0.23.3/rust/bitflags-1.3.2/NOTICE.txt": "3e1f464909b2133eb0ca04ccd32d1fc5accf05befc8440a99bd4aa9da7f455d3",
+        "tokenizers/0.23.3/rust/anstream-1.0.0/NOTICE.txt": "7ea94fd287e4821e2fd562394a923867fe98220108acac89c4a3f084e7831bbf",
+        "tokenizers/0.23.3/rust/colorchoice-1.0.5/NOTICE.txt": "fa8fb89fb07d31bb0cbac4d4bc2aa01b2e715b50d97c4077e37327ad9d03d304",
+        "tokenizers/0.23.3/rust/jiff-0.2.35/NOTICE.txt": "6917ac5045589796d9104d2f17127bf17368dc4993419618a04d78c1629c9ee2",
+        "tokenizers/0.23.3/rust/aho-corasick-1.1.5/NOTICE.txt": "13626969fd5f318ed263656a390e164e15c78bdeea165905e81ffeccaa414423",
+        "tokenizers/0.23.3/rust/unit-prefix-0.5.2/NOTICE.txt": "c35ffe80d4739ff00f92d0b99a8526fe672ada06b97ed8cc7cf6ba5c9f525243",
+        "tokenizers/0.23.3/rust/futures-core-0.3.34/NOTICE.txt": "1fa724084a26b8f1076a70ef707bda863fcc1e82b191d21e9d38c4addc5dd902",
+        "tokenizers/0.23.3/rust/pyo3-macros-backend-0.29.2/NOTICE.txt": "fdd2c3c02ce6fa49091ccc19f74b7d2535d47819fc7f289e739ced655ce67f35",
+        "tokenizers/0.23.3/rust/pkg-config-0.3.34/NOTICE.txt": "1287b246a7839b485387346b9ec64648db2de1954196c82c8d852b1d3cffdae1",
+        "tokenizers/0.23.3/rust/errno-0.3.14/NOTICE.txt": "acf81e42e6828da3146f9cec6b68458750531ed3dccbae7f8db889c091c407a6",
+        "tokenizers/0.23.3/rust/log-0.4.34/NOTICE.txt": "016473eb6af39773de4f06b46beaa2ee34076507659228f9076d8ef6d154ae28",
+        "tokenizers/0.23.3/rust/darling-0.20.11/NOTICE.txt": "0814cefff9a80dc9c56ced0cb0a054d5874fcb63a5012d7247f068627fe60c79",
+        "tokenizers/0.23.3/rust/libc-0.2.189/NOTICE.txt": "b30ccdd65e17c39c2d71ad6d092fe813224b1677121bf6bc2a375f4c7fd4aef6",
+        "tokenizers/0.23.3/rust/strsim-0.11.1/NOTICE.txt": "bd65bd6f00bdeed7a49c095fe6da7939a4cbc6873349c8d2b356488a0b333c88",
+        "tokenizers/0.23.3/rust/cc-1.4.4/NOTICE.txt": "9078aacbbdadcccabca3d5d69085396d625b8ab4a120578371a791d85066e2f8",
+        "tokenizers/0.23.3/rust/signal-hook-registry-1.4.8/NOTICE.txt": "3f80be37f064e2041f8694fe2c74968d61d000a00f4a6bfde609fa8899ec7d21",
+        "tokenizers/0.23.3/rust/macro_rules_attribute-0.2.3/NOTICE.txt": "99d24d9767b63f8571ddc173459a2c5bd209e13ca1764845d168cc4fb0d04342",
+        "tokenizers/0.23.3/rust/unicode-ident-1.0.24/NOTICE.txt": "72ff9cfbf1fa6ab4bb24ace48302446554e99b8ececc7d6bdf7442d8e0646ebe",
+        "tokenizers/0.23.3/rust/anstyle-parse-1.0.0/NOTICE.txt": "2e2c281f2f089de493e0abab01e123e7238f9aeb519df330f6e22f21d6198952",
+        "tokenizers/0.23.3/rust/autocfg-1.5.1/NOTICE.txt": "13fb9bd21071dfd686e66fa66d13d2b63192fdc0685390c4a67e1430a7620191",
+        "tokenizers/0.23.3/rust/unicode-normalization-alignments-0.1.12/NOTICE.txt": "e3b0f0c7daf4fced5c255130bf8e5d96fc8043bd039cc6e23ea587265c471a5f",
+        "tokenizers/0.23.3/rust/darling_macro-0.20.11/NOTICE.txt": "b67b24048af2882bafbc1e69f6d904f0d525d0f2cd54687edf0ff7dcc44a2de7",
+        "tokenizers/0.23.3/rust/utf8parse-0.2.2/NOTICE.txt": "2939c60cc9b76db799ee7a47e0fe7304a95a5c1b028545e892e2814fe8860cec",
+        "tokenizers/0.23.3/rust/syn-2.0.119/NOTICE.txt": "b74cafe6ff3623a5bb5870471207efb6c49af5e8a2f4df54227052118e2e3c9d",
+        "tokenizers/0.23.3/rust/anstyle-query-1.1.5/NOTICE.txt": "828bfcb67afdbae00d5339440d6056ad3afa61aa4792d303f72735defa0ad61f",
+        "tokenizers/0.23.3/rust/crossbeam-deque-0.8.7/NOTICE.txt": "1fa39051ccbf2a50d64cc3b5540d2c0e0f47c022fa994dc8fae78dc449be1b68",
+        "tokenizers/0.23.3/rust/futures-task-0.3.34/NOTICE.txt": "32b5c45d5c54da1b78b655e47043f8d1291c3c7ad72b6248989e6cf1ef51acc9",
+        "tokenizers/0.23.3/rust/pastey-0.2.3/NOTICE.txt": "8cd72dc4b57c3550845421bbe59a50b82708369cff5b19cec05493ae37f5ac4d",
+        "tokenizers/0.23.3/rust/console-0.16.4/NOTICE.txt": "29f6dc54d516c0cd3fbe6742e3c688b1e7ee816bed0037fdd83a82931013cd25",
+        "tokenizers/0.23.3/rust/itoa-1.0.18/NOTICE.txt": "c176f7c66d1591b42e8b841afc73022966fd1d1c4cd58ce81b6b348709e1d64b",
+        "tokenizers/0.23.3/rust/defmt-parser-1.0.0/NOTICE.txt": "7bf6e581f668d95ed8f8bd69741170e0f33965292e8146df3df60e2c11d679de",
+        "tokenizers/0.23.3/rust/ahash-0.8.12/NOTICE.txt": "335ce8d095b260639495d745fc6d1680cb6f68522f74ffcca7cb1245e7fbd2b6",
+        "tokenizers/0.23.3/rust/ident_case-1.0.1/NOTICE.txt": "4f9183e43e4ea6876f2d8d7875ee3b60079c581fe4b7556277be74aa4f86ddf1",
+        "tokenizers/0.23.3/rust/base64-0.13.1/NOTICE.txt": "087b364b893d7615898558b14cb4ed2ed67d046e0562f41fdec0a8b0b040d314",
+        "tokenizers/0.23.3/rust/esaxx-rs-0.1.10/NOTICE.txt": "6a43d70b32aee9bb4693a9f8b3b2fac3e920c7887ede23d24dbdb3347b5360d3",
+        "tokenizers/0.23.3/rust/thiserror-2.0.20/NOTICE.txt": "0db3b59d05828baeaaa8e3e5ff6235ba8e94dba92fd11a98a4350435abfcea7d",
+        "tokenizers/0.23.3/rust/crossbeam-epoch-0.9.20/NOTICE.txt": "ab0043d9d383f832c37923bcab89f47085413d01c376e06dc854c88467ceeb00",
+        "tokenizers/0.23.3/rust/is_terminal_polyfill-1.70.2/NOTICE.txt": "6683583aedf1f4003f0d94575e0738592e4530a3fb2e1fc5330e61a2ad992207",
+        "tokenizers/0.23.3/rust/pyo3-build-config-0.29.2/NOTICE.txt": "b2f8a6daadbe53d908c856e28f625bb07f104489b97b75ce523ec0b563571880",
+        "tokenizers/0.23.3/rust/once_cell-1.21.4/NOTICE.txt": "99ecb923408e97181738b185444d5527c55e6722551050a51bb67a8a171cc219",
+        "tokenizers/0.23.3/rust/unicode-width-0.2.2/NOTICE.txt": "3962a3d0277eb9e86639d4cf57f403d163996cadc90f5e5ff94aafe6851ed7b7",
+        "tokenizers/0.23.3/rust/tokenizers-0.23.2/NOTICE.txt": "83feec5e430a2470e67ba16ebabbd3d4a71fa3eaec351c10a6fb4abd36763efe",
+        "tokenizers/0.23.3/rust/compact_str-0.9.1/NOTICE.txt": "2d2a8188ba5747c0abe34cc6282290629299e3e20edbe5630a472ed36ddd0ad2",
+        "tokenizers/0.23.3/rust/indicatif-0.18.6/NOTICE.txt": "2f489a36f216376868d99ffe15c61ba5d7b06ce5412cf2b0919b9cb471d6b22e",
+        "tokenizers/0.23.3/rust/quote-1.0.47/NOTICE.txt": "02e6b87cf7786588c20664838a2b727806edd9e4292551fcae43851eeb4379c8",
+        "tokenizers/0.23.3/rust/proc-macro2-1.0.107/NOTICE.txt": "1e15c505da96f85134cdee6133221129f014ffd6bb8258518b6763d8bafdeb5c",
+        "tokenizers/0.23.3/rust/fnv-1.0.7/NOTICE.txt": "d108549f619854158e2a550a5889e178cca7cd1e8b98a485f7ae48637b85bad1",
+        "tokenizers/0.23.3/rust/ryu-1.0.23/NOTICE.txt": "e0ed9422d7c307902261e42b6c9437eaf6852ded49215a946b87d0f611aed1b2",
+        "tokenizers/0.23.3/rust/cfg-if-1.0.4/NOTICE.txt": "bd5c9b449758c2cf4c3fa73b7281bc8d22a663eadcb23a77740d27bc8adbf5f8",
+        "tokenizers/0.23.3/rust/jiff-core-0.1.0/NOTICE.txt": "daebb26b7040349ca4ad1024ed29d451637428080a06687a242ae33869260ef1",
+        "tokenizers/0.23.3/rust/monostate-0.1.18/NOTICE.txt": "d1493561ae59841b2eb11f87f7a517acc728ed976f6b459867296648284f9dcb",
+        "tokenizers/0.23.3/rust/target-lexicon-0.13.5/NOTICE.txt": "7a515424279af7aeff9df9b6868bd36cd0a1aac50d19426839d3344385a53d6f",
+        "tokenizers/0.23.3/rust/regex-automata-0.4.18/NOTICE.txt": "3071f6a41a4727c70358fb26b07c171f5e1a213ba13b68f8004815dfe3c191cc",
+        "tokenizers/0.23.3/rust/ndarray-0.16.1/NOTICE.txt": "a03c4731c8d109c3a8e5df65362387c10a8b7d6d420a1d4888c263b397452b3b",
+        "tokenizers/0.23.3/rust/defmt-1.1.1/NOTICE.txt": "9b6ce10cd1ed15bf97dba8b8b4d7597036edd591f68abeaf37b582f6fb648690",
+        "tokenizers/0.23.3/rust/futures-channel-0.3.34/NOTICE.txt": "abc4e59237039b92ab3483ec3544a6126cdf130d0f441975cb02becc7bdcf72c",
+        "tokenizers/0.23.3/rust/num-traits-0.2.19/NOTICE.txt": "31de00f159fed219242e25c92bd5007c90fec8ef1189072e4434879a5e8ad633",
+        "tokenizers/0.23.3/rust/portable-atomic-1.15.0/NOTICE.txt": "b23e9d3ef0906af6742c1905b58a70108e92d52769dae0f2408ab223d19e38f5",
+        "tokenizers/0.23.3/rust/rawpointer-0.2.1/NOTICE.txt": "0bb3dc3f5df12c8d8cab2d430eae929e5cd0f83db4c56192d1208c5b017698af",
+        "tokenizers/0.23.3/rust/regex-1.13.1/NOTICE.txt": "8de55ea955dea46f1270286fc8d647b29c9188ba00dc7cba90ea140eae0cd888",
+        "tokenizers/0.23.3/rust/anstyle-1.0.14/NOTICE.txt": "289c31dbcf29b75f94712c2515ff32e1dec1d9209e9bf00b2f73fb926bee0c45",
+        "tokenizers/0.23.3/rust/ndarray-0.17.2/NOTICE.txt": "c9da7e3b0e889159585aa493dc7575f872aa6cc6742058a0f6361d9ce347a84b",
+        "tokenizers/0.23.3/rust/syn-3.0.4/NOTICE.txt": "a0fefb551ca474c3c169ab04896b562d775384838bbfe7d8e7fead3362c65fb0",
+        "tokenizers/0.23.3/rust/mio-1.2.3/NOTICE.txt": "cf31828ae7bd4c870905d1666a0e4a4ed69137ef1389ac6ee15d4c85465bcbe3",
+        "tokenizers/0.23.3/rust/paste-1.0.15/NOTICE.txt": "5d331131957e5b1dc4010847cfcbc65f5b5f12849c4039a294a614e1c7fc5698"
+      },
+      "packages": [
+        {
+          "distribution": "ctranslate2",
+          "version": "4.8.3",
+          "wheel": {
+            "url": "https://files.pythonhosted.org/packages/b4/39/438c9236c57443099763789ee009d6d43a65fb58283163fb0d6e6dadacd7/ctranslate2-4.8.3-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+            "sha256": "7e161eb031fcf2a5d81ce3a1cd8be4954c7df758d96cfaba57aeecc69a0c00ae"
+          },
+          "native_files": [
+            {
+              "path": "ctranslate2.libs/libctranslate2-bdb19cbc.so.4.8.3",
+              "sha256": "9a28d257e726d2a3db337fa5e10f31cd190975955f6b3a9bb01801eb2f1e6975"
+            },
+            {
+              "path": "ctranslate2.libs/libgomp-e985bcbb.so.1.0.0",
+              "sha256": "a43904e4fa297301d4640dc1bb3c8a3480b406f99e498eba9b1914b68aab604a",
+              "replacement": true
+            },
+            {
+              "path": "ctranslate2/_ext.cpython-312-x86_64-linux-gnu.so",
+              "sha256": "aa6cf6be37e621d70816da680eb8e632013b2c2c068d24c1c719782894149add"
+            }
+          ],
+          "license_files": []
+        },
+        {
+          "distribution": "tokenizers",
+          "version": "0.23.3",
+          "wheel": {
+            "url": "https://files.pythonhosted.org/packages/3a/40/6706b82693715581457c6d5423eaa7faae576bb0526c5738a57085eb4449/tokenizers-0.23.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+            "sha256": "376851d22bcf9d650a5c3090bb83e6cf9e895fbf0595369fa4cd43c1f69b5f87"
+          },
+          "native_files": [
+            {
+              "path": "tokenizers/tokenizers.abi3.so",
+              "sha256": "4b1458a379296762a034d3bc89299c0c35b4eefb0577acca922f481b262c65a1"
+            }
+          ],
+          "license_files": [],
+          "sbom": {
+            "path": "tokenizers-0.23.3.dist-info/sboms/tokenizers-python.cyclonedx.json",
+            "sha256": "6faa23324b2b53b4a8da9b451a675610cc45e1a23e8c5bb0740c080064e1ba0d",
+            "component_count": 127,
+            "component_purls_sha256": "eb2b373744b60adac9da4a6d51254d36df883d278d27c6544b6dbdac47bc59c0"
+          }
+        },
+        {
+          "distribution": "torch",
+          "version": "2.11.0+cu128",
+          "wheel": {
+            "url": "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl",
+            "sha256": "d252cf975fb18c94a85336323ad425f473df56dab35a44b00399bd70c7a3b997"
+          },
+          "native_files": [
+            {
+              "path": "torch/_C.cpython-312-x86_64-linux-gnu.so",
+              "sha256": "fc945c4168eb823fba967804a4243111a3824ef9eda1a443c252244fa6c623a5"
+            },
+            {
+              "path": "torch/lib/libc10.so",
+              "sha256": "11cd91bd0e34bceb07015b5e19b894c1888724795f1ec016ee6954b2807b834f"
+            },
+            {
+              "path": "torch/lib/libc10_cuda.so",
+              "sha256": "0e54b1db72ce1999a5463ce8dd54793a7a89d26c780425c90723d5a74a985a50"
+            },
+            {
+              "path": "torch/lib/libcaffe2_nvrtc.so",
+              "sha256": "f873d3a7a68909d58413c8701e8b7b7c5ca69fd5162d62735200537d89ba8d8a"
+            },
+            {
+              "path": "torch/lib/libgomp.so.1",
+              "sha256": "59badd7c550c340a23d217c37232a4bac6e66a99f47aa273a0a0393bc7c68ddb",
+              "replacement": true
+            },
+            {
+              "path": "torch/lib/libshm.so",
+              "sha256": "363d1d82e3b12a41ec07a27a226cb8b34a165f80954df0d9c518e4cee3cc818a"
+            },
+            {
+              "path": "torch/lib/libtorch.so",
+              "sha256": "672f6cfa6f5bb39094c52e400f6ca8443bfe294f06ba793def90ddf339529f5f"
+            },
+            {
+              "path": "torch/lib/libtorch_cpu.so",
+              "sha256": "0c560ca9edf091adda46c1c9dbc48ea5a869125e6ab51c97d4f41f898656e04b"
+            },
+            {
+              "path": "torch/lib/libtorch_cuda.so",
+              "sha256": "2aa4ad61474d40f1e385ba01de26695833b4de220124436aec104157051e860f"
+            },
+            {
+              "path": "torch/lib/libtorch_cuda_linalg.so",
+              "sha256": "34f66f1f47e9ae5afae3824a948aea7f22c93c90cc7671d88115e0e2d83a6b1f"
+            },
+            {
+              "path": "torch/lib/libtorch_global_deps.so",
+              "sha256": "2eaab74d60647976a45caf4e0643d8b1b568f7202aa1cc861fdff70cea8dbf48"
+            },
+            {
+              "path": "torch/lib/libtorch_nvshmem.so",
+              "sha256": "afe520b8befb85daec12798eadb49f4049be47211883e526d4c2895e85a6ceba"
+            },
+            {
+              "path": "torch/lib/libtorch_python.so",
+              "sha256": "4acff8ce3e1767905ed3669264119321679878123a78e3a4fab937ad6f970312"
+            }
+          ],
+          "license_files": [
+            {
+              "path": "torch-2.11.0+cu128.dist-info/licenses/LICENSE",
+              "sha256": "a0d7abc10248a062a2f309bf12981524973f2a61aadccf4c5099d96d8c388cf4"
+            },
+            {
+              "path": "torch-2.11.0+cu128.dist-info/licenses/NOTICE",
+              "sha256": "c2cc7bf0caec7652c2b460a8a470bea1677f241e4ab8e431df34cf17f5a9fec0"
+            }
+          ]
+        },
+        {
+          "distribution": "torchaudio",
+          "version": "2.11.0+cu128",
+          "wheel": {
+            "url": "https://download-r2.pytorch.org/whl/cu128/torchaudio-2.11.0%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl",
+            "sha256": "78b86a17f164bdaabdcee93fdfde2587fc43b9ebf15cd61dcf730b4f8615176b"
+          },
+          "native_files": [
+            {
+              "path": "torchaudio/lib/_torchaudio.abi3.so",
+              "sha256": "05ea1dcd05ccb99b51dc46196fa285f2b957f0f5bf5052ecd7ca0c0b422444e4"
+            },
+            {
+              "path": "torchaudio/lib/libtorchaudio.abi3.so",
+              "sha256": "40da68be0df0d8cad80c822d96adf2b89250faec16644a35b6540ed1781c2896"
+            },
+            {
+              "path": "torchaudio/lib/torchaudio_prefixctc.abi3.so",
+              "sha256": "810cb9cff4ad8307cb7191b3056a998836c9919b58aabb19de297eab6e65468a"
+            }
+          ],
+          "license_files": [
+            {
+              "path": "torchaudio-2.11.0+cu128.dist-info/licenses/LICENSE",
+              "sha256": "93a58861a858cc108e6b6b833e08e76e8b2a66339e4a8007c8a5a8c1ff9c40d6"
+            }
+          ]
+        },
+        {
+          "distribution": "torchcodec",
+          "version": "0.11.1",
+          "wheel": {
+            "url": "https://files.pythonhosted.org/packages/ca/a9/a2b6ee3e84c55bdd0c45fd991dde71c95a99115ec9e26938b212b4545dcf/torchcodec-0.11.1-cp312-cp312-manylinux_2_28_x86_64.whl",
+            "sha256": "6c26e90e7aa982302644d0af8cb706318682bb390f48a80ecbfeab03499acd04"
+          },
+          "native_files": [
+            {
+              "path": "torchcodec/libtorchcodec_core4.so",
+              "sha256": "c21277a389cb8ca0cce3ef04d0e56cc9ebed370a61983a9a41bf07f40ec319fa"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_core5.so",
+              "sha256": "d7f5c0b0076da89e6e7ff3395d5ad28bb22086813427b9870bdf8259d124a935"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_core6.so",
+              "sha256": "0fbf7a6be099570680b27ad4052fc7dfcc8125b6e5efdc814720b7a823c7754d"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_core7.so",
+              "sha256": "ed2e76c1a299092a648ac66e4e21efb6e32e9ed91feabce1e563fd0d88c7fb7e"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_core8.so",
+              "sha256": "d80478d7e12db8e4d00ac114f17e136b90be0a081de8c03b080cece2b01c2427"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_custom_ops4.so",
+              "sha256": "e088842c54c890ac788f3fcc1c998ff1aa3bb3f4f3ab25c6847136295bfa2d6a"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_custom_ops5.so",
+              "sha256": "44bb48830286e344481b6ac398905b9d3ac6d8c47641f865ebf4b8f36ff9fb7a"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_custom_ops6.so",
+              "sha256": "2f5f0f12a3cec3a63d67d59a0dcbb94ca8bed9c8e07113258bf6b526932bf70a"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_custom_ops7.so",
+              "sha256": "f6550506e87a48a9e8e926b30c89eacd9b5f5ec0226d49259ad0feb29049c86b"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_custom_ops8.so",
+              "sha256": "b62fcf79a387550ea24d8aa200d117b3c9acb2ca5694daf95b063c208ad46ab1"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_pybind_ops4.so",
+              "sha256": "390ef2b2e1153990eabd8ec0d8df982b5ab52f8cea811ce7c7ac2bffc137c7d3"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_pybind_ops5.so",
+              "sha256": "5e13af94175cf168ed631445b2cd742450c877fcb9ec3927aaba6f1e490342c2"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_pybind_ops6.so",
+              "sha256": "77fc8ff3bd2825c28ad94ce0171b34c05571d76ff4cc44419b6a785f3b2f2a32"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_pybind_ops7.so",
+              "sha256": "3be109a61f86162dd60a9cf5896a016346750111460523d943ec06554cf5dcb2"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_pybind_ops8.so",
+              "sha256": "33d2da77a915f7258d3209ec5eee2205d7d209e99f2a740d0e0df0053ae0164f"
+            }
+          ],
+          "license_files": [
+            {
+              "path": "torchcodec-0.11.1.dist-info/licenses/LICENSE",
+              "sha256": "8ef78c2d6e787b103a0548e73ba2cfe68bc469b5b0e6f5e7db649f1312f4f2a6"
+            }
+          ]
+        }
+      ],
+      "tokenizers_rust": {
+        "rust_manifest_path": "tokenizers/0.23.3/rust-license-manifest.json",
+        "rust_manifest_sha256": "3d20c247e1e84e6ae5b826b97430722f86cff444c00e44c639309424a0f570e4",
+        "component_count": 127,
+        "component_purls_sha256": "eb2b373744b60adac9da4a6d51254d36df883d278d27c6544b6dbdac47bc59c0"
+      }
+    },
+    "arm64": {
+      "machines": [
+        "aarch64",
+        "arm64"
+      ],
+      "required_notice_hashes": {
+        "ctranslate2/4.8.3/LICENSE": "54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb",
+        "tokenizers/0.23.3/LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "native/ctranslate2/4.8.3/PROVENANCE.md": "3ca1cbd652d938c91da8b417144ac2ba9d2283fb1f824053390bf59149e238cf",
+        "native/openblas/0.3.26/LICENSE": "190b5a9c8d9723fe958ad33916bd7346d96fab3c5ea90832bb02d854f620fcff",
+        "native/ruy/363f252/LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "tokenizers/0.23.3/rust-license-manifest.json": "3d20c247e1e84e6ae5b826b97430722f86cff444c00e44c639309424a0f570e4",
+        "tokenizers/0.23.3/PROVENANCE.md": "66afc2522384a1a886b9ce801e1a8d95d750a398d8db0766b1d6696308a00d75",
+        "tokenizers/0.23.3/tokenizers-python.cyclonedx.json": "6faa23324b2b53b4a8da9b451a675610cc45e1a23e8c5bb0740c080064e1ba0d",
+        "tokenizers/0.23.3/Cargo.lock": "afcedf7f2ebe008b068d7afd25e77f7d9d8e433c24153bc35a1eb5611083ee5b",
+        "tokenizers/0.23.3/rust/version_check-0.9.5/NOTICE.txt": "3127b2aadca8efe6f196ca32331462c3b7a061f90762c5e03a35a3b82d5b60ae",
+        "tokenizers/0.23.3/rust/rand-0.9.5/NOTICE.txt": "8cde327f1c054fde139c63b26bfb9eec1a415e34353411da054b0edec74445c7",
+        "tokenizers/0.23.3/rust/itertools-0.14.0/NOTICE.txt": "ec0352f15f79872a1c937902622f51601ee3319cd2304fba638bd0783b1339e0",
+        "tokenizers/0.23.3/rust/ppv-lite86-0.2.21/NOTICE.txt": "996a47d93223ca907fbead7aa5383d8e2b676a67095146cbd82ccb43cebb9dcc",
+        "tokenizers/0.23.3/rust/onig-6.5.3/NOTICE.txt": "940a07cf9c11299f7ea0a1d3ce74c0e843ab26d52a0fdbda5a554e46a74b70f9",
+        "tokenizers/0.23.3/rust/derive_builder_core-0.20.2/NOTICE.txt": "b65506a24bd0184fa3c04bf366462d053c8f01ac4a3d158fd8487266fa944f55",
+        "tokenizers/0.23.3/rust/crossbeam-utils-0.8.22/NOTICE.txt": "dc4eaf19391f17c96c39f2850af1c454053d9e4ac11e21e805762e4599570a47",
+        "tokenizers/0.23.3/rust/dary_heap-0.3.9/NOTICE.txt": "ea702f805e64ce33a817633370d334496f1fdb96b9c368a0699e554dd0923bba",
+        "tokenizers/0.23.3/rust/minimal-lexical-0.2.1/NOTICE.txt": "03d33154e4badae8605f9b3cb5ffa3474ff752e3dd0237fea931b94c5d376f2b",
+        "tokenizers/0.23.3/rust/futures-macro-0.3.34/NOTICE.txt": "d2a45ceff00821a738d0cc6766c7a2412f2a276a41d37a0e1336938b50567560",
+        "tokenizers/0.23.3/rust/smallvec-1.16.0/NOTICE.txt": "4541a694760957143b67a670d1f55db99c91858054458c4c4720ea1da24ab224",
+        "tokenizers/0.23.3/rust/matrixmultiply-0.3.11/NOTICE.txt": "4e8bf37be7d17d1e8bea083c7695640f33e2084c9ca980c17d014dcb4e29759f",
+        "tokenizers/0.23.3/rust/serde_json-1.0.151/NOTICE.txt": "b5f4a2fdf83db34fc1397aabe842b57bc1b37319cc7e06e785e693abc1d89993",
+        "tokenizers/0.23.3/rust/darling_core-0.20.11/NOTICE.txt": "5d9ee8207c7260e7a85a2f972aef5c8e77b214ff4d1c5a12197c4034eb0e190a",
+        "tokenizers/0.23.3/rust/futures-util-0.3.34/NOTICE.txt": "37365b467375ab752b9d51295b5319f692e7ab4af5f200a75161cf9c677e9a23",
+        "tokenizers/0.23.3/rust/rayon-1.12.0/NOTICE.txt": "d9a09da75a8b7e27b7cf3cb090bb0a55d9c7a7031c36425c4fc027573650e273",
+        "tokenizers/0.23.3/rust/num-integer-0.1.47/NOTICE.txt": "08e9d7ca6e8d7c73ef90d593e74884f7e6ef3a3a297c3a9d660e6ed2595fbdf6",
+        "tokenizers/0.23.3/rust/regex-syntax-0.8.11/NOTICE.txt": "75712cfef1289da83cc19555fdd4b734572cbb03b0656814308482c32cda5012",
+        "tokenizers/0.23.3/rust/zmij-1.0.23/NOTICE.txt": "42ca43f4434276c3d30ac56b4d2147a53535ced793d2d7cd19be3a045823775a",
+        "tokenizers/0.23.3/rust/rustc-hash-2.1.3/NOTICE.txt": "f59b84f5eee1ad19836fccf80652f0fe1b92ddcff8e6b73389fdcb4dfc71fdf6",
+        "tokenizers/0.23.3/rust/rustversion-1.0.23/NOTICE.txt": "79d10dc769b56028cce8942fa1774c0e2b485b77d68047cb0808698fdda0a591",
+        "tokenizers/0.23.3/rust/num-complex-0.4.6/NOTICE.txt": "ea6534a17569bc152382d67f0935dff02d71da3549df1cdea7caf11fbeb62b04",
+        "tokenizers/0.23.3/rust/rand_chacha-0.9.0/NOTICE.txt": "86e1d419577665b869dc27c9bc81c1ed3d3649c922a41dd24dc693e9ab1efb2e",
+        "tokenizers/0.23.3/rust/serde_derive-1.0.229/NOTICE.txt": "b5fa2a0fd06afe3e7b4b7008aa62cb35dff5ec57d5fb49e87fce31fc4e3355b1",
+        "tokenizers/0.23.3/rust/env_logger-0.11.11/NOTICE.txt": "a08b200d11f199ad606bfd03c8f59321086615bbfb0d687adb075bbed8ced9f8",
+        "tokenizers/0.23.3/rust/heck-0.5.0/NOTICE.txt": "44b67cc8dcea217fb67f84d9c2fa35e2a7d18777356a9cfc74ac994207c2d75e",
+        "tokenizers/0.23.3/rust/castaway-0.2.4/NOTICE.txt": "48102e384b4682472c0081e6e4157f987b26e2ce53e2d78fe962f8118207cfcc",
+        "tokenizers/0.23.3/rust/bitflags-2.13.1/NOTICE.txt": "ea27b3f9e29edd7fc8c5afbb5e462f03fbd35acae6d0e8ac5f7ad455db5499cd",
+        "tokenizers/0.23.3/rust/derive_builder-0.20.2/NOTICE.txt": "0514035f27b3d8bfe3238319ea9fa33d8b286eb800f51a206ae7dbf212ac92b9",
+        "tokenizers/0.23.3/rust/pyo3-async-runtimes-0.29.0/NOTICE.txt": "a079aae499e372ab7339d9c09a8f5360b49b46a2ea66020d4de1e62559cb71ca",
+        "tokenizers/0.23.3/rust/pin-project-lite-0.2.17/NOTICE.txt": "b9020afd04ed02bec8688bb7bc3bdb80273eaa541674b81aa1f79a29ca2aa49e",
+        "tokenizers/0.23.3/rust/env_filter-2.0.0/NOTICE.txt": "b3c432125b0b9140c315b68de5bfdea30c18bab613f000474e33b600535236cd",
+        "tokenizers/0.23.3/rust/tokio-1.53.1/NOTICE.txt": "d716c4f3a74ebef770d1548d2752739ba43f1bedc4a1e9cfee655905fa88c102",
+        "tokenizers/0.23.3/rust/rand_core-0.9.5/NOTICE.txt": "b10771bc5864d833f4761947c8109ac3cffa9eda5500d4afd23bd3079ba0c6fd",
+        "tokenizers/0.23.3/rust/monostate-impl-0.1.18/NOTICE.txt": "e9a210f863506fd14db44bd120b2737589e7e7743079c369f74990441e1afd4f",
+        "tokenizers/0.23.3/rust/getrandom-0.3.4/NOTICE.txt": "ae2547c898b7ac9f2797d6673bda7fe6ef0ad64256d9a916af4e6b6c379d4385",
+        "tokenizers/0.23.3/rust/rayon-core-1.13.0/NOTICE.txt": "fed3194fa4946edd2f77e54b0eaeaebf25912bf4bb86770065d3fb06ff7aa0c3",
+        "tokenizers/0.23.3/rust/nom-7.1.3/NOTICE.txt": "db483a997b836557b45defc3a86977ca2e75ef0f706c306d826f3ee13f2151b7",
+        "tokenizers/0.23.3/rust/find-msvc-tools-0.1.11/NOTICE.txt": "2da790a7c65ee895ef57368a4d712b5ca344abed94748ea2b60ec0218476a927",
+        "tokenizers/0.23.3/rust/daachorse-3.0.3/NOTICE.txt": "88b6fd5901dccd6c82a8fbfc03ae80417ee6582461cb5edbbff3c431f713e738",
+        "tokenizers/0.23.3/rust/serde-1.0.229/NOTICE.txt": "1c45e835315efd87372f60328a4861d0970b3225234e56c7b9e25bf8bbba202c",
+        "tokenizers/0.23.3/rust/unicode-segmentation-1.13.3/NOTICE.txt": "5684065a8981381184de566b3c31dd33a78648cb90db15f86eb650bbf7930d25",
+        "tokenizers/0.23.3/rust/derive_builder_macro-0.20.2/NOTICE.txt": "a9a92cdd478da05afe837e737f7e4ac2523246c8d3781eab03e01f324f10d38f",
+        "tokenizers/0.23.3/rust/unicode_categories-0.1.1/NOTICE.txt": "b8403dd598908d4c15751e53c2f48f9f6d987269a298b8d227b119fccacbf896",
+        "tokenizers/0.23.3/rust/rayon-cond-0.4.0/NOTICE.txt": "00f8d1d92c8e0add40e341cfde6bc0d6916ee1012027b6c09cd4d151701da514",
+        "tokenizers/0.23.3/rust/shlex-2.0.1/NOTICE.txt": "f4d0a644140216d67409227875daeca14078a97d45f34012ff7bb3d6db72a076",
+        "tokenizers/0.23.3/rust/numpy-0.29.0/NOTICE.txt": "179203868ed03de41c14ba9f8778b976913f5079375adc17c4ea6eb534151e0b",
+        "tokenizers/0.23.3/rust/thiserror-impl-2.0.20/NOTICE.txt": "bba19e9dfa28a3d2963f8893022dbf8d16a8d086b3bbf44412533a67926544d3",
+        "tokenizers/0.23.3/rust/tokio-macros-2.7.2/NOTICE.txt": "7c1e4a353cce908cea3830e6dc43899ddf20efe25a5ae42c1456a2eb3784ae5d",
+        "tokenizers/0.23.3/rust/macro_rules_attribute-proc_macro-0.2.3/NOTICE.txt": "65b5e77d0d877405c53af6b5c53ea7e3c742e405a10763f342e86b54f3836e91",
+        "tokenizers/0.23.3/rust/pyo3-0.29.2/NOTICE.txt": "a580bc626249d7f4b1b6eef71297a361db1fd8160f2ffdbc331b96325b87400d",
+        "tokenizers/0.23.3/rust/onig_sys-69.9.3/NOTICE.txt": "b22fefc3e18ae5e9bd5e2fa14a14db17bb94d6bb9b52c415fb2fd9448df2f6ac",
+        "tokenizers/0.23.3/rust/memchr-2.8.3/NOTICE.txt": "371806ae7067bbbc03fb7d6841577e191a2c6838fe42777581c9f4b181b58198",
+        "tokenizers/0.23.3/rust/pyo3-macros-0.29.2/NOTICE.txt": "381450120c3de8ef70961fbc3b15a54b54af1dfc1ebaecb4e3b1a9adc9e10c92",
+        "tokenizers/0.23.3/rust/pyo3-ffi-0.29.2/NOTICE.txt": "fb97b1c1f94f1f2d9224df1ddabb6b45dbdbad90cb9164ea0cb02a42ceb99212",
+        "tokenizers/0.23.3/rust/zerocopy-0.8.56/NOTICE.txt": "130a8f3947ed30a3a29adacb4be55560e418737adf1bda9be630b3b608d66991",
+        "tokenizers/0.23.3/rust/defmt-macros-1.1.1/NOTICE.txt": "1fa2f11ab867987162c19f61a7d6b15c6a5b6c4f7ab27202d3879fb1bddff57b",
+        "tokenizers/0.23.3/rust/slab-0.4.12/NOTICE.txt": "bd120571235d8566db951e9d50bb7124641052c3e3ef0428a856d94129ce106a",
+        "tokenizers/0.23.3/rust/static_assertions-1.1.0/NOTICE.txt": "97759172aab5b2c84b2522f9ca96739875582c95abb70cbf77817989d27ab7d1",
+        "tokenizers/0.23.3/rust/serde_core-1.0.229/NOTICE.txt": "ea27ec661693d5d96523a546923f189d0fc03a13e1e5d9813446c74d0268c7ad",
+        "tokenizers/0.23.3/rust/either-1.18.0/NOTICE.txt": "d4e494ab34215037b3265f6cfe9642b474fde7f30b00e63b6dbe45ee7f247750",
+        "tokenizers/0.23.3/rust/spm_precompiled-0.1.4/NOTICE.txt": "7e38d605fb7329fdfff0facea9ed2ec120c645f0609b9ebff0a7e46adc33127a",
+        "tokenizers/0.23.3/rust/bitflags-1.3.2/NOTICE.txt": "3e1f464909b2133eb0ca04ccd32d1fc5accf05befc8440a99bd4aa9da7f455d3",
+        "tokenizers/0.23.3/rust/anstream-1.0.0/NOTICE.txt": "7ea94fd287e4821e2fd562394a923867fe98220108acac89c4a3f084e7831bbf",
+        "tokenizers/0.23.3/rust/colorchoice-1.0.5/NOTICE.txt": "fa8fb89fb07d31bb0cbac4d4bc2aa01b2e715b50d97c4077e37327ad9d03d304",
+        "tokenizers/0.23.3/rust/jiff-0.2.35/NOTICE.txt": "6917ac5045589796d9104d2f17127bf17368dc4993419618a04d78c1629c9ee2",
+        "tokenizers/0.23.3/rust/aho-corasick-1.1.5/NOTICE.txt": "13626969fd5f318ed263656a390e164e15c78bdeea165905e81ffeccaa414423",
+        "tokenizers/0.23.3/rust/unit-prefix-0.5.2/NOTICE.txt": "c35ffe80d4739ff00f92d0b99a8526fe672ada06b97ed8cc7cf6ba5c9f525243",
+        "tokenizers/0.23.3/rust/futures-core-0.3.34/NOTICE.txt": "1fa724084a26b8f1076a70ef707bda863fcc1e82b191d21e9d38c4addc5dd902",
+        "tokenizers/0.23.3/rust/pyo3-macros-backend-0.29.2/NOTICE.txt": "fdd2c3c02ce6fa49091ccc19f74b7d2535d47819fc7f289e739ced655ce67f35",
+        "tokenizers/0.23.3/rust/pkg-config-0.3.34/NOTICE.txt": "1287b246a7839b485387346b9ec64648db2de1954196c82c8d852b1d3cffdae1",
+        "tokenizers/0.23.3/rust/errno-0.3.14/NOTICE.txt": "acf81e42e6828da3146f9cec6b68458750531ed3dccbae7f8db889c091c407a6",
+        "tokenizers/0.23.3/rust/log-0.4.34/NOTICE.txt": "016473eb6af39773de4f06b46beaa2ee34076507659228f9076d8ef6d154ae28",
+        "tokenizers/0.23.3/rust/darling-0.20.11/NOTICE.txt": "0814cefff9a80dc9c56ced0cb0a054d5874fcb63a5012d7247f068627fe60c79",
+        "tokenizers/0.23.3/rust/libc-0.2.189/NOTICE.txt": "b30ccdd65e17c39c2d71ad6d092fe813224b1677121bf6bc2a375f4c7fd4aef6",
+        "tokenizers/0.23.3/rust/strsim-0.11.1/NOTICE.txt": "bd65bd6f00bdeed7a49c095fe6da7939a4cbc6873349c8d2b356488a0b333c88",
+        "tokenizers/0.23.3/rust/cc-1.4.4/NOTICE.txt": "9078aacbbdadcccabca3d5d69085396d625b8ab4a120578371a791d85066e2f8",
+        "tokenizers/0.23.3/rust/signal-hook-registry-1.4.8/NOTICE.txt": "3f80be37f064e2041f8694fe2c74968d61d000a00f4a6bfde609fa8899ec7d21",
+        "tokenizers/0.23.3/rust/macro_rules_attribute-0.2.3/NOTICE.txt": "99d24d9767b63f8571ddc173459a2c5bd209e13ca1764845d168cc4fb0d04342",
+        "tokenizers/0.23.3/rust/unicode-ident-1.0.24/NOTICE.txt": "72ff9cfbf1fa6ab4bb24ace48302446554e99b8ececc7d6bdf7442d8e0646ebe",
+        "tokenizers/0.23.3/rust/anstyle-parse-1.0.0/NOTICE.txt": "2e2c281f2f089de493e0abab01e123e7238f9aeb519df330f6e22f21d6198952",
+        "tokenizers/0.23.3/rust/autocfg-1.5.1/NOTICE.txt": "13fb9bd21071dfd686e66fa66d13d2b63192fdc0685390c4a67e1430a7620191",
+        "tokenizers/0.23.3/rust/unicode-normalization-alignments-0.1.12/NOTICE.txt": "e3b0f0c7daf4fced5c255130bf8e5d96fc8043bd039cc6e23ea587265c471a5f",
+        "tokenizers/0.23.3/rust/darling_macro-0.20.11/NOTICE.txt": "b67b24048af2882bafbc1e69f6d904f0d525d0f2cd54687edf0ff7dcc44a2de7",
+        "tokenizers/0.23.3/rust/utf8parse-0.2.2/NOTICE.txt": "2939c60cc9b76db799ee7a47e0fe7304a95a5c1b028545e892e2814fe8860cec",
+        "tokenizers/0.23.3/rust/syn-2.0.119/NOTICE.txt": "b74cafe6ff3623a5bb5870471207efb6c49af5e8a2f4df54227052118e2e3c9d",
+        "tokenizers/0.23.3/rust/anstyle-query-1.1.5/NOTICE.txt": "828bfcb67afdbae00d5339440d6056ad3afa61aa4792d303f72735defa0ad61f",
+        "tokenizers/0.23.3/rust/crossbeam-deque-0.8.7/NOTICE.txt": "1fa39051ccbf2a50d64cc3b5540d2c0e0f47c022fa994dc8fae78dc449be1b68",
+        "tokenizers/0.23.3/rust/futures-task-0.3.34/NOTICE.txt": "32b5c45d5c54da1b78b655e47043f8d1291c3c7ad72b6248989e6cf1ef51acc9",
+        "tokenizers/0.23.3/rust/pastey-0.2.3/NOTICE.txt": "8cd72dc4b57c3550845421bbe59a50b82708369cff5b19cec05493ae37f5ac4d",
+        "tokenizers/0.23.3/rust/console-0.16.4/NOTICE.txt": "29f6dc54d516c0cd3fbe6742e3c688b1e7ee816bed0037fdd83a82931013cd25",
+        "tokenizers/0.23.3/rust/itoa-1.0.18/NOTICE.txt": "c176f7c66d1591b42e8b841afc73022966fd1d1c4cd58ce81b6b348709e1d64b",
+        "tokenizers/0.23.3/rust/defmt-parser-1.0.0/NOTICE.txt": "7bf6e581f668d95ed8f8bd69741170e0f33965292e8146df3df60e2c11d679de",
+        "tokenizers/0.23.3/rust/ahash-0.8.12/NOTICE.txt": "335ce8d095b260639495d745fc6d1680cb6f68522f74ffcca7cb1245e7fbd2b6",
+        "tokenizers/0.23.3/rust/ident_case-1.0.1/NOTICE.txt": "4f9183e43e4ea6876f2d8d7875ee3b60079c581fe4b7556277be74aa4f86ddf1",
+        "tokenizers/0.23.3/rust/base64-0.13.1/NOTICE.txt": "087b364b893d7615898558b14cb4ed2ed67d046e0562f41fdec0a8b0b040d314",
+        "tokenizers/0.23.3/rust/esaxx-rs-0.1.10/NOTICE.txt": "6a43d70b32aee9bb4693a9f8b3b2fac3e920c7887ede23d24dbdb3347b5360d3",
+        "tokenizers/0.23.3/rust/thiserror-2.0.20/NOTICE.txt": "0db3b59d05828baeaaa8e3e5ff6235ba8e94dba92fd11a98a4350435abfcea7d",
+        "tokenizers/0.23.3/rust/crossbeam-epoch-0.9.20/NOTICE.txt": "ab0043d9d383f832c37923bcab89f47085413d01c376e06dc854c88467ceeb00",
+        "tokenizers/0.23.3/rust/is_terminal_polyfill-1.70.2/NOTICE.txt": "6683583aedf1f4003f0d94575e0738592e4530a3fb2e1fc5330e61a2ad992207",
+        "tokenizers/0.23.3/rust/pyo3-build-config-0.29.2/NOTICE.txt": "b2f8a6daadbe53d908c856e28f625bb07f104489b97b75ce523ec0b563571880",
+        "tokenizers/0.23.3/rust/once_cell-1.21.4/NOTICE.txt": "99ecb923408e97181738b185444d5527c55e6722551050a51bb67a8a171cc219",
+        "tokenizers/0.23.3/rust/unicode-width-0.2.2/NOTICE.txt": "3962a3d0277eb9e86639d4cf57f403d163996cadc90f5e5ff94aafe6851ed7b7",
+        "tokenizers/0.23.3/rust/tokenizers-0.23.2/NOTICE.txt": "83feec5e430a2470e67ba16ebabbd3d4a71fa3eaec351c10a6fb4abd36763efe",
+        "tokenizers/0.23.3/rust/compact_str-0.9.1/NOTICE.txt": "2d2a8188ba5747c0abe34cc6282290629299e3e20edbe5630a472ed36ddd0ad2",
+        "tokenizers/0.23.3/rust/indicatif-0.18.6/NOTICE.txt": "2f489a36f216376868d99ffe15c61ba5d7b06ce5412cf2b0919b9cb471d6b22e",
+        "tokenizers/0.23.3/rust/quote-1.0.47/NOTICE.txt": "02e6b87cf7786588c20664838a2b727806edd9e4292551fcae43851eeb4379c8",
+        "tokenizers/0.23.3/rust/proc-macro2-1.0.107/NOTICE.txt": "1e15c505da96f85134cdee6133221129f014ffd6bb8258518b6763d8bafdeb5c",
+        "tokenizers/0.23.3/rust/fnv-1.0.7/NOTICE.txt": "d108549f619854158e2a550a5889e178cca7cd1e8b98a485f7ae48637b85bad1",
+        "tokenizers/0.23.3/rust/ryu-1.0.23/NOTICE.txt": "e0ed9422d7c307902261e42b6c9437eaf6852ded49215a946b87d0f611aed1b2",
+        "tokenizers/0.23.3/rust/cfg-if-1.0.4/NOTICE.txt": "bd5c9b449758c2cf4c3fa73b7281bc8d22a663eadcb23a77740d27bc8adbf5f8",
+        "tokenizers/0.23.3/rust/jiff-core-0.1.0/NOTICE.txt": "daebb26b7040349ca4ad1024ed29d451637428080a06687a242ae33869260ef1",
+        "tokenizers/0.23.3/rust/monostate-0.1.18/NOTICE.txt": "d1493561ae59841b2eb11f87f7a517acc728ed976f6b459867296648284f9dcb",
+        "tokenizers/0.23.3/rust/target-lexicon-0.13.5/NOTICE.txt": "7a515424279af7aeff9df9b6868bd36cd0a1aac50d19426839d3344385a53d6f",
+        "tokenizers/0.23.3/rust/regex-automata-0.4.18/NOTICE.txt": "3071f6a41a4727c70358fb26b07c171f5e1a213ba13b68f8004815dfe3c191cc",
+        "tokenizers/0.23.3/rust/ndarray-0.16.1/NOTICE.txt": "a03c4731c8d109c3a8e5df65362387c10a8b7d6d420a1d4888c263b397452b3b",
+        "tokenizers/0.23.3/rust/defmt-1.1.1/NOTICE.txt": "9b6ce10cd1ed15bf97dba8b8b4d7597036edd591f68abeaf37b582f6fb648690",
+        "tokenizers/0.23.3/rust/futures-channel-0.3.34/NOTICE.txt": "abc4e59237039b92ab3483ec3544a6126cdf130d0f441975cb02becc7bdcf72c",
+        "tokenizers/0.23.3/rust/num-traits-0.2.19/NOTICE.txt": "31de00f159fed219242e25c92bd5007c90fec8ef1189072e4434879a5e8ad633",
+        "tokenizers/0.23.3/rust/portable-atomic-1.15.0/NOTICE.txt": "b23e9d3ef0906af6742c1905b58a70108e92d52769dae0f2408ab223d19e38f5",
+        "tokenizers/0.23.3/rust/rawpointer-0.2.1/NOTICE.txt": "0bb3dc3f5df12c8d8cab2d430eae929e5cd0f83db4c56192d1208c5b017698af",
+        "tokenizers/0.23.3/rust/regex-1.13.1/NOTICE.txt": "8de55ea955dea46f1270286fc8d647b29c9188ba00dc7cba90ea140eae0cd888",
+        "tokenizers/0.23.3/rust/anstyle-1.0.14/NOTICE.txt": "289c31dbcf29b75f94712c2515ff32e1dec1d9209e9bf00b2f73fb926bee0c45",
+        "tokenizers/0.23.3/rust/ndarray-0.17.2/NOTICE.txt": "c9da7e3b0e889159585aa493dc7575f872aa6cc6742058a0f6361d9ce347a84b",
+        "tokenizers/0.23.3/rust/syn-3.0.4/NOTICE.txt": "a0fefb551ca474c3c169ab04896b562d775384838bbfe7d8e7fead3362c65fb0",
+        "tokenizers/0.23.3/rust/mio-1.2.3/NOTICE.txt": "cf31828ae7bd4c870905d1666a0e4a4ed69137ef1389ac6ee15d4c85465bcbe3",
+        "tokenizers/0.23.3/rust/paste-1.0.15/NOTICE.txt": "5d331131957e5b1dc4010847cfcbc65f5b5f12849c4039a294a614e1c7fc5698"
+      },
+      "packages": [
+        {
+          "distribution": "ctranslate2",
+          "version": "4.8.3",
+          "wheel": {
+            "url": "https://files.pythonhosted.org/packages/68/99/e08d28c28d45102c589fec3780a4410fe57d9e59a0839ad7f79dbc508cfb/ctranslate2-4.8.3-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl",
+            "sha256": "1b9ff80ed67ce7974cb0eafdf7ad79407678b5bea70db934c0d20aaa9db57964"
+          },
+          "native_files": [
+            {
+              "path": "ctranslate2.libs/libctranslate2-03507060.so.4.8.3",
+              "sha256": "4794f77eb2b98a81628f58706ed0b173118ab9b804e28e2110023007c5ba5f87"
+            },
+            {
+              "path": "ctranslate2.libs/libgomp-a49a47f9.so.1.0.0",
+              "sha256": "43642df04bdf20f9b4122d336ef3e2e6a486c536e614159ac0e981a901d54537",
+              "replacement": true
+            },
+            {
+              "path": "ctranslate2/_ext.cpython-312-aarch64-linux-gnu.so",
+              "sha256": "6430a760c95138bd3483f02bf41458a280cebc5a0d0a7f8abbae9cb90e88d3c5"
+            }
+          ],
+          "license_files": []
+        },
+        {
+          "distribution": "tokenizers",
+          "version": "0.23.3",
+          "wheel": {
+            "url": "https://files.pythonhosted.org/packages/15/fc/ae987741829b1cd547668c4c94be732ae3eefd1d74344e64c3d2ca714acd/tokenizers-0.23.3-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl",
+            "sha256": "ec82e80e65a862275b97c3d90b7a523df8d9519ee48aeb4e9625b2cc909274e0"
+          },
+          "native_files": [
+            {
+              "path": "tokenizers/tokenizers.abi3.so",
+              "sha256": "eb4d4fab7a667086711cfc6b7f0fba6c0275c2059da0f07d52c917bfa854a20d"
+            }
+          ],
+          "license_files": [],
+          "sbom": {
+            "path": "tokenizers-0.23.3.dist-info/sboms/tokenizers-python.cyclonedx.json",
+            "sha256": "950788cf8d0bd531aac28fbc58cbbe7297a743115c5310dbd8371d4d95bf5be5",
+            "component_count": 127,
+            "component_purls_sha256": "eb2b373744b60adac9da4a6d51254d36df883d278d27c6544b6dbdac47bc59c0"
+          }
+        },
+        {
+          "distribution": "torch",
+          "version": "2.11.0+cu128",
+          "wheel": {
+            "url": "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp312-cp312-manylinux_2_28_aarch64.whl",
+            "sha256": "9c8f38efee365cb9d334de8a83ce52fc7e5fc9e5a7b0853285efa1b69e00b0f2"
+          },
+          "native_files": [
+            {
+              "path": "torch/_C.cpython-312-aarch64-linux-gnu.so",
+              "sha256": "60fada1faaf2fb900aeb2e1a1680e6df5bc134106a4205e7a9afcb22934244d1"
+            },
+            {
+              "path": "torch/lib/libarm_compute.so",
+              "sha256": "7385cde54fdd50240747e4477c9fe0c7db38c53a41275aca8b50ebd6cb44c2c0"
+            },
+            {
+              "path": "torch/lib/libarm_compute_graph.so",
+              "sha256": "a2e4d0bca9603e07915fd9cf7cbcbc359e7c5b69fd55fe7337dfcd383d66a41b"
+            },
+            {
+              "path": "torch/lib/libc10.so",
+              "sha256": "ba33bb24a3ef690340634e4803f8d4c389e5be71bf70ad06f27ab27ef5292a35"
+            },
+            {
+              "path": "torch/lib/libc10_cuda.so",
+              "sha256": "16bdad31fcb9ca6a55024a67f416e1fdce8c5813ec3be3a42f6e00b9071c2bf3"
+            },
+            {
+              "path": "torch/lib/libcaffe2_nvrtc.so",
+              "sha256": "c456ccd76d8b7bf6e891d9892f7de87493748775c2bad979064cf005968df776"
+            },
+            {
+              "path": "torch/lib/libgfortran.so.5",
+              "sha256": "eb7cf2ed8378e43e85230c7daa5d39ade2bbec7c8069ccbc0dc5c2ca30380b82",
+              "replacement": true
+            },
+            {
+              "path": "torch/lib/libgomp.so.1",
+              "sha256": "19df18d0d768d7b4cfc190302e91474db645c6ade99fec169f299a46cc013bc0",
+              "replacement": true
+            },
+            {
+              "path": "torch/lib/libnvpl_blas_core.so.0",
+              "sha256": "c8dd44bd2381aaa8b5e4b63e713d6b0ef7eb6e1422a0f6253819a219abac9815"
+            },
+            {
+              "path": "torch/lib/libnvpl_blas_lp64_gomp.so.0",
+              "sha256": "b8046ae0fc4fbc94f1311bdcdbc0108a318ba2485570e7e1a57cf7bf3993f146"
+            },
+            {
+              "path": "torch/lib/libnvpl_lapack_core.so.0",
+              "sha256": "916814c64c0eaced68b468740069483f08987abe9a1b8f34c06c5276412e0941"
+            },
+            {
+              "path": "torch/lib/libnvpl_lapack_lp64_gomp.so.0",
+              "sha256": "97e592fcb6d69c73a03158cb06a19e4efa76195c6d8bd02ee1f6a89fcc808484"
+            },
+            {
+              "path": "torch/lib/libshm.so",
+              "sha256": "0ab09e1f443ca9d3fdad02409e26fc18ee4f358abc7c51e5300e46787692c472"
+            },
+            {
+              "path": "torch/lib/libtorch.so",
+              "sha256": "0bf724806a74279abfa4e07359348bf479f6895dcbdc15087666a8ed08478b16"
+            },
+            {
+              "path": "torch/lib/libtorch_cpu.so",
+              "sha256": "71f3f44184148c55ed454f48c0643d57fabe8d4b753e412e56bec68e5883fe5b"
+            },
+            {
+              "path": "torch/lib/libtorch_cuda.so",
+              "sha256": "1dd1d2d894eb2687845c9f32375734052e598b72eeba0a02b09bcafee8486499"
+            },
+            {
+              "path": "torch/lib/libtorch_cuda_linalg.so",
+              "sha256": "0cabf1352ad502f7970cd45de898f8348a32ddc3ddae836eafdb3d4d80eb5623"
+            },
+            {
+              "path": "torch/lib/libtorch_global_deps.so",
+              "sha256": "7ec8ff8f043fca65eedca5fef7feec4d492da8598a9603c1ea3097fe1ae5570e"
+            },
+            {
+              "path": "torch/lib/libtorch_nvshmem.so",
+              "sha256": "a8ab7576f411e9262b48c34af2a59c893dc8fcfa0e2c189a4f81234bcbfc84c5"
+            },
+            {
+              "path": "torch/lib/libtorch_python.so",
+              "sha256": "cbc92268e9accbdb0bf738d434dbd3ce9d6a464b0ee5bb2c5bac5a6c527c2d7d"
+            }
+          ],
+          "license_files": [
+            {
+              "path": "torch-2.11.0+cu128.dist-info/licenses/LICENSE",
+              "sha256": "a0d7abc10248a062a2f309bf12981524973f2a61aadccf4c5099d96d8c388cf4"
+            },
+            {
+              "path": "torch-2.11.0+cu128.dist-info/licenses/NOTICE",
+              "sha256": "c2cc7bf0caec7652c2b460a8a470bea1677f241e4ab8e431df34cf17f5a9fec0"
+            }
+          ]
+        },
+        {
+          "distribution": "torchaudio",
+          "version": "2.11.0+cu128",
+          "wheel": {
+            "url": "https://download-r2.pytorch.org/whl/cu128/torchaudio-2.11.0%2Bcu128-cp312-cp312-manylinux_2_28_aarch64.whl",
+            "sha256": "d055c9ca9d4f0ffcbaa0fc22138bafd675256de392bdaadde00d797faa90ca56"
+          },
+          "native_files": [
+            {
+              "path": "torchaudio/lib/_torchaudio.abi3.so",
+              "sha256": "cd8943a197c318cfa1d817dd28ffa5393e7c6b751e859937bddd2569ced7f4ac"
+            },
+            {
+              "path": "torchaudio/lib/libtorchaudio.abi3.so",
+              "sha256": "a9c8e8141bf9f48f0f73ce2763ea07e31fccac23c890e55f2cfdacf971777100"
+            },
+            {
+              "path": "torchaudio/lib/torchaudio_prefixctc.abi3.so",
+              "sha256": "b4d00c87cf73485dcf864c6aaad383426eb48e81d21ed90f4bc08d1336c5fb5b"
+            }
+          ],
+          "license_files": [
+            {
+              "path": "torchaudio-2.11.0+cu128.dist-info/licenses/LICENSE",
+              "sha256": "93a58861a858cc108e6b6b833e08e76e8b2a66339e4a8007c8a5a8c1ff9c40d6"
+            }
+          ]
+        },
+        {
+          "distribution": "torchcodec",
+          "version": "0.11.1+cu128",
+          "wheel": {
+            "url": "https://download.pytorch.org/whl/cu128/torchcodec-0.11.1%2Bcu128-cp312-cp312-manylinux_2_28_aarch64.whl",
+            "sha256": "2f1efd182a3728d3a858382f973afabd144f66bfb5c1d5a72c504692cf73a65b"
+          },
+          "native_files": [
+            {
+              "path": "torchcodec/libtorchcodec_core4.so",
+              "sha256": "8574035c14dd1713c4a477914188506caa7479fcf6d3f8c09ee522cb82db1b68"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_core5.so",
+              "sha256": "fcc6f39d2400bc4bbe2f123cd33f900229ca5ad5c2a8e482054ea3ad7aba50ce"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_core6.so",
+              "sha256": "14ff3e44db6d21a440dc03688e0db1f1806c8206eced1077d4b9b6ec7dc4c524"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_core7.so",
+              "sha256": "59b659f6695733183283fecb59c7ea888e99c30bad6b2dc492ca4027722c0f15"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_core8.so",
+              "sha256": "8e0467de6490f2bbfefc3a618e949847a2e8983b7ca2e4a06f948e28c96fb79a"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_custom_ops4.so",
+              "sha256": "3d31008e5cdfa0f12931e3689539b7e863d544c68c48b791f65ffd8028da646b"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_custom_ops5.so",
+              "sha256": "83f836ad407121dfeb3d1e7b783ca4a423301cf7458a71ce5661aaec9daad135"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_custom_ops6.so",
+              "sha256": "3eb01962b3ab9af94c4883a1af54436854e431c1d28b7b3d47adb61e590caff3"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_custom_ops7.so",
+              "sha256": "91fb1d2ea0171c1c63c1501fa6cc9b272c616948c8c7fa0b8374b1f734a420cb"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_custom_ops8.so",
+              "sha256": "cefe677f76aee51757f38199f4f8604fbaa983291206c803998a2acf47cef595"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_pybind_ops4.so",
+              "sha256": "937fe41dac7d93ab11b05f4a67d8adfc6a3d0d0f94d1498b629c654491a91d79"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_pybind_ops5.so",
+              "sha256": "d8c16b5ab70053179da3d2ffd7e48732ca808074eea5a371f5232d467743855c"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_pybind_ops6.so",
+              "sha256": "ac6018dde67eda7587c5f3b8703ef5ebcf421783127e51d1f5dec8cbac619c13"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_pybind_ops7.so",
+              "sha256": "89c7d46664064408f4e33941a1e3ac9ea7bd684375e13a09e6157a688a1d5833"
+            },
+            {
+              "path": "torchcodec/libtorchcodec_pybind_ops8.so",
+              "sha256": "4901d1dd4e8fa2808e151f2c5fc20e91f55e6ac6fcf03de07ed703b5bba53f62"
+            }
+          ],
+          "license_files": [
+            {
+              "path": "torchcodec-0.11.1+cu128.dist-info/licenses/LICENSE",
+              "sha256": "8ef78c2d6e787b103a0548e73ba2cfe68bc469b5b0e6f5e7db649f1312f4f2a6"
+            }
+          ]
+        }
+      ],
+      "tokenizers_rust": {
+        "rust_manifest_path": "tokenizers/0.23.3/rust-license-manifest.json",
+        "rust_manifest_sha256": "3d20c247e1e84e6ae5b826b97430722f86cff444c00e44c639309424a0f570e4",
+        "component_count": 127,
+        "component_purls_sha256": "eb2b373744b60adac9da4a6d51254d36df883d278d27c6544b6dbdac47bc59c0"
+      }
+    }
+  },
+  "gnu_replacement_manifest": "openmp-runtime.json"
+}
+

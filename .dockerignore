@@ -10,6 +10,7 @@
 !third_party/
 !third_party/notices/
 !third_party/notices/**
+!third_party/platform-coverage.json
 !scripts/
 !scripts/use-system-openmp.py
 !scripts/build-lgpl-media.sh

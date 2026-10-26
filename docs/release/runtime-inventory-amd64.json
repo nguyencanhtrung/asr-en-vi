@@ -9969,7 +9969,7 @@
     }
   ],
   "artifact": {
-    "image_id": "sha256:1ed1dd04c6b78d7dae4c7402c207c3777ef1e3924d020319104725bc9623de7c",
+    "local_image_id": "sha256:1ed1dd04c6b78d7dae4c7402c207c3777ef1e3924d020319104725bc9623de7c",
     "revision": "5d49e4a2c78bd82cee64d582b3f9bbbf2c52e4ed",
     "version": "0.1.0",
     "schema": 12

@@ -3,7 +3,7 @@
 Các mục lịch sử được chuyển từ tài liệu thay đổi chung khi chuẩn bị #17.
 Số đo giữ revision và điều kiện gốc; không phải phép đo lại artifact 0.1.0.
 
-### #17 / PR TBD — Nhật ký runtime và startup mặc định an toàn
+### #17 / PR #112 — Nhật ký runtime và startup mặc định an toàn
 
 #### Vấn đề
 
@@ -50,7 +50,7 @@ nhận access show không được gọi.
 
 #### Liên kết issue/PR
 
-Issue #17; PR TBD.
+Issue #17; PR #112.
 
 #### Tag
 
@@ -76,6 +76,11 @@ Runtime prepend `/opt/asr-media/lib` vào `LD_LIBRARY_PATH` và giữ phần cò
 `libx264`/`libx265` hoặc `libavcodec` hệ thống. TorchCodec `0.11.1` giữ PyPI trên
 amd64; Linux aarch64 dùng wheel `0.11.1+cu128` từ index PyTorch chính thức, cùng
 Torch/Torchaudio `2.11.0+cu128`; không thêm CUDA 13.
+
+Manifest native theo platform đối chiếu phiên bản đã cài và hash từng object của
+CTranslate2, tokenizers, Torch, Torchaudio và TorchCodec. ARM64 giữ notice OpenBLAS
+`0.3.26` và ruy theo recipe chính thức; gate còn đối chiếu 127 component PURL của
+SBOM tokenizers ARM64 với manifest Rust và toàn bộ notice component tương ứng.
 
 Các bản GNU OpenMP, Fortran và quadmath nhúng trong wheel được thay bằng runtime
 Ubuntu. Bước build so sánh toàn bộ symbol export có version, dừng nếu thiếu,

@@ -31,8 +31,10 @@ def test_published_image_gate_uses_anonymous_digest_and_stops_on_mismatch(tmp_pa
     trace = tmp_path / "trace.jsonl"
     runner_temp = tmp_path / "runner-temp"
     runner_temp.mkdir()
-    candidate_id = "sha256:" + "c" * 64
-    (runner_temp / "candidate-image-id").write_text(candidate_id + "\n")
+    candidate_config_digest = "sha256:" + "c" * 64
+    published_config_digest = "sha256:" + ("d" * 64 if failure == "identity" else "c" * 64)
+    candidate_metadata = json.dumps({"containerimage.config.digest": candidate_config_digest})
+    published_metadata = json.dumps({"containerimage.config.digest": published_config_digest})
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     docker = fake_bin / "docker"
@@ -57,10 +59,7 @@ def test_published_image_gate_uses_anonymous_digest_and_stops_on_mismatch(tmp_pa
         "    from asr_en_vi.cli import main\n"
         "    sys.exit(main(args[args.index('-m') + 2:]))\n"
         "elif args[:2] == ['image', 'inspect']:\n"
-        "    if args[args.index('--format') + 1] == '{{.Id}}':\n"
-        "        print('sha256:' + ('d' * 64 if failure == 'identity' else 'c' * 64))\n"
-        "    else:\n"
-        "        print('wrong' if failure == 'revision' else os.environ['GITHUB_SHA'])\n"
+        "    print('wrong' if failure == 'revision' else os.environ['GITHUB_SHA'])\n"
         "else:\n"
         "    sys.exit(99)\n"
     )
@@ -86,6 +85,8 @@ def test_published_image_gate_uses_anonymous_digest_and_stops_on_mismatch(tmp_pa
             "TRACE": str(trace),
             "RUNNER_TEMP": str(runner_temp),
             "FAILURE": failure,
+            "CANDIDATE_METADATA": candidate_metadata,
+            "PUBLISHED_METADATA": published_metadata,
             "PYTHONPATH": str(ROOT / "src"),
         },
         capture_output=True,
@@ -98,7 +99,7 @@ def test_published_image_gate_uses_anonymous_digest_and_stops_on_mismatch(tmp_pa
     if failure:
         assert result.returncode != 0
         assert not (tmp_path / "smoke-image.txt").exists()
-        assert len(calls) == {"pull": 1, "identity": 2, "version": 3, "revision": 4}[failure]
+        assert len(calls) == {"pull": 1, "identity": 1, "version": 2, "revision": 3}[failure]
     else:
         assert result.returncode == 0, result.stderr
         assert (tmp_path / "smoke-image.txt").read_text() == IMAGE

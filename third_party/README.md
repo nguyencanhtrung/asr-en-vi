@@ -21,7 +21,13 @@ This checks the image version and GNU runtime replacements, inventories installe
 packages, downloads exact corresponding source and creates an archive plus
 SHA-256. Collection failures stop publication. The tag workflow uploads the
 archive to the public GitHub Release before publishing that platform image.
-Archive names include platform and image configuration digest; keep older
+The native gate reads `platform-coverage.json` inside the image, selects the
+actual architecture, and verifies reviewed object, wheel-license, SBOM, and
+notice hashes; the checked-in tokenizers Rust notice set is architecture-bound.
+The tag workflow passes the BuildKit `containerimage.config.digest`; the
+runtime inventory records it as `artifact.config_digest`, while a standalone
+bundle records the daemon identifier separately as `artifact.local_image_id`.
+Archive names include platform and that configuration digest; keep older
 archives available when rebuilding an existing version.
 
 `bundle-spec.json` pins additional upstream notices and source archives.

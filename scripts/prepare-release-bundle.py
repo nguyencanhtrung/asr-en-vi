@@ -10,8 +10,65 @@ import sys
 import tarfile
 from pathlib import Path
 
+CONFIG_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 
-def prepare(image: str, output: Path, version: str) -> Path:
+
+def validate_config_digest(value: str) -> str:
+    if CONFIG_DIGEST_RE.fullmatch(value) is None:
+        raise ValueError(f"invalid BuildKit config digest: {value}")
+    return value
+
+
+def run_platform_coverage(
+    image: str,
+    output: Path,
+    expected_platform: str | None,
+) -> dict:
+    coverage_path = output / "platform-coverage.json"
+    with (
+        Path("scripts/check-platform-coverage.py").open("rb") as source,
+        coverage_path.open("wb") as target,
+    ):
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "-i",
+                "--network",
+                "none",
+                "--entrypoint",
+                "python",
+                image,
+                "-",
+            ],
+            stdin=source,
+            stdout=target,
+            check=True,
+        )
+    coverage = json.loads(coverage_path.read_text())
+    if coverage.get("status") != "passed":
+        raise RuntimeError("platform coverage did not pass")
+    if expected_platform is not None and coverage.get("platform") != expected_platform:
+        raise RuntimeError(
+            f"platform coverage mismatch: expected {expected_platform}, "
+            f"got {coverage.get('platform')}"
+        )
+    return coverage
+
+
+def prepare(
+    image: str,
+    output: Path,
+    version: str,
+    *,
+    expected_platform: str | None = None,
+    config_digest: str | None = None,
+) -> Path:
+    if expected_platform is not None and expected_platform not in {"amd64", "arm64"}:
+        raise ValueError(f"invalid platform: {expected_platform}")
+    if config_digest is not None:
+        config_digest = validate_config_digest(config_digest)
     output.mkdir(parents=True, exist_ok=True)
     schema_match = re.search(
         r"^SCHEMA_VERSION = (\d+)$",
@@ -60,19 +117,27 @@ def prepare(image: str, output: Path, version: str) -> Path:
             stdout=target,
             check=True,
         )
+    coverage = run_platform_coverage(image, output, expected_platform)
     report = json.loads(inventory.read_text())
     image_metadata = json.loads(
         subprocess.check_output(["docker", "image", "inspect", image], text=True)
     )[0]
     report["artifact"] = {
-        "image_id": image_metadata["Id"],
+        "local_image_id": image_metadata["Id"],
         "revision": image_metadata.get("Config", {})
         .get("Labels", {})
         .get("org.opencontainers.image.revision", "unknown"),
         "version": version,
         "schema": int(schema_match.group(1)),
     }
+    if config_digest is not None:
+        report["artifact"]["config_digest"] = config_digest
+        report["artifact"]["config_digest_source"] = "buildkit-metadata"
+    if expected_platform is not None:
+        report["artifact"]["platform"] = expected_platform
+    report["platform_coverage"] = coverage
     inventory.write_text(json.dumps(report, indent=2) + "\n")
+    coverage_path = output / "platform-coverage.json"
     notice_root = Path("third_party/notices")
     expected_notices = {
         str(path.relative_to(notice_root)): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -169,7 +234,9 @@ assert ctranslate2.get_supported_compute_types('cpu')
     with tarfile.open(archive_path, "w:gz") as archive:
         archive.add(artifacts, arcname="source-artifacts")
         archive.add(inventory, arcname="runtime-inventory.json")
+        archive.add(coverage_path, arcname="platform-coverage.json")
         archive.add("third_party/notices", arcname="notices")
+        archive.add("third_party/platform-coverage.json", arcname="build/platform-coverage.json")
         archive.add("Dockerfile", arcname="build/Dockerfile")
         archive.add("scripts/build-lgpl-media.sh", arcname="build/build-lgpl-media.sh")
         archive.add("scripts/use-system-openmp.py", arcname="build/use-system-openmp.py")
@@ -185,5 +252,15 @@ if __name__ == "__main__":
     parser.add_argument("image")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--version", required=True)
+    parser.add_argument("--platform", choices=("amd64", "arm64"))
+    parser.add_argument("--config-digest")
     args = parser.parse_args()
-    print(prepare(args.image, args.output.resolve(), args.version))
+    print(
+        prepare(
+            args.image,
+            args.output.resolve(),
+            args.version,
+            expected_platform=args.platform,
+            config_digest=args.config_digest,
+        )
+    )

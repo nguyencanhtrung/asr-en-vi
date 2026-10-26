@@ -67,7 +67,7 @@ Quyền riêng tư
 - Release notes (#17): giới hạn đã biết của AC-10.
 
 
-### #17 / PR TBD — Nhật ký runtime và startup mặc định an toàn
+### #17 / PR #112 — Nhật ký runtime và startup mặc định an toàn
 
 #### Vấn đề
 
@@ -114,7 +114,7 @@ nhận access show không được gọi.
 
 #### Liên kết issue/PR
 
-Issue #17; PR TBD.
+Issue #17; PR #112.
 
 #### Tag
 

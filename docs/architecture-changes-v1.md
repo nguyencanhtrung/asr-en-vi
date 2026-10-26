@@ -70,7 +70,7 @@ notes — chia chunk → trích xuất → hợp nhất → kiểm tra → rende
 
 Đã chuyển nguyên mục: [Hiệu năng](release/performance-v0.1.0.md), [Pipeline notes](release/notes-v0.1.0.md).
 
-### #17 / PR TBD — Nhật ký runtime và startup mặc định an toàn
+### #17 / PR #112 — Nhật ký runtime và startup mặc định an toàn
 
 Đã chuyển nguyên mục: [Quyền riêng tư](release/privacy-v0.1.0.md), [Kiến trúc runtime](release/runtime-v0.1.0.md).
 

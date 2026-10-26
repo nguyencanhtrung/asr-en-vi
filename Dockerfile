@@ -85,6 +85,7 @@ LABEL org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
 WORKDIR /app
 COPY LICENSE LICENSE.vi /usr/local/share/licenses/asr-en-vi/
 COPY third_party/notices/ /usr/local/share/licenses/asr-en-vi/third-party/
+COPY third_party/platform-coverage.json /usr/local/share/licenses/asr-en-vi/platform-coverage.json
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=media-builder /opt/asr-media/lib /opt/asr-media/lib
 COPY --from=media-builder /opt/asr-media/share/licenses /usr/local/share/licenses/asr-en-vi/media/

@@ -659,23 +659,37 @@ def test_platform_images_publish_only_on_version_tags_with_native_runners():
     assert "push=true" in build_step["with"]["outputs"]
     assert "cache-to" not in build_step["with"]
     assert build_step["with"]["cache-from"] == "type=gha,scope=container"
+    assert build_step["id"] == "publish"
+    assert "metadata-file" not in build_step["with"]
     assert build_step["with"]["provenance"] == "mode=max"
     assert build_step["with"]["sbom"] is True
+
+    candidate_step = next(
+        step for step in publish_platform["steps"] if step["name"] == "Build platform candidate"
+    )
+    assert candidate_step["id"] == "candidate"
+    assert "metadata-file" not in candidate_step["with"]
 
     source_step = next(
         step
         for step in publish_platform["steps"]
         if step["name"] == "Publish corresponding source before image"
     )
-    assert "candidate_image_id" in source_step["run"]
-    assert '"${RUNNER_TEMP}/candidate-image-id"' in source_step["run"]
+    assert "candidate_config_digest" in source_step["run"]
+    assert source_step["env"]["CANDIDATE_METADATA"] == "${{ steps.candidate.outputs.metadata }}"
+    assert '<<< "${CANDIDATE_METADATA}"' in source_step["run"]
+    assert "--config-digest" in source_step["run"]
+    assert "containerimage.config.digest" in source_step["run"]
 
     verify_step = next(
         step for step in publish_platform["steps"] if step["name"] == "Verify public platform image"
     )
-    assert "pulled_image_id" in verify_step["run"]
-    assert "{{.Id}}" in verify_step["run"]
-    assert 'test "${pulled_image_id}" = "${candidate_image_id}"' in verify_step["run"]
+    assert "published_config_digest" in verify_step["run"]
+    assert "{{.Id}}" not in verify_step["run"]
+    assert 'test "${published_config_digest}" = "${candidate_config_digest}"' in verify_step["run"]
+    assert verify_step["env"]["CANDIDATE_METADATA"] == "${{ steps.candidate.outputs.metadata }}"
+    assert verify_step["env"]["PUBLISHED_METADATA"] == "${{ steps.publish.outputs.metadata }}"
+    assert '<<< "${PUBLISHED_METADATA}"' in verify_step["run"]
 
     export_digest = next(
         step for step in publish_platform["steps"] if step["name"] == "Export image digest"
