@@ -50,7 +50,7 @@ notes — chia chunk → trích xuất → hợp nhất → kiểm tra → rende
 
 ## 3. Các thay đổi và lần đo đã merge
 
-Theo thứ tự merge: PR #91, #94, #98, #103, #109.
+Theo thứ tự merge: PR #91, #94, #98, #103, #109, #111.
 
 ### #74 / PR #91 — Tắt telemetry ONNX Runtime trong tiến trình con của worker
 
@@ -391,6 +391,66 @@ Notes; Hiệu năng
 - `docs/backend-design-v1.md` mục 4 và 8 (Q17–Q18, model/provider và đánh đổi chia/hợp nhất).
 - `docs/acceptance-report-v1.md` mục 6.6 và hàng AC-13 (mốc đo #104); release notes (#17) cho giới hạn đã biết.
 
+### #100 / PR #111 — Notes văn phong telegraph, mỗi ý một mục
+
+#### Vấn đề
+
+Đường single-call v7 tạo notes dài 5,6–6,9 phút đọc và còn lặp ý giữa các mục; các ngày đã thống nhất bị xếp vào `Items Requiring Confirmation` (#107). Chủ sở hữu bỏ mục tiêu đọc 2–3 phút ngày 2026-10-26, giữ ưu tiên độ đầy đủ.
+
+#### Nguyên nhân đo được
+
+Theo thứ tự 13/10, 20/10, 16/10, baseline v7 có 27/38/15 ý lặp và 4/5/4 mục Overview; notes có 1.337/1.585/1.286 từ (5,8/6,9/5,6 phút đọc), với 1/2/2 mục #107 đặt sai.
+
+#### Thay đổi thiết kế
+
+- Thêm một bộ quy tắc dùng chung `_TELEGRAPH_RULE` và `_PLACEMENT_RULE` vào phần base text của `_source_instructions` (single + chunk) và `_reduction_instructions` (intermediate + final), cho cả EN và VI.
+- Giữ nguyên các câu yêu cầu chất lượng hiện có; không đổi schema sáu mục, validator, ngân sách hoặc cap. `PROMPT_VERSION` tăng lên `notes-hierarchical-v8`. Test phủ từng cặp step × language.
+
+#### Số đo trước và sau
+
+Điều kiện đo: ChatGPT `gpt-5.6-sol` medium, EN, một lượt chạy mỗi cuộc họp, một AI scorer mỗi lượt; baseline là v7 single-call (các baseline 20/10 và 16/10 lấy từ #104).
+
+| Cuộc họp | Phiên bản | Tìm thấy / partly / thiếu | Tìm thấy + partly | Ý lặp | Mục Overview | Số mục | Từ | Phút đọc | Ký tự MD | POST → ready | Lượt gọi | Token output | #107 đặt sai | Bịa | Sai owner |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 13/10 | v7 (trước) | 41 / 5 / 5 | 46 | 27 | 4 | 74 | 1.337 | 5,8 | 9.861 | 83,2 | 1 | 4.264 | 1 | 0 | 0 |
+| 13/10 | candidate c1 | 41 / 6 / 4 | 47 | 10 | 3 | 72 | 891 | 3,9 | 7.288 | 83,3 | 1 | 4.397 | 1 | 0 | 0 |
+| 13/10 | c2 (phát hành) | 44 / 3 / 4 | 47 | 12 | 2 | 57 | 832 | 3,6 | 6.700 | 112,4 | 1 | 5.994 | 0 | 0 | 0 |
+| 20/10 | v7 (trước) | 31 / 4 / 2 | 35 | 38 | 5 | 85 | 1.585 | 6,9 | 11.189 | 116,5 | 1 | 6.111 | 2 | 0 | 1 |
+| 20/10 | candidate c1 | 29 / 6 / 2 | 35 | 14 | 2 | 80 | 981 | 4,3 | 7.772 | 76,2 | 1 | 3.984 | 1 | 0 | 2 |
+| 20/10 | c2 (phát hành) | 33 / 3 / 1 | 36 | 19 | 3 | 63 | 805 | 3,5 | 6.466 | 91,3 | 1 | 4.682 | 0 | 0 | 0 |
+| 16/10 | v7 (trước) | 28 / 7 / 3 | 35 | 15 | 4 | 65 | 1.286 | 5,6 | 9.083 | 67,2 | 1 | 3.451 | 2 | 0 | 0 |
+| 16/10 | candidate c1 | 27 / 10 / 1 | 37 | 11 | 3 | 84 | 882 | 3,8 | 7.163 | 77,2 | 1 | 3.931 | 2 | 0 | 0 |
+| 16/10 | c2 (phát hành) | 26 / 7 / 5 | 33 | 15 | 3 | 66 | 837 | 3,6 | 6.567 | 81,4 | 1 | 4.269 | 2 | 0 | 0 |
+
+Nguồn: issue #100; PR #111 (AC checklist và Evidence); các bảng đo tester-0/1/2 và baseline #104.
+
+#### Đánh đổi và phương án đã loại
+
+- Chọn c2 thay c1: tổng `Found` strict là 103 so với 97 của c1 và 100 của baseline; tổng #107 misplaced giảm còn 2 so với 4 của c1 và 5 của baseline v7; đổi lại tổng repeats tăng lên 46 so với 35. Một lượt chạy mỗi cuộc họp có nhiễu khoảng ±2 mục tìm thấy và khoảng ±3 lần lặp.
+- Lần thử đầu (chunk/reduce c1–c5, branch `feat/issue-100-concise-notes`): mục tiêu độ dài mềm bị bỏ qua (vòng 2 của lần thử đầu: 890–1.192 từ); budget cứng rút ngắn notes nhưng làm giảm recall và đẩy ý sang confirmation; repeats còn 6–11, không về 0; effort high mất khoảng 2,1× thời gian mà không tăng chất lượng.
+- Loại schema `maxItems`/validator cho Overview: sẽ buộc repair và làm các tài liệu cũ không còn hợp lệ.
+
+#### Follow-up
+
+- #110: repeats còn lại; AC-2 chưa đạt; strict Found ngày 16/10 là 26 so với 28, nên AC-4 và điều kiện chồng lấp của AC-3 chưa đạt ở đó; #110 yêu cầu ít nhất hai lượt chạy mỗi cuộc họp.
+- #107: placement đã cải thiện nhưng một cuộc họp vẫn còn mục đặt sai; giữ issue mở.
+- Prompt chunk/reduce chưa được đo bằng real runs.
+
+#### Liên kết issue/PR
+
+Issue #100, PR #111; liên quan #104, #107, #110, #16.
+
+#### Tag
+
+Notes
+
+#### Tài liệu đích
+
+- `docs/backend-contract-v1.md` mục 5 (prompt version).
+- `docs/backend-design-v1.md` (quy tắc prompt notes).
+- `docs/acceptance-report-v1.md` (số liệu chất lượng).
+- Release notes (#17).
+
 ## 4. Mốc AC-13 (#16 → #99 → #104)
 
 AC-13: bản ghi 2 giờ có transcript và notes sẵn để duyệt trong tối đa 30 phút kể từ `POST /api/tasks`. Mẫu ghép 2 giờ (7366 s) là audio của hai bản ghi nối nhau.
@@ -411,13 +471,13 @@ Việc mở liên quan tới các thay đổi trên. Khi PR của một việc t
 
 | # | Việc | Số đo nền | Tag dự kiến | Quan hệ |
 | --- | --- | --- | --- | --- |
-| #100 | Notes cực ngắn: mỗi ý ở đúng một mục (văn phong telegraph, giữ schema sáu mục) | bản 20/10 (56 phút): 63 mục, 10.294 ký tự Markdown, đọc khoảng 7 phút; sinh output 46–50 s mỗi lượt gọi. Đích: ≤ 600 từ, ngắn hơn ≥ 50% ký tự, số mục tìm thấy không giảm (20/10: 34/37, 16/10: 35/38, 13/10: 50/51) | Notes | không còn chặn #104; mục tiêu đọc 2–3 phút đã bỏ |
+| #110 | Notes vẫn lặp ý giữa các mục sau #100 | Theo thứ tự 13/10, 20/10, 16/10: sau #100: 12/19/15 ý lặp; c1: 10/14/11; trước #100: 27/38/15 | Notes | AC-2 chưa đạt; strict Found ngày 16/10 là 26 so với 28, nên AC-4 và điều kiện chồng lấp của AC-3 chưa đạt ở đó; #110 yêu cầu ít nhất hai lượt chạy mỗi cuộc họp |
 | #101 | Notes của bản ghi 2 giờ mất hơn 24 phút với 29 lượt gọi tuần tự | notes 1.463,5 s = 70% mốc AC-13; trung bình 50,5 s mỗi lượt; 8 lượt cuối 62–77 s. Hướng (chưa quyết): gọi song song chunk độc lập, giảm số lượt hoặc tầng reduce, rút ngắn output (#100) | Hiệu năng, Notes | chặn #17 |
 | #102 | Notes vẫn lỗi vượt trần đầu ra sau khi hết lượt phục hồi | lượt 29: `output_bytes` 10.701 so với trần 10.700 (cận dưới); mục tiêu 8000 → 6000 → 4500 không giới hạn được độ dài thật | Notes | chặn #17 |
 | #73 | Notes không tự chạy sau transcript: quyết định đặc tả cho cách đo AC-13 | người vận hành phải bấm "Tạo notes"; công cụ đo bấm sau 0,2–1,1 s, người thật không có giới hạn | Kiến trúc | quyết định đổi mốc đo AC-13 |
 | #97 | RSS đỉnh của diarization tăng bậc hai ở clustering | 4,93 GiB ở 4 giờ (mẫu tổng hợp) so với 4 GiB; mô hình 1,98 + 0,35·d + 0,105·d² GiB (d tính bằng giờ), vượt 4 GiB ở khoảng 3 giờ | Hiệu năng | từ #71 |
 
-Nguồn: chính các issue #100, #104, #101, #102, #73, #97; #101 và #102 khớp `docs/acceptance-report-v1.md` mục 6.5. #101 và #102 chặn #17 (release).
+Nguồn: chính các issue #104, #110, #101, #102, #73, #97; #101 và #102 khớp `docs/acceptance-report-v1.md` mục 6.5. #101 và #102 chặn #17 (release).
 
 ## 6. Mẫu mục mới
 
