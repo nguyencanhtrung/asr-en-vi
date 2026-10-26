@@ -1500,7 +1500,7 @@ def test_antigravity_owner_sends_large_scope_schema_in_one_message(tmp_path):
 
 def test_antigravity_conservative_pipeline_sends_a_frame_above_chatgpt_limit(tmp_path):
     snapshot = _snapshot(0)
-    snapshot["segments"][0]["text"] = "\x7f" * 23_000
+    snapshot["segments"][0]["text"] = "\x7f" * 21_200
     adapter = _ProviderNotesAdapter()
     provider = _connected_antigravity_provider(tmp_path, adapter)
     coverage: list[dict[str, object]] = []
