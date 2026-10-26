@@ -15,6 +15,7 @@ ROOT = Path(__file__).parents[1]
 PIPELINE_PATH = ROOT / ".github" / "workflows" / "pipeline.yml"
 DEPENDABOT_PATH = ROOT / ".github" / "dependabot.yml"
 CHECKOUT_REVISION = "a" * 40
+RECOVERY_REVISION = "cc6d54968caaa2e0cb53b86f507237280f2c3624"
 COMMUNITY_1_FILES = (
     "config.yaml",
     "embedding/pytorch_model.bin",
@@ -755,6 +756,125 @@ def test_manifest_publish_waits_for_platform_images_and_attests_manifest_digest(
     ]
     assert metadata["with"]["flavor"] == "latest=false"
     assert metadata["with"]["labels"] == "org.opencontainers.image.revision=${{ github.sha }}\n"
+
+
+def test_manual_recovery_dispatch_is_pinned_and_skips_quality_and_rebuild_jobs():
+    pipeline = load_yaml(PIPELINE_PATH)
+    dispatch = pipeline["on"]["workflow_dispatch"]
+    inputs = dispatch["inputs"]
+    assert set(inputs) == {"amd64_digest", "arm64_digest"}
+    for name in inputs:
+        assert inputs[name]["required"] is True
+        assert inputs[name]["type"] == "string"
+        assert "sha256" in inputs[name]["description"]
+
+    jobs = pipeline["jobs"]
+    assert jobs["quality"]["if"] == "github.event_name != 'workflow_dispatch'"
+    assert jobs["container"]["if"] == "github.event_name != 'workflow_dispatch'"
+    assert jobs["release-record"]["if"] == "startsWith(github.ref, 'refs/tags/v')"
+    assert jobs["publish-platform"]["if"] == "startsWith(github.ref, 'refs/tags/v')"
+    assert jobs["publish"]["if"] == "startsWith(github.ref, 'refs/tags/v')"
+
+    recovery = jobs["recovery-verify-platform"]
+    assert recovery["if"] == "github.event_name == 'workflow_dispatch'"
+    assert recovery["permissions"] == {"contents": "read"}
+    assert {
+        (entry["platform"], entry["runner"]) for entry in recovery["strategy"]["matrix"]["include"]
+    } == {
+        ("amd64", "ubuntu-24.04"),
+        ("arm64", "ubuntu-24.04-arm"),
+    }
+    assert recovery["env"]["RECOVERY_IMAGE"] == "ghcr.io/nguyencanhtrung/asr-en-vi"
+    assert recovery["env"]["RECOVERY_VERSION"] == "0.1.0"
+    assert recovery["env"]["RECOVERY_SCHEMA"] == "12"
+    assert recovery["env"]["RECOVERY_REVISION"] == RECOVERY_REVISION
+
+    steps = recovery["steps"]
+    assert not any("build-push-action" in step.get("uses", "") for step in steps)
+    validate = next(step for step in steps if step["name"] == "Validate recovery input digest")
+    assert "^sha256:[0-9a-f]{64}$" in validate["run"]
+    workflow_checkout = next(
+        step for step in steps if step["name"] == "Check out recovery workflow revision"
+    )
+    release_checkout = next(
+        step for step in steps if step["name"] == "Check out pinned release commit"
+    )
+    assert workflow_checkout["with"]["persist-credentials"] is False
+    assert release_checkout["with"]["persist-credentials"] is False
+    assert release_checkout["with"]["ref"] == RECOVERY_REVISION
+    assert steps.index(workflow_checkout) < steps.index(release_checkout)
+    stage_verifier = next(step for step in steps if step["name"] == "Stage recovery verifier")
+    assert steps.index(stage_verifier) < steps.index(release_checkout)
+
+    inspect = next(step for step in steps if step["name"] == "Inspect published image anonymously")
+    assert "verify-release-platform.py" in inspect["run"]
+    assert "--index-digest" in inspect["run"]
+    source = next(
+        step for step in steps if step["name"] == "Download and verify public corresponding source"
+    )
+    assert "env -u GH_TOKEN -u GITHUB_TOKEN curl" in source["run"]
+    assert "sha256sum -c" in source["run"]
+    assert "verify-archive" in source["run"]
+    pull = next(
+        step
+        for step in steps
+        if step["name"] == "Pull published image anonymously without rebuilding"
+    )
+    assert "docker pull" in pull["run"]
+    coverage = next(step for step in steps if step["name"] == "Verify native platform coverage")
+    assert "scripts/check-platform-coverage.py" in coverage["run"]
+    smoke = next(step for step in steps if step["name"] == "Smoke-test published image")
+    assert "scripts/container-smoke.sh" in smoke["run"]
+
+
+def test_recovery_publish_waits_for_both_native_gates_and_preserves_index_inputs():
+    jobs = load_yaml(PIPELINE_PATH)["jobs"]
+    publish = jobs["recovery-publish"]
+    assert publish["if"] == "github.event_name == 'workflow_dispatch'"
+    assert publish["needs"] == ["recovery-verify-platform"]
+    assert publish["permissions"] == {
+        "contents": "read",
+        "packages": "write",
+        "attestations": "write",
+        "id-token": "write",
+    }
+
+    download = next(
+        step for step in publish["steps"] if step["name"] == "Download native verification evidence"
+    )
+    assert download["with"]["pattern"] == "recovery-platform-*"
+    assert download["with"]["merge-multiple"] is True
+    validate = next(
+        step for step in publish["steps"] if step["name"] == "Validate both native gates"
+    )
+    assert "amd64" in validate["run"] and "arm64" in validate["run"]
+
+    no_clobber = next(
+        step
+        for step in publish["steps"]
+        if step["name"] == "Refuse a different existing v0.1.0 image tag"
+    )
+    assert "imagetools inspect --raw" in no_clobber["run"]
+    assert "expected-index-manifests.json" in no_clobber["run"]
+    assert "different image index" in no_clobber["run"]
+    create = next(
+        step
+        for step in publish["steps"]
+        if step["name"] == "Create and publish recovered multi-platform tags"
+    )
+    assert "docker buildx imagetools create" in create["run"]
+    assert "--prefer-index" in create["run"]
+    for tag in ("v0.1.0", "0.1.0", "0.1", "latest"):
+        assert f"${{RECOVERY_IMAGE}}:{tag}" in create["run"]
+    assert "${RECOVERY_IMAGE}:sha-${RECOVERY_REVISION}" in create["run"]
+    assert "${RECOVERY_IMAGE}@${amd64_digest}" in create["run"]
+    assert "${RECOVERY_IMAGE}@${arm64_digest}" in create["run"]
+    attest = next(
+        step for step in publish["steps"] if step["name"] == "Attest recovered container manifest"
+    )
+    assert attest["with"]["subject-name"] == "${{ env.RECOVERY_IMAGE }}"
+    assert attest["with"]["subject-digest"] == "${{ steps.publish.outputs.digest }}"
+    assert attest["with"]["push-to-registry"] is True
 
 
 def test_every_action_is_pinned_to_an_immutable_commit():

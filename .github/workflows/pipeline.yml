@@ -7,6 +7,16 @@ name: Pipeline
       - main
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      amd64_digest:
+        description: Published linux/amd64 image index digest (sha256:...)
+        required: true
+        type: string
+      arm64_digest:
+        description: Published linux/arm64 image index digest (sha256:...)
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -23,6 +33,7 @@ env:
 jobs:
   quality:
     name: Quality and browser tests
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -68,6 +79,7 @@ jobs:
 
   container:
     name: Build container (${{ matrix.platform }})
+    if: github.event_name != 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -303,5 +315,327 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+
+  recovery-verify-platform:
+    name: Verify recovery ${{ matrix.platform }} image
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: amd64
+            runner: ubuntu-24.04
+          - platform: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      RECOVERY_IMAGE: ghcr.io/nguyencanhtrung/asr-en-vi
+      RECOVERY_SOURCE_REPOSITORY: nguyencanhtrung/asr-en-vi
+      RECOVERY_VERSION: "0.1.0"
+      RECOVERY_IMAGE_VERSION: "v0.1.0"
+      RECOVERY_SCHEMA: "12"
+      RECOVERY_REVISION: cc6d54968caaa2e0cb53b86f507237280f2c3624
+      AMD64_DIGEST: ${{ inputs.amd64_digest }}
+      ARM64_DIGEST: ${{ inputs.arm64_digest }}
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - name: Validate recovery input digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${PLATFORM}" in
+            amd64) requested_digest="${AMD64_DIGEST}" ;;
+            arm64) requested_digest="${ARM64_DIGEST}" ;;
+            *) echo "unsupported recovery platform: ${PLATFORM}" >&2; exit 1 ;;
+          esac
+          if [[ ! "${requested_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "${PLATFORM} digest must be a full lowercase sha256 digest" >&2
+            exit 1
+          fi
+          echo "REQUESTED_DIGEST=${requested_digest}" >> "${GITHUB_ENV}"
+          docker_config="${RUNNER_TEMP}/recovery-docker-config"
+          echo "DOCKER_CONFIG=${docker_config}" >> "${GITHUB_ENV}"
+          mkdir -p "${docker_config}"
+          printf '{"auths":{}}\n' > "${docker_config}/config.json"
+
+      - name: Check out recovery workflow revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Stage recovery verifier
+        run: install -m 0755 scripts/verify-release-platform.py "${RUNNER_TEMP}/verify-release-platform.py"
+
+      - name: Check out pinned release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: cc6d54968caaa2e0cb53b86f507237280f2c3624
+          persist-credentials: false
+          fetch-depth: 1
+          clean: true
+
+      - name: Inspect published image anonymously
+        run: |
+          set -euo pipefail
+          workdir="${RUNNER_TEMP}/recovery-${PLATFORM}"
+          mkdir -p "${workdir}"
+          python3 "${RUNNER_TEMP}/verify-release-platform.py" inspect \
+            --repository "${RECOVERY_SOURCE_REPOSITORY}" \
+            --index-digest "${REQUESTED_DIGEST}" \
+            --platform "${PLATFORM}" \
+            --expected-revision "${RECOVERY_REVISION}" \
+            --expected-image-version "${RECOVERY_IMAGE_VERSION}" \
+            > "${workdir}/registry-report.json"
+          config_digest="$(jq -er '.config_digest | select(test("^sha256:[0-9a-f]{64}$"))' \
+            "${workdir}/registry-report.json")"
+          source_asset="corresponding-source-${PLATFORM}-${config_digest#sha256:}.tar.gz"
+          {
+            echo "RECOVERY_CONFIG_DIGEST=${config_digest}"
+            echo "RECOVERY_SOURCE_ASSET=${source_asset}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Download and verify public corresponding source
+        env:
+          GH_TOKEN: ""
+          GITHUB_TOKEN: ""
+        run: |
+          set -euo pipefail
+          workdir="${RUNNER_TEMP}/recovery-${PLATFORM}"
+          source_url="https://github.com/${RECOVERY_SOURCE_REPOSITORY}/releases/download/v${RECOVERY_VERSION}/${RECOVERY_SOURCE_ASSET}"
+          env -u GH_TOKEN -u GITHUB_TOKEN curl --fail --silent --show-error --location --retry 3 \
+            --retry-all-errors "${source_url}" --output "${workdir}/${RECOVERY_SOURCE_ASSET}"
+          env -u GH_TOKEN -u GITHUB_TOKEN curl --fail --silent --show-error --location --retry 3 \
+            --retry-all-errors "${source_url}.sha256" --output "${workdir}/${RECOVERY_SOURCE_ASSET}.sha256"
+          (
+            cd "${workdir}"
+            sha256sum -c "${RECOVERY_SOURCE_ASSET}.sha256"
+          )
+          python3 "${RUNNER_TEMP}/verify-release-platform.py" verify-archive \
+            --registry-report "${workdir}/registry-report.json" \
+            --archive "${workdir}/${RECOVERY_SOURCE_ASSET}" \
+            --checksum "${workdir}/${RECOVERY_SOURCE_ASSET}.sha256" \
+            --platform "${PLATFORM}" \
+            --version "${RECOVERY_VERSION}" \
+            --schema "${RECOVERY_SCHEMA}" \
+            --revision "${RECOVERY_REVISION}" \
+            > "${workdir}/archive-report.json"
+
+      - name: Pull published image anonymously without rebuilding
+        run: DOCKER_CONFIG="${DOCKER_CONFIG}" docker pull "${RECOVERY_IMAGE}@${REQUESTED_DIGEST}"
+
+      - name: Verify image version schema and revision
+        run: |
+          set -euo pipefail
+          image_ref="${RECOVERY_IMAGE}@${REQUESTED_DIGEST}"
+          docker run --pull=never --rm --network none --entrypoint python \
+            "${image_ref}" -m asr_en_vi.cli version --json \
+            --expect-version "${RECOVERY_VERSION}" --expect-schema "${RECOVERY_SCHEMA}"
+          revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
+            "${image_ref}")"
+          test "${revision}" = "${RECOVERY_REVISION}"
+
+      - name: Verify native platform coverage
+        run: |
+          set -euo pipefail
+          workdir="${RUNNER_TEMP}/recovery-${PLATFORM}"
+          image_ref="${RECOVERY_IMAGE}@${REQUESTED_DIGEST}"
+          docker run --pull=never --rm --network none -i --entrypoint python \
+            "${image_ref}" - < scripts/check-platform-coverage.py > "${workdir}/runtime-coverage.json"
+          python3 - "${workdir}/runtime-coverage.json" "${PLATFORM}" <<'PY'
+          import json
+          import sys
+
+          report = json.loads(open(sys.argv[1], encoding="utf-8").read())
+          if report.get("status") != "passed" or report.get("platform") != sys.argv[2]:
+              raise SystemExit(
+                  f"native coverage failed: status={report.get('status')!r} "
+                  f"platform={report.get('platform')!r}"
+              )
+          PY
+
+      - name: Smoke-test published image
+        run: ./scripts/container-smoke.sh "${RECOVERY_IMAGE}@${REQUESTED_DIGEST}"
+
+      - name: Assemble recovery evidence
+        run: |
+          set -euo pipefail
+          workdir="${RUNNER_TEMP}/recovery-${PLATFORM}"
+          python3 - "${workdir}/archive-report.json" "${workdir}/runtime-coverage.json" \
+            "${workdir}/recovery-${PLATFORM}.json" "${REQUESTED_DIGEST}" "${PLATFORM}" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          archive_report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          runtime_coverage = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+          output_path = Path(sys.argv[3])
+          requested_digest = sys.argv[4]
+          platform = sys.argv[5]
+          if archive_report.get("status") != "passed":
+              raise SystemExit("archive report did not pass")
+          if runtime_coverage.get("status") != "passed" or runtime_coverage.get("platform") != platform:
+              raise SystemExit("runtime coverage did not pass")
+          archive_report["requested_index_digest"] = requested_digest
+          archive_report["runtime_checks"] = {
+              "anonymous_pull": True,
+              "version_schema": "passed",
+              "revision": "passed",
+              "native_platform_coverage": runtime_coverage,
+              "container_smoke": "passed",
+          }
+          output_path.write_text(
+              json.dumps(archive_report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          PY
+
+      - name: Upload recovery verification evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: recovery-platform-${{ matrix.platform }}
+          path: ${{ runner.temp }}/recovery-${{ matrix.platform }}/recovery-${{ matrix.platform }}.json
+          if-no-files-found: error
+          retention-days: 1
+
+  recovery-publish:
+    name: Publish recovered multi-platform manifest
+    if: github.event_name == 'workflow_dispatch'
+    needs:
+      - recovery-verify-platform
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    env:
+      RECOVERY_IMAGE: ghcr.io/nguyencanhtrung/asr-en-vi
+      RECOVERY_REVISION: cc6d54968caaa2e0cb53b86f507237280f2c3624
+    steps:
+      - name: Download native verification evidence
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          pattern: recovery-platform-*
+          path: ${{ runner.temp }}/recovery-evidence
+          merge-multiple: true
+
+      - name: Validate both native gates
+        run: |
+          set -euo pipefail
+          python3 - "${RUNNER_TEMP}/recovery-evidence" "${RUNNER_TEMP}/recovery-digests" <<'PY'
+          import json
+          import re
+          import sys
+          from pathlib import Path
+
+          evidence = Path(sys.argv[1])
+          output = Path(sys.argv[2])
+          output.mkdir(parents=True, exist_ok=True)
+          digest_re = re.compile(r"^sha256:[0-9a-f]{64}$")
+          expected_index_manifests = []
+          for platform in ("amd64", "arm64"):
+              path = evidence / f"recovery-{platform}.json"
+              report = json.loads(path.read_text(encoding="utf-8"))
+              if report.get("status") != "passed":
+                  raise SystemExit(f"{platform} recovery report did not pass")
+              if report.get("platform") != platform:
+                  raise SystemExit(f"{platform} recovery report has the wrong platform")
+              if report.get("platform_coverage") != {"platform": platform, "status": "passed"}:
+                  raise SystemExit(f"{platform} archive coverage gate did not pass")
+              if report.get("runtime_checks", {}).get("container_smoke") != "passed":
+                  raise SystemExit(f"{platform} runtime smoke gate did not pass")
+              descriptors = report.get("index_manifests")
+              if not isinstance(descriptors, list) or not descriptors:
+                  raise SystemExit(f"{platform} report has no source index descriptors")
+              expected_index_manifests.extend(descriptors)
+              digest = report.get("requested_index_digest")
+              if not isinstance(digest, str) or digest_re.fullmatch(digest) is None:
+                  raise SystemExit(f"{platform} recovery index digest is malformed")
+              (output / platform).write_text(digest + "\n", encoding="ascii")
+          (output / "expected-index-manifests.json").write_text(
+              json.dumps(expected_index_manifests, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR for final tag publication
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refuse a different existing v0.1.0 image tag
+        run: |
+          set -euo pipefail
+          existing_raw="${RUNNER_TEMP}/existing-v0.1.0.json"
+          existing_error="${RUNNER_TEMP}/existing-v0.1.0.err"
+          set +e
+          docker buildx imagetools inspect --raw "${RECOVERY_IMAGE}:v0.1.0" \
+            > "${existing_raw}" 2> "${existing_error}"
+          inspect_status=$?
+          set -e
+          if [ "${inspect_status}" -eq 0 ]; then
+            python3 - "${existing_raw}" \
+              "${RUNNER_TEMP}/recovery-digests/expected-index-manifests.json" <<'PY'
+            import json
+            import sys
+            from pathlib import Path
+
+            existing = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+            expected = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+            if not isinstance(existing.get("manifests"), list):
+                raise SystemExit("existing v0.1.0 is not an image index")
+            if not isinstance(expected, list):
+                raise SystemExit("expected recovery descriptors are malformed")
+
+            def normalized(items):
+                return sorted(json.dumps(item, sort_keys=True, separators=(",", ":")) for item in items)
+
+            if normalized(existing["manifests"]) != normalized(expected):
+                raise SystemExit("v0.1.0 already names a different image index")
+            print("existing v0.1.0 has the same image index descriptors; overwrite is identical")
+            PY
+          elif grep -Eqi 'manifest unknown|not found|404' "${existing_error}"; then
+            echo "v0.1.0 image tag is absent; publication may create it"
+          else
+            cat "${existing_error}" >&2
+            exit "${inspect_status}"
+          fi
+
+      - name: Create and publish recovered multi-platform tags
+        id: publish
+        working-directory: ${{ runner.temp }}/recovery-digests
+        run: |
+          set -euo pipefail
+          amd64_digest="$(cat amd64)"
+          arm64_digest="$(cat arm64)"
+          docker buildx imagetools create \
+            --prefer-index \
+            --tag "${RECOVERY_IMAGE}:v0.1.0" \
+            --tag "${RECOVERY_IMAGE}:0.1.0" \
+            --tag "${RECOVERY_IMAGE}:0.1" \
+            --tag "${RECOVERY_IMAGE}:latest" \
+            --tag "${RECOVERY_IMAGE}:sha-${RECOVERY_REVISION}" \
+            --metadata-file "${RUNNER_TEMP}/recovery-manifest.json" \
+            "${RECOVERY_IMAGE}@${amd64_digest}" \
+            "${RECOVERY_IMAGE}@${arm64_digest}"
+          digest="$(jq -er '."containerimage.descriptor".digest | select(test("^sha256:[0-9a-f]{64}$"))' \
+            "${RUNNER_TEMP}/recovery-manifest.json")"
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+
+      - name: Attest recovered container manifest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.RECOVERY_IMAGE }}
           subject-digest: ${{ steps.publish.outputs.digest }}
           push-to-registry: true
