@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import suppress
 from typing import Any, Protocol
@@ -13,6 +14,112 @@ from asr_en_vi import notes_document as nd
 
 # The code a transport gives a response over its output cap.
 _OUTPUT_TOO_LARGE = "provider_output_too_large"
+_LOGGER = logging.getLogger(__name__)
+_NOTES_VALIDATION_STAGES = frozenset({"single", "chunk", "reduce", "final"})
+_NOTES_VALIDATION_ATTEMPTS = frozenset({"primary", "repair", "recovery"})
+_NOTES_REPAIR_STATES = frozenset({"unavailable", "already_consumed"})
+
+
+def _bounded_diagnostic_int(value: object, *, minimum: int, maximum: int) -> int | None:
+    if type(value) is int and minimum <= value <= maximum:
+        return value
+    return None
+
+
+def bounded_notes_validation_diagnostics(
+    diagnostics: object, *, budget: nd.NotesBudget, output_bytes_limit: int
+) -> dict[str, Any]:
+    """Keep only allowlisted notes validation codes and bounded measurements."""
+    if not isinstance(diagnostics, dict):
+        return {}
+    result: dict[str, Any] = {}
+    reason = diagnostics.get("validation_reason")
+    if isinstance(reason, str) and reason in nd.NOTES_VALIDATION_REASON_CODES:
+        result["validation_reason"] = reason
+    detail = diagnostics.get("validation_detail")
+    if (
+        reason == "source_ids"
+        and isinstance(detail, str)
+        and detail in nd.NOTES_VALIDATION_DETAIL_CODES
+    ):
+        result["validation_detail"] = detail
+    field_name = diagnostics.get("validation_field")
+    if (
+        reason == "action_fields"
+        and isinstance(field_name, str)
+        and field_name in nd.NOTES_ACTION_FIELD_NAMES
+    ):
+        result["validation_field"] = field_name
+    stage = diagnostics.get("stage")
+    if isinstance(stage, str) and stage in _NOTES_VALIDATION_STAGES:
+        result["stage"] = stage
+    attempt = diagnostics.get("attempt")
+    if isinstance(attempt, str) and attempt in _NOTES_VALIDATION_ATTEMPTS:
+        result["attempt"] = attempt
+    repair_state = diagnostics.get("repair_state")
+    if isinstance(repair_state, str) and repair_state in _NOTES_REPAIR_STATES:
+        result["repair_state"] = repair_state
+    for field, minimum, maximum in (
+        ("provider_call_index", 1, nd.MAX_PROVIDER_CALLS),
+        ("prompt_bytes", 0, budget.request_guard_bytes),
+        ("output_bytes", 0, output_bytes_limit),
+        ("response_limit", 1, nd.MAX_OUTPUT_BYTES),
+    ):
+        value = _bounded_diagnostic_int(diagnostics.get(field), minimum=minimum, maximum=maximum)
+        if value is not None:
+            result[field] = value
+    return result
+
+
+def log_notes_provider_call(
+    *,
+    provider: str,
+    model: str,
+    stage: str,
+    attempt: str,
+    provider_call_index: int,
+    prompt_bytes: int,
+    estimated_input_tokens: int,
+    usage: object = None,
+) -> None:
+    """Emit bounded notes-call evidence without prompt, transcript or output text."""
+    fields = [
+        f"provider={provider}",
+        f"model={model}",
+        f"stage={stage}",
+        f"attempt={attempt}",
+        f"provider_call_index={provider_call_index}",
+        f"prompt_bytes={prompt_bytes}",
+        f"estimated_input_tokens={estimated_input_tokens}",
+    ]
+    if isinstance(usage, dict):
+        for field in ("input_tokens", "output_tokens", "reasoning_tokens"):
+            value = usage.get(field)
+            if type(value) is int and value >= 0:
+                fields.append(f"{field}={value}")
+    _LOGGER.info("notes_provider_call %s", " ".join(fields))
+
+
+def log_notes_validation_failure(
+    *,
+    provider: str,
+    model: str,
+    diagnostics: object,
+    budget: nd.NotesBudget,
+    output_bytes_limit: int | None = None,
+) -> dict[str, Any]:
+    """Log one safe validation-failure line and return the same bounded diagnostics."""
+    safe = bounded_notes_validation_diagnostics(
+        diagnostics,
+        budget=budget,
+        output_bytes_limit=(
+            budget.request_guard_bytes if output_bytes_limit is None else output_bytes_limit
+        ),
+    )
+    fields = [f"provider={provider}", f"model={model}"]
+    fields.extend(f"{field}={safe[field]}" for field in safe)
+    _LOGGER.warning("notes_invalid_output %s", " ".join(fields))
+    return safe
 
 
 class NotesTransport(Protocol):
@@ -28,6 +135,8 @@ class NotesTransport(Protocol):
         attempt: str,
         provider_call_index: int,
         prompt_bytes: int,
+        budget: nd.NotesBudget,
+        max_unit_size: int = 1,
     ) -> str: ...
 
 
@@ -39,6 +148,8 @@ def generate_notes_document(
     invalid_output_error: Callable[[dict[str, Any]], Exception],
     limit_error: Callable[[str], Exception],
     on_coverage: Callable[[dict[str, Any]], None] | None = None,
+    provider: str | None = None,
+    model: str | None = None,
 ) -> dict[str, Any]:
     """Run the notes synthesis for one task through a provider transport.
 
@@ -51,14 +162,24 @@ def generate_notes_document(
     describes a partial run.
     """
     output_language = nd.validate_output_language(output_language)
-    projection = nd.project_source_snapshot(snapshot)
+    single_budget = nd.notes_budget(provider, model)
+    projection = nd.select_notes_source_projection(
+        snapshot,
+        output_language=output_language,
+        budget=single_budget,
+    )
     projected_snapshot = projection.snapshot
+    max_unit_size = projection.max_unit_size
     plan = nd.plan_source(
         snapshot,
         projected_snapshot=projected_snapshot,
         output_language=output_language,
+        provider=provider,
+        model=model,
+        max_unit_size=max_unit_size,
     )
     nd.verify_coverage(snapshot, plan)  # before any provider call
+    synthesis_budget = nd.conservative_notes_budget(provider)
     coverage = copy.deepcopy(plan.manifest)
     call_count = 0
     repair_used = False
@@ -72,20 +193,24 @@ def generate_notes_document(
         max_output_bytes: int,
         stage: str,
         attempt: str,
+        budget: nd.NotesBudget,
     ) -> str:
         nonlocal call_count
         if call_count >= nd.MAX_PROVIDER_CALLS:
             raise limit_error("This transcript exceeds the bounded notes synthesis request limit.")
         call_count += 1
-        return transport(
-            prompt,
-            allowed_source_ids=allowed_source_ids,
-            max_output_bytes=max_output_bytes,
-            stage=stage,
-            attempt=attempt,
-            provider_call_index=call_count,
-            prompt_bytes=len(prompt.encode("utf-8")),
-        )
+        transport_kwargs: dict[str, object] = {
+            "allowed_source_ids": allowed_source_ids,
+            "max_output_bytes": max_output_bytes,
+            "stage": stage,
+            "attempt": attempt,
+            "provider_call_index": call_count,
+            "prompt_bytes": len(prompt.encode("utf-8")),
+            "budget": budget,
+        }
+        if max_unit_size > 1:
+            transport_kwargs["max_unit_size"] = max_unit_size
+        return transport(prompt, **transport_kwargs)
 
     def invalid_output(
         validation_error: Exception,
@@ -156,12 +281,16 @@ def generate_notes_document(
         try:
             document = nd.normalize_duplicate_source_refs(
                 document,
-                tuple(segment["id"] for segment in citation_scope["segments"]),
+                nd._unique_source_ids(
+                    tuple(segment["id"] for segment in citation_scope["segments"])
+                ),
+                max_unit_size=max_unit_size,
             )
             return nd.validate_document(
                 document,
                 citation_scope,
                 max_output_bytes=max_output_bytes,
+                max_unit_size=max_unit_size,
             )
         except RecursionError:
             raise nd.NotesDocumentError(
@@ -169,7 +298,11 @@ def generate_notes_document(
             ) from None
 
     def recovery_prompts(
-        prompt: str, *, target: int, allowed_source_ids: Sequence[str]
+        prompt: str,
+        *,
+        target: int,
+        allowed_source_ids: Sequence[str],
+        budget: nd.NotesBudget | None = None,
     ) -> Iterator[str]:
         """Yield the lower-target prompts one request may still send, within both budgets."""
         nonlocal output_recoveries
@@ -183,6 +316,8 @@ def generate_notes_document(
                     target_bytes=target,
                     allowed_source_ids=allowed_source_ids,
                     output_language=output_language,
+                    budget=budget,
+                    max_unit_size=max_unit_size,
                 )
             except nd.NotesDocumentError:
                 return  # the request budget has no room for the lower-target prompt
@@ -196,14 +331,18 @@ def generate_notes_document(
         max_output_bytes: int,
         stage: str,
         repair_prompt: Callable[[str], str],
+        budget: nd.NotesBudget,
     ) -> dict[str, Any]:
         nonlocal last_successful_response, repair_used
-        allowed_source_ids = tuple(segment["id"] for segment in citation_scope["segments"])
+        allowed_source_ids = nd._unique_source_ids(
+            tuple(segment["id"] for segment in citation_scope["segments"])
+        )
         recoveries = recovery_prompts(
             prompt,
             # The aim the primary prompt states: the reduction target, else the stage cap.
             target=nd.MAX_REDUCTION_TARGET_BYTES if stage == "reduce" else max_output_bytes,
             allowed_source_ids=allowed_source_ids,
+            budget=budget,
         )
         attempt, sent = "primary", prompt
         while True:
@@ -214,6 +353,7 @@ def generate_notes_document(
                     max_output_bytes=max_output_bytes,
                     stage=stage,
                     attempt=attempt,
+                    budget=budget,
                 )
             except Exception as error:
                 # Only a response over its cap earns a smaller ask; any other failure is final.
@@ -271,6 +411,7 @@ def generate_notes_document(
                     max_output_bytes=max_output_bytes,
                     stage=stage,
                     attempt="repair",
+                    budget=budget,
                 )
                 repair_call_index = call_count
                 try:
@@ -329,12 +470,16 @@ def generate_notes_document(
         return document
 
     if not plan.chunked:
-        source_ids = tuple(segment["id"] for segment in projected_snapshot["segments"])
+        source_ids = nd._unique_source_ids(
+            tuple(segment["id"] for segment in projected_snapshot["segments"])
+        )
         document = request_document(
             nd.build_prompt(
                 projected_snapshot,
                 allowed_source_ids=source_ids,
                 output_language=output_language,
+                budget=single_budget,
+                max_unit_size=max_unit_size,
             ),
             projected_snapshot,
             max_output_bytes=nd.MAX_OUTPUT_BYTES,
@@ -344,7 +489,10 @@ def generate_notes_document(
                 allowed_source_ids=source_ids,
                 invalid_output=raw,
                 output_language=output_language,
+                budget=single_budget,
+                max_unit_size=max_unit_size,
             ),
+            budget=single_budget,
         )
         coverage["chunks"][0]["provider_call_index"] = call_count
         return finish(restore_final_document(document, stage="single"))
@@ -353,13 +501,17 @@ def generate_notes_document(
     previous_document: dict[str, Any] | None = None
     for index, chunk in enumerate(plan.chunks, start=1):
         projected_chunk = projection.project_chunk(chunk)
-        source_ids = tuple(segment["id"] for segment in projected_chunk["segments"])
+        source_ids = nd._unique_source_ids(
+            tuple(segment["id"] for segment in projected_chunk["segments"])
+        )
         prompt = nd.build_chunk_prompt(
             projected_chunk,
             chunk_index=index,
             chunk_count=len(plan.chunks),
             allowed_source_ids=source_ids,
             output_language=output_language,
+            budget=synthesis_budget,
+            max_unit_size=max_unit_size,
         )
 
         def repair_chunk(
@@ -376,6 +528,8 @@ def generate_notes_document(
                 allowed_source_ids=allowed_ids,
                 invalid_output=raw,
                 output_language=output_language,
+                budget=synthesis_budget,
+                max_unit_size=max_unit_size,
             )
 
         document = request_document(
@@ -384,6 +538,7 @@ def generate_notes_document(
             max_output_bytes=nd.MAX_CHUNK_OUTPUT_BYTES,
             stage="chunk",
             repair_prompt=repair_chunk,
+            budget=synthesis_budget,
         )
         coverage["chunks"][index - 1]["provider_call_index"] = call_count
         if previous_document is not None:
@@ -407,6 +562,7 @@ def generate_notes_document(
             final=final,
             invalid_output=invalid_output,
             output_language=output_language,
+            budget=synthesis_budget,
         )
 
     def fits(group: list[dict[str, Any]]) -> bool:
@@ -429,6 +585,7 @@ def generate_notes_document(
             repair_prompt=lambda raw, inputs=group: reduction_prompt(
                 inputs, final=False, invalid_output=raw
             ),
+            budget=synthesis_budget,
         )
 
     def document_bytes(document: dict[str, Any]) -> int:
@@ -458,6 +615,7 @@ def generate_notes_document(
                 repair_prompt=lambda raw, inputs=documents: reduction_prompt(
                     inputs, final=True, invalid_output=raw
                 ),
+                budget=synthesis_budget,
             )
             return finish(restore_final_document(final_document, stage="final"))
 

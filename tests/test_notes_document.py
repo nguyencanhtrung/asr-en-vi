@@ -36,6 +36,7 @@ from asr_en_vi.notes_document import (
     drop_overlap_duplicates,
     lower_output_target,
     normalize_duplicate_source_refs,
+    notes_budget,
     notes_schema_json_bytes,
     plan_source,
     project_source_snapshot,
@@ -920,9 +921,34 @@ def test_chunk_and_reduction_prompts_keep_untrusted_source_and_chronology(snapsh
     assert f"aiming for {MAX_REDUCTION_TARGET_BYTES} bytes or less" in intermediate_prompt
     assert "Private title" not in chunk_prompt + reduction_prompt
     assert "private/audio" not in chunk_prompt + reduction_prompt
-    assert PROMPT_VERSION == "notes-hierarchical-v6"
+    assert PROMPT_VERSION == "notes-hierarchical-v7"
     assert MAX_CHUNK_OUTPUT_BYTES <= MAX_REPAIR_OUTPUT_BYTES
     assert MAX_REDUCTION_TARGET_BYTES < MAX_REDUCTION_OUTPUT_BYTES <= MAX_OUTPUT_BYTES
+
+
+def test_budgeted_single_pass_pins_the_full_completeness_clause_in_both_languages(snapshot):
+    english_clause = (
+        "This transcript is the entire meeting in one request. Give every distinct topic, "
+        "decision, open question, action item and confirmation item its own item, covering "
+        "the whole meeting from start to end in source order. Long meetings need many items. "
+        "Keep each item short, but do not drop or merge distinct points to save space.\n"
+    )
+    vietnamese_clause = (
+        "Transcript này là toàn bộ cuộc họp trong một yêu cầu. Hãy tạo một mục riêng cho từng "
+        "chủ đề, quyết định, câu hỏi còn bỏ ngỏ, hành động và mục cần xác nhận khác nhau, bao "
+        "quát toàn bộ cuộc họp từ đầu đến cuối theo thứ tự nguồn. Cuộc họp dài cần nhiều mục. "
+        "Giữ mỗi mục ngắn, nhưng không được bỏ hoặc gộp các ý riêng để tiết kiệm không gian.\n"
+    )
+    owner = notes_budget("chatgpt", "gpt-5.6-sol")
+    english = build_prompt(snapshot, budget=owner)
+    vietnamese = build_prompt(snapshot, output_language="vi", budget=owner)
+    conservative = build_prompt(snapshot)
+    chunk = build_chunk_prompt(snapshot, chunk_index=1, chunk_count=1, budget=owner)
+
+    assert english_clause in english
+    assert vietnamese_clause in vietnamese
+    assert english_clause not in conservative + chunk
+    assert vietnamese_clause not in conservative + chunk
 
 
 def test_primary_prompts_are_byte_identical_to_those_before_output_recovery(snapshot, document):

@@ -479,7 +479,12 @@ def accept_notes_task(
                     "The current transcript has no source segments for notes generation.",
                 )
             try:
-                plan_source(snapshot, output_language=normalized_output_language)
+                plan_source(
+                    snapshot,
+                    provider=pin["provider"],
+                    model=pin["model"],
+                    output_language=normalized_output_language,
+                )
             except NotesDocumentError as error:
                 raise TaskError(
                     413,

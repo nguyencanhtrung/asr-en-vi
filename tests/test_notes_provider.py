@@ -77,6 +77,7 @@ class NotesOnlyAdapter:
         prompt,
         allowed_source_ids,
         max_output_bytes=None,
+        budget=None,
     ):
         self.calls.append(
             NotesReply(
