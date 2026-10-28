@@ -122,6 +122,6 @@ Quyền riêng tư; Kiến trúc
 
 #### Tài liệu đích
 
-- `docs/user-guide.md` mục Chạy trên máy local.
+- `docs/user-guide.md` mục Run locally.
 - Release notes (#17) cho giới hạn log mặc định và lệnh chẩn đoán explicit.
 
