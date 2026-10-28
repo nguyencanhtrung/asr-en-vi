@@ -269,15 +269,15 @@ Việc chốt tài liệu này xác nhận hướng thiết kế. Các tiêu ch�
 
 ## 11. Kiến trúc mã frontend: reducer, effect và store
 
-Quyết định và lý do nằm ở [ADR 0010](adr/0010-frontend-reducer-core.md). Mục này là quy ước cho code; các pha chuyển module chưa bắt đầu nên các file UI hiện có chưa theo kiến trúc này. Hành vi người dùng thấy không đổi.
+Quyết định và lý do nằm ở [ADR 0010](adr/0010-frontend-reducer-core.md). Mục này là quy ước cho code; từ pha 1 `shell.js` đã theo kiến trúc này, các file UI còn lại chuyển dần theo 11.4. Hành vi người dùng thấy không đổi.
 
 ### 11.1. Các lớp
 
 | Lớp | Việc | Không được |
 | --- | --- | --- |
 | Core | `initialState`, `reduce(state, action) -> { state, effects }`, selector | chạm DOM, `fetch`, timer, storage, `Date.now`, `Math.random` |
-| Effect | object `{type, ...}`: `fetch`, `schedule`, `cancel` | chứa hàm hoặc logic |
-| Runner | `createRunner({ fetch, setTimeout, clearTimeout })` chạy effect, dispatch kết quả | quyết định nghiệp vụ |
+| Effect | object `{type, ...}`: `fetch`, `schedule`, `cancel`, `upload`, `storage`, `navigate` | chứa hàm hoặc logic |
+| Runner | `createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, storage, navigate })` chạy effect, dispatch kết quả | quyết định nghiệp vụ |
 | View | đọc state, render DOM, handler chỉ dispatch action | giữ state riêng ngoài focus/scroll |
 | Store | `createStore`, `combine`, `subscribe` (`src/asr_en_vi/web/store.js`) | biết về tính năng cụ thể |
 
@@ -285,16 +285,19 @@ Quyết định và lý do nằm ở [ADR 0010](adr/0010-frontend-reducer-core.m
 
 - Action là `{type, ...payload}`, đặt tên theo sự kiện đã xảy ra (`notes-loaded`, `notes-load-failed`), không theo lệnh.
 - Effect `fetch` khai báo `ok` và `error` là tên action của kết quả; mã 2xx gửi `ok`, lỗi HTTP hoặc mạng gửi `error`; request bị hủy không gửi gì.
-- `key` bắt buộc ở `fetch`, `schedule`, `cancel` (thiếu thì runner ném lỗi). Effect cùng `key` thay thế effect cũ; `cancel` hủy theo `key`.
+- `key` bắt buộc ở mọi effect (thiếu thì runner ném lỗi). Effect cùng `key` thay thế effect cũ; `cancel` hủy theo `key`.
+- `key` và `type` của action dùng chung một namespace: luôn đặt tiền tố tính năng (`shell/upload`, `shell/upload-sent`, `notes/load`). Với `storage`, `key` là khóa storage.
+- `upload` giống `fetch` (2xx là `ok`; lỗi HTTP là `error` có `status`, `body`; lỗi truyền là `error` có `kind` là `network` hoặc `timeout`) và gửi thêm action `progress` `{loaded, total, lengthComputable, meta}`; hủy không sinh action. `storage` ghi hoặc xóa (`area` là `local` hoặc `session`) và nuốt lỗi storage bị chặn. `navigate` gọi `navigate(url)` được truyền vào.
 - Body của `fetch` được parse JSON, không phải JSON thì giữ text (không kiểm tra content-type).
-- Loại effect mới (upload XHR có tiến độ, ghi storage) thêm thành nhánh trong `createRunner`. Reducer không đọc storage: giá trị đọc được vào state qua một action khởi động.
-- Lỗi trong reducer, effect hoặc subscriber: state giữ tới action cuối chạy thành công, hàng đợi bị bỏ, lỗi ném cho nơi gọi `dispatch` (với kết quả `fetch` là `unhandledRejection`).
+- Loại effect mới thêm thành nhánh trong `createRunner`. Reducer không đọc storage: view đọc giá trị đã nhớ và đưa vào state qua action mở (shell: `shell/dialog-opened`), ghi qua effect `storage`.
+- Lỗi trong reducer, effect hoặc subscriber: state giữ tới action cuối chạy thành công, hàng đợi bị bỏ, lỗi ném cho nơi gọi `dispatch` (với kết quả `fetch` là `unhandledRejection`). Giữa lượt drain, state đã đổi nhưng subscriber không được báo và effect còn lại của action đó bị bỏ; lỗi trong callback `schedule` là exception chưa bắt của timer, không đi qua `dispatch` của nơi gọi.
+- Module đã chuyển vẫn công bố trên `window` mọi hàm mà script chưa chuyển gọi tới pha 5 (từ pha 1: `ApiError`, `requestJson`, `meetingIdFromPath`, `formatMeetingDate`, `sameOriginAudioSource`). Mỗi file module mới có route `/assets/<tên>.js` và test asset.
 - Tính năng nói chuyện với nhau bằng action dùng chung đi qua `combine`, không dùng `CustomEvent` hay hàm global.
 
 ### 11.3. Quy tắc response cũ và quy tắc gán state
 
 - Reducer lưu id yêu cầu mới nhất trong state, đặt id vào `meta` của effect `fetch`; action kết quả mang lại `meta` và reducer bỏ action có id không khớp.
-- Chỉ reducer tạo state mới. Từ pha 1, review và grep kiểm không còn lệnh gán state ngoài reducer trong file đã chuyển.
+- Chỉ reducer tạo state mới. Từ pha 1, `tests/web/shell-view.test.mjs` quét các file view đã chuyển (danh sách `VIEWS`) và core (`CORES`) trong `check.sh`/CI: view không gán vào state, không có `let`/`var` cấp module, chỉ đọc `localStorage` trong `readStored`; core không chạm DOM, mạng, timer, storage, đồng hồ hay ngẫu nhiên. Quét này là grep heuristic (có bắt thêm bí danh `const s = state`, destructure và `Object.assign(state, …)`), không thay review: cách viết lạ vẫn lọt. Khi chuyển file mới, thêm nó vào danh sách.
 
 ### 11.4. Thứ tự chuyển
 
@@ -303,8 +306,70 @@ Mỗi pha thêm vào tài liệu này bảng state và chuyển trạng thái c�
 | Pha | Phạm vi |
 | --- | --- |
 | 0 | ADR, `store.js`, `node --test` cho `tests/web/`, Node trong CI (mục này) |
-| 1 | `shell.js`: dialog tạo cuộc họp và upload; issue #117 cũng sửa luồng upload nên cần thống nhất thứ tự với pha này |
+| 1 | `shell.js` (xong, #121): dialog tạo cuộc họp và upload, xem 11.5; #117 thêm bước tách audio thành effect đứng trước effect `shell/upload` |
 | 2 | `connections.js` và `antigravity.js` dùng chung một core provider |
 | 3 | `notes.js`: chế độ xem/soạn, chọn provider/model, task notes, lưu revision |
 | 4 | `history.js` tách thành core điều hướng/meeting, transcript và generation, calendar, search, polling task, khóa nguồn notes |
 | 5 | bỏ global và `CustomEvent` còn sót, xóa code chết, cập nhật tài liệu |
+
+### 11.5. Shell: dialog tạo cuộc họp
+
+Core `shell-core.js` (`initialState`, `reduce`, `selectView`), view `shell.js`. Văn bản trong core là `{text, params}`, view dịch bằng `t()`.
+
+**Id chống response cũ** (trong state): `policyRequest` (tải chính sách), `runId` (một lượt upload: tạo slot, truyền, kiểm tra), `createRequest` (lưu cuộc họp). Mỗi effect `fetch`/`upload` mang id trong `meta`; action có id khác bị bỏ. Mở và đóng dialog tăng `policyRequest` và `runId`.
+
+**Trạng thái `phase`** (nhãn hiện ở `#state-label`, `data-state` của dialog):
+
+| `phase` | Nghĩa | Vào bằng | Nút/trường |
+| --- | --- | --- | --- |
+| `idle` | chưa chọn file, chính sách đã tải | `policy-loaded` | chọn file được |
+| `selected` | file hợp lệ đã chọn, hoặc đang chuẩn bị slot upload | `file-selected`, bắt đầu lượt mới | tạo được nếu form hợp lệ |
+| `uploading` | đang truyền byte, có tiến độ | `upload-created` | khóa form; hiện nút hủy |
+| `checking` | server kiểm tra file | `upload-sent` | khóa form; hiện nút hủy |
+| `ready` | server xác nhận `ready`, chưa lưu | `upload-completed`, `form-edited` sau lỗi tạo | tạo được |
+| `creating` | đang lưu cuộc họp | `submit-requested`, `upload-completed` | khóa form và nút đóng |
+| `saved` | đã lưu, đang chuyển trang | `meeting-created` | khóa |
+| `error` | lỗi (chính sách, file, upload, tạo) | các action lỗi | tùy cờ bên dưới |
+| `aborted` | người dùng hủy upload | `shell/upload-cancel-requested` | thử lại được |
+
+Cờ bổ sung: `starting` (đang dọn upload cũ và tạo slot; khóa form), `cancelling` (đã hủy, chờ dọn), `failure` (lỗi upload chờ dọn xong để báo), `serverReady`, `retryable`, `fileRefused` (server từ chối nội dung file: không thử lại cùng file), `createAttemptFailed`, `createUncertain` + `createRetryPayload` (tạo không rõ kết quả: gửi lại đúng payload để server khử trùng), `pendingCleanup` (upload dở chưa xóa được, thử lại ở lần chọn file hoặc lượt sau).
+
+**Chuyển trạng thái** (`shell/` bỏ tiền tố trong cột sự kiện):
+
+| Từ | Sự kiện | Tới | Effect |
+| --- | --- | --- | --- |
+| đóng | `dialog-opened` (đọc storage) | `idle`, chờ chính sách | `fetch shell/policy` |
+| mở | `policy-loaded` hợp lệ / sai định dạng | `idle` / `error` | |
+| mở | `policy-load-failed` | `error`, `policyFailed` | |
+| mở | `policy-*` với id cũ | không đổi | |
+| không bận | `file-selected` hợp lệ | `selected` | `fetch` DELETE upload cũ và các upload chờ dọn |
+| không bận | `file-selected` sai đuôi, quá lớn, chưa có chính sách | `error` | như trên |
+| đang bận hoặc tạo không rõ | `file-selected` | không đổi | |
+| có thể tạo | `submit-requested` khi chưa `serverReady` | `selected`, `starting` | DELETE upload cũ, rồi `fetch shell/upload-create` |
+| `starting` | `upload-created` | `uploading` | `upload shell/upload` |
+| `starting` | `upload-create-failed` hoặc thiếu mã | `error` | |
+| `uploading` | `upload-progressed` | `uploading` | |
+| `uploading` | `upload-sent` | `checking` | `fetch shell/upload-complete` |
+| `uploading` | `upload-failed` (mạng, hết giờ, HTTP) | `uploading` rồi `error` sau khi dọn | DELETE upload |
+| `checking` | `upload-completed` ready | `ready` rồi `creating` ngay | `fetch shell/create` |
+| `checking` | `upload-completed` khác ready, `upload-completion-failed` | `error` sau khi dọn | DELETE upload |
+| `uploading`, `checking` | `upload-cancel-requested` hoặc đóng dialog | `aborted` sau khi dọn | `cancel shell/upload`, `cancel shell/upload-complete`, DELETE upload (id vào `pendingCleanup` ngay, xóa khi DELETE được xác nhận) |
+| `uploading`, `checking` đang chờ DELETE của lỗi upload | `upload-cancel-requested` hoặc đóng dialog | `aborted` ngay; bỏ `failure`, kết quả hủy giữ nguyên khi DELETE cũ trả lời | |
+| `aborted` đang chờ DELETE (`cancelling`) | `upload-cancel-requested` | không đổi | |
+| `cancelling` | `dialog-close-requested` | đóng, state về ban đầu; DELETE đang chờ để id ở `pendingCleanup` | |
+| mở | `dialog-closed` (trình duyệt tự đóng dialog) | đóng, state về ban đầu | `cancel` mọi effect đang bay, DELETE upload (trừ khi tạo không rõ); đang `creating` thì chỉ hạ cờ `open`, lượt lưu vẫn chạy tiếp |
+| đóng | `dialog-closed` | không đổi | |
+| không bận | `multiple-files-dropped` | `error` (lỗi file) | |
+| bất kỳ | kết quả lượt cũ (`runId` khác) | không đổi | |
+| `ready`, tạo lại | `submit-requested` | `creating` | `fetch shell/create` |
+| `creating` | `meeting-created` | `saved` | `storage` ngôn ngữ; `storage` cờ chép lời (nếu bật); `navigate` |
+| `creating` | `meeting-create-failed` 4xx | `error`, `createAttemptFailed`, giữ `serverReady` | |
+| `creating` | `meeting-create-failed` 4xx `upload_not_ready` | `error`, `retryable` | |
+| `creating` | lỗi mạng hoặc 5xx hoặc thiếu mã cuộc họp | `error`, `createUncertain` | |
+| `creating` | kết quả với `createRequest` cũ | không đổi | |
+| `error` sau lỗi tạo | `form-edited` | `ready` | |
+| `creating`, `starting` | `dialog-close-requested` | không đổi | |
+| khác | `dialog-close-requested` | đóng, state về ban đầu | DELETE upload (trừ khi tạo không rõ) |
+| bất kỳ | `auto-transcribe-toggled` | không đổi phase | `storage` cờ chép lời |
+
+Thay đổi nhỏ so với bản trước pha 1: đóng dialog gửi DELETE upload dở rồi đóng ngay, không chờ DELETE trả lời; DELETE lỗi vẫn vào `pendingCleanup`. DELETE treo không khóa dialog: Hủy rồi Đóng/Esc vẫn đóng được.

@@ -288,3 +288,141 @@ test("schedule passes its delay to setTimeout", () => {
   createRunner({ fetch: fakeFetch(), ...timers })({ type: "schedule", key: "d", delay: 250, action: { type: "t" } }, () => {});
   assert.equal([...timers.pending.values()][0].delay, 250);
 });
+
+test("a throwing reducer drops the queued actions and keeps the last good state", () => {
+  const seen = [];
+  const store = createStore({
+    initialState: { log: [] },
+    reduce: (state, action) => {
+      if (action.type === "boom") throw new Error("boom");
+      return { state: { log: [...state.log, action.type] }, effects: action.type === "a" ? [{ emit: "boom" }, { emit: "later" }] : [] };
+    },
+    run: (effect, dispatch) => dispatch({ type: effect.emit }),
+  });
+  store.subscribe((state) => seen.push(state.log));
+  assert.throws(() => store.dispatch({ type: "a" }), /boom/);
+  assert.deepEqual(store.getState().log, ["a"]); // state kept up to the last action that ran
+  assert.deepEqual(seen, []); // subscribers were not told about the half-drained batch
+  store.dispatch({ type: "b" }); // "later" was dropped with the queue
+  assert.deepEqual(store.getState().log, ["a", "b"]);
+  assert.deepEqual(seen, [["a", "b"]]);
+});
+
+test("an error thrown by a schedule callback reaches the timer, not the store", () => {
+  const timers = fakeTimers();
+  const run = createRunner({ fetch: fakeFetch(), ...timers });
+  run({ type: "schedule", key: "s", delay: 1, action: { type: "tick" } }, () => {
+    throw new Error("render failed");
+  });
+  assert.throws(() => timers.fire(), /render failed/);
+});
+
+function fakeXhr() {
+  const instances = [];
+  class FakeXhr {
+    constructor() {
+      this.headers = {};
+      this.upload = {};
+      this.aborted = false;
+      instances.push(this);
+    }
+    open(method, url, async) {
+      Object.assign(this, { method, url, async });
+    }
+    setRequestHeader(name, value) {
+      this.headers[name] = value;
+    }
+    send(body) {
+      this.body = body;
+    }
+    abort() {
+      this.aborted = true;
+    }
+  }
+  FakeXhr.instances = instances;
+  return FakeXhr;
+}
+
+test("upload effect reports progress and the final answer with meta", () => {
+  const XMLHttpRequest = fakeXhr();
+  const seen = [];
+  const run = createRunner({ fetch: fakeFetch(), ...fakeTimers(), XMLHttpRequest });
+  run({ type: "upload", key: "f/u", url: "/up", headers: { "Content-Type": "x/y" }, body: "FILE", ok: "ok", error: "bad", progress: "prog", meta: { run: 1 } }, (a) => seen.push(a));
+  const [xhr] = XMLHttpRequest.instances;
+  assert.deepEqual([xhr.method, xhr.url, xhr.async, xhr.withCredentials, xhr.body, xhr.headers], ["PUT", "/up", true, true, "FILE", { "Content-Type": "x/y" }]);
+  xhr.upload.onprogress({ loaded: 5, total: 10, lengthComputable: true });
+  xhr.status = 204;
+  xhr.responseText = '{"a":1}';
+  xhr.onload();
+  assert.deepEqual(seen, [
+    { type: "prog", loaded: 5, total: 10, lengthComputable: true, meta: { run: 1 } },
+    { type: "ok", response: { status: 204, body: { a: 1 } }, meta: { run: 1 } },
+  ]);
+});
+
+test("upload effect: HTTP error, network error and timeout become error actions", () => {
+  const XMLHttpRequest = fakeXhr();
+  const seen = [];
+  const run = createRunner({ fetch: fakeFetch(), ...fakeTimers(), XMLHttpRequest });
+  const start = (key) => {
+    run({ type: "upload", key, url: "/up", body: "F", ok: "ok", error: "bad" }, (a) => seen.push(a));
+    return XMLHttpRequest.instances.at(-1);
+  };
+  const http = start("a");
+  Object.assign(http, { status: 413, responseText: "too big" });
+  http.onload();
+  start("b").onerror();
+  start("c").ontimeout();
+  assert.deepEqual(seen.map((a) => a.error), [
+    { message: "HTTP 413", status: 413, body: "too big" },
+    { message: "network", kind: "network" },
+    { message: "timeout", kind: "timeout" },
+  ]);
+});
+
+test("cancelling or replacing an upload aborts it and silences its late events", () => {
+  const XMLHttpRequest = fakeXhr();
+  const seen = [];
+  const run = createRunner({ fetch: fakeFetch(), ...fakeTimers(), XMLHttpRequest });
+  const dispatch = (a) => seen.push(a);
+  run({ type: "upload", key: "u", url: "/1", body: "A", ok: "ok", error: "bad", progress: "prog" }, dispatch);
+  run({ type: "upload", key: "u", url: "/2", body: "B", ok: "ok", error: "bad", progress: "prog" }, dispatch);
+  const [first, second] = XMLHttpRequest.instances;
+  assert.equal(first.aborted, true);
+  first.upload.onprogress({ loaded: 1, total: 2, lengthComputable: true });
+  Object.assign(first, { status: 200, responseText: "{}" });
+  first.onload();
+  run({ type: "cancel", key: "u" }, dispatch);
+  assert.equal(second.aborted, true);
+  second.onerror();
+  assert.deepEqual(seen, []);
+});
+
+test("storage effect writes and removes in the named area; a throwing storage is ignored", () => {
+  const data = { local: new Map(), session: new Map() };
+  const area = (map) => ({ setItem: (k, v) => map.set(k, v), removeItem: (k) => map.delete(k) });
+  const run = createRunner({
+    fetch: fakeFetch(),
+    ...fakeTimers(),
+    storage: { local: () => area(data.local), session: () => area(data.session) },
+  });
+  run({ type: "storage", key: "k", area: "local", op: "write", value: "1" }, () => {});
+  run({ type: "storage", key: "s", area: "session", op: "write", value: "2" }, () => {});
+  assert.deepEqual([...data.local], [["k", "1"]]);
+  assert.deepEqual([...data.session], [["s", "2"]]);
+  run({ type: "storage", key: "k", area: "local", op: "remove" }, () => {});
+  assert.equal(data.local.size, 0);
+  const blocked = createRunner({ fetch: fakeFetch(), ...fakeTimers(), storage: { local: () => { throw new Error("denied"); } } });
+  blocked({ type: "storage", key: "k", area: "local", op: "write", value: "1" }, () => {});
+});
+
+test("navigate effect calls the injected navigate", () => {
+  const urls = [];
+  createRunner({ fetch: fakeFetch(), ...fakeTimers(), navigate: (url) => urls.push(url) })({ type: "navigate", key: "n", url: "/next" }, () => {});
+  assert.deepEqual(urls, ["/next"]);
+});
+
+test("upload, storage and navigate effects need a key", () => {
+  const run = createRunner({ fetch: fakeFetch(), ...fakeTimers() });
+  for (const type of ["upload", "storage", "navigate"]) assert.throws(() => run({ type }, () => {}), /needs a key/);
+});
