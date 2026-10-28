@@ -420,7 +420,8 @@ def test_rpc_rejects_malformed_or_oversized_system_prompt_shapes():
 def test_connection_ui_exposes_antigravity_login_model_and_verification_controls():
     root = Path(__file__).parents[1]
     markup = (root / "src/asr_en_vi/web/shell.html").read_text(encoding="utf-8")
-    script = (root / "src/asr_en_vi/web/antigravity.js").read_text(encoding="utf-8")
+    view = (root / "src/asr_en_vi/web/antigravity.js").read_text(encoding="utf-8")
+    core = (root / "src/asr_en_vi/web/provider-core.js").read_text(encoding="utf-8")
 
     for element_id in (
         "antigravity-sign-in",
@@ -431,10 +432,10 @@ def test_connection_ui_exposes_antigravity_login_model_and_verification_controls
         "antigravity-disconnect",
     ):
         assert f'id="{element_id}"' in markup
-        assert f"#{element_id}" in script
-    assert "/api/providers/antigravity/login-sessions" in script
-    assert "/api/providers/antigravity/models" in script
-    assert "/api/providers/antigravity/verify" in script
+        assert f"#{element_id}" in view
+    assert "/api/providers/antigravity/login-sessions" in core
+    assert "/api/providers/antigravity/models" in core
+    assert "/api/providers/antigravity/verify" in core
 
 
 @pytest.mark.parametrize(

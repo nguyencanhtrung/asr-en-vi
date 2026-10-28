@@ -1,12 +1,15 @@
-"use strict";
+// View of the connections dialog and the header buttons: reads store state, renders the DOM, dispatches actions.
+// All state and rules live in provider-core.js (contract: docs/adr/0010-frontend-reducer-core.md). This module
+// also creates the one store both providers share; antigravity.js imports it and renders the Google section.
+import { createRunner, createStore } from "./store.js";
+import { ANTIGRAVITY, CHATGPT, initialState, reduce, selectLauncher, selectView } from "./provider-core.js";
 
-// Header status buttons: OpenAI is the chatgpt provider, Google is antigravity.
 const launcherElements = {
-  chatgpt: { button: document.querySelector("#launcher-chatgpt"), name: "OpenAI" },
-  antigravity: { button: document.querySelector("#launcher-antigravity"), name: "Google" },
+  chatgpt: document.querySelector("#launcher-chatgpt"),
+  antigravity: document.querySelector("#launcher-antigravity"),
 };
 
-const connectionElements = {
+const els = {
   dialog: document.querySelector("#connections-dialog"),
   close: document.querySelector("#connections-close"),
   badge: document.querySelector("#connection-state-badge"),
@@ -37,876 +40,172 @@ const connectionElements = {
   verificationResult: document.querySelector("#connection-verification-result"),
 };
 
-const connectionState = {
-  provider: null,
-  preferences: { provider: null, models: {}, reasoning_effort: "default" },
-  models: [],
-  selectedModel: "",
-  savedModel: "",
-  savedEffort: "default",
-  activeLogin: null,
-  pollTimer: null,
-  pollGeneration: 0,
-  loadGeneration: 0,
-  savingModel: false,
-  verifying: false,
-  disconnecting: false,
-};
-
-class ConnectionApiError extends Error {
-  constructor(message, code, status = 0) {
-    super(message);
-    this.name = "ConnectionApiError";
-    this.code = code;
-    this.status = status;
-  }
-}
-
-function defaultErrorMessage(code, status) {
-  const known = {
-    revocation_unconfirmed: t("Chưa xác nhận thu hồi phiên ChatGPT cũ. Hãy thử lại hoặc thu hồi quyền trong ChatGPT → Cài đặt → Mức sử dụng."),
-    provider_busy: t("Một thao tác ChatGPT khác đang chạy. Hãy đợi một chút rồi thử lại."),
-    provider_timeout: t("ChatGPT chưa phản hồi trong thời gian cho phép. Bạn có thể thử lại."),
-    NETWORK_ERROR: t("Không kết nối được với máy chủ trên máy này."),
-    INVALID_AUTHORIZATION_URL: t("Máy chủ trả về địa chỉ đăng nhập không hợp lệ."),
-    UNSAFE_AUTHORIZATION_URL: t("Máy chủ không được gửi thông tin nhận dạng nhạy cảm đến trình duyệt."),
-    INVALID_LOGIN_SESSION: t("Máy chủ trả về phiên đăng nhập không hợp lệ."),
-    INVALID_LOGIN_STATUS: t("Máy chủ trả về trạng thái phiên đăng nhập không hợp lệ."),
-    CANCEL_NOT_CONFIRMED: t("Máy chủ chưa hủy được phiên đăng nhập."),
-    POPUP_BLOCKED: t("Trình duyệt đang chặn cửa sổ đăng nhập. Cho phép mở cửa sổ cho không gian làm việc này rồi thử lại."),
-    SIGN_IN_FAILED: t("Không thể hoàn tất đăng nhập ChatGPT."),
-    INVALID_PROVIDER_STATUS: t("Máy chủ chưa công bố trạng thái kết nối ChatGPT hợp lệ."),
-    DISCONNECT_NOT_CONFIRMED: t("Máy chủ chưa xác nhận đã ngắt kết nối ChatGPT."),
-    provider_reconnect_required: t("Tài khoản ChatGPT cần đăng nhập lại trước khi tiếp tục."),
-    chatgpt_reconnect_required: t("Tài khoản ChatGPT cần đăng nhập lại trước khi tiếp tục."),
-    reconnect_required: t("Tài khoản ChatGPT cần đăng nhập lại trước khi tiếp tục."),
-    provider_auth_error: t("ChatGPT không chấp nhận thông tin đăng nhập hiện tại. Hãy kết nối lại tài khoản."),
-    subscription_sharing_invalid_user: t("ChatGPT không chấp nhận thông tin đăng nhập hiện tại. Hãy kết nối lại tài khoản."),
-    chatpass_v2_scope_not_authorized: t("Tài khoản chưa cấp quyền dùng gói ChatGPT. Hãy kết nối lại và cấp quyền cần thiết."),
-    chatpass_v2_invalid_authorization_context: t("Cấu hình cấp quyền ChatGPT không hợp lệ. Hãy kiểm tra cấu hình kết nối trước khi đăng nhập lại."),
-    scope_not_authorized: t("Tài khoản chưa cấp quyền dùng gói ChatGPT. Hãy kết nối lại và cấp quyền cần thiết."),
-    invalid_grant: t("Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản."),
-    invalid_refresh_token: t("Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản."),
-    token_expired: t("Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản."),
-    refresh_token_expired: t("Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản."),
-    refresh_token_invalidated: t("Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản."),
-    refresh_token_reused: t("Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản."),
-    model_not_available: t("Mô hình đã chọn không khả dụng với tài khoản ChatGPT này. Hãy chọn mô hình khác."),
-    model_unavailable: t("Mô hình đã chọn không khả dụng với tài khoản ChatGPT này. Hãy chọn mô hình khác."),
-    invalid_reasoning_effort: t("Mức suy luận này không được mô hình đã chọn hỗ trợ."),
-  };
-  if (known[code]) return known[code];
-  if (status === 401) return t("Phiên truy cập không gian làm việc không còn hợp lệ. Hãy mở lại liên kết trong terminal.");
-  if (status === 403) return t("ChatGPT đã từ chối yêu cầu. Hãy kiểm tra quyền truy cập tài khoản rồi thử lại.");
-  if (status === 404) return t("Không tìm thấy phiên hoặc dữ liệu yêu cầu.");
-  if (status === 409) return t("Trạng thái đã thay đổi. Hãy tải lại thông tin rồi thử lại.");
-  if (status === 429) return t("Yêu cầu đã chạm giới hạn hiện tại. Hãy kiểm tra mức sử dụng ChatGPT.");
-  if (status >= 500) return t("Máy chủ chưa thể hoàn tất yêu cầu. Hãy thử lại sau.");
-  return t("Không thể hoàn tất thao tác. Hãy kiểm tra trạng thái rồi thử lại.");
-}
-
-function localizedErrorMessage(code, message, status) {
-  if (typeof message === "string" && /[À-ỹ]/u.test(message)) return message;
-  return defaultErrorMessage(code, status);
-}
-
-function errorDetails(payload, status) {
-  const detail = payload && (payload.detail || payload.error);
-  if (detail && typeof detail === "object") {
-    return {
-      code: typeof detail.code === "string" ? detail.code : `HTTP_${status}`,
-      message: localizedErrorMessage(
-        typeof detail.code === "string" ? detail.code : `HTTP_${status}`,
-        detail.message,
-        status,
-      ),
-    };
-  }
-  if (typeof detail === "string" && detail.trim()) {
-    return {
-      code: `HTTP_${status}`,
-      message: localizedErrorMessage(`HTTP_${status}`, detail.trim(), status),
-    };
-  }
-  return {
-    code: `HTTP_${status}`,
-    message: localizedErrorMessage(`HTTP_${status}`, "", status),
-  };
-}
-
-async function connectionRequest(path, options = {}) {
-  const method = (options.method || "GET").toUpperCase();
-  const headers = { Accept: "application/json" };
-  const requestOptions = {
-    method,
-    headers,
-    credentials: "same-origin",
-    cache: "no-store",
-  };
-  if (method !== "GET" && method !== "HEAD") headers["Content-Type"] = "application/json";
-  if (options.body !== undefined) requestOptions.body = JSON.stringify(options.body);
-  if (options.signal) requestOptions.signal = options.signal;
-
-  let response;
-  try {
-    response = await fetch(path, requestOptions);
-  } catch (error) {
-    if (error && error.name === "AbortError") throw error;
-    throw new ConnectionApiError(t("Không kết nối được với máy chủ trên máy này."), "NETWORK_ERROR");
-  }
-
-  let payload = null;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = null;
-  }
-  if (!response.ok) {
-    const details = errorDetails(payload, response.status);
-    throw new ConnectionApiError(details.message, details.code, response.status);
-  }
-  return payload;
-}
-
+// Core text is data ({text, params}); t() turns it into the page language.
 function formatTimestamp(value) {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return String(value || "");
-  return new Intl.DateTimeFormat(UI_LOCALE, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+  return new Intl.DateTimeFormat(UI_LOCALE, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
-function setConnectionMessage(message) {
-  connectionElements.message.textContent = message || "";
+export function tr(message) {
+  if (message === null || message === undefined) return "";
+  if (typeof message !== "object") return String(message);
+  if (Array.isArray(message)) return message.map(tr).join("");
+  if (message.fmt === "timestamp") return formatTimestamp(message.value);
+  const params = message.params && Object.fromEntries(Object.entries(message.params).map(([name, value]) => [name, tr(value)]));
+  return t(message.text, params);
 }
 
-function clearConnectionError() {
-  connectionElements.error.hidden = true;
-  connectionElements.error.dataset.code = "";
-  connectionElements.errorMessage.textContent = "";
-  connectionElements.retryPoll.hidden = true;
+// Write only what changed: a rewrite with the same value still fires observers and live regions.
+export function setProp(element, name, value) {
+  if (element[name] !== value) element[name] = value;
 }
 
-function showConnectionError(error, { retryPoll = false } = {}) {
-  const code = error && error.code ? error.code : "CONNECTION_ERROR";
-  const message = localizedErrorMessage(
-    code,
-    error && error.message,
-    error && error.status,
-  );
-  connectionElements.error.dataset.code = code;
-  connectionElements.errorMessage.textContent = message;
-  connectionElements.retryPoll.hidden = !retryPoll;
-  connectionElements.error.hidden = false;
+export function setAttr(element, name, value) {
+  if (element.getAttribute(name) !== value) element.setAttribute(name, value);
 }
 
-function requiresProviderReconnect(error) {
-  if (!error || error.status === 401) return false;
-  const code = String(error.code || "").toLowerCase();
-  return code.endsWith("reconnect_required")
-    || ["provider_auth_error", "subscription_sharing_invalid_user", "scope_not_authorized",
-      "chatpass_v2_scope_not_authorized", "chatpass_v2_invalid_authorization_context"].includes(code)
-    || [
-      "invalid_grant",
-      "invalid_refresh_token",
-      "token_expired",
-      "refresh_token_expired",
-      "refresh_token_invalidated",
-      "refresh_token_reused",
-    ].includes(code);
+// Rebuild a select only when its option list changed, so an open list and the focus survive other updates.
+export function renderOptions(select, options, value) {
+  const signature = JSON.stringify(options);
+  if (select.dataset.options !== signature) {
+    select.dataset.options = signature;
+    select.replaceChildren(
+      ...options.map((item) => {
+        const option = document.createElement("option");
+        option.value = item.value;
+        option.textContent = tr(item.label);
+        option.disabled = Boolean(item.disabled);
+        return option;
+      }),
+    );
+  }
+  setProp(select, "value", options.some((item) => item.value === value) ? value : "");
 }
 
-async function refreshProviderAfterAuthFailure(error) {
-  if (!requiresProviderReconnect(error)) return false;
+// The parts of a provider section that both providers have; each view adds its own login controls.
+export function renderSection(section, d, s) {
+  const view = selectView(d, s);
+  setAttr(section.badge, "data-state", s.badge.state);
+  setProp(section.badge, "textContent", tr(s.badge.text));
+  if (s.statusText) setProp(section.status, "textContent", tr(s.statusText));
+  if (view.account !== null) setProp(section.account, "textContent", tr(view.account));
+  setProp(section.verificationRow, "hidden", !s.summary);
+  if (s.summary) setProp(section.verificationSummary, "textContent", tr(s.summary));
+  else if (d.copy.noVerification) setProp(section.verificationSummary, "textContent", tr(d.copy.noVerification));
+  setProp(section.message, "textContent", tr(s.message));
+  setProp(section.error, "hidden", !s.error);
+  setProp(section.errorMessage, "textContent", s.error ? tr(s.error.text) : "");
+  if (section.retryPoll) {
+    setAttr(section.error, "data-code", s.error ? s.error.code : "");
+    setProp(section.retryPoll, "hidden", !(s.error && s.error.retryPoll));
+  }
+  setProp(section.signIn, "hidden", view.signInHidden);
+  setProp(section.signIn, "disabled", s.signInDisabled);
+  setProp(section.modelSection, "hidden", view.modelSectionHidden);
+  if (s.modelOptions) renderOptions(section.modelSelect, s.modelOptions, s.selectedModel);
+  if (view.effortOptions) renderOptions(section.effortSelect, view.effortOptions, view.effortValue);
+  else setProp(section.effortSelect, "value", view.effortValue);
+  setProp(section.modelSelect, "disabled", view.modelDisabled);
+  setProp(section.effortSelect, "disabled", view.effortDisabled);
+  setProp(section.modelSave, "disabled", view.saveDisabled);
+  setProp(section.verify, "disabled", view.verifyDisabled);
+  setAttr(section.modelStatus, "data-state", s.modelStatus.state);
+  setProp(section.modelStatus, "textContent", tr(s.modelStatus.text));
+  setAttr(section.verificationResult, "data-state", s.verifyResult.state);
+  setProp(section.verificationResult, "textContent", tr(s.verifyResult.text));
+  setProp(section.disconnect, "hidden", view.disconnectHidden);
+  return view;
+}
+
+function renderLauncher(d, s) {
+  const launcher = selectLauncher(d, s);
+  if (!launcher) return;
+  const button = launcherElements[d.id];
+  setAttr(button, "data-state", launcher.status);
+  setAttr(button, "aria-label", tr(launcher.ariaLabel));
+  setProp(button, "title", tr(launcher.title));
+}
+
+function render(state) {
+  const s = state.chatgpt;
+  const view = renderSection(els, CHATGPT, s);
+  renderLauncher(CHATGPT, s);
+  renderLauncher(ANTIGRAVITY, state.antigravity);
+  if (s.loginCopy) setProp(els.pendingCopy, "textContent", tr(s.loginCopy));
+  setProp(els.pendingActions, "hidden", view.pendingHidden);
+  setProp(els.cancelSignIn, "disabled", view.cancelDisabled);
+  setProp(els.disconnectConfirm, "hidden", !s.confirming);
+  setProp(els.disconnectTrigger, "hidden", s.confirming);
+  setProp(els.disconnectTrigger, "disabled", view.disconnectDisabled);
+  setProp(els.disconnectConfirmButton, "disabled", view.disconnectDisabled);
+  setProp(els.disconnectConfirmButton, "textContent", tr(view.disconnectLabel));
+  if (s.ui) {
+    const focus = { "focus:sign-in": els.signIn, "focus:disconnect-confirm": els.disconnectConfirmButton, "focus:disconnect-trigger": els.disconnectTrigger }[s.ui];
+    if (focus) focus.focus();
+    dispatch({ type: "provider/ui-handled", provider: CHATGPT.id });
+  }
+  // The Google button opens the dialog at its section once both status reads have settled.
+  if (state.launcher.scroll && !s.loading && !state.antigravity.loading) {
+    document.querySelector("#antigravity-section").scrollIntoView({ block: "start" });
+    dispatch({ type: "provider/scroll-handled" });
+  }
+}
+
+const base = createRunner({
+  fetch: (url, init) => fetch(url, init),
+  setTimeout: (callback, delay) => window.setTimeout(callback, delay),
+  clearTimeout: (id) => window.clearTimeout(id),
+  XMLHttpRequest,
+  storage: { local: () => window.localStorage, session: () => window.sessionStorage },
+  navigate: (url) => window.location.assign(url),
+  open: (url, target) => window.open(url, target),
+  emit: (name) => window.dispatchEvent(new CustomEvent(name)),
+  now: () => Date.now(),
+});
+// The reserved window shows a sentence in the page language; the effect carries it as data.
+const run = (effect, dispatch) => base(effect.text && typeof effect.text === "object" ? { ...effect, text: tr(effect.text) } : effect, dispatch);
+
+export const store = createStore({ reduce, initialState, run });
+export const { dispatch } = store;
+store.subscribe(render);
+
+// A pending login enters the state through the boot action; writes go through storage effects.
+export function readStored(key) {
   try {
-    const payload = await connectionRequest("/api/providers");
-    const provider = Array.isArray(payload.providers)
-      ? payload.providers.find((item) => item && item.id === "chatgpt")
-      : null;
-    if (!provider || !["connected", "disconnected", "reconnect_required"].includes(provider.status)) {
-      return false;
-    }
-    connectionState.provider = provider;
-    renderProvider();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function providerStatusCopy(status) {
-  if (status === "connected") return t("Đã kết nối");
-  if (status === "reconnect_required") return t("Cần đăng nhập lại");
-  if (status === "disconnected") return t("Chưa kết nối");
-  return t("Chưa rõ trạng thái");
-}
-
-// Visible status text and the spoken equivalent for each launcher state.
-const launcherCopy = {
-  loading: [t("Đang kiểm tra"), t("đang kiểm tra trạng thái")],
-  connected: [t("Đã kết nối"), t("đã kết nối")],
-  reconnect_required: [t("Cần đăng nhập lại"), t("cần đăng nhập lại")],
-  disconnected: [t("Chưa kết nối"), t("chưa kết nối")],
-  error: [t("Không khả dụng"), t("không đọc được trạng thái")],
-};
-
-function setLauncherState(provider, status, accountLabel = "") {
-  const { button, name } = launcherElements[provider];
-  const [label, spoken] = launcherCopy[status] || launcherCopy.error;
-  const account = status === "connected" ? t(" với {account}", { account: accountLabel || t("tài khoản") }) : "";
-  button.dataset.state = status;
-  button.setAttribute("aria-label", t("Kết nối {name}: {state}", { name, state: spoken + account }));
-  button.title = `${name}: ${label}`;
-}
-
-function modelIsAvailable(modelId) {
-  return Boolean(modelId && connectionState.models.some((model) => model.id === modelId));
-}
-
-function renderEfforts(modelId, selectedEffort = "default") {
-  const model = connectionState.models.find((item) => item.id === modelId);
-  const supported = Array.isArray(model?.reasoning_efforts) ? model.reasoning_efforts : [];
-  const labels = {
-    none: t("Không suy luận (none)"),
-    low: t("Thấp (low)"),
-    medium: t("Trung bình (medium)"),
-    high: "Cao (high)",
-    xhigh: t("Rất cao (xhigh)"),
-    max: t("Tối đa (max)"),
-  };
-  const select = connectionElements.effortSelect;
-  select.replaceChildren();
-  const fallback = document.createElement("option");
-  fallback.value = "default";
-  fallback.textContent = t("Mặc định của mô hình");
-  select.append(fallback);
-  for (const effort of supported) {
-    if (!Object.hasOwn(labels, effort)) continue;
-    const option = document.createElement("option");
-    option.value = effort;
-    option.textContent = labels[effort];
-    select.append(option);
-  }
-  select.value = supported.includes(selectedEffort) ? selectedEffort : "default";
-}
-
-function updateConnectionActions() {
-  const connected = connectionState.provider?.status === "connected";
-  const canUseSelectedModel = connected && modelIsAvailable(connectionElements.modelSelect.value);
-  const selectedModel = connectionElements.modelSelect.value;
-  const selectedEffort = connectionElements.effortSelect.value;
-  // The last notes provider may be Antigravity; a saved ChatGPT model is still a saved preference.
-  const preferenceIsActive = typeof connectionState.preferences.models.chatgpt === "string"
-    && connectionState.preferences.models.chatgpt !== "";
-
-  connectionElements.modelSelect.disabled = !connected || connectionState.savingModel || connectionState.models.length === 0;
-  connectionElements.effortSelect.disabled = !canUseSelectedModel || connectionState.savingModel
-    || connectionElements.effortSelect.options.length < 2;
-  connectionElements.modelSave.disabled = !canUseSelectedModel
-    || connectionState.savingModel
-    || (selectedModel === connectionState.savedModel
-      && selectedEffort === connectionState.savedEffort && preferenceIsActive);
-  connectionElements.verify.disabled = !canUseSelectedModel || connectionState.verifying;
-  connectionElements.signIn.hidden = Boolean(connectionState.activeLogin) || connected;
-  connectionElements.pendingActions.hidden = !connectionState.activeLogin;
-  connectionElements.cancelSignIn.disabled = !connectionState.activeLogin;
-  connectionElements.disconnect.hidden = !connectionState.provider
-    || connectionState.provider.status === "disconnected";
-  connectionElements.disconnectConfirmButton.disabled = connectionState.disconnecting;
-  connectionElements.disconnectTrigger.disabled = connectionState.disconnecting;
-}
-
-function renderProvider() {
-  const provider = connectionState.provider;
-  if (!provider) return;
-
-  const status = provider.status;
-  const statusCopy = providerStatusCopy(status);
-  const badgeState = ["connected", "reconnect_required", "disconnected"].includes(status) ? status : "error";
-  connectionElements.badge.dataset.state = badgeState;
-  connectionElements.badge.textContent = statusCopy;
-  connectionElements.status.textContent = statusCopy;
-  connectionElements.account.textContent = provider.account?.label || t("Chưa có thông tin");
-
-  if (provider.verification && provider.verification.model && provider.verification.verified_at) {
-    const name = modelName(provider.verification.model);
-    const effort = provider.verification.reasoning_effort || "default";
-    connectionElements.verificationSummary.textContent = `${name} · effort ${effort} · ${formatTimestamp(provider.verification.verified_at)}`;
-    connectionElements.verificationRow.hidden = false;
-  } else {
-    connectionElements.verificationSummary.textContent = t("Chưa kiểm tra");
-    connectionElements.verificationRow.hidden = true;
-  }
-
-  setLauncherState("chatgpt", badgeState, provider.account?.label);
-
-  connectionElements.modelSection.hidden = status !== "connected";
-  updateConnectionActions();
-}
-
-function modelName(modelId) {
-  const model = connectionState.models.find((item) => item.id === modelId);
-  return model ? model.display_name : modelId;
-}
-
-function renderModels(catalog, preferences) {
-  const models = Array.isArray(catalog.models) ? catalog.models : [];
-  connectionState.models = models.filter(
-    (model) => model && typeof model.id === "string" && typeof model.display_name === "string",
-  );
-  connectionState.preferences = {
-    provider: ["chatgpt", "antigravity"].includes(preferences.provider) ? preferences.provider : null,
-    models: preferences.models && typeof preferences.models === "object" ? preferences.models : {},
-    reasoning_effort: typeof preferences.reasoning_effort === "string"
-      ? preferences.reasoning_effort : "default",
-  };
-
-  const preferenceModel = connectionState.preferences.models.chatgpt;
-  const catalogSelection = typeof catalog.selected_model === "string" ? catalog.selected_model : "";
-  const selectedModel = typeof preferenceModel === "string" && preferenceModel
-    ? preferenceModel
-    : catalogSelection;
-  connectionState.selectedModel = selectedModel;
-  connectionState.savedModel = selectedModel;
-  connectionState.savedEffort = connectionState.preferences.reasoning_effort;
-
-  const select = connectionElements.modelSelect;
-  select.replaceChildren();
-  if (!selectedModel) {
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = connectionState.models.length ? t("Chọn mô hình") : t("Chưa có mô hình khả dụng");
-    select.append(placeholder);
-  } else if (!modelIsAvailable(selectedModel)) {
-    const unavailable = document.createElement("option");
-    unavailable.value = selectedModel;
-    unavailable.textContent = t("{model} — không khả dụng với tài khoản này", { model: selectedModel });
-    unavailable.disabled = true;
-    unavailable.selected = true;
-    select.append(unavailable);
-  }
-
-  for (const model of connectionState.models) {
-    const option = document.createElement("option");
-    option.value = model.id;
-    option.textContent = model.display_name;
-    option.selected = model.id === selectedModel;
-    select.append(option);
-  }
-  renderEfforts(selectedModel, connectionState.savedEffort);
-  if (selectedModel && !modelIsAvailable(selectedModel)) {
-    connectionElements.modelStatus.dataset.state = "error";
-    connectionElements.modelStatus.textContent = t("Mô hình đã lưu “{model}” hiện không khả dụng. Hãy chọn mô hình khác để thay đổi lựa chọn.", { model: selectedModel });
-  } else if (selectedModel) {
-    connectionElements.modelStatus.dataset.state = "";
-    connectionElements.modelStatus.textContent = "";
-  } else {
-    connectionElements.modelStatus.dataset.state = "";
-    connectionElements.modelStatus.textContent = t("Chọn mô hình rồi lưu để dùng cho ghi chú cuộc họp.");
-  }
-  updateConnectionActions();
-}
-
-function validateAuthorizationUrl(value) {
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new ConnectionApiError(t("Máy chủ trả về địa chỉ đăng nhập không hợp lệ."), "INVALID_AUTHORIZATION_URL");
-  }
-  if (url.protocol !== "https:" || url.hostname !== "auth.openai.com" || url.username || url.password) {
-    throw new ConnectionApiError(t("Địa chỉ đăng nhập không thuộc dịch vụ ChatGPT chính thức."), "INVALID_AUTHORIZATION_URL");
-  }
-  if (url.searchParams.has("id_token_hint")) {
-    throw new ConnectionApiError(t("Máy chủ không được gửi thông tin nhận dạng nhạy cảm đến trình duyệt."), "UNSAFE_AUTHORIZATION_URL");
-  }
-  return url.href;
-}
-
-function reserveSignInWindow() {
-  try {
-    const popup = window.open("about:blank", "_blank");
-    if (!popup) return null;
-    popup.opener = null;
-    popup.document.title = "Continue with ChatGPT";
-    popup.document.body.textContent = t("Đang chuẩn bị đăng nhập ChatGPT…");
-    return popup;
+    return window.sessionStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
-function clearPollTimer() {
-  if (connectionState.pollTimer !== null) {
-    window.clearTimeout(connectionState.pollTimer);
-    connectionState.pollTimer = null;
-  }
-}
-
-const pendingLoginStorageKey = "asr.chatgpt.pendingLogin";
-
-function persistPendingLogin(login) {
-  try {
-    if (login) sessionStorage.setItem(pendingLoginStorageKey, JSON.stringify(login));
-    else sessionStorage.removeItem(pendingLoginStorageKey);
-  } catch {
-    // Login remains usable when browser storage is unavailable.
-  }
-}
-
-function restorePendingLogin() {
-  try {
-    const login = JSON.parse(sessionStorage.getItem(pendingLoginStorageKey));
-    if (!login || typeof login.id !== "string" || !login.id ||
-        typeof login.expiresAt !== "string" || !Number.isFinite(Date.parse(login.expiresAt))) return;
-    setPendingLogin({ id: login.id, expires_at: login.expiresAt });
-    scheduleLoginPoll(connectionState.pollGeneration, 0);
-  } catch {
-    persistPendingLogin(null);
-  }
-}
-
-function setPendingLogin(session) {
-  connectionState.activeLogin = {
-    id: session.id,
-    expiresAt: session.expires_at,
-  };
-  persistPendingLogin(connectionState.activeLogin);
-  connectionElements.pendingCopy.textContent = t("Đang chờ bạn hoàn tất đăng nhập trong cửa sổ ChatGPT…");
-  updateConnectionActions();
-}
-
-function finishLogin(status, payload = null) {
-  clearPollTimer();
-  connectionState.pollGeneration += 1;
-  connectionState.activeLogin = null;
-  persistPendingLogin(null);
-  connectionElements.signIn.disabled = false;
-  clearConnectionError();
-  updateConnectionActions();
-
-  if (status === "connected") {
-    setConnectionMessage(t("Đã xác thực tài khoản ChatGPT."));
-    void loadAccountData();
-    window.dispatchEvent(new CustomEvent("asr:provider-choice-changed"));
-    return;
-  }
-  if (status === "cancelled") {
-    setConnectionMessage(t("Đã hủy đăng nhập ChatGPT."));
-    return;
-  }
-  if (status === "expired") {
-    setConnectionMessage(t("Phiên đăng nhập đã hết hạn. Hãy bắt đầu lại để kết nối ChatGPT."));
-    return;
-  }
-  if (status === "failed") {
-    const error = payload && payload.error ? payload.error : {};
-    showConnectionError({
-      code: typeof error.code === "string" ? error.code : "SIGN_IN_FAILED",
-      message: typeof error.message === "string" ? error.message : t("Không thể hoàn tất đăng nhập ChatGPT."),
-    });
-    setConnectionMessage(t("Đăng nhập ChatGPT chưa hoàn tất."));
-  }
-}
-
-function scheduleLoginPoll(generation, delay = 1000) {
-  clearPollTimer();
-  connectionState.pollTimer = window.setTimeout(() => {
-    void pollLoginSession(generation);
-  }, delay);
-}
-
-function loginExpired(login) {
-  const expires = Date.parse(login.expiresAt);
-  return Number.isFinite(expires) && Date.now() >= expires;
-}
-
-async function pollLoginSession(generation) {
-  if (generation !== connectionState.pollGeneration || !connectionState.activeLogin) return;
-  const login = connectionState.activeLogin;
-  if (loginExpired(login)) {
-    finishLogin("expired");
-    return;
-  }
-
-  try {
-    const session = await connectionRequest(
-      `/api/providers/chatgpt/login-sessions/${encodeURIComponent(login.id)}`,
-    );
-    if (generation !== connectionState.pollGeneration || !connectionState.activeLogin) return;
-    if (session.status === "pending") {
-      if (loginExpired(login)) {
-        finishLogin("expired");
-      } else {
-        connectionElements.pendingCopy.textContent = t("Đang chờ bạn hoàn tất đăng nhập trong cửa sổ ChatGPT…");
-        scheduleLoginPoll(generation);
-      }
-      return;
-    }
-    if (["connected", "cancelled", "expired", "failed"].includes(session.status)) {
-      finishLogin(session.status, session);
-      return;
-    }
-    throw new ConnectionApiError(t("Máy chủ trả về trạng thái phiên đăng nhập không hợp lệ."), "INVALID_LOGIN_STATUS");
-  } catch (error) {
-    if (generation !== connectionState.pollGeneration || !connectionState.activeLogin) return;
-    showConnectionError(error, { retryPoll: true });
-    connectionElements.pendingCopy.textContent = t("Chưa đọc được trạng thái đăng nhập. Bạn có thể thử kiểm tra lại.");
-  }
-}
-
-async function startLogin() {
-  clearConnectionError();
-  setConnectionMessage("");
-  connectionElements.signIn.disabled = true;
-  const popup = reserveSignInWindow();
-  if (!popup) {
-    showConnectionError({ code: "POPUP_BLOCKED" });
-    connectionElements.signIn.disabled = false;
-    return;
-  }
-
-  try {
-    const session = await connectionRequest("/api/providers/chatgpt/login-sessions", {
-      method: "POST",
-      body: {},
-    });
-    if (!session || session.status !== "pending" || !session.id || !session.expires_at) {
-      throw new ConnectionApiError(t("Máy chủ trả về phiên đăng nhập không hợp lệ."), "INVALID_LOGIN_SESSION");
-    }
-    const authorizationUrl = validateAuthorizationUrl(session.authorization_url);
-    setPendingLogin(session);
-    if (session.replaced_previous === true) {
-      setConnectionMessage(
-        t("Đã thay thế phiên đăng nhập đang chờ. Hãy tiếp tục ở cửa sổ ChatGPT mới; phản hồi từ cửa sổ cũ sẽ bị bỏ qua."),
-      );
-    }
-    const generation = ++connectionState.pollGeneration;
-
-    if (loginExpired(connectionState.activeLogin)) {
-      if (!popup.closed) popup.close();
-      finishLogin("expired");
-      return;
-    }
-    if (!popup.closed) {
-      popup.location.replace(authorizationUrl);
-    } else {
-      showConnectionError({
-        code: "POPUP_BLOCKED",
-        message: t("Cửa sổ đăng nhập đã đóng. Hãy hủy phiên này rồi bắt đầu lại."),
-      });
-    }
-    scheduleLoginPoll(generation, 500);
-  } catch (error) {
-    if (!popup.closed) popup.close();
-    showConnectionError(error);
-    connectionElements.signIn.disabled = false;
-  }
-}
-
-async function cancelLogin() {
-  const login = connectionState.activeLogin;
-  if (!login) return;
-  clearConnectionError();
-  clearPollTimer();
-  const generation = ++connectionState.pollGeneration;
-  connectionElements.cancelSignIn.disabled = true;
-  try {
-    const session = await connectionRequest(
-      `/api/providers/chatgpt/login-sessions/${encodeURIComponent(login.id)}`,
-      { method: "DELETE" },
-    );
-    if (generation !== connectionState.pollGeneration) return;
-    if (["cancelled", "expired", "failed", "connected"].includes(session.status)) {
-      finishLogin(session.status, session);
-      return;
-    }
-    throw new ConnectionApiError(t("Máy chủ chưa hủy được phiên đăng nhập."), "CANCEL_NOT_CONFIRMED");
-  } catch (error) {
-    if (generation !== connectionState.pollGeneration) return;
-    showConnectionError(error);
-    connectionElements.cancelSignIn.disabled = false;
-    scheduleLoginPoll(generation, 1000);
-  }
-}
-
-async function loadAccountData() {
-  const generation = ++connectionState.loadGeneration;
-  clearConnectionError();
-  connectionElements.badge.dataset.state = "loading";
-  connectionElements.badge.textContent = t("Đang kiểm tra");
-  setLauncherState("chatgpt", "loading");
-
-  try {
-    const payload = await connectionRequest("/api/providers");
-    if (generation !== connectionState.loadGeneration) return;
-    const providers = Array.isArray(payload.providers) ? payload.providers : [];
-    const provider = providers.find((item) => item && item.id === "chatgpt");
-    if (!provider || !["connected", "disconnected", "reconnect_required"].includes(provider.status)) {
-      throw new ConnectionApiError(t("Máy chủ chưa công bố trạng thái kết nối ChatGPT hợp lệ."), "INVALID_PROVIDER_STATUS");
-    }
-    connectionState.provider = provider;
-    renderProvider();
-
-    const preferences = await connectionRequest("/api/notes-preferences");
-    if (generation !== connectionState.loadGeneration) return;
-    connectionState.preferences = {
-      provider: ["chatgpt", "antigravity"].includes(preferences.provider) ? preferences.provider : null,
-      models: preferences.models && typeof preferences.models === "object" ? preferences.models : {},
-      reasoning_effort: typeof preferences.reasoning_effort === "string"
-        ? preferences.reasoning_effort : "default",
-    };
-    if (provider.status === "connected") {
-      const catalog = await connectionRequest("/api/providers/chatgpt/models");
-      if (generation !== connectionState.loadGeneration) return;
-      renderModels(catalog, preferences);
-    } else {
-      connectionState.models = [];
-      connectionState.selectedModel = connectionState.preferences.models.chatgpt || "";
-      connectionState.savedModel = connectionState.selectedModel;
-      connectionState.savedEffort = connectionState.preferences.reasoning_effort;
-      connectionElements.modelSelect.replaceChildren();
-      const placeholder = document.createElement("option");
-      placeholder.value = "";
-      placeholder.textContent = t("Kết nối ChatGPT để tải mô hình");
-      connectionElements.modelSelect.append(placeholder);
-      renderEfforts("");
-      connectionElements.modelStatus.textContent = "";
-      connectionElements.modelStatus.dataset.state = "";
-      updateConnectionActions();
-    }
-  } catch (error) {
-    if (generation !== connectionState.loadGeneration) return;
-    await refreshProviderAfterAuthFailure(error);
-    if (!connectionState.provider) {
-      setLauncherState("chatgpt", "error");
-      connectionElements.badge.dataset.state = "error";
-      connectionElements.badge.textContent = t("Không khả dụng");
-      connectionElements.status.textContent = t("Không đọc được trạng thái");
-    } else {
-      renderProvider(); // the last known status stands; drop the "loading" state
-    }
-    showConnectionError(error);
-  }
-}
-
-// One /api/providers read on page load sets both header buttons.
-async function refreshHeaderStatus() {
-  const generation = connectionState.loadGeneration;
-  let providers = [];
-  try {
-    const payload = await connectionRequest("/api/providers");
-    if (Array.isArray(payload.providers)) providers = payload.providers;
-  } catch {
-    // Neither status is known; both buttons fall through to the error state.
-  }
-  const known = ["connected", "disconnected", "reconnect_required"];
-  // A dialog or login read that started meanwhile is newer than this slower page-load answer.
-  if (generation === connectionState.loadGeneration) {
-    const chatgpt = providers.find((item) => item && item.id === "chatgpt");
-    if (chatgpt && known.includes(chatgpt.status)) {
-      connectionState.provider = chatgpt;
-      renderProvider();
-    } else {
-      setLauncherState("chatgpt", "error");
-    }
-  }
-  // loadAntigravity sets Google without moving the generation; a status already shown there is newer.
-  if (launcherElements.antigravity.button.dataset.state) return;
-  const antigravity = providers.find((item) => item && item.id === "antigravity");
-  setLauncherState(
-    "antigravity",
-    antigravity && known.includes(antigravity.status) ? antigravity.status : "error",
-    antigravity?.account?.label,
-  );
-}
-
-async function saveModel(event) {
-  event.preventDefault();
-  const model = connectionElements.modelSelect.value;
-  const reasoningEffort = connectionElements.effortSelect.value;
-  if (!modelIsAvailable(model) || connectionState.savingModel) return;
-  clearConnectionError();
-  connectionElements.modelStatus.dataset.state = "";
-  connectionElements.modelStatus.textContent = t("Đang lưu mô hình…");
-  connectionState.savingModel = true;
-  updateConnectionActions();
-  try {
-    const preferences = await connectionRequest("/api/notes-preferences", {
-      method: "PUT",
-      body: { provider: "chatgpt", model, reasoning_effort: reasoningEffort },
-    });
-    connectionState.preferences = {
-      provider: "chatgpt",
-      models: preferences.models && typeof preferences.models === "object"
-        ? preferences.models
-        : { chatgpt: model },
-      reasoning_effort: typeof preferences.reasoning_effort === "string"
-        ? preferences.reasoning_effort : reasoningEffort,
-    };
-    connectionState.savedModel = connectionState.preferences.models.chatgpt || model;
-    connectionState.selectedModel = connectionState.savedModel;
-    connectionState.savedEffort = connectionState.preferences.reasoning_effort;
-    connectionElements.modelSelect.value = connectionState.selectedModel;
-    renderEfforts(connectionState.selectedModel, connectionState.savedEffort);
-    connectionElements.modelStatus.dataset.state = "saved";
-    connectionElements.modelStatus.textContent = t("Đã lưu {model} · effort {effort} cho ghi chú cuộc họp.", {
-      model: modelName(connectionState.selectedModel),
-      effort: connectionState.savedEffort,
-    });
-    window.dispatchEvent(new CustomEvent("asr:provider-choice-changed"));
-  } catch (error) {
-    await refreshProviderAfterAuthFailure(error);
-    connectionElements.modelStatus.dataset.state = "error";
-    connectionElements.modelStatus.textContent = t("Chưa lưu được mô hình. Lựa chọn đã lưu trước đó vẫn được giữ nguyên.");
-    showConnectionError(error);
-  } finally {
-    connectionState.savingModel = false;
-    updateConnectionActions();
-  }
-}
-
-async function verifyConnection() {
-  const model = connectionElements.modelSelect.value;
-  const reasoningEffort = connectionElements.effortSelect.value;
-  if (!modelIsAvailable(model) || connectionState.verifying) return;
-  clearConnectionError();
-  connectionElements.verificationResult.dataset.state = "";
-  connectionElements.verificationResult.textContent = t("Đang chạy một yêu cầu kiểm tra tổng hợp…");
-  connectionState.verifying = true;
-  updateConnectionActions();
-  try {
-    const result = await connectionRequest("/api/providers/chatgpt/verify", {
-      method: "POST",
-      body: { model, reasoning_effort: reasoningEffort },
-    });
-    connectionElements.verificationResult.dataset.state = "success";
-    connectionElements.verificationResult.textContent = t("Đã xác minh {model} · effort {effort} lúc {time}.", {
-      model: modelName(result.model),
-      effort: result.reasoning_effort || reasoningEffort,
-      time: formatTimestamp(result.verified_at),
-    });
-    if (connectionState.provider) {
-      connectionState.provider.verification = {
-        model: result.model,
-        reasoning_effort: result.reasoning_effort || reasoningEffort,
-        verified_at: result.verified_at,
-      };
-      renderProvider();
-    }
-  } catch (error) {
-    await refreshProviderAfterAuthFailure(error);
-    connectionElements.verificationResult.dataset.state = "error";
-    connectionElements.verificationResult.textContent = t("Không xác minh được kết nối. Yêu cầu không được tự động gửi lại.");
-    showConnectionError(error);
-  } finally {
-    connectionState.verifying = false;
-    updateConnectionActions();
-  }
-}
-
-function setDisconnectConfirmation(open) {
-  connectionElements.disconnectConfirm.hidden = !open;
-  connectionElements.disconnectTrigger.hidden = open;
-  if (open) connectionElements.disconnectConfirmButton.focus();
-  else connectionElements.disconnectTrigger.focus();
-}
-
-async function disconnectConnection() {
-  if (connectionState.disconnecting) return;
-  clearConnectionError();
-  connectionState.disconnecting = true;
-  connectionElements.disconnectConfirmButton.textContent = t("Đang ngắt kết nối…");
-  updateConnectionActions();
-  try {
-    const result = await connectionRequest("/api/providers/chatgpt/connection", { method: "DELETE" });
-    if (result.status !== "disconnected") {
-      throw new ConnectionApiError(t("Máy chủ chưa xác nhận đã ngắt kết nối ChatGPT."), "DISCONNECT_NOT_CONFIRMED");
-    }
-    connectionState.provider = {
-      ...(connectionState.provider || {}),
-      id: "chatgpt",
-      status: "disconnected",
-      account: null,
-      verification: null,
-    };
-    connectionState.models = [];
-    connectionElements.verificationResult.textContent = "";
-    connectionElements.verificationResult.dataset.state = "";
-    connectionElements.modelSelect.replaceChildren();
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-      placeholder.textContent = t("Kết nối ChatGPT để tải mô hình");
-    connectionElements.modelSelect.append(placeholder);
-    connectionElements.disconnectConfirm.hidden = true;
-    connectionElements.disconnectTrigger.hidden = false;
-    renderProvider();
-    window.dispatchEvent(new CustomEvent("asr:provider-choice-changed"));
-    if (result.remote_revocation_confirmed === true) {
-      setConnectionMessage(t("Đã xóa thông tin đăng nhập trong không gian làm việc và xác nhận thu hồi quyền truy cập từ xa."));
-    } else {
-      setConnectionMessage(t("Đã ngắt kết nối trong không gian làm việc. ChatGPT chưa xác nhận thu hồi quyền từ xa; hãy kiểm tra ChatGPT → Cài đặt → Mức sử dụng."));
-    }
-    connectionElements.signIn.focus();
-  } catch (error) {
-    showConnectionError(error);
-  } finally {
-    connectionState.disconnecting = false;
-    connectionElements.disconnectConfirmButton.textContent = t("Ngắt kết nối");
-    updateConnectionActions();
-  }
-}
-
-for (const [provider, { button }] of Object.entries(launcherElements)) {
-  button.addEventListener("click", async () => {
-    if (!connectionElements.dialog.open) connectionElements.dialog.showModal();
-    connectionElements.dialog.querySelector(".connections-body").scrollTop = 0; // a closed dialog keeps its scroll
-    setConnectionMessage("");
-    const loads = Promise.allSettled([loadAccountData(), loadAntigravity()]);
-    if (provider !== "antigravity") return;
-    const generation = connectionState.loadGeneration;
-    document.querySelector("#antigravity-title").focus({ preventScroll: true });
-    // The ChatGPT sections above and the Antigravity sections below change height as they load.
-    await loads;
-    if (generation === connectionState.loadGeneration) {
-      document.querySelector("#antigravity-section").scrollIntoView({ block: "start" });
-    }
+for (const provider of [CHATGPT.id, ANTIGRAVITY.id]) {
+  launcherElements[provider].addEventListener("click", () => {
+    if (!els.dialog.open) els.dialog.showModal();
+    els.dialog.querySelector(".connections-body").scrollTop = 0; // a closed dialog keeps its scroll
+    dispatch({ type: "provider/dialog-opened", launcher: provider });
+    if (provider === ANTIGRAVITY.id) document.querySelector("#antigravity-title").focus({ preventScroll: true });
   });
 }
-connectionElements.close.addEventListener("click", () => connectionElements.dialog.close());
-connectionElements.dialog.addEventListener("click", (event) => {
-  if (event.target === connectionElements.dialog) connectionElements.dialog.close();
+els.close.addEventListener("click", () => els.dialog.close());
+els.dialog.addEventListener("click", (event) => {
+  if (event.target === els.dialog) els.dialog.close();
 });
-connectionElements.signIn.addEventListener("click", () => void startLogin());
-connectionElements.cancelSignIn.addEventListener("click", () => void cancelLogin());
-connectionElements.retryPoll.addEventListener("click", () => {
-  clearConnectionError();
-  if (connectionState.activeLogin) scheduleLoginPoll(connectionState.pollGeneration, 0);
-});
-connectionElements.modelSelect.addEventListener("change", () => {
-  connectionState.selectedModel = connectionElements.modelSelect.value;
-  renderEfforts(
-    connectionState.selectedModel,
-    connectionState.selectedModel === connectionState.savedModel
-      ? connectionState.savedEffort : "default",
-  );
-  if (connectionState.selectedModel !== connectionState.savedModel) {
-    connectionElements.modelStatus.dataset.state = "";
-    connectionElements.modelStatus.textContent = t("Lựa chọn mới chưa được lưu.");
-  }
-  updateConnectionActions();
-});
-connectionElements.effortSelect.addEventListener("change", () => {
-  connectionElements.modelStatus.dataset.state = "";
-  connectionElements.modelStatus.textContent = t("Mức suy luận mới chưa được lưu.");
-  updateConnectionActions();
-});
-connectionElements.modelForm.addEventListener("submit", saveModel);
-connectionElements.verify.addEventListener("click", () => void verifyConnection());
-connectionElements.disconnectTrigger.addEventListener("click", () => setDisconnectConfirmation(true));
-connectionElements.disconnectKeep.addEventListener("click", () => setDisconnectConfirmation(false));
-connectionElements.disconnectConfirmButton.addEventListener("click", () => void disconnectConnection());
 
-restorePendingLogin();
-void refreshHeaderStatus();
+const chatgpt = (action) => dispatch({ ...action, provider: CHATGPT.id });
+els.signIn.addEventListener("click", () => chatgpt({ type: "provider/login-requested" }));
+els.cancelSignIn.addEventListener("click", () => chatgpt({ type: "provider/login-cancel-requested" }));
+els.retryPoll.addEventListener("click", () => chatgpt({ type: "provider/poll-retry-requested" }));
+els.modelSelect.addEventListener("change", () => chatgpt({ type: "provider/choice-edited", field: "model", value: els.modelSelect.value }));
+els.effortSelect.addEventListener("change", () => chatgpt({ type: "provider/choice-edited", field: "effort", value: els.effortSelect.value }));
+els.modelForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  chatgpt({ type: "provider/save-requested" });
+});
+els.verify.addEventListener("click", () => chatgpt({ type: "provider/verify-requested" }));
+els.disconnectTrigger.addEventListener("click", () => chatgpt({ type: "provider/disconnect-confirm-toggled", open: true }));
+els.disconnectKeep.addEventListener("click", () => chatgpt({ type: "provider/disconnect-confirm-toggled", open: false }));
+els.disconnectConfirmButton.addEventListener("click", () => chatgpt({ type: "provider/disconnect-requested" }));
+
+chatgpt({ type: "provider/boot-restored", raw: readStored(CHATGPT.storageKey), now: Date.now() });
+dispatch({ type: "provider/header-requested" });
