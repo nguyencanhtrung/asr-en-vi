@@ -133,6 +133,55 @@ Kiến trúc
 
 - `docs/release/runtime-v0.1.0.md` — release publication verification.
 
+### #119 (pha 0 của #118) — ADR và khung reducer/store cho frontend
+
+#### Vấn đề
+
+Frontend (`src/asr_en_vi/web/`) là JS thuần với state sửa trực tiếp ở khoảng 250 chỗ, chống response cũ bằng các bộ đếm rải rác và không có unit test JS (CI chưa cài Node). Issue #118 chuyển dần sang core thuần; pha 0 dựng nền, chưa chuyển module UI nào.
+
+#### Nguyên nhân đo được
+
+Khoảng 250 lệnh gán state trực tiếp (`history.js` 145, `shell.js` 78, `notes.js` 29), các bộ đếm `loadSeq`/`searchSeq`/`saveSeq`, giao tiếp bằng `CustomEvent` và hàm global; test chỉ có Playwright.
+
+Nguồn: issue #118.
+
+#### Thay đổi thiết kế
+
+`docs/adr/0010-frontend-reducer-core.md` chốt kiến trúc; `src/asr_en_vi/web/store.js` là ES module không chạm DOM gồm `createStore`, `combine`, `createRunner` (effect `fetch`, `schedule`, `cancel`, latest-wins theo `key`, kết quả mang `meta` để reducer bỏ response cũ). `tests/web/*.test.mjs` chạy bằng `node --test`, nằm trong `scripts/check.sh` và job quality của CI (Node 24, action ghim SHA). File UI hiện có, CSP và hành vi người dùng không đổi; không thêm dependency hay build step.
+
+#### Số đo trước và sau
+
+| | Trước | Sau |
+| --- | --- | --- |
+| Unit test JS | 0 | 19 test, 0,054 s |
+| Node trong CI | không | Node 24 |
+
+Điều kiện đo: Node 24.13.0, `node --test 'tests/web/*.test.mjs'`, thời gian wall một lần chạy cục bộ.
+
+Nguồn: `tests/web/store.test.mjs`, `.github/workflows/pipeline.yml`.
+
+#### Đánh đổi và phương án đã loại
+
+- Store tự viết dưới 150 dòng: không middleware hay devtools, đổi lại không phụ thuộc thư viện.
+- Framework hoặc bundler: loại theo phạm vi #118.
+- `node --test` nhận glob `tests/web/*.test.mjs`: Node 24 coi đối số thư mục là đường dẫn module nên không dùng `tests/web/`.
+
+#### Follow-up
+
+- Pha 1–5 của #118 chuyển từng module; #117 cần thống nhất thứ tự với pha 1.
+
+#### Liên kết issue/PR
+
+Issue #119; thuộc #118.
+
+#### Tag
+
+Kiến trúc
+
+#### Tài liệu đích
+
+- `docs/release/runtime-v0.1.0.md` — kiến trúc frontend.
+
 ## 4. Mốc AC-13 (#16 → #99 → #104)
 
 Đã chuyển bảng mốc và điều kiện đo vào [báo cáo nghiệm thu](acceptance-report-v1.md).

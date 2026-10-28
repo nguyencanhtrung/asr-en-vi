@@ -196,6 +196,10 @@ def test_pipeline_gates_pull_requests_main_and_version_tags():
     for tool in ("ffmpeg", "ffprobe"):
         assert f"command -v {tool}" in media_step["run"].splitlines()
     assert names.index("Install media tools") < names.index("Run repository checks")
+    node_step = quality["steps"][names.index("Set up Node.js")]
+    assert node_step["uses"].startswith("actions/setup-node@")
+    assert node_step["with"]["node-version"] == "24"
+    assert names.index("Set up Node.js") < names.index("Run repository checks")
     # Missing media tools must fail CI instead of silently skipping media tests.
     assert check_step["env"]["ASR_REQUIRE_MEDIA_TOOLS"] == "1"
 
@@ -606,6 +610,7 @@ def test_repository_checks_have_shell_syntax_and_pytest_timeout_guardrails():
     assert pytest_config["timeout"] == 300
     assert pytest_config["timeout_method"] == "thread"
     assert "./scripts/check-shell-syntax.sh" in check_script
+    assert "node --test 'tests/web/*.test.mjs'" in check_script
     assert "pytest.mark.timeout(0)" in e2e_test
 
 

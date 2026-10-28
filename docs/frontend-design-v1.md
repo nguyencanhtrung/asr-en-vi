@@ -266,3 +266,45 @@ Prototype hiện có không chứng minh các trạng thái backend trong mục 
 | FE-18 | Trích dẫn mốc thời gian của notes: chip `mm:ss`/`h:mm:ss` sau mục có nguồn, chỉ ở **Xem**, Markdown/Viết/sao chép/tải về không có link; chip chỉ gắn vào mục còn nguyên nội dung; bấm chip hoặc dán link chọn tab Transcript, hiện thẻ **Nguồn đã lưu lúc tạo notes** dưới trình phát, tua và phát, đánh dấu và cuộn tới đoạn, Back về Meeting notes; notes cũ không chip; không tràn ngang ở 360 px, đúng ở theme sáng/tối, focus nhìn thấy và tôn trọng giảm chuyển động |
 
 Việc chốt tài liệu này xác nhận hướng thiết kế. Các tiêu chí trên là điều kiện kiểm tra frontend khi triển khai, không phải báo cáo nghiệm thu sản phẩm đã hoàn thành.
+
+## 11. Kiến trúc mã frontend: reducer, effect và store
+
+Quyết định và lý do nằm ở [ADR 0010](adr/0010-frontend-reducer-core.md). Mục này là quy ước cho code; các pha chuyển module chưa bắt đầu nên các file UI hiện có chưa theo kiến trúc này. Hành vi người dùng thấy không đổi.
+
+### 11.1. Các lớp
+
+| Lớp | Việc | Không được |
+| --- | --- | --- |
+| Core | `initialState`, `reduce(state, action) -> { state, effects }`, selector | chạm DOM, `fetch`, timer, storage, `Date.now`, `Math.random` |
+| Effect | object `{type, ...}`: `fetch`, `schedule`, `cancel` | chứa hàm hoặc logic |
+| Runner | `createRunner({ fetch, setTimeout, clearTimeout })` chạy effect, dispatch kết quả | quyết định nghiệp vụ |
+| View | đọc state, render DOM, handler chỉ dispatch action | giữ state riêng ngoài focus/scroll |
+| Store | `createStore`, `combine`, `subscribe` (`src/asr_en_vi/web/store.js`) | biết về tính năng cụ thể |
+
+### 11.2. Quy ước action và effect
+
+- Action là `{type, ...payload}`, đặt tên theo sự kiện đã xảy ra (`notes-loaded`, `notes-load-failed`), không theo lệnh.
+- Effect `fetch` khai báo `ok` và `error` là tên action của kết quả; mã 2xx gửi `ok`, lỗi HTTP hoặc mạng gửi `error`; request bị hủy không gửi gì.
+- `key` bắt buộc ở `fetch`, `schedule`, `cancel` (thiếu thì runner ném lỗi). Effect cùng `key` thay thế effect cũ; `cancel` hủy theo `key`.
+- Body của `fetch` được parse JSON, không phải JSON thì giữ text (không kiểm tra content-type).
+- Loại effect mới (upload XHR có tiến độ, ghi storage) thêm thành nhánh trong `createRunner`. Reducer không đọc storage: giá trị đọc được vào state qua một action khởi động.
+- Lỗi trong reducer, effect hoặc subscriber: state giữ tới action cuối chạy thành công, hàng đợi bị bỏ, lỗi ném cho nơi gọi `dispatch` (với kết quả `fetch` là `unhandledRejection`).
+- Tính năng nói chuyện với nhau bằng action dùng chung đi qua `combine`, không dùng `CustomEvent` hay hàm global.
+
+### 11.3. Quy tắc response cũ và quy tắc gán state
+
+- Reducer lưu id yêu cầu mới nhất trong state, đặt id vào `meta` của effect `fetch`; action kết quả mang lại `meta` và reducer bỏ action có id không khớp.
+- Chỉ reducer tạo state mới. Từ pha 1, review và grep kiểm không còn lệnh gán state ngoài reducer trong file đã chuyển.
+
+### 11.4. Thứ tự chuyển
+
+Mỗi pha thêm vào tài liệu này bảng state và chuyển trạng thái của core vừa chuyển, gồm cả trạng thái lỗi, hủy và response cũ.
+
+| Pha | Phạm vi |
+| --- | --- |
+| 0 | ADR, `store.js`, `node --test` cho `tests/web/`, Node trong CI (mục này) |
+| 1 | `shell.js`: dialog tạo cuộc họp và upload; issue #117 cũng sửa luồng upload nên cần thống nhất thứ tự với pha này |
+| 2 | `connections.js` và `antigravity.js` dùng chung một core provider |
+| 3 | `notes.js`: chế độ xem/soạn, chọn provider/model, task notes, lưu revision |
+| 4 | `history.js` tách thành core điều hướng/meeting, transcript và generation, calendar, search, polling task, khóa nguồn notes |
+| 5 | bỏ global và `CustomEvent` còn sót, xóa code chết, cập nhật tài liệu |

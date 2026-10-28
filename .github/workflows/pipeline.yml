@@ -38,6 +38,10 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: uv.lock
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
       - name: Install media tools
         run: |
           # Work around sustained Azure archive slowness: https://github.com/actions/runner-images/issues/14823
