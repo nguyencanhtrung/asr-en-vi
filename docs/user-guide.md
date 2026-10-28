@@ -516,7 +516,7 @@ lịch sử hoặc cần cập nhật khi nguồn thay đổi; đổi riêng tê
 
 ## Phát triển và kiểm tra
 
-Cài Python 3.12, uv, Node.js, Docker Compose và actionlint v1.7.11 rồi chạy toàn bộ quality gate
+Cài Python 3.12, uv, Node.js 24 (như CI), Docker Compose và actionlint v1.7.11 rồi chạy toàn bộ quality gate
 bằng một lệnh (xem [hướng dẫn môi trường và workflow](agents/development.md)):
 
 ```sh

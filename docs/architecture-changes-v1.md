@@ -151,12 +151,12 @@ Nguồn: issue #118.
 
 #### Số đo trước và sau
 
+Điều kiện đo: Node 24.13.0, `node --test 'tests/web/*.test.mjs'`, thời gian wall của các test một lần chạy cục bộ; thời gian chạy trên CI nằm trong log job quality.
+
 | | Trước | Sau |
 | --- | --- | --- |
-| Unit test JS | 0 | 19 test, 0,054 s |
+| Unit test JS | 0 | 19 test, dưới 0,1 s |
 | Node trong CI | không | Node 24 |
-
-Điều kiện đo: Node 24.13.0, `node --test 'tests/web/*.test.mjs'`, thời gian wall một lần chạy cục bộ.
 
 Nguồn: `tests/web/store.test.mjs`, `.github/workflows/pipeline.yml`.
 
@@ -173,6 +173,63 @@ Nguồn: `tests/web/store.test.mjs`, `.github/workflows/pipeline.yml`.
 #### Liên kết issue/PR
 
 Issue #119; thuộc #118.
+
+#### Tag
+
+Kiến trúc
+
+#### Tài liệu đích
+
+- `docs/release/runtime-v0.1.0.md` — kiến trúc frontend.
+
+### #121 (pha 1 của #118) — dialog tạo cuộc họp chuyển sang reducer
+
+#### Vấn đề
+
+`shell.js` (dialog chọn file, upload, tạo cuộc họp) giữ một object `appState` sửa trực tiếp ở 75 chỗ, trộn logic với DOM, và chống response cũ bằng `runId`/`policyRunId` cùng cờ `startingUpload`. Logic upload, hủy, dọn upload dở và tạo cuộc họp không có unit test, chỉ có Playwright.
+
+#### Nguyên nhân đo được
+
+Đếm lệnh gán `appState.<trường>` trong `shell.js` trước pha 1: 75. Các nhánh hủy giữa chừng, lỗi mạng, bấm lặp và thử lại chỉ kiểm được qua trình duyệt thật.
+
+Nguồn: `git show 10162b3:src/asr_en_vi/web/shell.js`; issue #118.
+
+#### Thay đổi thiết kế
+
+- `shell-core.js`: core thuần (`initialState`, `reduce`, `selectView`, chính sách file, kiểm form, thông điệp lỗi). `shell.js` là ES module chỉ render và dispatch (`<script type="module">`, nạp trước các script `defer` chưa chuyển). Mọi id chống response cũ nằm trong state.
+- `createRunner` thêm effect `upload` (XHR có tiến độ, hủy, cùng ngữ nghĩa `ok`/`error`/`meta`/latest-wins như `fetch`), `storage` và `navigate`. Upload là effect riêng để #117 chèn bước tách audio trước nó.
+- `ApiError`, `requestJson`, `meetingIdFromPath`, `formatMeetingDate`, `sameOriginAudioSource` vẫn công bố trên `window` cho `history.js` tới pha 5.
+- Route `/assets/store.js` và `/assets/shell-core.js` có bảo vệ truy cập như asset khác, kèm test.
+- Test `tests/web/shell-view.test.mjs` chặn gán vào state, `let`/`var` cấp module và truy cập storage ngoài `readStored` trong view đã chuyển; chạy trong `check.sh` và CI.
+- Gộp góp ý pha 0: quy tắc tiền tố `key`, ngữ nghĩa lỗi giữa lượt drain và trong callback `schedule` (ADR 0010, mục 11.2), test hàng đợi bị bỏ khi lỗi, contract test yêu cầu có file `tests/web/*.test.mjs`, Node 24 trong `docs/user-guide.md`.
+
+#### Số đo trước và sau
+
+Điều kiện đo: Node 24.13.0, `node --test 'tests/web/*.test.mjs'`, thời gian wall của các test một lần chạy cục bộ.
+
+| | Trước | Sau |
+| --- | --- | --- |
+| Lệnh gán state trong `shell.js` | 75 | 0 |
+| Unit test JS | 19 | 70, dưới 0,1 s |
+
+Nguồn: `tests/web/shell-core.test.mjs`, `tests/web/store.test.mjs`, `tests/web/shell-view.test.mjs`.
+
+#### Đánh đổi và phương án đã loại
+
+- Đóng dialog gửi DELETE upload dở rồi đóng ngay thay vì chờ DELETE trả lời; DELETE lỗi vẫn được nhớ và thử lại.
+- Giá trị đã nhớ (ngôn ngữ, chép lời ngay) được đọc mỗi lần mở dialog, không chỉ lúc tải trang, để giữ hành vi cũ khi storage đổi giữa hai lần mở.
+- Hủy rồi đóng khi DELETE treo: id nằm ở `pendingCleanup` từ lúc hủy nên không mất; dialog không bị khóa. Dialog bị trình duyệt tự đóng (Esc lần hai) được state theo kịp qua action `dialog-closed`.
+- Render chỉ ghi DOM khi giá trị đổi, để vùng `aria-live` không bị đọc lại.
+- Không dùng `combine`: dialog là tính năng duy nhất trên store này tới khi pha sau thêm tính năng thứ hai.
+
+#### Follow-up
+
+- #117 thêm effect tách audio trước `shell/upload`.
+- Pha 2–5 của #118.
+
+#### Liên kết issue/PR
+
+Issue #121; thuộc #118.
 
 #### Tag
 

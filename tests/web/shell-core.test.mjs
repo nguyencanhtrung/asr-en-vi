@@ -1,0 +1,667 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { createRunner, createStore } from "../../src/asr_en_vi/web/store.js";
+import {
+  AUTO_TRANSCRIBE_HANDOFF_PREFIX,
+  canSubmit,
+  initialState,
+  reduce,
+  selectView,
+} from "../../src/asr_en_vi/web/shell-core.js";
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+const reply = (status, body) => ({ ok: status < 400, status, text: async () => JSON.stringify(body) });
+const POLICY = { supported_extensions: ["wav", ".mp3"], max_bytes: 1000, max_duration_seconds: 7200 };
+const FILE = { name: "Weekly sync.wav", size: 500 };
+
+// Real store and runner over fakes: requests wait in `calls` until a test answers them.
+function setup() {
+  const calls = [];
+  const fetch = (url, init) =>
+    new Promise((resolve, reject) => {
+      calls.push({ url, init, resolve, reject, method: init.method });
+    });
+  const xhrs = [];
+  class FakeXhr {
+    constructor() {
+      this.upload = {};
+      xhrs.push(this);
+    }
+    open(method, url) {
+      Object.assign(this, { method, url });
+    }
+    setRequestHeader() {}
+    send(body) {
+      this.body = body;
+    }
+    abort() {
+      this.aborted = true;
+    }
+  }
+  const written = [];
+  const navigated = [];
+  const run = createRunner({
+    fetch,
+    setTimeout: () => 0,
+    clearTimeout: () => {},
+    XMLHttpRequest: FakeXhr,
+    storage: { local: () => ({ setItem: (k, v) => written.push(["local", k, v]) }), session: () => ({ setItem: (k, v) => written.push(["session", k, v]) }) },
+    navigate: (url) => navigated.push(url),
+  });
+  const store = createStore({ reduce, initialState, run });
+  const answer = async (match, status, body) => {
+    const call = calls.find((c) => !c.done && match(c));
+    assert.ok(call, "no pending call");
+    call.done = true;
+    call.resolve(reply(status, body));
+    await tick();
+  };
+  const is = (method, path) => (c) => c.method === method && c.url.includes(path);
+  const form = { title: "Weekly sync", date: "", language: "en" };
+  return { store, calls, xhrs, written, navigated, answer, is, form, state: () => store.getState() };
+}
+
+async function opened(env, stored = {}) {
+  env.store.dispatch({ type: "shell/dialog-opened", stored });
+  await env.answer(env.is("GET", "/api/uploads/policy"), 200, POLICY);
+}
+
+async function selected(env, file = FILE) {
+  await opened(env);
+  env.store.dispatch({ type: "shell/file-selected", file });
+  env.store.dispatch({ type: "shell/form-edited", form: env.form });
+}
+
+async function uploading(env) {
+  await selected(env);
+  env.store.dispatch({ type: "shell/submit-requested" });
+  await env.answer(env.is("POST", "/api/uploads"), 200, { id: "u1" });
+}
+
+async function ready(env) {
+  await uploading(env);
+  env.xhrs[0].upload.onprogress({ loaded: 250, total: 500, lengthComputable: true });
+  Object.assign(env.xhrs[0], { status: 204, responseText: "" });
+  env.xhrs[0].onload();
+  await env.answer(env.is("POST", "/complete"), 200, { status: "ready" });
+}
+
+test("opening loads the policy; a reply for a closed or reopened dialog is stale", async () => {
+  const env = setup();
+  env.store.dispatch({ type: "shell/dialog-opened", stored: {} });
+  assert.equal(env.state().phase, "idle");
+  assert.equal(env.state().policy, null);
+  env.store.dispatch({ type: "shell/dialog-close-requested" });
+  await env.answer(env.is("GET", "/policy"), 200, POLICY); // cancelled by close: ignored
+  assert.equal(env.state().policy, null);
+  // A reply carrying an old request id is ignored even if it reaches the reducer.
+  env.store.dispatch({ type: "shell/dialog-opened", stored: {} });
+  const { id } = { id: env.state().policyRequest };
+  env.store.dispatch({ type: "shell/policy-loaded", meta: { id: id - 1 }, response: { body: POLICY } });
+  assert.equal(env.state().policy, null);
+  await env.answer(env.is("GET", "/policy"), 200, POLICY);
+  assert.deepEqual(env.state().policy, { extensions: [".wav", ".mp3"], maxBytes: 1000, maxDurationSeconds: 7200 });
+});
+
+test("remembered choices fill the form; unknown language is ignored", () => {
+  const env = setup();
+  env.store.dispatch({ type: "shell/dialog-opened", stored: { language: "vi", autoTranscribe: "0" } });
+  assert.deepEqual(env.state().form, { title: "", date: "", language: "vi", autoTranscribe: false });
+  env.store.dispatch({ type: "shell/dialog-close-requested" });
+  env.store.dispatch({ type: "shell/dialog-opened", stored: { language: "fr", autoTranscribe: null } });
+  assert.deepEqual(env.state().form, { title: "", date: "", language: "", autoTranscribe: true });
+});
+
+test("a policy that fails to load or parse leaves an error and no upload", async () => {
+  const env = setup();
+  env.store.dispatch({ type: "shell/dialog-opened", stored: {} });
+  await env.answer(env.is("GET", "/policy"), 500, {});
+  assert.equal(env.state().phase, "error");
+  assert.equal(env.state().policyFailed, true);
+  assert.equal(canSubmit(env.state()), false);
+  env.store.dispatch({ type: "shell/dialog-close-requested" });
+  env.store.dispatch({ type: "shell/dialog-opened", stored: {} });
+  await env.answer(env.is("GET", "/policy"), 200, { max_bytes: 5 });
+  assert.equal(env.state().phase, "error");
+  assert.equal(env.state().policy, null);
+});
+
+test("file checks: unsupported extension, too large, missing policy, title prefill", async () => {
+  const env = setup();
+  env.store.dispatch({ type: "shell/dialog-opened", stored: {} });
+  env.store.dispatch({ type: "shell/file-selected", file: FILE }); // policy not loaded yet
+  assert.equal(env.state().phase, "error");
+  await env.answer(env.is("GET", "/policy"), 200, POLICY);
+  env.store.dispatch({ type: "shell/file-selected", file: { name: "notes.txt", size: 1 } });
+  assert.equal(env.state().phase, "error");
+  assert.equal(env.state().fileError.params.extension, ".txt");
+  env.store.dispatch({ type: "shell/file-selected", file: { name: "big.wav", size: 5000 } });
+  assert.equal(env.state().phase, "error");
+  env.store.dispatch({ type: "shell/file-selected", file: FILE });
+  assert.equal(env.state().phase, "selected");
+  assert.equal(env.state().fileError, null);
+  assert.equal(env.state().form.title, "Weekly sync");
+  env.store.dispatch({ type: "shell/form-edited", form: { title: "My title", date: "", language: "en" } });
+  env.store.dispatch({ type: "shell/file-selected", file: { name: "other.wav", size: 2 } });
+  assert.equal(env.state().form.title, "My title"); // a typed title is never replaced
+});
+
+test("form validation gates the one button", async () => {
+  const env = setup();
+  await selected(env);
+  assert.equal(selectView(env.state()).createDisabled, false);
+  const edit = (patch) => env.store.dispatch({ type: "shell/form-edited", form: { ...env.form, ...patch } });
+  edit({ title: "   " });
+  assert.equal(canSubmit(env.state()), false);
+  edit({ title: "x".repeat(201) });
+  assert.equal(canSubmit(env.state()), false);
+  edit({ language: "" });
+  assert.equal(canSubmit(env.state()), false);
+  edit({ date: "2026-1-2" });
+  assert.equal(canSubmit(env.state()), false);
+  edit({ date: "2026-10-28" });
+  assert.equal(canSubmit(env.state()), true);
+});
+
+test("one button: cleans, creates the upload, uploads with progress, checks, then creates the meeting", async () => {
+  const env = setup();
+  await selected(env);
+  env.store.dispatch({ type: "shell/submit-requested" });
+  assert.equal(env.state().starting, true);
+  await env.answer(env.is("POST", "/api/uploads"), 200, { id: "u1" });
+  assert.equal(env.state().phase, "uploading");
+  assert.equal(env.xhrs[0].url, "/api/uploads/u1/content");
+  assert.equal(env.xhrs[0].body, FILE);
+  env.xhrs[0].upload.onprogress({ loaded: 250, total: 500, lengthComputable: true });
+  assert.equal(env.state().progress.percent, 50);
+  env.xhrs[0].upload.onprogress({ loaded: 700, lengthComputable: false });
+  assert.equal(env.state().progress.text.text, "{size} đã gửi");
+  Object.assign(env.xhrs[0], { status: 204, responseText: "" });
+  env.xhrs[0].onload();
+  assert.equal(env.state().phase, "checking");
+  await env.answer(env.is("POST", "/u1/complete"), 200, { status: "ready" });
+  assert.equal(env.state().phase, "creating");
+  const create = env.calls.find((c) => c.url === "/api/meetings");
+  assert.deepEqual(JSON.parse(create.init.body), { upload_id: "u1", title: "Weekly sync", meeting_date: null, language_hint: "en" });
+  await env.answer(env.is("POST", "/api/meetings"), 201, { meeting: { id: "m 1" } });
+  assert.equal(env.state().phase, "saved");
+  assert.deepEqual(env.written, [
+    ["local", "asr-en-vi:last-language-hint", "en"],
+    ["session", `${AUTO_TRANSCRIBE_HANDOFF_PREFIX}m 1`, "1"],
+  ]);
+  assert.deepEqual(env.navigated, ["/meetings/m%201"]);
+});
+
+test("auto-transcribe off writes no handoff; toggling stores the choice", async () => {
+  const env = setup();
+  await ready(env);
+  env.store.dispatch({ type: "shell/auto-transcribe-toggled", value: false });
+  assert.deepEqual(env.written, [["local", "asr-en-vi:auto-transcribe", "0"]]);
+});
+
+test("a repeated create or upload while busy does nothing", async () => {
+  const env = setup();
+  await selected(env);
+  env.store.dispatch({ type: "shell/submit-requested" });
+  const starting = env.state();
+  env.store.dispatch({ type: "shell/submit-requested" }); // still starting
+  assert.equal(env.state(), starting);
+  await env.answer(env.is("POST", "/api/uploads"), 200, { id: "u1" });
+  const uploadingState = env.state();
+  env.store.dispatch({ type: "shell/submit-requested" }); // uploading
+  env.store.dispatch({ type: "shell/file-selected", file: { name: "b.wav", size: 1 } });
+  env.store.dispatch({ type: "shell/dialog-opened", stored: {} });
+  assert.equal(env.state(), uploadingState);
+  assert.equal(env.calls.filter((c) => c.url === "/api/uploads").length, 1);
+  Object.assign(env.xhrs[0], { status: 204, responseText: "" });
+  env.xhrs[0].onload();
+  await env.answer(env.is("POST", "/complete"), 200, { status: "ready" });
+  await env.answer(env.is("POST", "/api/meetings"), 201, { id: "m1" });
+  const saved = env.state();
+  env.store.dispatch({ type: "shell/submit-requested" });
+  assert.equal(env.state(), saved);
+  assert.equal(env.calls.filter((c) => c.url === "/api/meetings").length, 1);
+});
+
+test("a late create reply for a replaced request is ignored", async () => {
+  const env = setup();
+  await ready(env);
+  const id = env.state().createRequest;
+  env.store.dispatch({ type: "shell/meeting-created", meta: { id: id - 1, payload: {} }, response: { body: { id: "old" } } });
+  assert.equal(env.state().phase, "creating");
+  assert.deepEqual(env.navigated, []);
+});
+
+test("an upload reply of an older run is ignored", async () => {
+  const env = setup();
+  await uploading(env);
+  const run = env.state().runId;
+  for (const type of ["shell/upload-sent", "shell/upload-completed"]) {
+    env.store.dispatch({ type, meta: { runId: run - 1 }, response: { body: { status: "ready" } } });
+  }
+  env.store.dispatch({ type: "shell/upload-failed", meta: { runId: run - 1 }, error: { message: "x", kind: "network" } });
+  assert.equal(env.state().phase, "uploading");
+  assert.equal(env.state().failure, null);
+});
+
+test("network error during upload cleans up and offers a retry that starts a fresh upload", async () => {
+  const env = setup();
+  await uploading(env);
+  env.xhrs[0].onerror();
+  assert.equal(env.state().phase, "uploading"); // waits for the cleanup answer
+  await env.answer(env.is("DELETE", "/api/uploads/u1"), 204, {});
+  assert.equal(env.state().phase, "error");
+  assert.equal(env.state().retryable, true);
+  assert.equal(env.state().uploadId, null);
+  assert.equal(selectView(env.state()).retryHidden, false);
+  assert.equal(canSubmit(env.state()), true);
+  env.store.dispatch({ type: "shell/submit-requested" }); // retry
+  await env.answer(env.is("POST", "/api/uploads"), 200, { id: "u2" });
+  assert.equal(env.state().uploadId, "u2");
+  assert.equal(env.xhrs.length, 2);
+});
+
+test("server refusal of the file is final; a 5xx is retryable", async () => {
+  const refused = setup();
+  await uploading(refused);
+  Object.assign(refused.xhrs[0], { status: 415, responseText: "{}" });
+  refused.xhrs[0].onload();
+  await refused.answer(refused.is("DELETE", "/u1"), 204, {});
+  assert.equal(refused.state().fileRefused, true);
+  assert.equal(refused.state().retryable, false);
+  assert.equal(canSubmit(refused.state()), false);
+
+  const flaky = setup();
+  await uploading(flaky);
+  Object.assign(flaky.xhrs[0], { status: 503, responseText: "{}" });
+  flaky.xhrs[0].onload();
+  await flaky.answer(flaky.is("DELETE", "/u1"), 204, {});
+  assert.equal(flaky.state().retryable, true);
+  assert.equal(flaky.state().fileRefused, false);
+});
+
+test("a failed upload step before the slot exists needs no cleanup", async () => {
+  const env = setup();
+  await selected(env);
+  env.store.dispatch({ type: "shell/submit-requested" });
+  await env.answer(env.is("POST", "/api/uploads"), 500, {});
+  assert.equal(env.state().phase, "error");
+  assert.equal(env.state().starting, false);
+  assert.equal(env.calls.some((c) => c.method === "DELETE"), false);
+  assert.equal(env.state().retryable, true);
+});
+
+test("cancel mid-upload aborts the transfer, cleans up and ignores late events", async () => {
+  const env = setup();
+  await uploading(env);
+  env.store.dispatch({ type: "shell/upload-cancel-requested" });
+  assert.equal(env.xhrs[0].aborted, true);
+  assert.equal(env.state().cancelling, true);
+  env.store.dispatch({ type: "shell/upload-cancel-requested" }); // a second click is ignored
+  env.xhrs[0].upload.onprogress({ loaded: 400, total: 500, lengthComputable: true });
+  env.xhrs[0].onerror(); // late transport event of the aborted run
+  await env.answer(env.is("DELETE", "/api/uploads/u1"), 204, {});
+  assert.equal(env.state().phase, "aborted");
+  assert.equal(env.state().retryable, true);
+  assert.equal(env.state().serverReady, false);
+  assert.equal(env.state().uploadId, null);
+  assert.equal(env.calls.filter((c) => c.method === "DELETE").length, 1);
+  assert.equal(env.state().progress.percent, 0);
+});
+
+test("cancel while the server checks the file drops the late completion", async () => {
+  const env = setup();
+  await uploading(env);
+  Object.assign(env.xhrs[0], { status: 204, responseText: "" });
+  env.xhrs[0].onload();
+  assert.equal(env.state().phase, "checking");
+  const complete = env.calls.find((c) => c.url.endsWith("/complete"));
+  env.store.dispatch({ type: "shell/upload-cancel-requested" });
+  assert.equal(complete.init.signal.aborted, true);
+  complete.resolve(reply(200, { status: "ready" }));
+  await tick();
+  await env.answer(env.is("DELETE", "/u1"), 204, {});
+  assert.equal(env.state().phase, "aborted");
+  assert.equal(env.calls.some((c) => c.url === "/api/meetings"), false);
+});
+
+test("closing during upload cancels it instead of closing; a failed cleanup is remembered and retried", async () => {
+  const env = setup();
+  await uploading(env);
+  env.store.dispatch({ type: "shell/dialog-close-requested" });
+  assert.equal(env.state().open, true);
+  assert.equal(env.state().cancelling, true);
+  await env.answer(env.is("DELETE", "/u1"), 500, {});
+  assert.equal(env.state().phase, "aborted");
+  assert.deepEqual(env.state().pendingCleanup, ["u1"]);
+  env.store.dispatch({ type: "shell/file-selected", file: FILE }); // retries the pending delete
+  assert.equal(env.calls.filter((c) => c.method === "DELETE").length, 2);
+  await env.answer(env.is("DELETE", "/u1"), 404, {}); // already gone counts as cleaned
+  assert.deepEqual(env.state().pendingCleanup, []);
+});
+
+test("a new run waits for the old upload to be deleted before it creates a slot", async () => {
+  const env = setup();
+  await ready(env); // creating... fail it definitely to get back to a ready upload
+  await env.answer(env.is("POST", "/api/meetings"), 422, { detail: { code: "upload_not_ready", message: "gone" } });
+  assert.equal(env.state().phase, "error");
+  assert.equal(env.state().serverReady, false);
+  assert.equal(env.state().retryable, true);
+  env.store.dispatch({ type: "shell/submit-requested" });
+  assert.equal(env.state().starting, true);
+  assert.equal(env.calls.filter((c) => c.url === "/api/uploads" && c.method === "POST").length, 1); // not yet
+  await env.answer(env.is("DELETE", "/u1"), 204, {});
+  assert.equal(env.calls.filter((c) => c.url === "/api/uploads" && c.method === "POST").length, 2);
+});
+
+test("create refused with a definite 4xx keeps the upload; editing then retrying creates again", async () => {
+  const env = setup();
+  await ready(env);
+  await env.answer(env.is("POST", "/api/meetings"), 400, { detail: "bad title" });
+  const failed = env.state();
+  assert.equal(failed.phase, "error");
+  assert.equal(failed.createAttemptFailed, true);
+  assert.equal(failed.createUncertain, false);
+  assert.equal(failed.serverReady, true);
+  assert.equal(selectView(failed).createLabel.text, "Thử tạo lại");
+  env.store.dispatch({ type: "shell/form-edited", form: { ...env.form, title: "Better" } });
+  assert.equal(env.state().phase, "ready");
+  assert.equal(env.state().formError, null);
+  env.store.dispatch({ type: "shell/submit-requested" });
+  assert.equal(env.state().phase, "creating");
+  assert.equal(JSON.parse(env.calls.filter((c) => c.url === "/api/meetings").at(-1).init.body).title, "Better");
+});
+
+test("create with an unknown outcome resends the same payload; fields stay locked", async () => {
+  const env = setup();
+  await ready(env);
+  env.calls.find((c) => c.url === "/api/meetings").reject(new TypeError("Failed to fetch"));
+  await tick();
+  const failed = env.state();
+  assert.equal(failed.createUncertain, true);
+  assert.equal(selectView(failed).fieldsDisabled, true);
+  assert.equal(selectView(failed).createLabel.text, "Xác minh và thử lại");
+  const payload = failed.createRetryPayload;
+  env.store.dispatch({ type: "shell/file-selected", file: { name: "b.wav", size: 1 } }); // ignored while uncertain
+  assert.equal(env.state(), failed);
+  env.store.dispatch({ type: "shell/submit-requested" });
+  const [first, second] = env.calls.filter((c) => c.url === "/api/meetings");
+  assert.deepEqual(JSON.parse(second.init.body), payload);
+  assert.equal(env.state().phase, "creating");
+  await env.answer((c) => c === second, 201, { id: "m9" });
+  assert.equal(env.state().phase, "saved");
+  assert.ok(first);
+});
+
+test("closing keeps an uncertain create's upload and deletes any other", async () => {
+  const uncertain = setup();
+  await ready(uncertain);
+  uncertain.calls.find((c) => c.url === "/api/meetings").reject(new TypeError("down"));
+  await tick();
+  uncertain.store.dispatch({ type: "shell/dialog-close-requested" });
+  assert.equal(uncertain.state().open, false);
+  assert.equal(uncertain.calls.some((c) => c.method === "DELETE"), false);
+
+  const idle = setup();
+  await ready(idle);
+  await idle.answer(idle.is("POST", "/api/meetings"), 400, { detail: "no" });
+  idle.store.dispatch({ type: "shell/dialog-close-requested" });
+  assert.equal(idle.state().open, false);
+  assert.ok(idle.calls.some((c) => c.method === "DELETE" && c.url.endsWith("/u1")));
+  assert.deepEqual(idle.state().form, initialState.form); // the dialog starts clean next time
+});
+
+test("the dialog cannot be closed while the meeting is being saved", async () => {
+  const env = setup();
+  await ready(env);
+  const creating = env.state();
+  env.store.dispatch({ type: "shell/dialog-close-requested" });
+  assert.equal(env.state(), creating);
+  assert.equal(selectView(creating).closeDisabled, true);
+});
+
+test("a server that does not confirm ready fails the run and cleans up", async () => {
+  const env = setup();
+  await uploading(env);
+  Object.assign(env.xhrs[0], { status: 204, responseText: "" });
+  env.xhrs[0].onload();
+  await env.answer(env.is("POST", "/complete"), 200, { status: "pending" });
+  await env.answer(env.is("DELETE", "/u1"), 204, {});
+  assert.equal(env.state().phase, "error");
+  assert.equal(env.state().retryable, true);
+});
+
+test("dropping several files is refused", async () => {
+  const env = setup();
+  await opened(env);
+  env.store.dispatch({ type: "shell/multiple-files-dropped" });
+  assert.equal(env.state().phase, "error");
+  assert.ok(env.state().fileError);
+});
+
+test("reduce is pure: the same input gives the same output and the input is not mutated", () => {
+  const frozen = Object.freeze({ ...initialState, form: Object.freeze({ ...initialState.form }) });
+  const action = { type: "shell/dialog-opened", stored: { language: "en" } };
+  assert.deepEqual(reduce(frozen, action), reduce(frozen, action));
+  assert.equal(frozen.open, false);
+});
+
+test("a failure without a message gets the text of the step that failed", async () => {
+  const env = setup();
+  env.store.dispatch({ type: "shell/dialog-opened", stored: {} });
+  env.store.dispatch({ type: "shell/policy-load-failed", meta: { id: env.state().policyRequest }, error: {} });
+  assert.equal(env.state().formError.params.message.text, "Không tải được chính sách file.");
+  const upload = setup();
+  await uploading(upload);
+  upload.store.dispatch({ type: "shell/upload-failed", meta: { runId: upload.state().runId }, error: { kind: "aborted", message: "aborted" } });
+  await upload.answer(upload.is("DELETE", "/u1"), 204, {});
+  assert.equal(upload.state().formError[0].params.reason.text, "Đã hủy lượt truyền file.");
+});
+
+// Round 2: the cleanup window, the browser closing the dialog, and stale ids taken from real effects.
+const doneXhr = (xhr) => {
+  Object.assign(xhr, { status: 204, responseText: "" });
+  xhr.onload();
+};
+
+test("a cancel during the failure cleanup stands; the late DELETE reply does not turn it into an error", async () => {
+  const env = setup();
+  await uploading(env);
+  env.xhrs[0].onerror();
+  env.store.dispatch({ type: "shell/upload-cancel-requested" });
+  assert.equal(env.state().phase, "aborted");
+  await env.answer(env.is("DELETE", "/u1"), 204, {});
+  assert.equal(env.state().phase, "aborted");
+  assert.equal(env.state().failure, null);
+  assert.deepEqual(env.state().pendingCleanup, []);
+});
+
+test("cancel then retry during the failure cleanup: the old DELETE reply is ignored by the new run", async () => {
+  const env = setup();
+  await uploading(env);
+  env.xhrs[0].onerror();
+  env.store.dispatch({ type: "shell/upload-cancel-requested" });
+  env.store.dispatch({ type: "shell/submit-requested" });
+  assert.equal(env.state().starting, true);
+  const [first] = env.calls.filter((c) => c.method === "DELETE");
+  first.done = true;
+  first.resolve(reply(204, {}));
+  await tick();
+  assert.equal(env.state().formError, null);
+  assert.equal(env.state().starting, true);
+  await env.answer(env.is("DELETE", "/u1"), 204, {}); // the start path's own DELETE of the same id
+  assert.equal(env.calls.filter((c) => c.method === "POST" && c.url === "/api/uploads").length, 2); // slot asked once
+  await env.answer((c) => c.method === "POST" && c.url === "/api/uploads" && !c.done, 200, { id: "u2" });
+  assert.equal(env.state().phase, "uploading");
+  assert.equal(env.state().formError, null);
+});
+
+test("close during a cancel whose DELETE hangs closes the dialog and keeps the id pending", async () => {
+  const env = setup();
+  await uploading(env);
+  env.store.dispatch({ type: "shell/upload-cancel-requested" });
+  assert.equal(selectView(env.state()).closeDisabled, false);
+  env.store.dispatch({ type: "shell/dialog-close-requested" });
+  assert.equal(env.state().open, false);
+  assert.deepEqual(env.state().pendingCleanup, ["u1"]);
+  await env.answer(env.is("DELETE", "/u1"), 204, {});
+  assert.equal(env.state().open, false);
+  assert.equal(env.state().phase, "idle");
+  assert.deepEqual(env.state().pendingCleanup, []);
+});
+
+test("the browser closing the dialog cancels what is in flight and does not reopen it", async () => {
+  const env = setup();
+  await uploading(env);
+  env.store.dispatch({ type: "shell/dialog-closed" });
+  assert.equal(env.state().open, false);
+  assert.equal(env.xhrs[0].aborted, true);
+  assert.equal(env.calls.filter((c) => c.method === "DELETE").length, 1);
+  const closed = env.state();
+  env.store.dispatch({ type: "shell/dialog-closed" }); // the echo of our own close
+  assert.equal(env.state(), closed);
+  await env.answer(env.is("DELETE", "/u1"), 204, {});
+  assert.equal(env.state().open, false);
+  env.store.dispatch({ type: "shell/dialog-opened", stored: {} }); // reopening still works
+  assert.equal(env.state().open, true);
+});
+
+test("the browser closing the dialog while the meeting is saved still lets the save finish", async () => {
+  const env = setup();
+  await ready(env);
+  env.store.dispatch({ type: "shell/dialog-closed" });
+  assert.equal(env.state().open, false);
+  await env.answer(env.is("POST", "/api/meetings"), 201, { meeting: { id: "m1" } });
+  assert.deepEqual(env.navigated, ["/meetings/m1"]);
+});
+
+test("replies carrying an id other than the current one are ignored, for every reply type", async () => {
+  const env = setup();
+  await uploading(env);
+  const { runId } = env.state();
+  const before = env.state();
+  const old = { runId: runId - 1 };
+  for (const action of [
+    { type: "shell/upload-progressed", meta: old, loaded: 100, total: 500, lengthComputable: true },
+    { type: "shell/upload-sent", meta: old },
+    { type: "shell/upload-completed", meta: old, response: { body: { status: "ready" } } },
+    { type: "shell/upload-completion-failed", meta: old, error: { status: 500 } },
+    { type: "shell/upload-create-failed", meta: old, error: { status: 500 } },
+  ]) {
+    assert.deepEqual(reduce(before, action), { state: before }, action.type);
+  }
+});
+
+test("create and policy replies of an older request are ignored", async () => {
+  const env = setup();
+  await ready(env);
+  const creating = env.state();
+  const staleCreate = { id: creating.createRequest - 1, payload: {} };
+  assert.equal(reduce(creating, { type: "shell/meeting-create-failed", meta: staleCreate, error: { status: 500 } }).state, creating);
+  assert.equal(reduce(creating, { type: "shell/meeting-created", meta: staleCreate, response: { body: { id: "x" } } }).state, creating);
+  const reopened = createReopened();
+  const stalePolicy = { id: reopened.policyRequest - 1 };
+  assert.equal(reduce(reopened, { type: "shell/policy-load-failed", meta: stalePolicy, error: { status: 500 } }).state, reopened);
+  assert.equal(reduce(reopened, { type: "shell/policy-loaded", meta: stalePolicy, response: { body: POLICY } }).state, reopened);
+});
+
+function createReopened() {
+  let state = reduce(initialState, { type: "shell/dialog-opened", stored: {} }).state;
+  state = reduce(state, { type: "shell/dialog-close-requested" }).state;
+  return reduce(state, { type: "shell/dialog-opened", stored: {} }).state;
+}
+
+test("a repeated cancel does nothing and a late upload-sent during cleanup is dropped", async () => {
+  const env = setup();
+  await uploading(env);
+  const run = env.state().runId;
+  env.store.dispatch({ type: "shell/upload-cancel-requested" });
+  const cancelling = env.state();
+  assert.deepEqual(reduce(cancelling, { type: "shell/upload-cancel-requested" }), { state: cancelling });
+  env.store.dispatch({ type: "shell/upload-sent", meta: { runId: run } }); // late event of the cancelled run
+  assert.equal(env.state(), cancelling);
+  assert.equal(env.calls.some((c) => c.url.endsWith("/complete")), false);
+  await env.answer(env.is("DELETE", "/u1"), 204, {});
+  assert.equal(env.state().phase, "aborted");
+});
+
+test("a 5xx on create is an unknown outcome: the retry resends the same payload", async () => {
+  const env = setup();
+  await ready(env);
+  await env.answer(env.is("POST", "/api/meetings"), 503, {});
+  assert.equal(env.state().createUncertain, true);
+  const payload = env.state().createRetryPayload;
+  assert.ok(payload);
+  env.store.dispatch({ type: "shell/submit-requested" });
+  const sent = env.calls.filter((c) => c.url === "/api/meetings");
+  assert.deepEqual(JSON.parse(sent[1].init.body), payload);
+});
+
+test("a created upload or meeting without an id fails the step", async () => {
+  const env = setup();
+  await selected(env);
+  env.store.dispatch({ type: "shell/submit-requested" });
+  await env.answer(env.is("POST", "/api/uploads"), 200, {});
+  assert.equal(env.state().phase, "error");
+  assert.equal(env.state().uploadId, null);
+  const meeting = setup();
+  await ready(meeting);
+  await meeting.answer(meeting.is("POST", "/api/meetings"), 201, { meeting: {} });
+  assert.equal(meeting.state().createUncertain, true);
+  assert.deepEqual(meeting.navigated, []);
+});
+
+test("buttons are disabled while the run starts or the work is busy", async () => {
+  const env = setup();
+  await selected(env);
+  env.store.dispatch({ type: "shell/submit-requested" });
+  let view = selectView(env.state());
+  assert.equal(env.state().starting, true);
+  assert.equal(view.closeDisabled, true);
+  assert.equal(view.createDisabled, true);
+  assert.equal(view.fieldsDisabled, true);
+  await env.answer(env.is("POST", "/api/uploads"), 200, { id: "u1" });
+  view = selectView(env.state());
+  assert.equal(view.closeDisabled, false);
+  assert.equal(view.createDisabled, true);
+  assert.equal(view.cancelHidden, false);
+  assert.equal(view.changeFileDisabled, true);
+});
+
+test("a pending DELETE survives close and is retried on the start path", async () => {
+  const env = setup();
+  await uploading(env);
+  env.store.dispatch({ type: "shell/upload-cancel-requested" });
+  await env.answer(env.is("DELETE", "/u1"), 500, {});
+  env.store.dispatch({ type: "shell/dialog-close-requested" });
+  assert.deepEqual(env.state().pendingCleanup, ["u1"]);
+  env.store.dispatch({ type: "shell/dialog-opened", stored: {} });
+  await env.answer(env.is("GET", "/api/uploads/policy") , 200, POLICY);
+  env.store.dispatch({ type: "shell/file-selected", file: FILE });
+  env.store.dispatch({ type: "shell/form-edited", form: env.form });
+  await env.answer(env.is("DELETE", "/u1"), 500, {}); // the select path's retry fails again
+  env.store.dispatch({ type: "shell/submit-requested" });
+  assert.equal(env.state().starting, true);
+  assert.equal(env.calls.filter((c) => c.method === "DELETE").length, 3); // start path asks again
+  await env.answer(env.is("DELETE", "/u1"), 204, {});
+  assert.equal(env.state().starting, true); // the slot request is out
+  await env.answer((c) => c.method === "POST" && c.url === "/api/uploads" && !c.done, 200, { id: "u2" });
+  assert.equal(env.state().phase, "uploading");
+});
+
+test("auto-transcribe off: a completed create writes no handoff key", async () => {
+  const env = setup();
+  await selected(env);
+  env.store.dispatch({ type: "shell/auto-transcribe-toggled", value: false });
+  env.store.dispatch({ type: "shell/submit-requested" });
+  await env.answer(env.is("POST", "/api/uploads"), 200, { id: "u1" });
+  doneXhr(env.xhrs[0]);
+  await env.answer(env.is("POST", "/complete"), 200, { status: "ready" });
+  await env.answer(env.is("POST", "/api/meetings"), 201, { meeting: { id: "m1" } });
+  assert.deepEqual(env.written, [
+    ["local", "asr-en-vi:auto-transcribe", "0"],
+    ["local", "asr-en-vi:last-language-hint", "en"],
+  ]);
+  assert.deepEqual(env.navigated, ["/meetings/m1"]);
+});

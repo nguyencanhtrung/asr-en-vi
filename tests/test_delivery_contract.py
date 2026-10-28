@@ -611,6 +611,8 @@ def test_repository_checks_have_shell_syntax_and_pytest_timeout_guardrails():
     assert pytest_config["timeout_method"] == "thread"
     assert "./scripts/check-shell-syntax.sh" in check_script
     assert "node --test 'tests/web/*.test.mjs'" in check_script
+    # node --test passes when the glob matches nothing, so the gate needs real test files.
+    assert sorted((ROOT / "tests" / "web").glob("*.test.mjs"))
     assert "pytest.mark.timeout(0)" in e2e_test
 
 
