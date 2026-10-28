@@ -501,3 +501,55 @@ test("deps.now stamps the clock on schedule, fetch and window actions; without i
   plainTimers.fire();
   assert.deepEqual(plain, [{ type: "tick" }]); // no `now` key when the dep is missing
 });
+
+test("runner call: runs a registered function, answers ok, and throws on an unknown name", async () => {
+  const actions = [];
+  const run = createRunner({ calls: { twice: (n) => n * 2, none: () => {} } });
+  run({ type: "call", key: "a", name: "twice", args: [4], ok: "ok", meta: { n: 1 } }, (a) => actions.push(a));
+  await tick();
+  assert.deepEqual(actions, [{ type: "ok", value: 8, meta: { n: 1 } }]);
+  run({ type: "call", key: "b", name: "none" }, (a) => actions.push(a)); // fire and forget: no action
+  await tick();
+  assert.equal(actions.length, 1);
+  assert.throws(() => run({ type: "call", key: "c", name: "missing" }, () => {}), /unknown call/);
+});
+
+test("runner call: a sync throw or a rejection becomes the error action, also without an ok handler", async () => {
+  const actions = [];
+  const run = createRunner({ calls: { boom: () => { throw new Error("nope"); }, reject: async () => { throw new Error("later"); } } });
+  run({ type: "call", key: "e", name: "boom", ok: "ok", error: "err", meta: { n: 1 } }, (a) => actions.push(a));
+  run({ type: "call", key: "f", name: "reject", error: "err", meta: { n: 2 } }, (a) => actions.push(a));
+  await tick();
+  assert.deepEqual(actions, [
+    { type: "err", error: { message: "nope" }, meta: { n: 1 } },
+    { type: "err", error: { message: "later" }, meta: { n: 2 } },
+  ]);
+});
+
+test("runner call: the newest call of a key wins and a cancel drops a late result", async () => {
+  const actions = [];
+  const late = [];
+  const run = createRunner({ calls: { slow: () => new Promise((resolve) => late.push(resolve)) } });
+  const dispatch = (a) => actions.push(a);
+  run({ type: "call", key: "k", name: "slow", ok: "ok", meta: 1 }, dispatch);
+  run({ type: "call", key: "k", name: "slow", ok: "ok", meta: 2 }, dispatch);
+  late[0]("first");
+  late[1]("second");
+  await tick();
+  assert.deepEqual(actions, [{ type: "ok", value: "second", meta: 2 }]);
+  actions.length = 0;
+  run({ type: "call", key: "z", name: "slow", ok: "ok", meta: 3 }, dispatch);
+  run({ type: "cancel", key: "z" }, dispatch);
+  late[2]("dropped");
+  await tick();
+  assert.deepEqual(actions, []);
+});
+
+test("deps.now stamps call results, ok and error", async () => {
+  const actions = [];
+  const run = createRunner({ now: () => 7, calls: { ok: () => 1, boom: async () => { throw new Error("x"); } } });
+  run({ type: "call", key: "a", name: "ok", ok: "ok" }, (a) => actions.push(a));
+  run({ type: "call", key: "b", name: "boom", error: "err" }, (a) => actions.push(a));
+  await tick();
+  assert.deepEqual(actions.map((a) => [a.type, a.now]), [["ok", 7], ["err", 7]]);
+});

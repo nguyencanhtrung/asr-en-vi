@@ -269,15 +269,15 @@ Việc chốt tài liệu này xác nhận hướng thiết kế. Các tiêu ch�
 
 ## 11. Kiến trúc mã frontend: reducer, effect và store
 
-Quyết định và lý do nằm ở [ADR 0010](adr/0010-frontend-reducer-core.md). Mục này là quy ước cho code; từ pha 1 `shell.js`, từ pha 2 `connections.js` và `antigravity.js` đã theo kiến trúc này, các file UI còn lại chuyển dần theo 11.4. Hành vi người dùng thấy không đổi.
+Quyết định và lý do nằm ở [ADR 0010](adr/0010-frontend-reducer-core.md). Mục này là quy ước cho code; từ pha 1 `shell.js`, từ pha 2 `connections.js` và `antigravity.js`, từ pha 3 `notes.js` đã theo kiến trúc này, các file UI còn lại chuyển dần theo 11.4. Hành vi người dùng thấy không đổi.
 
 ### 11.1. Các lớp
 
 | Lớp | Việc | Không được |
 | --- | --- | --- |
 | Core | `initialState`, `reduce(state, action) -> { state, effects }`, selector | chạm DOM, `fetch`, timer, storage, `Date.now`, `Math.random` |
-| Effect | object `{type, ...}`: `fetch`, `schedule`, `cancel`, `upload`, `storage`, `navigate`, `open-window`, `event` | chứa hàm hoặc logic |
-| Runner | `createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, storage, navigate, open, emit, now })` chạy effect, dispatch kết quả | quyết định nghiệp vụ |
+| Effect | object `{type, ...}`: `fetch`, `schedule`, `cancel`, `upload`, `storage`, `navigate`, `open-window`, `event`, `call` | chứa hàm hoặc logic |
+| Runner | `createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, storage, navigate, open, emit, calls, now })` chạy effect, dispatch kết quả | quyết định nghiệp vụ |
 | View | đọc state, render DOM, handler chỉ dispatch action | giữ state riêng ngoài focus/scroll |
 | Store | `createStore`, `combine`, `subscribe` (`src/asr_en_vi/web/store.js`) | biết về tính năng cụ thể |
 
@@ -287,7 +287,7 @@ Quyết định và lý do nằm ở [ADR 0010](adr/0010-frontend-reducer-core.m
 - Effect `fetch` khai báo `ok` và `error` là tên action của kết quả; mã 2xx gửi `ok`, lỗi HTTP hoặc mạng gửi `error`; request bị hủy không gửi gì.
 - `key` bắt buộc ở mọi effect (thiếu thì runner ném lỗi). Effect cùng `key` thay thế effect cũ; `cancel` hủy theo `key`.
 - `key` và `type` của action dùng chung một namespace: luôn đặt tiền tố tính năng (`shell/upload`, `shell/upload-sent`, `notes/load`). Với `storage`, `key` là khóa storage.
-- `upload` giống `fetch` (2xx là `ok`; lỗi HTTP là `error` có `status`, `body`; lỗi truyền là `error` có `kind` là `network` hoặc `timeout`) và gửi thêm action `progress` `{loaded, total, lengthComputable, meta}`; hủy không sinh action. `storage` ghi hoặc xóa (`area` là `local` hoặc `session`) và nuốt lỗi storage bị chặn. `navigate` gọi `navigate(url)` được truyền vào. `open-window` (`op`: `reserve` mở `about:blank` qua `open`, đặt `opener = null`, tiêu đề và chữ, rồi gửi `ok` hoặc `error` nếu bị chặn; `navigate` gửi cửa sổ tới `url` hoặc gửi action `closed` nếu người dùng đã đóng; `close`) giữ cửa sổ ngoài bảng hủy/thay thế theo `key`. `event` gọi `emit(name)`. `now` (tùy chọn) đóng dấu `now` lên action runner dispatch.
+- `upload` giống `fetch` (2xx là `ok`; lỗi HTTP là `error` có `status`, `body`; lỗi truyền là `error` có `kind` là `network` hoặc `timeout`) và gửi thêm action `progress` `{loaded, total, lengthComputable, meta}`; hủy không sinh action. `storage` ghi hoặc xóa (`area` là `local` hoặc `session`) và nuốt lỗi storage bị chặn. `navigate` gọi `navigate(url)` được truyền vào. `open-window` (`op`: `reserve` mở `about:blank` qua `open`, đặt `opener = null`, tiêu đề và chữ, rồi gửi `ok` hoặc `error` nếu bị chặn; `navigate` gửi cửa sổ tới `url` hoặc gửi action `closed` nếu người dùng đã đóng; `close`) giữ cửa sổ ngoài bảng hủy/thay thế theo `key`. `event` gọi `emit(name)`. `call` (`name`, `args`, `ok`, `error`, `meta`) gọi `calls[name](...args)`: thiếu `ok` và `error` thì chạy ngay; có thì giá trị hoặc promise trả về thành action `ok` (`value`) hoặc `error` (`{message}`), hủy/thay thế theo `key` như `fetch`; tên lạ thì ném lỗi. `now` (tùy chọn) đóng dấu `now` lên action runner dispatch.
 - Body của `fetch` được parse JSON, không phải JSON thì giữ text (không kiểm tra content-type).
 - Loại effect mới thêm thành nhánh trong `createRunner`. Reducer không đọc storage: view đọc giá trị đã nhớ và đưa vào state qua action mở (shell: `shell/dialog-opened`; provider: `provider/boot-restored`), ghi qua effect `storage`.
 - Lỗi trong reducer, effect hoặc subscriber: state giữ tới action cuối chạy thành công, hàng đợi bị bỏ, lỗi ném cho nơi gọi `dispatch` (với kết quả `fetch` là `unhandledRejection`). Giữa lượt drain, state đã đổi nhưng subscriber không được báo và effect còn lại của action đó bị bỏ; lỗi trong callback `schedule` là exception chưa bắt của timer, không đi qua `dispatch` của nơi gọi.
@@ -297,7 +297,7 @@ Quyết định và lý do nằm ở [ADR 0010](adr/0010-frontend-reducer-core.m
 ### 11.3. Quy tắc response cũ và quy tắc gán state
 
 - Reducer lưu id yêu cầu mới nhất trong state, đặt id vào `meta` của effect `fetch`; action kết quả mang lại `meta` và reducer bỏ action có id không khớp.
-- Chỉ reducer tạo state mới. Từ pha 1, `tests/web/shell-view.test.mjs` quét các file view đã chuyển (danh sách `VIEWS`) và core (`CORES`) trong `check.sh`/CI: view không gán vào state, không có `let`/`var` cấp module, chỉ đọc storage trong `readStored`; core không chạm DOM, mạng, timer, storage, đồng hồ hay ngẫu nhiên. Quét này là grep heuristic (có bắt thêm bí danh `const s = state` hoặc `store.getState()`, destructure, `Object.assign(state, …)`, `delete state.x`, lệnh đổi như `state.list.push(…)` và object/collection cấp module, kể cả `export const`, bị gán hoặc đổi; cấm tên kiểu `*Seq`, `*InFlight`, `*Timer`), không thay review: cách viết lạ vẫn lọt (ví dụ đổi state qua bí danh của một lát cắt: `const s = state.x; s.y = 1`). Mỗi quy tắc có một ví dụ xấu trong cùng test để biết nó còn bắt được. Khi chuyển file mới, thêm nó vào danh sách.
+- Chỉ reducer tạo state mới. Từ pha 1, `tests/web/shell-view.test.mjs` quét các file view đã chuyển (danh sách `VIEWS`) và core (`CORES`) trong `check.sh`/CI: view không gán vào state, không có `let`/`var` cấp module, chỉ đọc storage trong `readStored`; core không chạm DOM, mạng, timer, storage, đồng hồ hay ngẫu nhiên. Quét này là grep heuristic (có bắt thêm bí danh `const s = state` hoặc `store.getState()`, destructure, `Object.assign(state, …)`, `delete state.x`, lệnh đổi như `state.list.push(…)` và object/collection cấp module, kể cả `export const`, bị gán hoặc đổi; cấm tên kiểu `*Seq`, `*InFlight`, `*Timer`), không thay review: cách viết lạ vẫn lọt (bí danh của một lát cắt như `const s = state.x; s.y = 1` đã bị bắt từ pha 3; phần trong `${…}` của template literal được quét như mã; còn mù với một dấu backtick nằm trong regex literal, làm lệch chỗ bắt đầu/kết thúc template phía sau, và với `}` lồng trong `${…}` (quét dừng ở `}` đầu tiên)). Mỗi quy tắc có một ví dụ xấu trong cùng test để biết nó còn bắt được. Khi chuyển file mới, thêm nó vào danh sách.
 
 ### 11.4. Thứ tự chuyển
 
@@ -308,7 +308,7 @@ Mỗi pha thêm vào tài liệu này bảng state và chuyển trạng thái c�
 | 0 | ADR, `store.js`, `node --test` cho `tests/web/`, Node trong CI (mục này) |
 | 1 | `shell.js` (xong, #121): dialog tạo cuộc họp và upload, xem 11.5; #117 thêm bước tách audio thành effect đứng trước effect `shell/upload` |
 | 2 | `connections.js` và `antigravity.js` dùng chung một core provider (xong, #123), xem 11.6 |
-| 3 | `notes.js`: chế độ xem/soạn, chọn provider/model, task notes, lưu revision |
+| 3 | `notes.js` + `notes-core.js` (xong, #126): chế độ xem/soạn, chọn provider/model, task notes, lưu revision, nguồn trích dẫn, xem 11.7 |
 | 4 | `history.js` tách thành core điều hướng/meeting, transcript và generation, calendar, search, polling task, khóa nguồn notes |
 | 5 | bỏ global và `CustomEvent` còn sót, xóa code chết, cập nhật tài liệu |
 
@@ -467,3 +467,70 @@ Cuộn tới mục Google (`launcher.scroll`): đặt khi mở từ nút Google;
 | không login | Google hết hạn | không đổi | xóa sessionStorage, không gọi mạng |
 
 Khác bản trước pha 2 (đầy đủ trong mục #123 của `architecture-changes-v1.md`): Google cũng bỏ poll trả lời muộn sau hủy hoặc kết thúc (có `loginGen`) và tải trạng thái có `loadId`; bấm đăng nhập lặp bị bỏ; lỗi có câu riêng của nó (cửa sổ đã đóng, URL không an toàn) hiện câu đó ở cả hai ngôn ngữ; một dòng chữ giống hệt không ghi lại vào vùng `aria-live`; cuộn tới mục Google không bị hủy bởi lượt tải mới hơn.
+
+### 11.7. Notes: tab Meeting notes
+
+Core `notes-core.js` (`initialState`, `reduce`, `selectView`, `selectSummary`, `hasUnsavedDraft` và các hàm thuần: nhãn, thông báo lỗi, chuẩn hóa revision/trích dẫn/request, `markdownBlocks`, `sourceReference`, `sourceFromHref`), view `notes.js` (store riêng; render, handler chỉ dispatch). `notes.js` là `<script type="module">` đứng sau `history.js` (script `defer`) và trước `connections.js`, nên chạy đúng thứ tự cũ và thấy `window.ASRMeetingHistory`. Văn bản trong core là `{text, params}`; view dịch bằng `t()`; chuỗi trần là lời của máy chủ.
+
+**State** (`state`): `mode` (`view`/`write`), `hidden` (trang ở nền), `origin`, `view`, `meetingId`, `meeting` (object của `history.js`), `transcribing`, `speakerNames` (tên người nói mặc định, đi cùng context), `choice` (lựa chọn provider: `loaded`, `loadedFor`, `loading`, `loadId`, `load` {pha tải}, `localProvider`, `preferences`, `status`, `catalogs`, `catalogErrors`, `saving`, `saveId`, `message`, `open`), `notes[meetingId]` (`revisions`, `task`, `sourceLocked`, `sourceLockKnown`, `known`, `selectedNoteId`, `starting`, `canceling`, `saving[revisionId]`, `readError`, `runError`, `runErrorUncertain`, `actionMessage`), `drafts[revisionId]` (`value`, `baselineMarkdown`, `expectedEditVersion`, `conflict`), `outputLanguages`, `pending[meetingId]` (request chờ trả lời), `taskSteps[taskId]`, `snapshots`, `readId`, `authoritativeId`, `poll` {`token`, `scheduled`}, `source` {`id`, `key`, `current`, `visible`, `status`, `focus`}.
+
+**Id chống response cũ**: `readId` (lần đọc notes mới nhất; meta `{id, meetingId, poll}`), `poll.token` (tăng khi dừng poll, đổi meeting; poll cũ bị bỏ), `choice.loadId` (một lượt tải lựa chọn: providers, preferences, catalog), `choice.saveId`, `source.id` (một lần mở nguồn; tăng khi đóng), `authoritativeId` (số duy nhất làm hậu tố key `notes/authoritative/<n>`, không so với response). Key effect: `notes/read/<id>`, `notes/poll` (schedule, thay thế nhau), `notes/choice/providers/<loadId>`, `notes/choice/preferences/<loadId>`, `notes/choice/catalog/<provider>/<loadId>`, `notes/choice/save/<saveId>`, `notes/start/<meetingId>`, `notes/cancel/<taskId>`, `notes/save/<revisionId>`, `notes/save-latest/<revisionId>`, `notes/authoritative/<n>`, `notes/source-snapshot/<id>`, `notes/copy`, `notes/source-shown` (schedule 0 trước mark/seek), `notes/source-open-seek`, `notes/source-play`, `notes/source-seek`, `notes/host` (lệnh không có kết quả). Mỗi request có key riêng nên không request nào bị hủy giữa chừng (như bản cũ); response cũ bị bỏ vì id trong `meta` không khớp state.
+
+**Vào trang và đọc notes**:
+
+| Từ | Sự kiện | Tới | Effect |
+| --- | --- | --- | --- |
+| bất kỳ | `booted` | `mode` từ localStorage, `hidden`, `origin` | |
+| bất kỳ | `context` không có meeting | `meetingId = null`, `poll.token + 1` | hủy `notes/poll` |
+| bất kỳ | `context` có meeting | `meetingId`, `meeting`; đổi meeting: dừng poll, đóng ô chọn, `sourceLockKnown/known = false`; nhận khóa nguồn từ meeting; nhận request và ngôn ngữ đã lưu nếu chưa có | `call setNotesSourceLock`, `fetch` notes; đổi meeting hoặc chưa tải lựa chọn: tải lựa chọn; xử lý địa chỉ trang (mở/đóng nguồn); `call setNotesSummary` |
+| đang đọc | `read` ok hợp lệ, id/meeting/poll khớp | `revisions`, `task`, khóa nguồn, `known`; chọn revision đầu nếu chưa chọn; xóa `pending` nếu task trùng `request_id` hoặc đang chạy; task vừa kết thúc: tải lại lựa chọn | `call setNotesSourceLock`; task đang chạy: `schedule notes/poll` nếu chưa có, không thì hủy poll |
+| đang đọc | `read` ok sai hình dạng, hoặc lỗi mạng/HTTP | `known = true`, `readError` | chưa biết khóa: `call setNotesSourceLock false`; poll: `schedule` 3000 |
+| bất kỳ | `read` với id/meeting/poll cũ | không đổi | |
+| có task đang chạy | `poll-due` (đúng token, meeting, task còn chạy) | | `fetch` notes (poll) |
+| có task đang chạy | `visibility-changed` | `hidden` | `schedule` 3000 (ẩn) hoặc 1000 |
+
+**Chọn provider/model** (`choice`): `loadId + 1`, `loading`, `loaded = false`, rồi `providers` và `preferences` song song; cả hai ok thì áp (trạng thái, preferences, `loaded`, `loadedFor`) và tải catalog của provider `connected` (provider khác: `catalogs = null` kèm lý do); catalog xong hết thì `loading = false`. Một trong hai lỗi: `loaded = false`, `loading = false`, `message` (chặn tạo notes tới khi tải lại); catalog lỗi: `provider_in_use` hoặc lỗi chung, model đã lưu vẫn giữ. Mọi kết quả `loadId` cũ bị bỏ. Chọn provider có model đã lưu hoặc chọn model: `saving`, `PUT /api/notes-preferences` (`saveId`); ok: `preferences`, `message` (nói rõ task đang chạy giữ provider cũ), `saving = false`; lỗi: `message`, lựa chọn đã lưu giữ. Chọn provider chưa có model: `localProvider` tới khi chọn model. Ngôn ngữ đầu ra: ghi local+session; bị bỏ khi có `pending`.
+
+**Chạy, hủy**:
+
+| Từ | Sự kiện | Tới | Effect |
+| --- | --- | --- | --- |
+| sẵn sàng (`canStartNotes`) | `start-clicked {requestId}` | tạo `pending` nếu chưa có và điền phần còn thiếu (generation, version, model, effort); `starting = true`, xóa lỗi | ghi `pending` (local+session); `call selectTab notes`; `fetch POST notes-runs` |
+| không sẵn sàng hoặc `starting` | `start-clicked` | không đổi, không gửi thêm | |
+| `starting` | `start` ok, task hợp lệ | `task`, khóa nguồn theo trạng thái task, xóa `pending`, thông báo | xóa storage; `call setNotesSourceLock`; task chạy: poll; không: đọc notes |
+| `starting` | `start` ok, task sai hình dạng | `runError` không chắc chắn (giữ `pending`) | |
+| `starting` | `start` lỗi 4xx | xóa `pending`; `runError` theo `error.code` của provider; có mã: tải lại lựa chọn; 409: đọc notes, làm mới meeting | |
+| `starting` | `start` lỗi mạng/5xx | giữ `pending`, `runErrorUncertain`; nút thành "Xác minh yêu cầu notes" gửi lại cùng request id | |
+| task đang chạy, không `canceling` | `cancel-clicked` | `canceling = true` | `fetch POST` hủy |
+| `canceling` | `cancel` ok | `task` mới, xóa `runError`; còn chạy: poll; không: đọc notes | |
+| `canceling` | `cancel` lỗi | `runError`, `canceling = false` | |
+| `canceling` | `cancel-clicked` | không đổi | |
+
+**Revision và bản nháp** (reducer tạo/đối chiếu bản nháp của revision đang chọn sau mỗi action: chưa có thì tạo; sạch thì theo bản đã lưu; bẩn và `edit_version` khác thì đặt `conflict`):
+
+| Từ | Sự kiện | Tới | Effect |
+| --- | --- | --- | --- |
+| có bản nháp | `draft-edited` | `value`; `conflict` nếu khác phiên bản đã lưu | |
+| bẩn, không đang lưu | `save-clicked` | `saving[id] = true` | `fetch PATCH` (`expected_edit_version`, `markdown`) |
+| đang lưu hoặc sạch | `save-clicked` | không đổi | |
+| đang lưu | `save` ok khớp id/meeting | revision thay thế, bản nháp = bản đã lưu, `conflict = null` | |
+| đang lưu | `save` ok sai revision/meeting hoặc sai hình dạng | `actionMessage` lỗi, bản nháp giữ | |
+| đang lưu | `save` lỗi 409 | không đổi (vẫn đang lưu) | `fetch GET` bản mới nhất |
+| đang lưu | `save-latest` ok | revision thay thế, `conflict = {markdown, editVersion}`, bản nháp giữ | |
+| đang lưu | `save-latest` lỗi hoặc sai revision | `conflict` tạm `{markdown: "", editVersion: expectedEditVersion}`, hết đang lưu, bản nháp giữ, báo chưa tải được bản mới nhất | |
+| đang lưu | `save` lỗi khác | `actionMessage`, bản nháp giữ | |
+| `conflict` | `keep-draft-clicked` | nền = bản của người khác, `expectedEditVersion` mới, `conflict = null` | như `save-clicked` |
+| `conflict` | `use-latest-clicked` | bản nháp = bản đã lưu mới nhất | |
+| sạch, không `conflict`, không đang lưu | `copy-clicked`/`export-clicked` | "Đang đọc…" | `fetch GET` bản đã lưu |
+| bẩn, `conflict` hoặc đang lưu | `copy-clicked`/`export-clicked` | báo lưu trước | |
+| đang đọc để chép | trả lời; bản nháp đổi trong lúc đọc | `conflict`, không chép | |
+| đang đọc để chép | trả lời; revision hoặc meeting đã đổi | báo chọn lại, không chép | |
+| đang đọc để chép | trả lời hợp lệ | bản nháp theo bản mới nhất nếu khác | chép: `call copy` rồi `copied`/`copy-failed`; tải: `call download` |
+| bất kỳ | `mode-chosen` | `mode` | `storage` ghi localStorage |
+| bất kỳ | `revision-picked` | `selectedNoteId`, xóa thông báo | |
+
+**Nguồn trích dẫn** (`source`): `source-opened {reference, fromClick}` (chỉ khi bấm chip) cho cùng meeting; địa chỉ trang qua `context`/`location-changed` đi cùng đường mở nguồn nhưng không qua action này: `source.id + 1`, `key`, "Đang tải…"; click: `call showNotesSourceTab`; snapshot chưa có: `fetch` (`snapshots` giữ bản đã tải). Snapshot sai meeting/id: lỗi (nếu còn là lần mở mới nhất). Snapshot đúng nhưng đã có lần mở mới hơn hoặc đã đổi meeting: bỏ. Không thấy đoạn: lỗi. Đủ: `current`, `visible`, `focus + 1` (view focus tiêu đề), `schedule notes/source-shown` (delay 0, để view vẽ thẻ nguồn trước) → `source-shown {id}`: còn đúng lần mở và còn `current` thì `call markNotesSource`, `call seekNotesSource` → `source-sought`: tua không được thì báo; được thì `call playRecording` → `source-played`: "đang phát" hoặc "bấm phát". Lỗi của hai lệnh = lỗi mở nguồn. `source-closed {href}`: `source.id + 1`, `current = null`, ẩn; `call markNotesSource null`; địa chỉ còn query thì `call replaceUrl`. `location-changed`: địa chỉ không còn nguồn mà đang mở thì đóng (không đổi địa chỉ); cùng nguồn đang hiện thì không làm gì. `source-seek-clicked`: `call seekNotesSource` → báo, đánh dấu dòng transcript nếu tua được.
+
+**Quy ước view**: `render` chỉ chạy khi có meeting (bản cũ còn vẽ lại tab đang ẩn khi một trả lời tới sau lúc rời cuộc họp: tải/lưu lựa chọn, chép/tải xuống; không thấy được vì tab ẩn và context kế tiếp vẽ lại); ô xem trước Markdown chỉ dựng lại khi các khối đổi (khóa JSON), nên focus trên chip trích dẫn được giữ; câu hỏi chỉ đọc tới `history.js` gọi thẳng: `currentContext` lúc boot, `defaultSpeakerNames` lúc nhận `asr:meeting-context` (tên vào action `notes/context`), `hasUnsavedTranscriptDrafts` lúc trang đóng; ghi chú đã copy/tải chỉ cập nhật `#notes-copy-export-status` khi có chữ (như bản cũ).
+
+**Khác bản trước pha 3** (đầy đủ trong mục #126 của `architecture-changes-v1.md`): ô cảnh báo liên kết hỏng không dựng lại khi nội dung không đổi; sau một lần tạo notes mà máy chủ trả task đã kết thúc ngay, nút "Đang gửi yêu cầu…" tắt trước khi lần đọc lại xong; lỗi mở nguồn để lại nút tua bị khóa; không vẽ lại tab ẩn khi trả lời tới sau lúc rời cuộc họp; nhắc tên người nói không thấy người nói mới thêm ở tab Bản ghi tới context kế tiếp; ô xem trước không dựng lại khi khối không đổi, nên ẩn/hiện tab hay một lượt poll không làm mất focus trên chip trích dẫn.

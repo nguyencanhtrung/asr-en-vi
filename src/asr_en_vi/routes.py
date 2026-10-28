@@ -237,6 +237,10 @@ def install_routes(
     async def store_js() -> FileResponse:
         return _asset_response("store.js", "text/javascript")
 
+    @app.get("/assets/notes-core.js", include_in_schema=False)
+    async def notes_core_js() -> FileResponse:
+        return _asset_response("notes-core.js", "text/javascript")
+
     @app.get("/assets/connections.css", include_in_schema=False)
     async def connections_css() -> Response:
         asset_path = WEB_DIR / "connections.css"
