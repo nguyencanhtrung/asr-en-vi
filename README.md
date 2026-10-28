@@ -96,7 +96,7 @@ header.
 To install a release, check out its tag and run `./scripts/start.sh --pull` with a versioned
 `ASR_IMAGE` such as `ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0`, or `--source` to build it.
 After setup, `--offline` starts without network access. See
-[Cài bản phát hành](docs/user-guide.md#cài-bản-phát-hành).
+[Install a release](docs/user-guide.md#install-a-release).
 
 ## Documentation
 
