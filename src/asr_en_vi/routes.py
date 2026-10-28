@@ -244,6 +244,10 @@ def install_routes(
             return Response(status_code=404)
         return FileResponse(asset_path, media_type="text/css")
 
+    @app.get("/assets/provider-core.js", include_in_schema=False)
+    async def provider_core_js() -> FileResponse:
+        return _asset_response("provider-core.js", "text/javascript")
+
     @app.get("/assets/connections.js", include_in_schema=False)
     async def connections_js() -> Response:
         asset_path = WEB_DIR / "connections.js"

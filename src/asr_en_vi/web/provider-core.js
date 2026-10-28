@@ -1,0 +1,1079 @@
+// Pure core of the provider connections (ChatGPT and Google Antigravity): state, one reducer for every
+// provider, selectors. No DOM, network, timer, storage or clock: node --test loads this file directly.
+// Contract: docs/adr/0010-frontend-reducer-core.md; state table: docs/frontend-design-v1.md §11.6.
+//
+// A provider is a plain-data descriptor (endpoints, login kind, poll delays, effort support, storage
+// key, copy). The flows (load, login, poll, cancel, save, verify, disconnect) are written once;
+// a difference between providers is a descriptor field, read by a small branch.
+// Time enters through `now` on the action (the runner stamps it); stale replies are dropped by ids in the state.
+//
+// User-visible text is data: t(text, params) only keeps the Vietnamese source string; the view translates it
+// with the real t(). A param is a primitive, a t() result, a timestamp() marker, or an array of those.
+
+import { combine } from "./store.js";
+
+const t = (text, params) => (params ? { text, params } : { text });
+const fill = (message, params) => ({ ...message, params });
+export const timestamp = (value) => ({ fmt: "timestamp", value });
+
+const KNOWN = ["connected", "disconnected", "reconnect_required"];
+const SESSION_DONE = ["connected", "cancelled", "expired", "failed"];
+const VIETNAMESE = /[À-ỹ]/u;
+const CHOICE_CHANGED = { type: "event", key: "provider/choice-changed", name: "asr:provider-choice-changed" };
+
+export const EFFORT_LABELS = {
+  none: t("Không suy luận (none)"),
+  low: t("Thấp (low)"),
+  medium: t("Trung bình (medium)"),
+  high: "Cao (high)",
+  xhigh: t("Rất cao (xhigh)"),
+  max: t("Tối đa (max)"),
+};
+export const DEFAULT_EFFORT_LABEL = t("Mặc định của mô hình");
+
+// Request errors every provider shares (the old connectionRequest table).
+const REQUEST_ERRORS = {
+  revocation_unconfirmed: t("Chưa xác nhận thu hồi phiên ChatGPT cũ. Hãy thử lại hoặc thu hồi quyền trong ChatGPT → Cài đặt → Mức sử dụng."),
+  provider_busy: t("Một thao tác ChatGPT khác đang chạy. Hãy đợi một chút rồi thử lại."),
+  provider_timeout: t("ChatGPT chưa phản hồi trong thời gian cho phép. Bạn có thể thử lại."),
+  NETWORK_ERROR: t("Không kết nối được với máy chủ trên máy này."),
+  INVALID_AUTHORIZATION_URL: t("Máy chủ trả về địa chỉ đăng nhập không hợp lệ."),
+  UNSAFE_AUTHORIZATION_URL: t("Máy chủ không được gửi thông tin nhận dạng nhạy cảm đến trình duyệt."),
+  INVALID_LOGIN_SESSION: t("Máy chủ trả về phiên đăng nhập không hợp lệ."),
+  INVALID_LOGIN_STATUS: t("Máy chủ trả về trạng thái phiên đăng nhập không hợp lệ."),
+  CANCEL_NOT_CONFIRMED: t("Máy chủ chưa hủy được phiên đăng nhập."),
+  POPUP_BLOCKED: t("Trình duyệt đang chặn cửa sổ đăng nhập. Cho phép mở cửa sổ cho không gian làm việc này rồi thử lại."),
+  SIGN_IN_FAILED: t("Không thể hoàn tất đăng nhập ChatGPT."),
+  INVALID_PROVIDER_STATUS: t("Máy chủ chưa công bố trạng thái kết nối ChatGPT hợp lệ."),
+  DISCONNECT_NOT_CONFIRMED: t("Máy chủ chưa xác nhận đã ngắt kết nối ChatGPT."),
+  provider_reconnect_required: t("Tài khoản ChatGPT cần đăng nhập lại trước khi tiếp tục."),
+  chatgpt_reconnect_required: t("Tài khoản ChatGPT cần đăng nhập lại trước khi tiếp tục."),
+  reconnect_required: t("Tài khoản ChatGPT cần đăng nhập lại trước khi tiếp tục."),
+  provider_auth_error: t("ChatGPT không chấp nhận thông tin đăng nhập hiện tại. Hãy kết nối lại tài khoản."),
+  subscription_sharing_invalid_user: t("ChatGPT không chấp nhận thông tin đăng nhập hiện tại. Hãy kết nối lại tài khoản."),
+  chatpass_v2_scope_not_authorized: t("Tài khoản chưa cấp quyền dùng gói ChatGPT. Hãy kết nối lại và cấp quyền cần thiết."),
+  chatpass_v2_invalid_authorization_context: t("Cấu hình cấp quyền ChatGPT không hợp lệ. Hãy kiểm tra cấu hình kết nối trước khi đăng nhập lại."),
+  scope_not_authorized: t("Tài khoản chưa cấp quyền dùng gói ChatGPT. Hãy kết nối lại và cấp quyền cần thiết."),
+  invalid_grant: t("Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản."),
+  invalid_refresh_token: t("Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản."),
+  token_expired: t("Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản."),
+  refresh_token_expired: t("Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản."),
+  refresh_token_invalidated: t("Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản."),
+  refresh_token_reused: t("Quyền đăng nhập ChatGPT đã hết hạn. Hãy kết nối lại tài khoản."),
+  model_not_available: t("Mô hình đã chọn không khả dụng với tài khoản ChatGPT này. Hãy chọn mô hình khác."),
+  model_unavailable: t("Mô hình đã chọn không khả dụng với tài khoản ChatGPT này. Hãy chọn mô hình khác."),
+  invalid_reasoning_effort: t("Mức suy luận này không được mô hình đã chọn hỗ trợ."),
+};
+
+function defaultError(code, status) {
+  if (Object.hasOwn(REQUEST_ERRORS, code)) return REQUEST_ERRORS[code];
+  if (status === 401) return t("Phiên truy cập không gian làm việc không còn hợp lệ. Hãy mở lại liên kết trong terminal.");
+  if (status === 403) return t("ChatGPT đã từ chối yêu cầu. Hãy kiểm tra quyền truy cập tài khoản rồi thử lại.");
+  if (status === 404) return t("Không tìm thấy phiên hoặc dữ liệu yêu cầu.");
+  if (status === 409) return t("Trạng thái đã thay đổi. Hãy tải lại thông tin rồi thử lại.");
+  if (status === 429) return t("Yêu cầu đã chạm giới hạn hiện tại. Hãy kiểm tra mức sử dụng ChatGPT.");
+  if (status >= 500) return t("Máy chủ chưa thể hoàn tất yêu cầu. Hãy thử lại sau.");
+  return t("Không thể hoàn tất thao tác. Hãy kiểm tra trạng thái rồi thử lại.");
+}
+
+// A server string is kept only when it is Vietnamese; our own t() result is kept as it is.
+function localizedError(code, message, status) {
+  if (typeof message === "string" && VIETNAMESE.test(message)) return message;
+  if (message && typeof message === "object") return message;
+  return defaultError(code, status);
+}
+
+// Runner error {message, status?, body?} -> {code, message, status}.
+function requestError(error) {
+  if (error.status === undefined) return { code: "NETWORK_ERROR", message: REQUEST_ERRORS.NETWORK_ERROR, status: 0 };
+  const status = error.status;
+  const payload = error.body && typeof error.body === "object" ? error.body : null;
+  const detail = payload && (payload.detail || payload.error);
+  if (detail && typeof detail === "object") {
+    const code = typeof detail.code === "string" ? detail.code : `HTTP_${status}`;
+    return { code, message: localizedError(code, detail.message, status), status };
+  }
+  const code = `HTTP_${status}`;
+  const text = typeof detail === "string" && detail.trim() ? detail.trim() : "";
+  return { code, message: localizedError(code, text, status), status };
+}
+
+const GENERIC_ERROR = { code: "CONNECTION_ERROR" }; // a 2xx reply that is not the expected JSON object
+
+export const CHATGPT = {
+  id: "chatgpt",
+  launcherName: "OpenAI",
+  endpoints: {
+    providers: "/api/providers",
+    preferences: "/api/notes-preferences",
+    models: "/api/providers/chatgpt/models",
+    loginSessions: "/api/providers/chatgpt/login-sessions",
+    verify: "/api/providers/chatgpt/verify",
+    connection: "/api/providers/chatgpt/connection",
+  },
+  catalog: "preferences", // the saved choice lives in /api/notes-preferences; saving PUTs it there
+  storageKey: "asr.chatgpt.pendingLogin",
+  login: {
+    kind: "popup", // reserve a window, then send it to the authorization URL
+    firstPoll: 500,
+    poll: 1000,
+    clientExpiry: true, // the poll ends the login when expires_at has passed
+    restoreExpired: "poll", // a restored login is polled once; the poll finds it expired
+    pollErrors: "retry", // a failed poll shows "check again"; no automatic retry
+    cancelDisables: true,
+    cancelStrict: true, // a cancel reply with an unknown status is an error
+    clearOnFinish: true, // finishing a login clears the error and the message of the page
+  },
+  strictStatus: true, // a status outside connected/disconnected/reconnect_required is not a valid answer
+  loadFailure: "keep-last", // a failed load keeps the last known status
+  exclusive: false, // saving and verifying can overlap
+  verifyWithEffort: true,
+  confirmDisconnect: true, // two steps: ask, then DELETE; the reply must say disconnected
+  clearMessages: true, // opening the dialog or starting a login clears the message line
+  effort: { kind: "per-model", initial: "default" },
+  reconnect: {
+    suffix: "reconnect_required",
+    ignoreStatus: 401, // a 401 is the workspace session, not the provider
+    lowercase: true,
+    codes: [
+      "provider_auth_error",
+      "subscription_sharing_invalid_user",
+      "scope_not_authorized",
+      "chatpass_v2_scope_not_authorized",
+      "chatpass_v2_invalid_authorization_context",
+      "invalid_grant",
+      "invalid_refresh_token",
+      "token_expired",
+      "refresh_token_expired",
+      "refresh_token_invalidated",
+      "refresh_token_reused",
+    ],
+    local: false, // refresh the status first; no local guess
+  },
+  errorStyle: "chatgpt",
+  errors: {},
+  copy: {
+    status: {
+      connected: t("Đã kết nối"),
+      reconnect_required: t("Cần đăng nhập lại"),
+      disconnected: t("Chưa kết nối"),
+      other: t("Chưa rõ trạng thái"),
+    },
+    loading: t("Đang kiểm tra"),
+    unavailable: t("Không khả dụng"),
+    unreadable: t("Không đọc được trạng thái"),
+    noVerification: t("Chưa kiểm tra"),
+    noAccount: t("Chưa có thông tin"),
+    invalidStatus: t("Máy chủ chưa công bố trạng thái kết nối ChatGPT hợp lệ."),
+    pending: t("Đang chờ bạn hoàn tất đăng nhập trong cửa sổ ChatGPT…"),
+    pollFailed: t("Chưa đọc được trạng thái đăng nhập. Bạn có thể thử kiểm tra lại."),
+    windowTitle: "Continue with ChatGPT",
+    windowText: t("Đang chuẩn bị đăng nhập ChatGPT…"),
+    replaced: t("Đã thay thế phiên đăng nhập đang chờ. Hãy tiếp tục ở cửa sổ ChatGPT mới; phản hồi từ cửa sổ cũ sẽ bị bỏ qua."),
+    windowClosed: t("Cửa sổ đăng nhập đã đóng. Hãy hủy phiên này rồi bắt đầu lại."),
+    loginConnected: t("Đã xác thực tài khoản ChatGPT."),
+    loginCancelled: t("Đã hủy đăng nhập ChatGPT."),
+    loginExpired: t("Phiên đăng nhập đã hết hạn. Hãy bắt đầu lại để kết nối ChatGPT."),
+    loginFailed: t("Đăng nhập ChatGPT chưa hoàn tất."),
+    loginFailedError: t("Không thể hoàn tất đăng nhập ChatGPT."),
+    choose: t("Chọn mô hình"),
+    noModels: t("Chưa có mô hình khả dụng"),
+    unavailableOption: t("{model} — không khả dụng với tài khoản này"),
+    connectToLoad: t("Kết nối ChatGPT để tải mô hình"),
+    unavailableSaved: t("Mô hình đã lưu “{model}” hiện không khả dụng. Hãy chọn mô hình khác để thay đổi lựa chọn."),
+    chooseToSave: t("Chọn mô hình rồi lưu để dùng cho ghi chú cuộc họp."),
+    unsavedModel: t("Lựa chọn mới chưa được lưu."),
+    unsavedEffort: t("Mức suy luận mới chưa được lưu."),
+    saving: t("Đang lưu mô hình…"),
+    saved: t("Đã lưu {model} · effort {effort} cho ghi chú cuộc họp."),
+    saveFailed: t("Chưa lưu được mô hình. Lựa chọn đã lưu trước đó vẫn được giữ nguyên."),
+    verifying: t("Đang chạy một yêu cầu kiểm tra tổng hợp…"),
+    verified: t("Đã xác minh {model} · effort {effort} lúc {time}."),
+    verifyFailed: t("Không xác minh được kết nối. Yêu cầu không được tự động gửi lại."),
+    disconnecting: t("Đang ngắt kết nối…"),
+    disconnect: t("Ngắt kết nối"),
+    disconnectedRemote: t("Đã xóa thông tin đăng nhập trong không gian làm việc và xác nhận thu hồi quyền truy cập từ xa."),
+    disconnectedLocal: t("Đã ngắt kết nối trong không gian làm việc. ChatGPT chưa xác nhận thu hồi quyền từ xa; hãy kiểm tra ChatGPT → Cài đặt → Mức sử dụng."),
+  },
+};
+
+export const ANTIGRAVITY = {
+  id: "antigravity",
+  launcherName: "Google",
+  endpoints: {
+    providers: "/api/providers",
+    preferences: null,
+    models: "/api/providers/antigravity/models",
+    preference: "/api/providers/antigravity/preference",
+    loginSessions: "/api/providers/antigravity/login-sessions",
+    verify: "/api/providers/antigravity/verify",
+    connection: "/api/providers/antigravity/connection",
+  },
+  catalog: "self", // the catalog carries the saved model and effort; saving PUTs the provider preference
+  storageKey: "asr.antigravity.pendingLogin",
+  login: {
+    kind: "code", // a link and a code input shown in the dialog; polling starts at once
+    firstPoll: 0,
+    poll: 1000,
+    pollError: 2000,
+    clientExpiry: false,
+    restoreExpired: "discard", // an expired stored login is dropped without a request
+    pollErrors: "reschedule",
+    cancelDisables: false,
+    cancelStrict: false, // any cancel reply ends the login
+    clearOnFinish: false,
+  },
+  strictStatus: false,
+  loadFailure: "badge-error",
+  exclusive: true, // one operation at a time: save, verify, disconnect
+  verifyWithEffort: false,
+  confirmDisconnect: false,
+  clearMessages: false,
+  effort: { kind: "fixed", initial: "high", values: ["high", "medium"] },
+  effortLabels: { medium: "Medium", high: "High" },
+  reconnect: {
+    suffix: undefined,
+    ignoreStatus: undefined,
+    lowercase: false,
+    codes: ["reconnect_required", "provider_disconnected"],
+    local: true, // mark the status reconnect_required/disconnected at once, then refresh it
+  },
+  errorStyle: "antigravity",
+  errors: {
+    omp_unavailable: t("Bản cài này chưa có OMP 18.5.0. Hãy dựng lại image có runner đã pin."),
+    omp_invalid_runtime: t("OMP không đáp ứng cấu hình cô lập bắt buộc."),
+    reconnect_required: t("Phiên Google Antigravity không còn hiệu lực. Hãy kết nối lại."),
+    provider_disconnected: t("Hãy kết nối Google Antigravity trước."),
+    provider_quota: t("Tài khoản hoặc model Antigravity đã chạm giới hạn hiện tại."),
+    model_unavailable: t("Model này không còn khả dụng với tài khoản Antigravity."),
+    provider_timeout: t("OMP hoặc Google Antigravity không phản hồi trong thời gian cho phép."),
+    provider_busy: t("Một thao tác Antigravity khác đang chạy."),
+  },
+  copy: {
+    status: {
+      connected: t("Đã kết nối"),
+      reconnect_required: t("Cần kết nối lại"),
+      disconnected: t("Chưa kết nối"),
+      other: t("Không khả dụng"),
+    },
+    loading: t("Đang kiểm tra"),
+    unavailable: t("Không khả dụng"),
+    unreadable: null,
+    noVerification: null,
+    noAccount: t("Chưa có thông tin"),
+    invalidStatus: t("Thiếu trạng thái Antigravity."),
+    pending: t("Hoàn tất đăng nhập Google trong trang do OMP cung cấp."),
+    invalidUrl: t("OMP trả về URL đăng nhập không hợp lệ."),
+    unsafeUrl: t("OMP trả về URL đăng nhập không an toàn."),
+    serverError: t("Không hoàn tất được thao tác Antigravity. Yêu cầu không được tự động gửi lại."),
+    otherError: t("Không hoàn tất được thao tác Antigravity."),
+    loginConnected: t("Đã kết nối Google Antigravity qua OMP."),
+    loginCancelled: t("Đã hủy đăng nhập Antigravity."),
+    choose: t("Chọn mô hình Antigravity"),
+    noModels: t("Không có mô hình Antigravity khả dụng"),
+    unavailableOption: t("{model} — không còn khả dụng"),
+    unavailableSaved: t("Model đã lưu không còn trong catalog. Hãy chọn model khác."),
+    connectToLoad: t("Kết nối Antigravity để tải model"),
+    unsavedModel: t("Lựa chọn mới chưa được lưu."),
+    unsavedEffort: t("Lựa chọn mới chưa được lưu."),
+    saved: t("Đã lưu {model} · mức suy nghĩ {effort} cho Antigravity."),
+    verifying: t("Đang gửi một yêu cầu tổng hợp qua model đã chọn…"),
+    verified: t("Đã xác minh {model} lúc {time}."),
+    verifyFailed: t("Kiểm tra thất bại; yêu cầu không được tự động gửi lại."),
+    disconnectedLocal: t("Đã ngắt kết nối Antigravity và vô hiệu hóa credential OMP đã lưu."),
+  },
+};
+
+const BY_ID = { chatgpt: CHATGPT, antigravity: ANTIGRAVITY };
+
+// Header buttons: visible status and the spoken equivalent for each launcher state.
+export const LAUNCHER_COPY = {
+  loading: [t("Đang kiểm tra"), t("đang kiểm tra trạng thái")],
+  connected: [t("Đã kết nối"), t("đã kết nối")],
+  reconnect_required: [t("Cần đăng nhập lại"), t("cần đăng nhập lại")],
+  disconnected: [t("Chưa kết nối"), t("chưa kết nối")],
+  error: [t("Không khả dụng"), t("không đọc được trạng thái")],
+};
+
+function initial(d) {
+  return {
+    id: d.id,
+    info: null, // the provider object of /api/providers
+    launcher: null, // {status, account}: what the header button shows; null until a status is known
+    badge: { state: "loading", text: d.copy.loading },
+    statusText: null,
+    summary: null, // last verification, as text data; null hides the row
+    loading: false,
+    loadId: 0, // id of the latest load; other replies are stale
+    headerGen: null, // loadId when the page-load status read started
+    models: [],
+    modelOptions: null, // option list of the model select, as data; null leaves the page markup alone
+    selectedModel: "",
+    savedModel: "",
+    selectedEffort: d.effort.initial,
+    savedEffort: d.effort.initial,
+    preferences: { provider: null, models: {}, reasoning_effort: "default" },
+    modelStatus: { state: "", text: null },
+    verifyResult: { state: "", text: null },
+    message: null,
+    error: null, // {code, text, retryPoll}
+    login: null, // {id, expiresAt}
+    loginGen: 0, // id of the latest login/poll run; other replies are stale
+    loginCopy: null,
+    loginLink: null,
+    inputPrompt: null,
+    inputOpen: false,
+    signInDisabled: false,
+    cancelling: false,
+    pending: { save: false, verify: false, disconnect: false },
+    confirming: false, // chatgpt: the "keep or disconnect" question is open
+    afterLoad: null, // "disconnected": answer notes.js when the load that follows a disconnect settles
+    ui: null, // one-shot request to the view: focus:* or clear-input
+  };
+}
+
+export const initialState = { chatgpt: initial(CHATGPT), antigravity: initial(ANTIGRAVITY), launcher: { scroll: false } };
+
+const done = (state, effects = []) => ({ state, effects });
+const isObject = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+function call(d, key, op, url, { method = "GET", body, id, extra } = {}) {
+  const headers = { Accept: "application/json" };
+  if (method !== "GET" && method !== "HEAD") headers["Content-Type"] = "application/json";
+  const init = { method, headers, credentials: "same-origin", cache: "no-store" };
+  if (body !== undefined) init.body = JSON.stringify(body);
+  return {
+    type: "fetch",
+    key: `${d.id}/${key}`,
+    url,
+    init,
+    ok: "provider/response",
+    error: "provider/request-failed",
+    meta: { provider: d.id, op, id, ...extra },
+  };
+}
+
+const loginUrl = (d, id, tail = "") => `${d.endpoints.loginSessions}/${encodeURIComponent(id)}${tail}`;
+const windowEffect = (d, op, extra) => ({ type: "open-window", key: `${d.id}/login-window`, op, meta: { provider: d.id }, ...extra });
+const pollWait = (d, delay, gen) => ({ type: "schedule", key: `${d.id}/poll-wait`, delay, action: { type: "provider/poll-due", provider: d.id, gen } });
+const stopPoll = (d) => [{ type: "cancel", key: `${d.id}/poll-wait` }, { type: "cancel", key: `${d.id}/poll` }];
+const persist = (d, login) =>
+  login
+    ? { type: "storage", key: d.storageKey, area: "session", op: "write", value: JSON.stringify(login) }
+    : { type: "storage", key: d.storageKey, area: "session", op: "remove" };
+
+// ---- errors ----
+
+function errorText(d, error) {
+  const code = (error && error.code) || "CONNECTION_ERROR";
+  if (d.errorStyle === "chatgpt") return localizedError(code, error && error.message, error && error.status);
+  const known = Object.hasOwn(d.errors, error?.code) ? d.errors[error.code] : null;
+  if (known) return known;
+  if (error && error.status === 429) return d.errors.provider_quota;
+  if (error && error.status >= 500) return d.copy.serverError;
+  return (error && error.message) || d.copy.otherError;
+}
+
+function showError(d, s, error, retryPoll = false) {
+  return { ...s, error: { code: (error && error.code) || "CONNECTION_ERROR", text: errorText(d, error), retryPoll } };
+}
+
+function needsReconnect(d, error) {
+  const rule = d.reconnect;
+  if (!error || error.status === rule.ignoreStatus) return false;
+  const raw = String(error.code || "");
+  const code = rule.lowercase ? raw.toLowerCase() : raw;
+  return (rule.suffix !== undefined && code.endsWith(rule.suffix)) || rule.codes.includes(code);
+}
+
+// ---- provider status ----
+
+function launcherOf(status, account) {
+  return { status: KNOWN.includes(status) ? status : "error", account: account || "" };
+}
+
+function modelName(s, modelId) {
+  return s.models.find((model) => model.id === modelId)?.display_name || modelId;
+}
+
+function summaryOf(d, s, verification) {
+  if (!(verification && verification.model && verification.verified_at)) return null;
+  const name = modelName(s, verification.model);
+  if (!d.verifyWithEffort) return [name, " · ", timestamp(verification.verified_at)];
+  return [name, " · effort ", verification.reasoning_effort || "default", " · ", timestamp(verification.verified_at)];
+}
+
+// The old renderProvider: the new status reaches the badge, the ledger, the verification row and the header button.
+function applyProvider(d, s, info) {
+  const status = info.status;
+  const text = KNOWN.includes(status) ? d.copy.status[status] : d.copy.status.other;
+  return {
+    ...s,
+    info,
+    badge: { state: KNOWN.includes(status) ? status : "error", text },
+    statusText: text,
+    summary: summaryOf(d, s, info.verification),
+    launcher: launcherOf(status, info.account?.label),
+  };
+}
+
+function placeholderOptions(label) {
+  return [{ value: "", label, disabled: false }];
+}
+
+function clearModels(d, s) {
+  return { ...s, models: [], selectedModel: "", savedModel: "", modelOptions: placeholderOptions(d.copy.connectToLoad) };
+}
+
+function localReconnect(d, s, error) {
+  const status = error.code === "provider_disconnected" ? "disconnected" : "reconnect_required";
+  const info = { id: d.id, connection_version: 0, ...s.info, status, account: null, verification: null };
+  return applyProvider(d, clearModels(d, s), info);
+}
+
+// ---- load: providers -> (preferences) -> models ----
+
+function startLoad(d, s) {
+  const loadId = s.loadId + 1;
+  let next = { ...s, loadId, loading: true, error: null };
+  if (d.loadFailure === "keep-last") next = { ...next, badge: { state: "loading", text: d.copy.loading }, launcher: { status: "loading", account: "" } };
+  return done(next, [call(d, "load", "providers", d.endpoints.providers, { id: loadId })]);
+}
+
+function settle(d, s) {
+  let next = { ...s, loading: false };
+  const effects = [];
+  if (next.afterLoad === "disconnected") {
+    next = { ...next, afterLoad: null, pending: { ...next.pending, disconnect: false } };
+    effects.push(CHOICE_CHANGED);
+  }
+  return done(next, effects);
+}
+
+function normalizePreferences(payload) {
+  return {
+    provider: ["chatgpt", "antigravity"].includes(payload.provider) ? payload.provider : null,
+    models: isObject(payload.models) ? payload.models : {},
+    reasoning_effort: typeof payload.reasoning_effort === "string" ? payload.reasoning_effort : "default",
+  };
+}
+
+const modelAvailable = (s, modelId) => Boolean(modelId && s.models.some((model) => model.id === modelId));
+
+function supportedEfforts(s, modelId) {
+  const model = s.models.find((item) => item.id === modelId);
+  return Array.isArray(model?.reasoning_efforts) ? model.reasoning_efforts.filter((effort) => Object.hasOwn(EFFORT_LABELS, effort)) : [];
+}
+
+const effortValue = (d, s, modelId, wanted) => (d.effort.kind === "per-model" ? (supportedEfforts(s, modelId).includes(wanted) ? wanted : "default") : wanted);
+
+function renderModels(d, s, catalog) {
+  const models = (Array.isArray(catalog.models) ? catalog.models : []).filter(
+    (model) => model && typeof model.id === "string" && typeof model.display_name === "string",
+  );
+  let next = { ...s, models };
+  let selectedModel;
+  let savedEffort;
+  if (d.catalog === "preferences") {
+    const preferred = s.preferences.models[d.id];
+    const fromCatalog = typeof catalog.selected_model === "string" ? catalog.selected_model : "";
+    selectedModel = typeof preferred === "string" && preferred ? preferred : fromCatalog;
+    savedEffort = s.preferences.reasoning_effort;
+  } else {
+    selectedModel = typeof catalog.selected_model === "string" ? catalog.selected_model : "";
+    savedEffort = catalog.reasoning_effort === "medium" ? "medium" : "high";
+  }
+  const options = [];
+  const available = models.some((model) => model.id === selectedModel);
+  if (!selectedModel) options.push(...placeholderOptions(models.length ? d.copy.choose : d.copy.noModels));
+  else if (!available) options.push({ value: selectedModel, label: fill(d.copy.unavailableOption, { model: selectedModel }), disabled: true });
+  for (const model of models) options.push({ value: model.id, label: model.display_name, disabled: false });
+  next = { ...next, modelOptions: options, savedModel: selectedModel, selectedModel, savedEffort };
+  next.selectedEffort = effortValue(d, next, selectedModel, savedEffort);
+  if (selectedModel && !available) {
+    next.modelStatus = { state: "error", text: fill(d.copy.unavailableSaved, { model: selectedModel }) };
+  } else if (d.catalog === "preferences") {
+    next.modelStatus = { state: "", text: selectedModel ? null : d.copy.chooseToSave };
+  }
+  return next;
+}
+
+function loadOk(d, s, meta, body) {
+  if (meta.id !== s.loadId) return done(s);
+  if (!isObject(body)) return loadFailed(d, s, GENERIC_ERROR);
+  if (meta.op === "providers") {
+    const info = (Array.isArray(body.providers) ? body.providers : []).find((item) => item && item.id === d.id);
+    if (!info || (d.strictStatus && !KNOWN.includes(info.status))) {
+      return loadFailed(d, s, { code: "INVALID_PROVIDER_STATUS", message: d.copy.invalidStatus });
+    }
+    const next = applyProvider(d, s, info);
+    if (d.endpoints.preferences) return done(next, [call(d, "load", "preferences", d.endpoints.preferences, { id: meta.id })]);
+    if (info.status === "connected") return done(next, [call(d, "load", "models", d.endpoints.models, { id: meta.id })]);
+    return settle(d, clearModels(d, next));
+  }
+  if (meta.op === "preferences") {
+    const preferences = normalizePreferences(body);
+    const next = { ...s, preferences };
+    if (s.info.status === "connected") return done(next, [call(d, "load", "models", d.endpoints.models, { id: meta.id })]);
+    const selectedModel = preferences.models[d.id] || "";
+    return settle(d, {
+      ...next,
+      models: [],
+      selectedModel,
+      savedModel: selectedModel,
+      savedEffort: preferences.reasoning_effort,
+      selectedEffort: "default",
+      modelOptions: placeholderOptions(d.copy.connectToLoad),
+      modelStatus: { state: "", text: null },
+    });
+  }
+  return settle(d, renderModels(d, s, body)); // models
+}
+
+function loadFailed(d, s, error) {
+  return fail(d, s, error, "load");
+}
+
+// A failed call that may mean the provider needs a new sign-in: re-read the status, then finish the operation.
+function fail(d, s, error, after) {
+  if (!needsReconnect(d, error)) return resume(d, s, error, after);
+  const next = d.reconnect.local ? localReconnect(d, s, error) : s;
+  return done(next, [call(d, `refresh-${after}`, "refresh", d.endpoints.providers, { extra: { after, error, loadId: s.loadId } })]);
+}
+
+function refreshed(d, s, meta, body) {
+  if (meta.after === "load" && meta.loadId !== s.loadId) return done(s); // a newer load owns the page now
+  let next = s;
+  const info = isObject(body) && Array.isArray(body.providers) ? body.providers.find((item) => item && item.id === d.id) : null;
+  if (info && (!d.strictStatus || KNOWN.includes(info.status))) {
+    next = applyProvider(d, s, info);
+    if (!d.strictStatus && info.status !== "connected") next = clearModels(d, next);
+  }
+  return resume(d, next, meta.error, meta.after);
+}
+
+function setPending(s, op, value) {
+  return { ...s, pending: { ...s.pending, [op]: value } };
+}
+
+function resume(d, s, error, after) {
+  if (after === "load") {
+    let next = s;
+    if (d.loadFailure === "keep-last") {
+      if (s.info) next = applyProvider(d, s, s.info);
+      else next = { ...s, launcher: { status: "error", account: "" }, badge: { state: "error", text: d.copy.unavailable }, statusText: d.copy.unreadable };
+    } else if (!needsReconnect(d, error)) {
+      next = { ...s, launcher: { status: "error", account: "" }, badge: { state: "error", text: d.copy.unavailable } };
+    }
+    return settle(d, showError(d, next, error));
+  }
+  if (after === "save") {
+    const next = setPending(s, "save", false);
+    return done(showError(d, d.copy.saveFailed ? { ...next, modelStatus: { state: "error", text: d.copy.saveFailed } } : next, error));
+  }
+  const next = setPending(s, "verify", false);
+  return done(showError(d, { ...next, verifyResult: { state: "error", text: d.copy.verifyFailed } }, error));
+}
+
+// ---- login ----
+
+function validateAuthorizationUrl(value) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return { error: { code: "INVALID_AUTHORIZATION_URL", message: t("Máy chủ trả về địa chỉ đăng nhập không hợp lệ.") } };
+  }
+  if (url.protocol !== "https:" || url.hostname !== "auth.openai.com" || url.username || url.password) {
+    return { error: { code: "INVALID_AUTHORIZATION_URL", message: t("Địa chỉ đăng nhập không thuộc dịch vụ ChatGPT chính thức.") } };
+  }
+  if (url.searchParams.has("id_token_hint")) {
+    return { error: { code: "UNSAFE_AUTHORIZATION_URL", message: t("Máy chủ không được gửi thông tin nhận dạng nhạy cảm đến trình duyệt.") } };
+  }
+  return { url: url.href };
+}
+
+const loginExpired = (login, now) => {
+  const expires = Date.parse(login.expiresAt);
+  return Number.isFinite(expires) && now >= expires;
+};
+
+// The old setPendingLogin / setAntigravityLogin: remember the login and show what the session offers.
+function applySession(d, s, session) {
+  const login = { id: session.id, expiresAt: session.expires_at };
+  let next = { ...s, login };
+  const effects = [persist(d, login)];
+  if (d.login.kind === "popup") return { state: { ...next, loginCopy: d.copy.pending }, effects };
+  next = { ...next, loginCopy: typeof session.instructions === "string" && session.instructions ? session.instructions : d.copy.pending };
+  if (typeof session.authorization_url === "string" && session.authorization_url) {
+    let url = null;
+    try {
+      url = new URL(session.authorization_url);
+    } catch {
+      return { state: next, effects, error: { code: "INVALID_AUTHORIZATION_URL", message: d.copy.invalidUrl } };
+    }
+    const localHttp = url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname);
+    if (!(url.protocol === "https:" || localHttp) || url.username || url.password) {
+      return { state: next, effects, error: { code: "INVALID_AUTHORIZATION_URL", message: d.copy.unsafeUrl } };
+    }
+    next = { ...next, loginLink: url.href };
+  }
+  if (typeof session.input_prompt === "string" && session.input_prompt) next = { ...next, inputPrompt: session.input_prompt, inputOpen: true };
+  return { state: next, effects };
+}
+
+function finishLogin(d, s, status, payload) {
+  const gen = s.loginGen + 1;
+  let next = { ...s, login: null, loginGen: gen, cancelling: false, signInDisabled: false, loginLink: null, inputOpen: false };
+  const effects = [...stopPoll(d), persist(d, null)];
+  if (d.login.clearOnFinish) next = { ...next, error: null };
+  if (status === "connected") {
+    next = { ...next, message: d.copy.loginConnected };
+    const load = startLoad(d, next);
+    return done(load.state, [...effects, ...load.effects, CHOICE_CHANGED]);
+  }
+  if (status === "cancelled") return done({ ...next, message: d.copy.loginCancelled }, effects);
+  if (status === "expired") {
+    if (d.login.clearOnFinish) return done({ ...next, message: d.copy.loginExpired }, effects);
+    return done(showError(d, next, { code: "provider_timeout" }), effects);
+  }
+  if (status === "failed") {
+    if (d.login.clearOnFinish) {
+      const error = payload && isObject(payload.error) ? payload.error : {};
+      const shown = {
+        code: typeof error.code === "string" ? error.code : "SIGN_IN_FAILED",
+        message: typeof error.message === "string" ? error.message : d.copy.loginFailedError,
+      };
+      return done({ ...showError(d, next, shown), message: d.copy.loginFailed }, effects);
+    }
+    return done(showError(d, next, (payload && payload.error) || { code: "provider_unavailable" }), effects);
+  }
+  return done(next, effects);
+}
+
+function startLogin(d, s) {
+  if (s.signInDisabled || s.login) return done(s); // a second click while the first is still starting
+  const next = { ...s, error: null, signInDisabled: true, ...(d.clearMessages ? { message: null } : {}) };
+  if (d.login.kind === "popup") {
+    return done(next, [windowEffect(d, "reserve", { title: d.copy.windowTitle, text: d.copy.windowText, ok: "provider/window-reserved", error: "provider/window-blocked" })]);
+  }
+  return done(next, [call(d, "login-start", "login-start", d.endpoints.loginSessions, { method: "POST", body: {} })]);
+}
+
+function loginStartFailed(d, s, error) {
+  return done({ ...showError(d, s, error), signInDisabled: false }, d.login.kind === "popup" ? [windowEffect(d, "close")] : []);
+}
+
+function loginStarted(d, s, session, now) {
+  if (d.login.kind === "code") {
+    if (!isObject(session)) return loginStartFailed(d, s, { code: "INVALID_LOGIN_SESSION", message: REQUEST_ERRORS.INVALID_LOGIN_SESSION });
+    const applied = applySession(d, s, session);
+    const next = { ...applied.state, signInDisabled: false };
+    if (applied.error) return done(showError(d, next, applied.error), applied.effects);
+    return done(next, [...applied.effects, call(d, "poll", "poll", loginUrl(d, session.id), { extra: { gen: s.loginGen } })]);
+  }
+  if (!session || session.status !== "pending" || !session.id || !session.expires_at) {
+    return loginStartFailed(d, s, { code: "INVALID_LOGIN_SESSION", message: REQUEST_ERRORS.INVALID_LOGIN_SESSION });
+  }
+  const checked = validateAuthorizationUrl(session.authorization_url);
+  if (checked.error) return loginStartFailed(d, s, checked.error);
+  const applied = applySession(d, s, session);
+  let next = { ...applied.state, loginGen: s.loginGen + 1 };
+  if (session.replaced_previous === true) next = { ...next, message: d.copy.replaced };
+  if (loginExpired(next.login, now)) {
+    const finished = finishLogin(d, next, "expired");
+    return done(finished.state, [...applied.effects, windowEffect(d, "close"), ...finished.effects]);
+  }
+  return done(next, [
+    ...applied.effects,
+    windowEffect(d, "navigate", { url: checked.url, closed: "provider/window-closed" }),
+    pollWait(d, d.login.firstPoll, next.loginGen),
+  ]);
+}
+
+function pollDue(d, s, gen, now) {
+  if (gen !== s.loginGen || !s.login) return done(s);
+  if (d.login.clientExpiry && loginExpired(s.login, now)) return finishLogin(d, s, "expired");
+  return done(s, [call(d, "poll", "poll", loginUrl(d, s.login.id), { extra: { gen } })]);
+}
+
+function pollOk(d, s, meta, session, now) {
+  if (meta.gen !== s.loginGen || !s.login) return done(s);
+  const status = isObject(session) ? session.status : undefined;
+  if (status === "pending") {
+    if (d.login.clientExpiry) {
+      if (loginExpired(s.login, now)) return finishLogin(d, s, "expired");
+      return done({ ...s, loginCopy: d.copy.pending }, [pollWait(d, d.login.poll, meta.gen)]);
+    }
+    const applied = applySession(d, s, session);
+    if (applied.error) return pollFailed(d, applied.state, meta, applied.error, applied.effects);
+    return done(applied.state, [...applied.effects, pollWait(d, d.login.poll, meta.gen)]);
+  }
+  if (SESSION_DONE.includes(status)) return finishLogin(d, s, status, d.login.clearOnFinish ? session : { error: session.error });
+  return pollFailed(d, s, meta, { code: "INVALID_LOGIN_STATUS", message: REQUEST_ERRORS.INVALID_LOGIN_STATUS });
+}
+
+const loginMissing = (error) => Boolean(error && (error.code === "login_session_not_found" || error.status === 404));
+
+function pollFailed(d, s, meta, error, effects = []) {
+  if (meta.gen !== s.loginGen || !s.login) return done(s);
+  if (d.login.pollErrors === "retry") return done({ ...showError(d, s, error, true), loginCopy: d.copy.pollFailed }, effects);
+  if (loginMissing(error)) return finishLogin(d, s, "expired");
+  return done(showError(d, s, error), [...effects, pollWait(d, d.login.pollError, meta.gen)]);
+}
+
+function cancelLogin(d, s) {
+  if (!s.login) return done(s);
+  const gen = s.loginGen + 1;
+  const next = { ...s, loginGen: gen, cancelling: d.login.cancelDisables, ...(d.login.clearOnFinish ? { error: null } : {}) };
+  return done(next, [...stopPoll(d), call(d, "login-cancel", "cancel", loginUrl(d, s.login.id), { method: "DELETE", extra: { gen } })]);
+}
+
+function cancelOk(d, s, meta, session) {
+  if (meta.gen !== s.loginGen) return done(s);
+  const status = isObject(session) ? session.status : undefined;
+  if (SESSION_DONE.includes(status) || !d.login.cancelStrict) return finishLogin(d, s, status, session);
+  return cancelFailed(d, s, meta, { code: "CANCEL_NOT_CONFIRMED", message: REQUEST_ERRORS.CANCEL_NOT_CONFIRMED });
+}
+
+function cancelFailed(d, s, meta, error) {
+  if (meta.gen !== s.loginGen) return done(s);
+  if (d.login.pollErrors === "reschedule" && loginMissing(error)) return finishLogin(d, s, "expired");
+  return done(showError(d, { ...s, cancelling: false }, error), [pollWait(d, d.login.poll, meta.gen)]);
+}
+
+function submitInput(d, s, value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!s.login || !text) return done(s);
+  return done(s, [call(d, "login-input", "input", loginUrl(d, s.login.id, "/input"), { method: "POST", body: { value: text } })]);
+}
+
+function inputOk(d, s, session) {
+  const cleared = { ...s, inputOpen: false, ui: "clear-input" };
+  if (!isObject(session)) return done(showError(d, cleared, GENERIC_ERROR));
+  const applied = applySession(d, cleared, session);
+  if (applied.error) return done(showError(d, applied.state, applied.error), applied.effects);
+  return done(applied.state, applied.effects);
+}
+
+function restore(d, s, raw, now) {
+  let saved;
+  try {
+    saved = JSON.parse(raw);
+  } catch {
+    return done(s, [persist(d, null)]);
+  }
+  if (!saved || typeof saved.id !== "string" || typeof saved.expiresAt !== "string") return done(s);
+  if (d.login.restoreExpired === "poll") {
+    if (!saved.id || !Number.isFinite(Date.parse(saved.expiresAt))) return done(s);
+    const applied = applySession(d, s, { id: saved.id, expires_at: saved.expiresAt });
+    return done(applied.state, [...applied.effects, pollWait(d, 0, s.loginGen)]);
+  }
+  const expires = Date.parse(saved.expiresAt);
+  if (!(Number.isFinite(expires) && expires > now)) return done(s, [persist(d, null)]);
+  return done({ ...s, login: { id: saved.id, expiresAt: saved.expiresAt } }, [call(d, "poll", "poll", loginUrl(d, saved.id), { extra: { gen: s.loginGen } })]);
+}
+
+// ---- model choice, save, verify, disconnect ----
+
+const busy = (d, s, op) => (d.exclusive ? Object.values(s.pending).some(Boolean) : s.pending[op]);
+
+function editChoice(d, s, field, value) {
+  if (d.catalog === "preferences") {
+    if (field === "model") {
+      const effort = value === s.savedModel ? s.savedEffort : "default";
+      const next = { ...s, selectedModel: value, selectedEffort: effort };
+      next.selectedEffort = effortValue(d, next, value, effort);
+      return done(value === s.savedModel ? next : { ...next, modelStatus: { state: "", text: d.copy.unsavedModel } });
+    }
+    return done({ ...s, selectedEffort: value, modelStatus: { state: "", text: d.copy.unsavedEffort } });
+  }
+  const next = field === "model" ? { ...s, selectedModel: value } : { ...s, selectedEffort: value };
+  const same = next.selectedModel === next.savedModel && next.selectedEffort === next.savedEffort;
+  return done({ ...next, modelStatus: { state: "", text: same ? null : d.copy.unsavedModel } });
+}
+
+function saveChoice(d, s) {
+  const model = s.selectedModel;
+  const effort = effortValue(d, s, model, s.selectedEffort);
+  if (d.catalog === "preferences" ? !modelAvailable(s, model) || busy(d, s, "save") : !model || busy(d, s, "save")) return done(s);
+  const next = setPending({ ...s, ...(d.catalog === "preferences" ? { error: null, modelStatus: { state: "", text: d.copy.saving } } : {}) }, "save", true);
+  const request =
+    d.catalog === "preferences"
+      ? call(d, "save", "save", d.endpoints.preferences, { method: "PUT", body: { provider: d.id, model, reasoning_effort: effort }, extra: { model, effort } })
+      : call(d, "save", "save", d.endpoints.preference, { method: "PUT", body: { model, reasoning_effort: effort }, extra: { model, effort } });
+  return done(next, [request]);
+}
+
+function saveOk(d, s, meta, body) {
+  const { model, effort } = meta;
+  let next = setPending(s, "save", false);
+  if (d.catalog === "preferences") {
+    const reply = isObject(body) ? body : {};
+    const preferences = {
+      provider: d.id,
+      models: isObject(reply.models) ? reply.models : { [d.id]: model },
+      reasoning_effort: typeof reply.reasoning_effort === "string" ? reply.reasoning_effort : effort,
+    };
+    const savedModel = preferences.models[d.id] || model;
+    next = { ...next, preferences, savedModel, selectedModel: savedModel, savedEffort: preferences.reasoning_effort };
+    next.selectedEffort = effortValue(d, next, savedModel, preferences.reasoning_effort);
+  } else {
+    next = { ...next, savedModel: model, savedEffort: effort };
+  }
+  const label = d.effortLabels ? d.effortLabels[next.savedEffort] ?? next.savedEffort : next.savedEffort;
+  next = { ...next, modelStatus: { state: "saved", text: fill(d.copy.saved, { model: modelName(next, next.selectedModel), effort: label }) } };
+  return done(next, [CHOICE_CHANGED]);
+}
+
+function verifyConnection(d, s) {
+  const model = s.selectedModel;
+  const effort = effortValue(d, s, model, s.selectedEffort);
+  if (d.verifyWithEffort ? !modelAvailable(s, model) || busy(d, s, "verify") : !model || busy(d, s, "verify")) return done(s);
+  const next = setPending({ ...s, ...(d.verifyWithEffort ? { error: null } : {}), verifyResult: { state: "", text: d.copy.verifying } }, "verify", true);
+  const body = d.verifyWithEffort ? { model, reasoning_effort: effort } : { model };
+  return done(next, [call(d, "verify", "verify", d.endpoints.verify, { method: "POST", body, extra: { model, effort } })]);
+}
+
+function verifyOk(d, s, meta, result) {
+  const reply = isObject(result) ? result : {};
+  let next = setPending(s, "verify", false);
+  if (d.verifyWithEffort) {
+    const effort = reply.reasoning_effort || meta.effort;
+    next = {
+      ...next,
+      verifyResult: { state: "success", text: fill(d.copy.verified, { model: modelName(next, reply.model), effort, time: timestamp(reply.verified_at) }) },
+    };
+    if (next.info) next = applyProvider(d, next, { ...next.info, verification: { model: reply.model, reasoning_effort: effort, verified_at: reply.verified_at } });
+    return done(next);
+  }
+  next = { ...next, verifyResult: { state: "success", text: fill(d.copy.verified, { model: modelName(next, meta.model), time: timestamp(reply.verified_at) }) } };
+  if (next.info) next = applyProvider(d, next, { ...next.info, verification: reply });
+  return done(next);
+}
+
+function disconnect(d, s) {
+  if (busy(d, s, "disconnect")) return done(s);
+  const next = setPending({ ...s, ...(d.confirmDisconnect ? { error: null } : {}) }, "disconnect", true);
+  return done(next, [call(d, "disconnect", "disconnect", d.endpoints.connection, { method: "DELETE" })]);
+}
+
+function disconnectOk(d, s, result) {
+  if (d.confirmDisconnect && !(isObject(result) && result.status === "disconnected")) {
+    return done(showError(d, setPending(s, "disconnect", false), { code: "DISCONNECT_NOT_CONFIRMED", message: REQUEST_ERRORS.DISCONNECT_NOT_CONFIRMED }));
+  }
+  if (!d.confirmDisconnect) {
+    const load = startLoad(d, { ...s, message: d.copy.disconnectedLocal, afterLoad: "disconnected" });
+    return load;
+  }
+  const info = { ...(s.info || {}), id: d.id, status: "disconnected", account: null, verification: null };
+  const next = applyProvider(
+    d,
+    {
+      ...setPending(s, "disconnect", false),
+      models: [],
+      modelOptions: placeholderOptions(d.copy.connectToLoad),
+      selectedModel: "",
+      verifyResult: { state: "", text: null },
+      confirming: false,
+      ui: "focus:sign-in",
+      message: result.remote_revocation_confirmed === true ? d.copy.disconnectedRemote : d.copy.disconnectedLocal,
+    },
+    info,
+  );
+  return done(next, [CHOICE_CHANGED]);
+}
+
+// ---- header status read on page load ----
+
+function headerLoaded(d, s, body) {
+  const providers = isObject(body) && Array.isArray(body.providers) ? body.providers : [];
+  const entry = providers.find((item) => item && item.id === d.id);
+  const known = Boolean(entry) && KNOWN.includes(entry.status);
+  if (d.loadFailure === "keep-last") {
+    // A dialog or login read that started meanwhile is newer than this slower page-load answer.
+    if (s.headerGen !== s.loadId) return done(s);
+    return done(known ? applyProvider(d, s, entry) : { ...s, launcher: { status: "error", account: "" } });
+  }
+  if (s.launcher) return done(s); // a status already shown by the dialog read is newer
+  return done({ ...s, launcher: launcherOf(known ? entry.status : "error", entry?.account?.label) });
+}
+
+// ---- reducers ----
+
+export function reduceProvider(d, state, action) {
+  const meta = action.meta;
+  switch (action.type) {
+    case "provider/header-requested":
+      return done({ ...state, headerGen: state.loadId });
+    case "provider/dialog-opened": {
+      const next = d.clearMessages ? { ...state, message: null } : state;
+      return startLoad(d, next);
+    }
+    case "provider/response":
+    case "provider/request-failed": {
+      if (meta.op === "header") return headerLoaded(d, state, action.type === "provider/response" ? action.response.body : null);
+      if (meta.provider !== d.id) return done(state);
+      return action.type === "provider/response" ? onResponse(d, state, meta, action.response.body, action.now) : onFailure(d, state, meta, requestError(action.error), action.now);
+    }
+    default:
+      break;
+  }
+  if ((action.provider ?? meta?.provider) !== d.id) return done(state);
+  switch (action.type) {
+    case "provider/boot-restored":
+      return restore(d, state, action.raw, action.now);
+    case "provider/login-requested":
+      return startLogin(d, state);
+    case "provider/window-reserved":
+      return done(state, [call(d, "login-start", "login-start", d.endpoints.loginSessions, { method: "POST", body: {} })]);
+    case "provider/window-blocked":
+      return done({ ...showError(d, state, { code: "POPUP_BLOCKED" }), signInDisabled: false });
+    case "provider/window-closed":
+      return done(showError(d, state, { code: "POPUP_BLOCKED", message: d.copy.windowClosed }));
+    case "provider/poll-due":
+      return pollDue(d, state, action.gen, action.now);
+    case "provider/poll-retry-requested":
+      return done({ ...state, error: null }, state.login ? [pollWait(d, 0, state.loginGen)] : []);
+    case "provider/login-cancel-requested":
+      return cancelLogin(d, state);
+    case "provider/login-input-submitted":
+      return submitInput(d, state, action.value);
+    case "provider/choice-edited":
+      return editChoice(d, state, action.field, action.value);
+    case "provider/save-requested":
+      return saveChoice(d, state);
+    case "provider/verify-requested":
+      return verifyConnection(d, state);
+    case "provider/disconnect-confirm-toggled":
+      return done({ ...state, confirming: action.open, ui: action.open ? "focus:disconnect-confirm" : "focus:disconnect-trigger" });
+    case "provider/disconnect-requested":
+      return disconnect(d, state);
+    case "provider/ui-handled":
+      return done({ ...state, ui: null });
+    default:
+      return done(state);
+  }
+}
+
+function onResponse(d, s, meta, body, now) {
+  switch (meta.op) {
+    case "providers":
+    case "preferences":
+    case "models":
+      return loadOk(d, s, meta, body);
+    case "refresh":
+      return refreshed(d, s, meta, body);
+    case "login-start":
+      return loginStarted(d, s, body, now);
+    case "poll":
+      return pollOk(d, s, meta, body, now);
+    case "cancel":
+      return cancelOk(d, s, meta, body);
+    case "input":
+      return inputOk(d, s, body);
+    case "save":
+      return saveOk(d, s, meta, body);
+    case "verify":
+      return verifyOk(d, s, meta, body);
+    default:
+      return disconnectOk(d, s, body);
+  }
+}
+
+function onFailure(d, s, meta, error) {
+  switch (meta.op) {
+    case "providers":
+    case "preferences":
+    case "models":
+      return meta.id === s.loadId ? loadFailed(d, s, error) : done(s);
+    case "refresh":
+      return refreshed(d, s, meta, null);
+    case "login-start":
+      return loginStartFailed(d, s, error);
+    case "poll":
+      return pollFailed(d, s, meta, error);
+    case "cancel":
+      return cancelFailed(d, s, meta, error);
+    case "input":
+      return done(showError(d, s, error));
+    case "save":
+      return fail(d, s, error, "save");
+    case "verify":
+      return fail(d, s, error, "verify");
+    default:
+      return done(showError(d, setPending(s, "disconnect", false), error));
+  }
+}
+
+// The launcher slice: the page-load status read, and the one-shot scroll to the Google section.
+function reduceLauncher(state, action) {
+  if (action.type === "provider/header-requested") {
+    return { state, effects: [{ type: "fetch", key: "provider/header", url: CHATGPT.endpoints.providers, init: { method: "GET", headers: { Accept: "application/json" }, credentials: "same-origin", cache: "no-store" }, ok: "provider/response", error: "provider/request-failed", meta: { op: "header" } }] };
+  }
+  if (action.type === "provider/dialog-opened") return done({ scroll: action.launcher === "antigravity" });
+  if (action.type === "provider/scroll-handled") return done({ scroll: false });
+  return done(state);
+}
+
+// One store for every provider; every reducer sees every action.
+export const reduce = combine({
+  chatgpt: (state, action) => reduceProvider(CHATGPT, state, action),
+  antigravity: (state, action) => reduceProvider(ANTIGRAVITY, state, action),
+  launcher: reduceLauncher,
+});
+
+// ---- selectors ----
+
+export function selectLauncher(d, s) {
+  const launcher = s.launcher;
+  if (!launcher) return null;
+  const [label, spoken] = LAUNCHER_COPY[launcher.status] || LAUNCHER_COPY.error;
+  const account = launcher.status === "connected" ? t(" với {account}", { account: launcher.account || t("tài khoản") }) : "";
+  return {
+    status: launcher.status,
+    ariaLabel: t("Kết nối {name}: {state}", { name: d.launcherName, state: [spoken, account] }),
+    title: [d.launcherName, ": ", label],
+  };
+}
+
+export function selectView(d, s) {
+  const connected = s.info?.status === "connected";
+  const model = s.selectedModel;
+  const available = modelAvailable(s, model);
+  const efforts = d.effort.kind === "per-model" ? [{ value: "default", label: DEFAULT_EFFORT_LABEL }, ...supportedEfforts(s, model).map((value) => ({ value, label: EFFORT_LABELS[value] }))] : null;
+  const effort = d.effort.kind === "per-model" ? effortValue(d, s, model, s.selectedEffort) : s.selectedEffort;
+  const view = {
+    effortOptions: efforts,
+    effortValue: effort,
+    account: s.info ? s.info.account?.label || d.copy.noAccount : null,
+    modelSectionHidden: !connected,
+    signInHidden: connected || Boolean(s.login),
+  };
+  if (d.exclusive) {
+    const anyBusy = busy(d, s, "save");
+    return {
+      ...view,
+      modelDisabled: !connected || anyBusy,
+      effortDisabled: !connected || anyBusy,
+      saveDisabled: !available || anyBusy || (model === s.savedModel && effort === s.savedEffort),
+      verifyDisabled: !available || anyBusy,
+      loginHidden: !s.login,
+      disconnectHidden: !connected,
+    };
+  }
+  const canUse = connected && available;
+  const preferenceActive = typeof s.preferences.models[d.id] === "string" && s.preferences.models[d.id] !== "";
+  return {
+    ...view,
+    modelDisabled: !connected || s.pending.save || s.models.length === 0,
+    effortDisabled: !canUse || s.pending.save || efforts.length < 2,
+    saveDisabled: !canUse || s.pending.save || (model === s.savedModel && effort === s.savedEffort && preferenceActive),
+    verifyDisabled: !canUse || s.pending.verify,
+    pendingHidden: !s.login,
+    cancelDisabled: !s.login || s.cancelling,
+    disconnectHidden: !s.info || s.info.status === "disconnected",
+    disconnectDisabled: s.pending.disconnect,
+    disconnectLabel: s.pending.disconnect ? d.copy.disconnecting : d.copy.disconnect,
+  };
+}

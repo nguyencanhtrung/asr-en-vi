@@ -1,0 +1,875 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { createRunner, createStore } from "../../src/asr_en_vi/web/store.js";
+import { ANTIGRAVITY, CHATGPT, initialState, reduce, selectLauncher, selectView } from "../../src/asr_en_vi/web/provider-core.js";
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+const reply = (status, body) => ({ ok: status < 400, status, text: async () => JSON.stringify(body) });
+const T0 = Date.parse("2026-01-01T00:00:00Z");
+const LATER = new Date(T0 + 60_000).toISOString();
+const SOON = new Date(T0 + 600_000).toISOString();
+
+const LIST = {
+  providers: [
+    { id: "chatgpt", status: "connected", account: { label: "a@example.com" } },
+    { id: "antigravity", status: "connected", account: { label: "g@example.com" } },
+  ],
+};
+const LIST_OUT = { providers: [{ id: "chatgpt", status: "disconnected" }, { id: "antigravity", status: "disconnected" }] };
+const MODELS = {
+  chatgpt: { models: [{ id: "m1", display_name: "M1", reasoning_efforts: ["low", "high"] }, { id: "m2", display_name: "M2" }], selected_model: "m1" },
+  antigravity: { models: [{ id: "g1", display_name: "G1" }, { id: "g2", display_name: "G2" }], selected_model: "g1", reasoning_effort: "medium" },
+};
+const PREFS = { provider: "chatgpt", models: { chatgpt: "m1" }, reasoning_effort: "low" };
+
+// Per provider: the second model to pick and the endpoint of its save request.
+const CASES = [
+  { d: CHATGPT, other: "m2", save: ["PUT", "/api/notes-preferences"], login: "popup" },
+  { d: ANTIGRAVITY, other: "g2", save: ["PUT", "/api/providers/antigravity/preference"], login: "code" },
+];
+
+// Real store and runner over fakes: requests wait in `calls` until a test answers them; timers wait in `timers`.
+function setup() {
+  const calls = [];
+  const fetch = (url, init) =>
+    new Promise((resolve, reject) => {
+      calls.push({ url, init, resolve, reject, method: init.method, body: init.body && JSON.parse(init.body), done: false });
+    });
+  const clock = { now: T0 };
+  const timers = [];
+  const written = [];
+  const events = [];
+  const opened = { blocked: false, popup: null, replaced: [] };
+  const open = () => {
+    if (opened.blocked) return null;
+    opened.popup = {
+      closed: false,
+      opener: "set",
+      document: { title: "", body: { textContent: "" } },
+      location: { replace: (url) => opened.replaced.push(url) },
+      close() {
+        this.closed = true;
+      },
+    };
+    return opened.popup;
+  };
+  const run = createRunner({
+    fetch,
+    setTimeout: (callback, delay) => timers.push({ callback, delay, live: true }) - 1,
+    clearTimeout: (id) => {
+      if (timers[id]) timers[id].live = false;
+    },
+    XMLHttpRequest: class {},
+    storage: { session: () => ({ setItem: (k, v) => written.push(["write", k, v]), removeItem: (k) => written.push(["remove", k]) }) },
+    navigate: () => {},
+    open,
+    emit: (name) => events.push(name),
+    now: () => clock.now,
+  });
+  const store = createStore({ reduce, initialState, run });
+  const answer = async (match, status, body) => {
+    const call = calls.find((c) => !c.done && match(c));
+    assert.ok(call, "no pending call");
+    call.done = true;
+    call.resolve(reply(status, body));
+    await tick();
+  };
+  const fail = async (match) => {
+    const call = calls.find((c) => !c.done && match(c));
+    assert.ok(call, "no pending call");
+    call.done = true;
+    call.reject(new TypeError("offline"));
+    await tick();
+  };
+  const is = (method, path) => (c) => c.method === method && c.url.includes(path);
+  const pending = (match) => calls.filter((c) => !c.done && match(c));
+  const fire = (delay) => {
+    const timer = timers.find((item) => item.live && (delay === undefined || item.delay === delay));
+    assert.ok(timer, `no timer ${delay}`);
+    timer.live = false;
+    timer.callback();
+  };
+  const live = () => timers.filter((item) => item.live).map((item) => item.delay);
+  return { store, calls, answer, fail, is, pending, fire, live, clock, written, events, opened, state: () => store.getState() };
+}
+
+const own = (env, d) => env.state()[d.id];
+const dispatch = (env, d, type, extra = {}) => env.store.dispatch({ type: `provider/${type}`, provider: d.id, ...extra });
+
+// Open the dialog and answer both loads: the provider is connected with its catalog.
+async function loaded(env, { list = LIST, open = true } = {}) {
+  if (open) env.store.dispatch({ type: "provider/dialog-opened", launcher: "chatgpt" });
+  await env.answer(env.is("GET", "/api/providers"), 200, list);
+  await env.answer(env.is("GET", "/api/notes-preferences"), 200, PREFS);
+  await env.answer(env.is("GET", "/api/providers/chatgpt/models"), 200, MODELS.chatgpt);
+  await env.answer(env.is("GET", "/api/providers"), 200, list);
+  if (list === LIST) await env.answer(env.is("GET", "/api/providers/antigravity/models"), 200, MODELS.antigravity);
+}
+
+// ---- load ----
+
+test("opening the dialog loads status, preferences and catalog for both providers", async () => {
+  const env = setup();
+  env.store.dispatch({ type: "provider/dialog-opened", launcher: "antigravity" });
+  assert.equal(own(env, CHATGPT).badge.state, "loading");
+  assert.equal(own(env, CHATGPT).launcher.status, "loading");
+  assert.equal(env.state().launcher.scroll, true);
+  assert.equal(own(env, ANTIGRAVITY).badge.state, "loading"); // Google keeps its markup until the answer
+  await loaded(env, { list: LIST, open: false });
+  const chatgpt = own(env, CHATGPT);
+  assert.equal(chatgpt.badge.state, "connected");
+  assert.deepEqual(chatgpt.models.map((m) => m.id), ["m1", "m2"]);
+  assert.equal(chatgpt.selectedModel, "m1");
+  assert.equal(chatgpt.selectedEffort, "low");
+  assert.deepEqual(selectView(CHATGPT, chatgpt).effortOptions.map((o) => o.value), ["default", "low", "high"]);
+  const google = own(env, ANTIGRAVITY);
+  assert.equal(google.savedModel, "g1");
+  assert.equal(google.selectedEffort, "medium");
+  assert.equal(selectLauncher(ANTIGRAVITY, google).status, "connected");
+  assert.equal(chatgpt.loading || google.loading, false);
+});
+
+for (const { d, other } of CASES) {
+  test(`${d.id}: a load answer with an old request id is stale`, async () => {
+    const env = setup();
+    env.store.dispatch({ type: "provider/dialog-opened", launcher: d.id });
+    const first = own(env, d).loadId;
+    env.store.dispatch({ type: "provider/dialog-opened", launcher: d.id });
+    assert.equal(own(env, d).loadId, first + 1);
+    // Reaches the reducer even if the runner had not dropped it.
+    env.store.dispatch({
+      type: "provider/response",
+      meta: { provider: d.id, op: "providers", id: first },
+      response: { status: 200, body: LIST },
+    });
+    assert.equal(own(env, d).info, null);
+    await env.answer((c) => c.url.includes("/api/providers") && !c.done && c.method === "GET", 200, LIST);
+    assert.ok(other);
+  });
+
+  test(`${d.id}: a network error on load shows the error and the unavailable badge`, async () => {
+    const env = setup();
+    env.store.dispatch({ type: "provider/dialog-opened", launcher: d.id });
+    await env.fail(env.is("GET", "/api/providers"));
+    await env.fail(env.is("GET", "/api/providers"));
+    const s = own(env, d);
+    assert.equal(s.badge.state, "error");
+    assert.equal(s.error.code, "NETWORK_ERROR");
+    assert.equal(s.launcher.status, "error");
+    assert.equal(s.loading, false);
+    assert.deepEqual(s.error.text, { text: "Không kết nối được với máy chủ trên máy này." });
+  });
+}
+
+test("a failed load after a known status keeps the last status (ChatGPT)", async () => {
+  const env = setup();
+  await loaded(env);
+  env.store.dispatch({ type: "provider/dialog-opened", launcher: "chatgpt" });
+  await env.fail(env.is("GET", "/api/providers"));
+  await env.fail(env.is("GET", "/api/providers"));
+  const s = own(env, CHATGPT);
+  assert.equal(s.badge.state, "connected");
+  assert.equal(s.error.code, "NETWORK_ERROR");
+});
+
+test("an invalid ChatGPT status answer is an error; a missing Google entry too", async () => {
+  const env = setup();
+  env.store.dispatch({ type: "provider/dialog-opened", launcher: "chatgpt" });
+  await env.answer(env.is("GET", "/api/providers"), 200, { providers: [{ id: "chatgpt", status: "weird" }] });
+  await env.answer(env.is("GET", "/api/providers"), 200, { providers: [] });
+  assert.equal(own(env, CHATGPT).error.code, "INVALID_PROVIDER_STATUS");
+  assert.equal(own(env, ANTIGRAVITY).error.code, "INVALID_PROVIDER_STATUS");
+  assert.equal(own(env, ANTIGRAVITY).badge.state, "error");
+});
+
+test("the page-load status reads both buttons; a newer dialog read wins", async () => {
+  const env = setup();
+  env.store.dispatch({ type: "provider/header-requested" });
+  await env.answer(env.is("GET", "/api/providers"), 200, LIST);
+  assert.equal(own(env, CHATGPT).launcher.status, "connected");
+  assert.equal(own(env, ANTIGRAVITY).launcher.status, "connected");
+
+  const slow = setup();
+  slow.store.dispatch({ type: "provider/header-requested" });
+  slow.store.dispatch({ type: "provider/dialog-opened", launcher: "chatgpt" }); // newer ChatGPT read
+  await slow.answer((c) => c.url.includes("/api/providers") && c.method === "GET" && c.init.headers.Accept && true, 200, LIST_OUT);
+  const first = own(slow, CHATGPT);
+  assert.notEqual(first.launcher?.status, "disconnected"); // the loading state stays; the stale header answer is dropped
+});
+
+test("the page-load status read failing sets both buttons to error", async () => {
+  const env = setup();
+  env.store.dispatch({ type: "provider/header-requested" });
+  await env.fail(env.is("GET", "/api/providers"));
+  assert.equal(own(env, CHATGPT).launcher.status, "error");
+  assert.equal(own(env, ANTIGRAVITY).launcher.status, "error");
+});
+
+test("a page-load answer does not overwrite a Google status the dialog already showed", async () => {
+  const env = setup();
+  env.store.dispatch({ type: "provider/header-requested" });
+  env.store.dispatch({ type: "provider/dialog-opened", launcher: "antigravity" });
+  const [header, chatgptRead, googleRead] = env.calls;
+  assert.equal(header.init.method, "GET");
+  for (const call of [chatgptRead, googleRead]) {
+    call.done = true;
+    call.resolve(reply(200, LIST));
+  }
+  await tick();
+  header.done = true;
+  header.resolve(reply(200, LIST_OUT)); // the slower page-load answer
+  await tick();
+  assert.equal(own(env, ANTIGRAVITY).launcher.status, "connected");
+});
+
+// ---- repeated actions while busy ----
+
+for (const { d, other, save } of CASES) {
+  test(`${d.id}: save, verify and disconnect ignore a second request while one runs`, async () => {
+    const env = setup();
+    await loaded(env);
+    dispatch(env, d, "choice-edited", { field: "model", value: other });
+    dispatch(env, d, "save-requested");
+    dispatch(env, d, "save-requested");
+    assert.equal(env.pending(env.is(...save)).length, 1);
+    assert.equal(selectView(d, own(env, d)).saveDisabled, true);
+    await env.answer(env.is(...save), 200, d === CHATGPT ? { models: { chatgpt: other }, reasoning_effort: "default" } : {});
+    assert.equal(own(env, d).savedModel, other);
+    assert.deepEqual(env.events, ["asr:provider-choice-changed"]);
+
+    dispatch(env, d, "verify-requested");
+    dispatch(env, d, "verify-requested");
+    assert.equal(env.pending(env.is("POST", "/verify")).length, 1);
+    await env.answer(env.is("POST", "/verify"), 200, { model: other, reasoning_effort: "default", verified_at: LATER });
+    assert.ok(own(env, d).summary);
+    assert.equal(own(env, d).verifyResult.state, "success");
+
+    dispatch(env, d, "disconnect-requested");
+    dispatch(env, d, "disconnect-requested");
+    assert.equal(env.pending(env.is("DELETE", "/connection")).length, 1);
+  });
+}
+
+test("Google runs one operation at a time; ChatGPT lets save and verify overlap", async () => {
+  const env = setup();
+  await loaded(env);
+  dispatch(env, ANTIGRAVITY, "choice-edited", { field: "model", value: "g2" });
+  dispatch(env, ANTIGRAVITY, "save-requested");
+  dispatch(env, ANTIGRAVITY, "verify-requested");
+  assert.equal(env.pending(env.is("POST", "/api/providers/antigravity/verify")).length, 0);
+  dispatch(env, CHATGPT, "choice-edited", { field: "model", value: "m2" });
+  dispatch(env, CHATGPT, "save-requested");
+  dispatch(env, CHATGPT, "verify-requested");
+  assert.equal(env.pending(env.is("POST", "/api/providers/chatgpt/verify")).length, 1);
+});
+
+// ---- model choice ----
+
+test("ChatGPT: changing the model resets the effort; the save request carries both", async () => {
+  const env = setup();
+  await loaded(env);
+  dispatch(env, CHATGPT, "choice-edited", { field: "effort", value: "high" });
+  assert.equal(own(env, CHATGPT).modelStatus.text.text, "Mức suy luận mới chưa được lưu.");
+  dispatch(env, CHATGPT, "choice-edited", { field: "model", value: "m2" });
+  assert.equal(own(env, CHATGPT).selectedEffort, "default");
+  dispatch(env, CHATGPT, "save-requested");
+  const call = env.pending(env.is("PUT", "/api/notes-preferences"))[0];
+  assert.deepEqual(call.body, { provider: "chatgpt", model: "m2", reasoning_effort: "default" });
+});
+
+test("Google: effort edits mark the choice unsaved until it matches the saved one again", async () => {
+  const env = setup();
+  await loaded(env);
+  dispatch(env, ANTIGRAVITY, "choice-edited", { field: "effort", value: "high" });
+  assert.equal(own(env, ANTIGRAVITY).modelStatus.text.text, "Lựa chọn mới chưa được lưu.");
+  dispatch(env, ANTIGRAVITY, "choice-edited", { field: "effort", value: "medium" });
+  assert.equal(own(env, ANTIGRAVITY).modelStatus.text, null);
+  assert.equal(selectView(ANTIGRAVITY, own(env, ANTIGRAVITY)).saveDisabled, true);
+});
+
+test("a saved model that left the catalog stays visible as a disabled option", async () => {
+  const env = setup();
+  env.store.dispatch({ type: "provider/dialog-opened", launcher: "chatgpt" });
+  await env.answer(env.is("GET", "/api/providers"), 200, LIST);
+  await env.answer(env.is("GET", "/api/notes-preferences"), 200, { ...PREFS, models: { chatgpt: "gone" } });
+  await env.answer(env.is("GET", "/api/providers/chatgpt/models"), 200, MODELS.chatgpt);
+  const s = own(env, CHATGPT);
+  assert.equal(s.modelOptions[0].value, "gone");
+  assert.equal(s.modelOptions[0].disabled, true);
+  assert.equal(s.modelStatus.state, "error");
+  assert.equal(selectView(CHATGPT, s).saveDisabled, true);
+});
+
+// ---- reconnect required ----
+
+for (const { d, other, save } of CASES) {
+  test(`${d.id}: a reconnect-required save error refreshes the status and never replays the save`, async () => {
+    const env = setup();
+    await loaded(env);
+    dispatch(env, d, "choice-edited", { field: "model", value: other });
+    dispatch(env, d, "save-requested");
+    await env.answer(env.is(...save), 409, { detail: { code: "reconnect_required" } });
+    const waiting = own(env, d);
+    assert.equal(waiting.pending.save, true); // still busy until the status read ends
+    if (d === ANTIGRAVITY) {
+      assert.equal(waiting.info.status, "reconnect_required"); // the conservative state applies at once
+      assert.deepEqual(waiting.models, []);
+    }
+    await env.answer(env.is("GET", "/api/providers"), 200, { providers: [{ id: d.id, status: "reconnect_required" }] });
+    const s = own(env, d);
+    assert.equal(s.info.status, "reconnect_required");
+    assert.equal(s.pending.save, false);
+    assert.equal(s.error.code, "reconnect_required");
+    assert.equal(env.calls.filter((c) => c.method === "PUT").length, 1);
+    assert.deepEqual(env.events, []);
+  });
+
+  test(`${d.id}: the status read after a reconnect error failing keeps the state and shows the error`, async () => {
+    const env = setup();
+    await loaded(env);
+    dispatch(env, d, "choice-edited", { field: "model", value: other });
+    dispatch(env, d, "save-requested");
+    await env.answer(env.is(...save), 409, { detail: { code: "reconnect_required" } });
+    await env.fail(env.is("GET", "/api/providers"));
+    assert.equal(own(env, d).pending.save, false);
+    assert.equal(own(env, d).error.code, "reconnect_required");
+  });
+}
+
+test("ChatGPT: a 401 is the workspace session, not a provider reconnect", async () => {
+  const env = setup();
+  await loaded(env);
+  dispatch(env, CHATGPT, "choice-edited", { field: "model", value: "m2" });
+  dispatch(env, CHATGPT, "save-requested");
+  await env.answer(env.is("PUT", "/api/notes-preferences"), 401, { detail: { code: "reconnect_required" } });
+  assert.equal(env.pending(env.is("GET", "/api/providers")).length, 0);
+  assert.equal(own(env, CHATGPT).modelStatus.state, "error");
+  assert.equal(own(env, CHATGPT).pending.save, false);
+});
+
+test("a failed verify shows the failure text and is not sent again", async () => {
+  const env = setup();
+  await loaded(env);
+  dispatch(env, CHATGPT, "verify-requested");
+  await env.answer(env.is("POST", "/api/providers/chatgpt/verify"), 500, {});
+  assert.equal(own(env, CHATGPT).verifyResult.state, "error");
+  assert.equal(env.calls.filter((c) => c.url.includes("/verify")).length, 1);
+});
+
+// ---- disconnect ----
+
+test("ChatGPT: disconnect asks first, needs a disconnected answer, and tells notes.js", async () => {
+  const env = setup();
+  await loaded(env);
+  dispatch(env, CHATGPT, "disconnect-confirm-toggled", { open: true });
+  assert.equal(own(env, CHATGPT).confirming, true);
+  assert.equal(own(env, CHATGPT).ui, "focus:disconnect-confirm");
+  dispatch(env, CHATGPT, "disconnect-requested");
+  await env.answer(env.is("DELETE", "/connection"), 200, { status: "connected" });
+  assert.equal(own(env, CHATGPT).error.code, "DISCONNECT_NOT_CONFIRMED");
+  assert.equal(own(env, CHATGPT).confirming, true);
+  assert.deepEqual(env.events, []);
+  dispatch(env, CHATGPT, "disconnect-requested");
+  await env.answer(env.is("DELETE", "/connection"), 200, { status: "disconnected", remote_revocation_confirmed: true });
+  const s = own(env, CHATGPT);
+  assert.equal(s.info.status, "disconnected");
+  assert.equal(s.confirming, false);
+  assert.deepEqual(s.models, []);
+  assert.equal(s.ui, "focus:sign-in");
+  assert.equal(s.message.text.startsWith("Đã xóa thông tin"), true);
+  assert.deepEqual(env.events, ["asr:provider-choice-changed"]);
+});
+
+test("Google: disconnect reloads the status, then tells notes.js; the busy flag holds until then", async () => {
+  const env = setup();
+  await loaded(env);
+  dispatch(env, ANTIGRAVITY, "disconnect-requested");
+  await env.answer(env.is("DELETE", "/api/providers/antigravity/connection"), 200, {});
+  assert.equal(own(env, ANTIGRAVITY).pending.disconnect, true);
+  assert.deepEqual(env.events, []);
+  await env.answer(env.is("GET", "/api/providers"), 200, LIST_OUT);
+  const s = own(env, ANTIGRAVITY);
+  assert.equal(s.info.status, "disconnected");
+  assert.equal(s.pending.disconnect, false);
+  assert.deepEqual(env.events, ["asr:provider-choice-changed"]);
+});
+
+test("a failed disconnect keeps the connection and frees the button", async () => {
+  for (const { d } of CASES) {
+    const env = setup();
+    await loaded(env);
+    dispatch(env, d, "disconnect-requested");
+    await env.fail(env.is("DELETE", "/connection"));
+    assert.equal(own(env, d).pending.disconnect, false);
+    assert.equal(own(env, d).info.status, "connected");
+    assert.equal(own(env, d).error.code, "NETWORK_ERROR");
+  }
+});
+
+// ---- ChatGPT login ----
+
+const SESSION = { id: "s1", status: "pending", expires_at: SOON, authorization_url: "https://auth.openai.com/authorize?x=1" };
+
+async function chatgptLogin(env, session = SESSION) {
+  dispatch(env, CHATGPT, "login-requested");
+  await env.answer(env.is("POST", "/api/providers/chatgpt/login-sessions"), 200, session);
+}
+
+test("ChatGPT: login reserves the window first, sends it to the URL and polls", async () => {
+  const env = setup();
+  dispatch(env, CHATGPT, "login-requested");
+  assert.equal(env.opened.popup.opener, null);
+  assert.equal(env.opened.popup.document.title, "Continue with ChatGPT");
+  assert.equal(own(env, CHATGPT).signInDisabled, true);
+  await env.answer(env.is("POST", "/login-sessions"), 200, SESSION);
+  assert.deepEqual(env.opened.replaced, ["https://auth.openai.com/authorize?x=1"]);
+  assert.deepEqual(env.live(), [500]);
+  assert.deepEqual(env.written.at(-1), ["write", "asr.chatgpt.pendingLogin", JSON.stringify({ id: "s1", expiresAt: SOON })]);
+  env.fire(500);
+  await env.answer(env.is("GET", "/login-sessions/s1"), 200, { status: "pending" });
+  assert.deepEqual(env.live(), [1000]);
+  env.fire(1000);
+  await env.answer(env.is("GET", "/login-sessions/s1"), 200, { status: "connected" });
+  const s = own(env, CHATGPT);
+  assert.equal(s.login, null);
+  assert.equal(s.message.text, "Đã xác thực tài khoản ChatGPT.");
+  assert.deepEqual(env.written.at(-1), ["remove", "asr.chatgpt.pendingLogin"]);
+  assert.deepEqual(env.events, ["asr:provider-choice-changed"]);
+  assert.equal(env.pending(env.is("GET", "/api/providers")).length, 1); // the account reload
+});
+
+test("ChatGPT: a blocked window ends the login before any request", () => {
+  const env = setup();
+  env.opened.blocked = true;
+  dispatch(env, CHATGPT, "login-requested");
+  assert.equal(env.calls.length, 0);
+  assert.equal(own(env, CHATGPT).error.code, "POPUP_BLOCKED");
+  assert.equal(own(env, CHATGPT).signInDisabled, false);
+});
+
+test("ChatGPT: a second sign-in click while the first starts sends one request", async () => {
+  const env = setup();
+  dispatch(env, CHATGPT, "login-requested");
+  dispatch(env, CHATGPT, "login-requested");
+  assert.equal(env.pending(env.is("POST", "/login-sessions")).length, 1);
+});
+
+test("ChatGPT: an unsafe authorization URL or a bad session closes the window and frees the button", async () => {
+  for (const session of [
+    { ...SESSION, authorization_url: "https://evil.example/x" },
+    { ...SESSION, authorization_url: "https://auth.openai.com/a?id_token_hint=z" },
+    { ...SESSION, authorization_url: "nope" },
+    { id: "s1", status: "failed" },
+  ]) {
+    const env = setup();
+    await chatgptLogin(env, session);
+    assert.equal(env.opened.popup.closed, true);
+    assert.equal(own(env, CHATGPT).signInDisabled, false);
+    assert.equal(own(env, CHATGPT).login, null);
+    assert.ok(own(env, CHATGPT).error);
+  }
+  const env = setup();
+  dispatch(env, CHATGPT, "login-requested");
+  await env.fail(env.is("POST", "/login-sessions"));
+  assert.equal(env.opened.popup.closed, true);
+  assert.equal(own(env, CHATGPT).error.code, "NETWORK_ERROR");
+});
+
+test("ChatGPT: a window the user closed shows an error but the poll still runs", async () => {
+  const env = setup();
+  dispatch(env, CHATGPT, "login-requested");
+  env.opened.popup.closed = true;
+  await env.answer(env.is("POST", "/login-sessions"), 200, SESSION);
+  assert.equal(own(env, CHATGPT).error.code, "POPUP_BLOCKED");
+  assert.deepEqual(env.opened.replaced, []);
+  assert.deepEqual(env.live(), [500]);
+});
+
+test("ChatGPT: a login that expires between the answer and the first poll ends as expired", async () => {
+  const env = setup();
+  await chatgptLogin(env, { ...SESSION, expires_at: LATER });
+  env.clock.now = T0 + 120_000;
+  env.fire(500);
+  assert.equal(own(env, CHATGPT).message.text.startsWith("Phiên đăng nhập đã hết hạn"), true);
+  assert.equal(own(env, CHATGPT).login, null);
+  assert.equal(env.pending(env.is("GET", "/login-sessions/s1")).length, 0);
+
+  const late = setup();
+  late.clock.now = T0 + 120_000; // already past when the answer arrives
+  dispatch(late, CHATGPT, "login-requested");
+  await late.answer(late.is("POST", "/login-sessions"), 200, { ...SESSION, expires_at: LATER });
+  assert.equal(late.opened.popup.closed, true);
+  assert.deepEqual(late.opened.replaced, []);
+  assert.equal(own(late, CHATGPT).login, null);
+});
+
+test("ChatGPT: a pending answer past expiry ends the login", async () => {
+  const env = setup();
+  await chatgptLogin(env, { ...SESSION, expires_at: LATER });
+  env.fire(500);
+  env.clock.now = T0 + 120_000;
+  await env.answer(env.is("GET", "/login-sessions/s1"), 200, { status: "pending" });
+  assert.equal(own(env, CHATGPT).login, null);
+  assert.equal(own(env, CHATGPT).message.text.startsWith("Phiên đăng nhập đã hết hạn"), true);
+});
+
+test("ChatGPT: a poll error offers a retry; the retry polls again", async () => {
+  const env = setup();
+  await chatgptLogin(env);
+  env.fire(500);
+  await env.fail(env.is("GET", "/login-sessions/s1"));
+  const s = own(env, CHATGPT);
+  assert.equal(s.error.retryPoll, true);
+  assert.equal(s.error.code, "NETWORK_ERROR");
+  assert.deepEqual(env.live(), []); // no automatic retry
+  dispatch(env, CHATGPT, "poll-retry-requested");
+  assert.equal(own(env, CHATGPT).error, null);
+  assert.deepEqual(env.live(), [0]);
+  env.fire(0);
+  await env.answer(env.is("GET", "/login-sessions/s1"), 200, { status: "mystery" });
+  assert.equal(own(env, CHATGPT).error.code, "INVALID_LOGIN_STATUS");
+});
+
+test("ChatGPT: cancelling mid-way drops the poll in flight and ends the login", async () => {
+  const env = setup();
+  await chatgptLogin(env);
+  env.fire(500);
+  const gen = own(env, CHATGPT).loginGen;
+  dispatch(env, CHATGPT, "login-cancel-requested");
+  assert.equal(own(env, CHATGPT).loginGen, gen + 1);
+  assert.equal(own(env, CHATGPT).cancelling, true);
+  // The poll answer that left before the cancel is stale, at the reducer too.
+  env.store.dispatch({ type: "provider/response", meta: { provider: "chatgpt", op: "poll", gen }, response: { body: { status: "connected" } }, now: T0 });
+  assert.notEqual(own(env, CHATGPT).login, null);
+  await env.answer(env.is("DELETE", "/login-sessions/s1"), 200, { status: "cancelled" });
+  const s = own(env, CHATGPT);
+  assert.equal(s.login, null);
+  assert.equal(s.message.text, "Đã hủy đăng nhập ChatGPT.");
+  assert.deepEqual(env.events, []);
+  assert.deepEqual(env.written.at(-1), ["remove", "asr.chatgpt.pendingLogin"]);
+});
+
+test("a cancel answer from an older cancel is ignored, answer or error (both providers)", async () => {
+  for (const { d } of CASES) {
+    const env = setup();
+    if (d === CHATGPT) await chatgptLogin(env);
+    else await googleLogin(env);
+    dispatch(env, d, "login-cancel-requested");
+    const stale = { provider: d.id, op: "cancel", gen: own(env, d).loginGen - 1 };
+    env.store.dispatch({ type: "provider/response", meta: stale, response: { body: { status: "cancelled" } } });
+    env.store.dispatch({ type: "provider/request-failed", meta: stale, error: { message: "x", status: 500, body: {} } });
+    assert.notEqual(own(env, d).login, null);
+    assert.equal(own(env, d).error, null);
+  }
+});
+
+test("ChatGPT: a cancel the server does not confirm keeps the login and polls again", async () => {
+  const env = setup();
+  await chatgptLogin(env);
+  dispatch(env, CHATGPT, "login-cancel-requested");
+  await env.answer(env.is("DELETE", "/login-sessions/s1"), 200, { status: "pending" });
+  assert.equal(own(env, CHATGPT).error.code, "CANCEL_NOT_CONFIRMED");
+  assert.equal(own(env, CHATGPT).cancelling, false);
+  assert.notEqual(own(env, CHATGPT).login, null);
+  assert.deepEqual(env.live(), [1000]);
+});
+
+test("ChatGPT: a failed login shows the server's error and the failure message", async () => {
+  const env = setup();
+  await chatgptLogin(env);
+  env.fire(500);
+  await env.answer(env.is("GET", "/login-sessions/s1"), 200, { status: "failed", error: { code: "access_denied", message: "Bị từ chối" } });
+  const s = own(env, CHATGPT);
+  assert.equal(s.error.code, "access_denied");
+  assert.equal(s.error.text, "Bị từ chối");
+  assert.equal(s.message.text, "Đăng nhập ChatGPT chưa hoàn tất.");
+});
+
+test("ChatGPT: a replaced login says so", async () => {
+  const env = setup();
+  await chatgptLogin(env, { ...SESSION, replaced_previous: true });
+  assert.equal(own(env, CHATGPT).message.text.startsWith("Đã thay thế phiên đăng nhập"), true);
+});
+
+// ---- Google login ----
+
+const CODE_SESSION = {
+  id: "g1",
+  status: "pending",
+  expires_at: SOON,
+  instructions: "Mở trang rồi dán mã.",
+  authorization_url: "https://accounts.example.com/auth",
+  input_prompt: "Mã xác nhận",
+};
+
+async function googleLogin(env, session = CODE_SESSION) {
+  dispatch(env, ANTIGRAVITY, "login-requested");
+  await env.answer(env.is("POST", "/api/providers/antigravity/login-sessions"), 200, session);
+}
+
+test("Google: login shows the link and the code input, polls at once and again every second", async () => {
+  const env = setup();
+  await googleLogin(env);
+  const s = own(env, ANTIGRAVITY);
+  assert.equal(s.loginLink, "https://accounts.example.com/auth");
+  assert.equal(s.inputOpen, true);
+  assert.equal(s.loginCopy, "Mở trang rồi dán mã.");
+  assert.equal(s.signInDisabled, false);
+  await env.answer(env.is("GET", "/login-sessions/g1"), 200, { ...CODE_SESSION });
+  assert.deepEqual(env.live(), [1000]);
+  env.fire(1000);
+  await env.answer(env.is("GET", "/login-sessions/g1"), 200, { status: "connected" });
+  assert.equal(own(env, ANTIGRAVITY).login, null);
+  assert.equal(own(env, ANTIGRAVITY).loginLink, null);
+  assert.equal(own(env, ANTIGRAVITY).message.text, "Đã kết nối Google Antigravity qua OMP.");
+  assert.deepEqual(env.events, ["asr:provider-choice-changed"]);
+});
+
+test("Google: an unsafe or malformed link is an error and does not start polling", async () => {
+  for (const url of ["http://example.com/x", "nope", "https://u:p@example.com/"]) {
+    const env = setup();
+    await googleLogin(env, { ...CODE_SESSION, authorization_url: url });
+    assert.equal(own(env, ANTIGRAVITY).error.code, "INVALID_AUTHORIZATION_URL");
+    assert.equal(env.pending(env.is("GET", "/login-sessions/g1")).length, 0);
+    assert.equal(own(env, ANTIGRAVITY).signInDisabled, false);
+  }
+  const env = setup();
+  await googleLogin(env, { ...CODE_SESSION, authorization_url: "http://127.0.0.1:1455/cb" });
+  assert.equal(own(env, ANTIGRAVITY).loginLink, "http://127.0.0.1:1455/cb");
+});
+
+test("Google: submitting the code posts it trimmed, clears the field and applies the answer", async () => {
+  const env = setup();
+  await googleLogin(env);
+  dispatch(env, ANTIGRAVITY, "login-input-submitted", { value: "   " });
+  assert.equal(env.pending(env.is("POST", "/input")).length, 0);
+  dispatch(env, ANTIGRAVITY, "login-input-submitted", { value: " code-1 " });
+  const call = env.pending(env.is("POST", "/login-sessions/g1/input"))[0];
+  assert.deepEqual(call.body, { value: "code-1" });
+  await env.answer(env.is("POST", "/input"), 200, { id: "g1", status: "pending", expires_at: SOON });
+  const s = own(env, ANTIGRAVITY);
+  assert.equal(s.inputOpen, false);
+  assert.equal(s.ui, "clear-input");
+  dispatch(env, ANTIGRAVITY, "login-input-submitted", { value: "x" });
+  await env.fail(env.is("POST", "/input"));
+  assert.equal(own(env, ANTIGRAVITY).error.code, "NETWORK_ERROR");
+});
+
+test("Google: a login the server forgot ends as expired; other poll errors retry in two seconds", async () => {
+  const env = setup();
+  await googleLogin(env);
+  await env.answer(env.is("GET", "/login-sessions/g1"), 404, { detail: { code: "login_session_not_found" } });
+  assert.equal(own(env, ANTIGRAVITY).login, null);
+  assert.equal(own(env, ANTIGRAVITY).error.code, "provider_timeout");
+
+  const flaky = setup();
+  await googleLogin(flaky);
+  await flaky.fail(flaky.is("GET", "/login-sessions/g1"));
+  assert.notEqual(own(flaky, ANTIGRAVITY).login, null);
+  assert.deepEqual(flaky.live(), [2000]);
+  flaky.fire(2000);
+  assert.equal(flaky.pending(flaky.is("GET", "/login-sessions/g1")).length, 1);
+});
+
+test("Google: cancelling mid-way drops a poll answer that was already in flight", async () => {
+  const env = setup();
+  await googleLogin(env);
+  const poll = env.pending(env.is("GET", "/login-sessions/g1"))[0];
+  assert.ok(poll);
+  dispatch(env, ANTIGRAVITY, "login-cancel-requested");
+  // The runner drops the answer of the replaced poll; a stale action reaching the reducer is ignored too.
+  env.store.dispatch({ type: "provider/response", meta: { provider: "antigravity", op: "poll", gen: 0 }, response: { body: { ...CODE_SESSION } }, now: T0 });
+  assert.equal(own(env, ANTIGRAVITY).login.id, "g1");
+  await env.answer(env.is("DELETE", "/login-sessions/g1"), 200, { status: "cancelled" });
+  const s = own(env, ANTIGRAVITY);
+  assert.equal(s.login, null);
+  assert.equal(s.message.text, "Đã hủy đăng nhập Antigravity.");
+  assert.equal(s.inputOpen, false);
+});
+
+test("Google: cancelling a login the server forgot ends it; another cancel error resumes polling", async () => {
+  const env = setup();
+  await googleLogin(env);
+  dispatch(env, ANTIGRAVITY, "login-cancel-requested");
+  await env.answer(env.is("DELETE", "/login-sessions/g1"), 404, {});
+  assert.equal(own(env, ANTIGRAVITY).login, null);
+
+  const other = setup();
+  await googleLogin(other);
+  dispatch(other, ANTIGRAVITY, "login-cancel-requested");
+  await other.answer(other.is("DELETE", "/login-sessions/g1"), 500, {});
+  assert.notEqual(own(other, ANTIGRAVITY).login, null);
+  assert.deepEqual(other.live(), [1000]);
+});
+
+test("Google: an expired or failed session shows the matching error", async () => {
+  const expired = setup();
+  await googleLogin(expired);
+  await expired.answer(expired.is("GET", "/login-sessions/g1"), 200, { status: "expired" });
+  assert.equal(own(expired, ANTIGRAVITY).error.code, "provider_timeout");
+  const failed = setup();
+  await googleLogin(failed);
+  await failed.answer(failed.is("GET", "/login-sessions/g1"), 200, { status: "failed", error: { code: "provider_quota" } });
+  assert.equal(own(failed, ANTIGRAVITY).error.code, "provider_quota");
+});
+
+// ---- restore after reload ----
+
+test("restore: a stored ChatGPT login is polled once; an expired one is finished by that poll", async () => {
+  const env = setup();
+  const raw = JSON.stringify({ id: "s9", expiresAt: SOON });
+  env.store.dispatch({ type: "provider/boot-restored", provider: "chatgpt", raw, now: T0 });
+  assert.equal(own(env, CHATGPT).login.id, "s9");
+  assert.deepEqual(env.live(), [0]);
+  env.fire(0);
+  await env.answer(env.is("GET", "/login-sessions/s9"), 200, { status: "cancelled" });
+  assert.equal(own(env, CHATGPT).login, null);
+
+  const old = setup();
+  old.store.dispatch({ type: "provider/boot-restored", provider: "chatgpt", raw: JSON.stringify({ id: "s9", expiresAt: LATER }), now: T0 });
+  old.clock.now = T0 + 120_000;
+  old.fire(0);
+  assert.equal(own(old, CHATGPT).login, null);
+  assert.equal(old.calls.length, 0);
+  assert.equal(own(old, CHATGPT).message.text.startsWith("Phiên đăng nhập đã hết hạn"), true);
+});
+
+test("restore: a stored Google login polls at once; an expired one is dropped without a request", () => {
+  const env = setup();
+  env.store.dispatch({ type: "provider/boot-restored", provider: "antigravity", raw: JSON.stringify({ id: "g7", expiresAt: SOON }), now: T0 });
+  assert.equal(own(env, ANTIGRAVITY).login.id, "g7");
+  assert.equal(env.pending(env.is("GET", "/login-sessions/g7")).length, 1);
+
+  const old = setup();
+  old.store.dispatch({ type: "provider/boot-restored", provider: "antigravity", raw: JSON.stringify({ id: "g7", expiresAt: LATER }), now: T0 + 120_000 });
+  assert.equal(own(old, ANTIGRAVITY).login, null);
+  assert.equal(old.calls.length, 0);
+  assert.deepEqual(old.written, [["remove", "asr.antigravity.pendingLogin"]]);
+});
+
+test("restore: nothing stored does nothing; broken JSON is removed; wrong shapes are ignored", () => {
+  for (const { d } of CASES) {
+    const env = setup();
+    env.store.dispatch({ type: "provider/boot-restored", provider: d.id, raw: null, now: T0 });
+    env.store.dispatch({ type: "provider/boot-restored", provider: d.id, raw: JSON.stringify({ id: 5 }), now: T0 });
+    assert.deepEqual(env.written, []);
+    assert.equal(own(env, d).login, null);
+    env.store.dispatch({ type: "provider/boot-restored", provider: d.id, raw: "{oops", now: T0 });
+    assert.deepEqual(env.written, [["remove", d.storageKey]]);
+  }
+});
+
+test("restore for one provider leaves the other one alone", () => {
+  const env = setup();
+  env.store.dispatch({ type: "provider/boot-restored", provider: "chatgpt", raw: JSON.stringify({ id: "s9", expiresAt: SOON }), now: T0 });
+  assert.equal(own(env, ANTIGRAVITY).login, null);
+});
+
+// ---- shared pieces ----
+
+test("the Google button scroll waits for both status reads, then is handled once", async () => {
+  const env = setup();
+  env.store.dispatch({ type: "provider/dialog-opened", launcher: "antigravity" });
+  assert.equal(env.state().launcher.scroll, true);
+  assert.equal(own(env, CHATGPT).loading && own(env, ANTIGRAVITY).loading, true);
+  await env.answer(env.is("GET", "/api/providers"), 200, LIST);
+  await env.answer(env.is("GET", "/api/notes-preferences"), 200, PREFS);
+  await env.answer(env.is("GET", "/api/providers/chatgpt/models"), 200, MODELS.chatgpt);
+  assert.equal(own(env, ANTIGRAVITY).loading, true);
+  await env.answer(env.is("GET", "/api/providers"), 200, LIST);
+  await env.answer(env.is("GET", "/antigravity/models"), 200, MODELS.antigravity);
+  assert.equal(own(env, CHATGPT).loading || own(env, ANTIGRAVITY).loading, false);
+  env.store.dispatch({ type: "provider/scroll-handled" });
+  assert.equal(env.state().launcher.scroll, false);
+  env.store.dispatch({ type: "provider/dialog-opened", launcher: "chatgpt" });
+  assert.equal(env.state().launcher.scroll, false);
+});
+
+test("provider actions are namespaced and other features' actions leave the state alone", () => {
+  const env = setup();
+  const before = env.state();
+  env.store.dispatch({ type: "shell/dialog-opened" });
+  assert.equal(env.state(), before);
+  env.store.dispatch({ type: "provider/save-requested", provider: "chatgpt" }); // nothing selected: ignored
+  assert.equal(env.state().chatgpt, before.chatgpt);
+  assert.equal(env.calls.length, 0);
+});
+
+test("the launcher selector names the provider, the state and the account", () => {
+  const env = setup();
+  assert.equal(selectLauncher(CHATGPT, own(env, CHATGPT)), null);
+  env.store.dispatch({ type: "provider/header-requested" });
+  const launcher = selectLauncher(CHATGPT, { launcher: { status: "connected", account: "a@b" } });
+  assert.equal(launcher.status, "connected");
+  assert.deepEqual(launcher.title, ["OpenAI", ": ", { text: "Đã kết nối" }]);
+  assert.equal(launcher.ariaLabel.params.name, "OpenAI");
+});
+
+// ---- round 2: stale replies and network errors ----
+
+test("a failed load that is no longer the latest changes nothing", async () => {
+  const env = setup();
+  env.store.dispatch({ type: "provider/dialog-opened", launcher: "chatgpt" });
+  const [stale] = env.calls; // ChatGPT load 1
+  env.store.dispatch({ type: "provider/dialog-opened", launcher: "chatgpt" });
+  await env.fail((c) => c === stale);
+  assert.equal(own(env, CHATGPT).error, null);
+  assert.equal(own(env, CHATGPT).loading, true);
+});
+
+test("a status refresh after a failed load is dropped when a newer load started", async () => {
+  const env = setup();
+  env.store.dispatch({ type: "provider/dialog-opened", launcher: "chatgpt" });
+  await env.answer(env.is("GET", "/api/providers"), 403, { detail: { code: "provider_auth_error" } }); // ChatGPT: needs a refresh
+  const refresh = env.pending(env.is("GET", "/api/providers")).at(-1);
+  env.store.dispatch({ type: "provider/dialog-opened", launcher: "chatgpt" });
+  await env.answer((c) => c === refresh, 200, LIST_OUT);
+  assert.equal(own(env, CHATGPT).error, null);
+  assert.equal(own(env, CHATGPT).loading, true);
+});
+
+test("request errors: 401 and 5xx get their own text; a non-object 2xx reply is a connection error", async () => {
+  for (const [status, text] of [[401, "Phiên truy cập"], [500, "Máy chủ chưa thể"]]) {
+    const env = setup();
+    env.store.dispatch({ type: "provider/dialog-opened", launcher: "chatgpt" });
+    await env.answer(env.is("GET", "/api/providers"), status, {});
+    assert.equal(own(env, CHATGPT).error.code, `HTTP_${status}`);
+    assert.ok(own(env, CHATGPT).error.text.text.startsWith(text), String(status));
+  }
+  const env = setup();
+  env.store.dispatch({ type: "provider/dialog-opened", launcher: "chatgpt" });
+  await env.answer(env.is("GET", "/api/providers"), 200, null);
+  assert.equal(own(env, CHATGPT).error.code, "CONNECTION_ERROR");
+});
+
+test("starting a load clears the last error; a failed verify frees the pending flag", async () => {
+  const env = setup();
+  await loaded(env);
+  dispatch(env, CHATGPT, "verify-requested");
+  assert.equal(own(env, CHATGPT).pending.verify, true);
+  await env.answer(env.is("POST", "/api/providers/chatgpt/verify"), 500, {});
+  assert.equal(own(env, CHATGPT).pending.verify, false);
+  assert.ok(own(env, CHATGPT).error);
+  env.store.dispatch({ type: "provider/dialog-opened", launcher: "chatgpt" });
+  assert.equal(own(env, CHATGPT).error, null);
+});
+
+test("Google: 429 reads as quota and a 5xx as the server-error text", async () => {
+  for (const [status, expected] of [[429, ANTIGRAVITY.errors.provider_quota], [500, ANTIGRAVITY.copy.serverError]]) {
+    const env = setup();
+    await loaded(env);
+    dispatch(env, ANTIGRAVITY, "verify-requested");
+    await env.answer(env.is("POST", "/api/providers/antigravity/verify"), status, {});
+    assert.deepEqual(own(env, ANTIGRAVITY).error.text, expected, String(status));
+  }
+});
+
+test("Google: a login-session answer that is not an object ends the start and frees the button", async () => {
+  const env = setup();
+  await googleLogin(env, null);
+  const s = own(env, ANTIGRAVITY);
+  assert.equal(s.error.code, "INVALID_LOGIN_SESSION");
+  assert.equal(s.signInDisabled, false);
+  assert.equal(s.login, null);
+});

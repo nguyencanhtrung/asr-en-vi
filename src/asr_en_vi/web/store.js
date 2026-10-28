@@ -63,8 +63,15 @@ export function combine(features) {
 // lengthComputable, meta} while sending; a failed transfer is error {message, kind: network|timeout}.
 // storage: area local|session, op write|remove; a storage that throws means the value is not remembered.
 // navigate: calls deps.navigate(url).
-export function createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, storage, navigate }) {
+// open-window {key, op, ...}: op reserve {title, text, ok, error, meta} opens a blank window through deps.open and
+// answers ok or error (blocked); op navigate {url, closed, meta} sends the reserved window to url, or answers
+// `closed` when the user already closed it; op close closes it. Handles live outside the cancel/latest-wins map.
+// event {key, name}: calls deps.emit(name) (a DOM CustomEvent for scripts that are not migrated yet).
+// deps.now (optional): stamps `now` on the actions it dispatches for fetch, schedule and open-window (not upload), so reducers get the clock as data.
+export function createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, storage, navigate, open, emit, now }) {
   const active = new Map(); // key -> { stop }
+  const windows = new Map(); // key -> reserved window handle
+  const stamp = (action) => (now ? { ...action, now: now() } : action);
 
   function start(key, stop) {
     active.get(key)?.stop();
@@ -83,7 +90,7 @@ export function createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, 
     } else if (type === "schedule") {
       const id = setTimeout(() => {
         active.delete(key);
-        dispatch(effect.action);
+        dispatch(stamp(effect.action));
       }, effect.delay);
       start(key, () => clearTimeout(id));
     } else if (type === "fetch") {
@@ -92,7 +99,7 @@ export function createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, 
       const finish = (action) => {
         if (!alive(key, entry)) return; // cancelled or replaced: drop the late result
         active.delete(key);
-        dispatch({ ...action, meta: effect.meta });
+        dispatch({ ...stamp(action), meta: effect.meta });
       };
       (async () => {
         const response = await fetch(effect.url, { ...effect.init, signal: controller.signal });
@@ -148,6 +155,34 @@ export function createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, 
       }
     } else if (type === "navigate") {
       navigate(effect.url);
+    } else if (type === "open-window") {
+      const handle = windows.get(key);
+      if (effect.op === "reserve") {
+        let reserved = null;
+        try {
+          reserved = open("about:blank", "_blank");
+          if (reserved) {
+            reserved.opener = null;
+            reserved.document.title = effect.title;
+            reserved.document.body.textContent = effect.text;
+          }
+        } catch {
+          reserved = null;
+        }
+        if (reserved) windows.set(key, reserved);
+        else windows.delete(key);
+        dispatch({ ...stamp({ type: reserved ? effect.ok : effect.error }), meta: effect.meta });
+      } else if (effect.op === "navigate") {
+        if (handle && !handle.closed) handle.location.replace(effect.url);
+        else dispatch({ ...stamp({ type: effect.closed }), meta: effect.meta });
+      } else if (effect.op === "close") {
+        if (handle && !handle.closed) handle.close();
+        windows.delete(key);
+      } else {
+        throw new Error(`unknown open-window op: ${effect.op}`);
+      }
+    } else if (type === "event") {
+      emit(effect.name);
     } else {
       throw new Error(`unknown effect type: ${type}`);
     }

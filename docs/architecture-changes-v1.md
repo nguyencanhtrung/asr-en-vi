@@ -190,7 +190,7 @@ Kiến trúc
 
 #### Nguyên nhân đo được
 
-Đếm lệnh gán `appState.<trường>` trong `shell.js` trước pha 1: 75. Các nhánh hủy giữa chừng, lỗi mạng, bấm lặp và thử lại chỉ kiểm được qua trình duyệt thật.
+Đếm lệnh gán `appState.<trường>` (`=`, `+=`, `++`) trong `shell.js` trước pha 1 bằng `grep -cE`: 75 dòng. Số 78 ở #118 là ước lượng gộp thêm hai lệnh `.add`/`.delete` trên `appState.pendingCleanup` và khai báo `appState`; 75 là số dùng cho cột "Lệnh gán state" bên dưới. Các nhánh hủy giữa chừng, lỗi mạng, bấm lặp và thử lại chỉ kiểm được qua trình duyệt thật.
 
 Nguồn: `git show 10162b3:src/asr_en_vi/web/shell.js`; issue #118.
 
@@ -230,6 +230,66 @@ Nguồn: `tests/web/shell-core.test.mjs`, `tests/web/store.test.mjs`, `tests/web
 #### Liên kết issue/PR
 
 Issue #121; thuộc #118.
+
+#### Tag
+
+Kiến trúc
+
+#### Tài liệu đích
+
+- `docs/release/runtime-v0.1.0.md` — kiến trúc frontend.
+
+### #123 (pha 2 của #118) — kết nối ChatGPT và Google dùng chung một core provider
+
+#### Vấn đề
+
+`connections.js` (ChatGPT, nút launcher, hộp thoại) và `antigravity.js` (Google Antigravity) mỗi file giữ một object state sửa trực tiếp, nhân đôi cùng một luồng (tải trạng thái, danh sách model, đăng nhập, poll, hủy, lưu, kiểm tra, ngắt kết nối) và chống response cũ bằng bộ đếm `pollGeneration`, `loadGeneration`, `pollTimer` và cờ `savingModel`, `verifying`, `disconnecting`, `busy`. Luồng đăng nhập, hết hạn, hủy giữa chừng và khôi phục sau tải lại chỉ kiểm được bằng Playwright.
+
+#### Nguyên nhân đo được
+
+Đếm dòng gán `connectionState.<trường>` trong `connections.js` và `antigravityState.<trường>` trong `antigravity.js` (`=`, `+=`, `++`) tại 67b8f13 bằng `git show 67b8f13:<file> | grep -cE '<tên state>\.[A-Za-z]+\s*(=[^=]|[-+*/]=|\+\+|--)'`: 31 + 25 = 56. Hai file dài 912 + 461 dòng; chín cặp luồng lặp (tải, bắt đầu đăng nhập, poll, hủy, kết thúc đăng nhập, lưu, kiểm tra, ngắt kết nối, dựng danh sách model).
+
+Nguồn: `git show 67b8f13:src/asr_en_vi/web/connections.js`, `git show 67b8f13:src/asr_en_vi/web/antigravity.js`; issue #118.
+
+#### Thay đổi thiết kế
+
+- `provider-core.js`: core thuần với một reducer cho mọi provider; mô tả provider là dữ liệu (endpoint, kiểu đăng nhập `popup`/`code`, độ trễ poll, hỗ trợ effort, khóa sessionStorage, bảng lỗi, văn bản). Hai provider dùng một store qua `combine`, tạo trong `connections.js` và `antigravity.js` import lại. Cả hai file là ES module chỉ render và dispatch (`<script type="module">`, giữ thứ tự cũ trong `shell.html`).
+- `createRunner` thêm effect `open-window` (giữ chỗ cửa sổ rồi chuyển tới URL hoặc đóng), effect `event` (phát `asr:provider-choice-changed` cho `notes.js` đúng các thời điểm cũ) và tham số `now` đóng dấu đồng hồ lên action runner dispatch (hạn hết phiên đăng nhập đi vào reducer dưới dạng dữ liệu).
+- Poll qua effect `schedule`; sessionStorage qua effect `storage`; khôi phục đăng nhập dở qua action `provider/boot-restored` mang chuỗi đã lưu.
+- Route `/assets/provider-core.js` có bảo vệ truy cập và test asset; `connections.js`, `antigravity.js` thêm vào test asset.
+- Gate `tests/web/shell-view.test.mjs` thêm hai view và core mới, mở rộng quy tắc theo góp ý pha 1 (bí danh `store.getState()`, lệnh đổi như `state.list.push`, object cấp module bị sửa), mỗi quy tắc có một ví dụ xấu trong test.
+- Bảng trạng thái và chuyển trạng thái của core provider: `frontend-design-v1.md` mục 11.6.
+
+Khác biệt hành vi so với bản cũ (đều nhỏ, ghi để review): Google bỏ qua poll trả lời muộn sau hủy hoặc kết thúc (bản cũ có thể dựng lại phiên đã hủy) và tải trạng thái có id; bấm đăng nhập lặp trong lúc đang khởi động bị bỏ; khi hủy, Google ngừng poll trong lúc chờ DELETE và poll lại nếu hủy lỗi; nút Hủy của ChatGPT khóa tới khi DELETE trả lời; lỗi có câu riêng (cửa sổ đã đóng, URL không an toàn) hiện câu đó ở cả tiếng Anh; dòng chữ giống hệt không ghi lại vào vùng `aria-live`; cuộn tới mục Google không bị hủy bởi lượt tải mới hơn; Google với URL đăng nhập sai hoặc không an toàn giữ login và hiện bảng đăng nhập cùng nút Hủy (bản cũ giữ bảng ẩn, nút Hủy không với tới); ChatGPT bị chặn popup giữ focus ở nút đăng nhập (bản cũ về `body`); sau khi ngắt ChatGPT, ô effort ẩn chỉ còn `default`; nút Hủy ẩn bị `disabled` trước lần đọc đầu của hộp thoại; cuộn tới mục Google lệch khoảng 51 px khi đọc trạng thái lỗi hoặc cần đăng nhập lại (đích vẫn là mục Google).
+
+#### Số đo trước và sau
+
+Điều kiện đo: Node 24.13.0, `node --test 'tests/web/*.test.mjs'`, một lần chạy cục bộ; dòng gán đếm như mục "Nguyên nhân đo được".
+
+| | Trước | Sau |
+| --- | --- | --- |
+| Lệnh gán state trong `connections.js` + `antigravity.js` | 56 | 0 |
+| Bộ đếm và cờ chống response cũ trong view | 8 (`pollGeneration`, `loadGeneration`, `pollTimer` x2, `savingModel`, `verifying`, `disconnecting`, `busy`) | 0 (id trong state của core) |
+| Unit test JS | 70 | 133, dưới 0,2 s |
+| `connections.js` + `antigravity.js` (dòng) | 1373 | 1358: view 279 + core 1079 (`wc -l`) |
+
+Nguồn: `tests/web/provider-core.test.mjs`, `tests/web/store.test.mjs`, `tests/web/shell-view.test.mjs`.
+
+#### Đánh đổi và phương án đã loại
+
+- Một core cho hai provider thay vì hai core: khác biệt là trường của mô tả (khoảng 20 trường) cộng vài nhánh nhỏ; đổi lại mỗi sửa luồng (badge, lưu, kiểm tra, ngắt kết nối) làm một lần. Phương án loại: một hàm reducer có `if (id === "chatgpt")` rải rác.
+- Không thêm file store riêng: store chung nằm ở `connections.js` (module nạp trước) để tránh một route và test asset thừa.
+- Đồng hồ vào reducer qua `now` do runner đóng dấu, thay vì `Date.now()` trong reducer hoặc view tự thêm vào từng action.
+- Lỗi "trình duyệt tự đóng dialog lúc đang lưu" của pha 1 không sửa ở PR này (không thuộc luồng provider; vẫn mở ở #118).
+
+#### Follow-up
+
+- Pha 3–5 của #118.
+- `tr`, `setProp` hiện lặp giữa `shell.js` và `connections.js`; gom khi bỏ global ở pha 5.
+
+#### Liên kết issue/PR
+
+Issue #123; thuộc #118.
 
 #### Tag
 

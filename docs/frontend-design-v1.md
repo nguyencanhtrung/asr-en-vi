@@ -269,15 +269,15 @@ Việc chốt tài liệu này xác nhận hướng thiết kế. Các tiêu ch�
 
 ## 11. Kiến trúc mã frontend: reducer, effect và store
 
-Quyết định và lý do nằm ở [ADR 0010](adr/0010-frontend-reducer-core.md). Mục này là quy ước cho code; từ pha 1 `shell.js` đã theo kiến trúc này, các file UI còn lại chuyển dần theo 11.4. Hành vi người dùng thấy không đổi.
+Quyết định và lý do nằm ở [ADR 0010](adr/0010-frontend-reducer-core.md). Mục này là quy ước cho code; từ pha 1 `shell.js`, từ pha 2 `connections.js` và `antigravity.js` đã theo kiến trúc này, các file UI còn lại chuyển dần theo 11.4. Hành vi người dùng thấy không đổi.
 
 ### 11.1. Các lớp
 
 | Lớp | Việc | Không được |
 | --- | --- | --- |
 | Core | `initialState`, `reduce(state, action) -> { state, effects }`, selector | chạm DOM, `fetch`, timer, storage, `Date.now`, `Math.random` |
-| Effect | object `{type, ...}`: `fetch`, `schedule`, `cancel`, `upload`, `storage`, `navigate` | chứa hàm hoặc logic |
-| Runner | `createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, storage, navigate })` chạy effect, dispatch kết quả | quyết định nghiệp vụ |
+| Effect | object `{type, ...}`: `fetch`, `schedule`, `cancel`, `upload`, `storage`, `navigate`, `open-window`, `event` | chứa hàm hoặc logic |
+| Runner | `createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, storage, navigate, open, emit, now })` chạy effect, dispatch kết quả | quyết định nghiệp vụ |
 | View | đọc state, render DOM, handler chỉ dispatch action | giữ state riêng ngoài focus/scroll |
 | Store | `createStore`, `combine`, `subscribe` (`src/asr_en_vi/web/store.js`) | biết về tính năng cụ thể |
 
@@ -287,9 +287,9 @@ Quyết định và lý do nằm ở [ADR 0010](adr/0010-frontend-reducer-core.m
 - Effect `fetch` khai báo `ok` và `error` là tên action của kết quả; mã 2xx gửi `ok`, lỗi HTTP hoặc mạng gửi `error`; request bị hủy không gửi gì.
 - `key` bắt buộc ở mọi effect (thiếu thì runner ném lỗi). Effect cùng `key` thay thế effect cũ; `cancel` hủy theo `key`.
 - `key` và `type` của action dùng chung một namespace: luôn đặt tiền tố tính năng (`shell/upload`, `shell/upload-sent`, `notes/load`). Với `storage`, `key` là khóa storage.
-- `upload` giống `fetch` (2xx là `ok`; lỗi HTTP là `error` có `status`, `body`; lỗi truyền là `error` có `kind` là `network` hoặc `timeout`) và gửi thêm action `progress` `{loaded, total, lengthComputable, meta}`; hủy không sinh action. `storage` ghi hoặc xóa (`area` là `local` hoặc `session`) và nuốt lỗi storage bị chặn. `navigate` gọi `navigate(url)` được truyền vào.
+- `upload` giống `fetch` (2xx là `ok`; lỗi HTTP là `error` có `status`, `body`; lỗi truyền là `error` có `kind` là `network` hoặc `timeout`) và gửi thêm action `progress` `{loaded, total, lengthComputable, meta}`; hủy không sinh action. `storage` ghi hoặc xóa (`area` là `local` hoặc `session`) và nuốt lỗi storage bị chặn. `navigate` gọi `navigate(url)` được truyền vào. `open-window` (`op`: `reserve` mở `about:blank` qua `open`, đặt `opener = null`, tiêu đề và chữ, rồi gửi `ok` hoặc `error` nếu bị chặn; `navigate` gửi cửa sổ tới `url` hoặc gửi action `closed` nếu người dùng đã đóng; `close`) giữ cửa sổ ngoài bảng hủy/thay thế theo `key`. `event` gọi `emit(name)`. `now` (tùy chọn) đóng dấu `now` lên action runner dispatch.
 - Body của `fetch` được parse JSON, không phải JSON thì giữ text (không kiểm tra content-type).
-- Loại effect mới thêm thành nhánh trong `createRunner`. Reducer không đọc storage: view đọc giá trị đã nhớ và đưa vào state qua action mở (shell: `shell/dialog-opened`), ghi qua effect `storage`.
+- Loại effect mới thêm thành nhánh trong `createRunner`. Reducer không đọc storage: view đọc giá trị đã nhớ và đưa vào state qua action mở (shell: `shell/dialog-opened`; provider: `provider/boot-restored`), ghi qua effect `storage`.
 - Lỗi trong reducer, effect hoặc subscriber: state giữ tới action cuối chạy thành công, hàng đợi bị bỏ, lỗi ném cho nơi gọi `dispatch` (với kết quả `fetch` là `unhandledRejection`). Giữa lượt drain, state đã đổi nhưng subscriber không được báo và effect còn lại của action đó bị bỏ; lỗi trong callback `schedule` là exception chưa bắt của timer, không đi qua `dispatch` của nơi gọi.
 - Module đã chuyển vẫn công bố trên `window` mọi hàm mà script chưa chuyển gọi tới pha 5 (từ pha 1: `ApiError`, `requestJson`, `meetingIdFromPath`, `formatMeetingDate`, `sameOriginAudioSource`). Mỗi file module mới có route `/assets/<tên>.js` và test asset.
 - Tính năng nói chuyện với nhau bằng action dùng chung đi qua `combine`, không dùng `CustomEvent` hay hàm global.
@@ -297,7 +297,7 @@ Quyết định và lý do nằm ở [ADR 0010](adr/0010-frontend-reducer-core.m
 ### 11.3. Quy tắc response cũ và quy tắc gán state
 
 - Reducer lưu id yêu cầu mới nhất trong state, đặt id vào `meta` của effect `fetch`; action kết quả mang lại `meta` và reducer bỏ action có id không khớp.
-- Chỉ reducer tạo state mới. Từ pha 1, `tests/web/shell-view.test.mjs` quét các file view đã chuyển (danh sách `VIEWS`) và core (`CORES`) trong `check.sh`/CI: view không gán vào state, không có `let`/`var` cấp module, chỉ đọc `localStorage` trong `readStored`; core không chạm DOM, mạng, timer, storage, đồng hồ hay ngẫu nhiên. Quét này là grep heuristic (có bắt thêm bí danh `const s = state`, destructure và `Object.assign(state, …)`), không thay review: cách viết lạ vẫn lọt. Khi chuyển file mới, thêm nó vào danh sách.
+- Chỉ reducer tạo state mới. Từ pha 1, `tests/web/shell-view.test.mjs` quét các file view đã chuyển (danh sách `VIEWS`) và core (`CORES`) trong `check.sh`/CI: view không gán vào state, không có `let`/`var` cấp module, chỉ đọc storage trong `readStored`; core không chạm DOM, mạng, timer, storage, đồng hồ hay ngẫu nhiên. Quét này là grep heuristic (có bắt thêm bí danh `const s = state` hoặc `store.getState()`, destructure, `Object.assign(state, …)`, `delete state.x`, lệnh đổi như `state.list.push(…)` và object/collection cấp module, kể cả `export const`, bị gán hoặc đổi; cấm tên kiểu `*Seq`, `*InFlight`, `*Timer`), không thay review: cách viết lạ vẫn lọt (ví dụ đổi state qua bí danh của một lát cắt: `const s = state.x; s.y = 1`). Mỗi quy tắc có một ví dụ xấu trong cùng test để biết nó còn bắt được. Khi chuyển file mới, thêm nó vào danh sách.
 
 ### 11.4. Thứ tự chuyển
 
@@ -307,7 +307,7 @@ Mỗi pha thêm vào tài liệu này bảng state và chuyển trạng thái c�
 | --- | --- |
 | 0 | ADR, `store.js`, `node --test` cho `tests/web/`, Node trong CI (mục này) |
 | 1 | `shell.js` (xong, #121): dialog tạo cuộc họp và upload, xem 11.5; #117 thêm bước tách audio thành effect đứng trước effect `shell/upload` |
-| 2 | `connections.js` và `antigravity.js` dùng chung một core provider |
+| 2 | `connections.js` và `antigravity.js` dùng chung một core provider (xong, #123), xem 11.6 |
 | 3 | `notes.js`: chế độ xem/soạn, chọn provider/model, task notes, lưu revision |
 | 4 | `history.js` tách thành core điều hướng/meeting, transcript và generation, calendar, search, polling task, khóa nguồn notes |
 | 5 | bỏ global và `CustomEvent` còn sót, xóa code chết, cập nhật tài liệu |
@@ -373,3 +373,97 @@ Cờ bổ sung: `starting` (đang dọn upload cũ và tạo slot; khóa form), 
 | bất kỳ | `auto-transcribe-toggled` | không đổi phase | `storage` cờ chép lời |
 
 Thay đổi nhỏ so với bản trước pha 1: đóng dialog gửi DELETE upload dở rồi đóng ngay, không chờ DELETE trả lời; DELETE lỗi vẫn vào `pendingCleanup`. DELETE treo không khóa dialog: Hủy rồi Đóng/Esc vẫn đóng được.
+
+### 11.6. Provider: kết nối ChatGPT và Google Antigravity
+
+Core `provider-core.js` (`reduceProvider`, `reduce`, `initialState`, `selectView`, `selectLauncher`), view `connections.js` (header, hộp thoại, ChatGPT; tạo store chung) và `antigravity.js` (mục Google). Văn bản trong core là `{text, params}`; thời gian định dạng là marker `timestamp(value)`, view dịch bằng `t()` và `Intl`.
+
+**Mô tả provider** (`CHATGPT`, `ANTIGRAVITY`, dữ liệu thuần): `endpoints`, `catalog` (`preferences`: lựa chọn lưu ở `/api/notes-preferences`; `self`: catalog mang model và effort đã lưu), `storageKey` (sessionStorage), `login` (`kind`: `popup` hoặc `code`; `firstPoll`, `poll`, `pollError`; `clientExpiry`; `restoreExpired`; `pollErrors`; `cancelStrict`), `strictStatus`, `loadFailure`, `exclusive` (một thao tác một lúc), `confirmDisconnect`, `effort` (`per-model` hoặc `fixed`), `reconnect` (mã lỗi cần đăng nhập lại), `errors`, `copy`. Luồng viết một lần; khác biệt là nhánh nhỏ theo trường này.
+
+Store: `combine({ chatgpt, antigravity, launcher })`; mọi reducer thấy mọi action. Action `provider/<sự kiện>` mang `provider` (hoặc `meta.provider`); reducer của provider khác bỏ qua. Kết quả mọi `fetch` là `provider/response` hoặc `provider/request-failed` với `meta.op`.
+
+**Id chống response cũ** (trong state mỗi provider): `loadId` (một lượt tải: trạng thái, preferences, catalog; mọi bước mang id), `loginGen` (một lượt đăng nhập/poll/hủy; tăng khi ChatGPT bắt đầu, khi hủy và khi kết thúc; Google không tăng lúc bắt đầu), `headerGen` (giá trị `loadId` lúc đọc trạng thái khi tải trang). Action mang id khác bị bỏ. Key effect: `<provider>/load`, `/poll`, `/poll-wait` (schedule), `/login-start`, `/login-cancel`, `/login-input`, `/login-window`, `/save`, `/verify`, `/disconnect`, `/refresh-load|save|verify`; `provider/header`.
+
+**Tải trạng thái** (`dialog-opened` từ nút launcher, hoặc sau đăng nhập `connected`):
+
+| Từ | Sự kiện (`meta.op`) | Tới | Effect |
+| --- | --- | --- | --- |
+| bất kỳ | `dialog-opened` | `loading`, `loadId + 1`; ChatGPT: badge và nút `loading`, xóa thông báo | `fetch providers` |
+| `loading` | `providers` hợp lệ | trạng thái mới (badge, launcher, tóm tắt kiểm tra) | ChatGPT: `fetch preferences`; Google: `fetch models` nếu `connected`, không thì xóa danh sách model và xong |
+| `loading` | `providers` thiếu hoặc trạng thái lạ (ChatGPT) | lỗi `INVALID_PROVIDER_STATUS` | xem dòng lỗi |
+| `loading` | `preferences` (ChatGPT) | lưu preferences | `fetch models` nếu `connected`, không thì placeholder "kết nối để tải" và xong |
+| `loading` | `models` | danh sách model, lựa chọn đã lưu, effort; model đã lưu không còn thì hiện mục vô hiệu và báo | xong |
+| `loading` | lỗi mạng/HTTP, body không phải object | lỗi hiện ra; ChatGPT giữ trạng thái cuối nếu có, không thì badge `error`; Google badge `error` trừ khi cần đăng nhập lại | xong |
+| bất kỳ | kết quả với `loadId` cũ | không đổi | |
+| trang vừa tải | `header-requested` rồi kết quả | ChatGPT: đặt trạng thái chỉ khi `headerGen = loadId` (chưa có lượt tải mới hơn), sai thì nút `error`; Google: đặt nút chỉ khi chưa có trạng thái | `fetch provider/header` |
+
+Cuộn tới mục Google (`launcher.scroll`): đặt khi mở từ nút Google; view cuộn khi cả hai provider hết `loading`, rồi dispatch `scroll-handled`. Một lượt tải mới hơn trong lúc chờ không hủy cuộn (khác bản cũ, chỉ cuộn khi lượt tải của ChatGPT không đổi).
+
+**Lỗi cần đăng nhập lại** (tải, lưu, kiểm tra): mã `*reconnect_required` và các mã hết quyền (ChatGPT, trừ HTTP 401 là phiên workspace) hoặc `reconnect_required`/`provider_disconnected` (Google).
+
+| Từ | Sự kiện | Tới | Effect |
+| --- | --- | --- | --- |
+| tải/lưu/kiểm tra | lỗi cần đăng nhập lại | Google: ngay `reconnect_required` hoặc `disconnected`, xóa model; vẫn bận | `fetch refresh-<tác vụ>` (đọc lại trạng thái) |
+| chờ refresh | `refresh` ok có provider hợp lệ | áp trạng thái mới (Google không `connected`: xóa model) | |
+| chờ refresh | `refresh` lỗi | giữ state | |
+| chờ refresh | `refresh` xong | tác vụ kết thúc, hết bận, lỗi hiện ra; thao tác không được gửi lại | |
+| tải | `refresh` của `loadId` cũ | không đổi | |
+
+**Lưu, kiểm tra, ngắt kết nối**:
+
+| Từ | Sự kiện | Tới | Effect |
+| --- | --- | --- | --- |
+| `connected`, có model chọn được | `save-requested` | bận; ChatGPT: trạng thái "Đang lưu" | `fetch save` (PUT) |
+| bận | `save-requested`, `verify-requested` (Google, `exclusive`), `disconnect-requested` lặp | không đổi, không gửi thêm | |
+| bận lưu | `save` ok | model/effort đã lưu cập nhật, thông báo "Đã lưu" | `event asr:provider-choice-changed` |
+| bận lưu | `save` lỗi | lỗi hiện ra; ChatGPT: "Chưa lưu được"; hết bận | refresh nếu cần đăng nhập lại |
+| `connected` | `verify-requested` | bận kiểm tra, "Đang chạy…" | `fetch verify` (POST) |
+| bận kiểm tra | `verify` ok | kết quả `success`, cập nhật `verification` của provider | |
+| bận kiểm tra | `verify` lỗi | kết quả `error`; hết bận | refresh nếu cần đăng nhập lại |
+| ChatGPT `connected` | `disconnect-confirm-toggled` | mở hoặc đóng câu hỏi xác nhận; yêu cầu focus | |
+| ChatGPT | `disconnect-requested` | bận ngắt | `fetch disconnect` (DELETE) |
+| ChatGPT bận ngắt | trả lời `disconnected` | `disconnected`, xóa model, đóng xác nhận, thông báo thu hồi từ xa, focus nút đăng nhập | `event` |
+| ChatGPT bận ngắt | trả lời khác hoặc lỗi | `DISCONNECT_NOT_CONFIRMED` hoặc lỗi; giữ kết nối; xác nhận vẫn mở | |
+| Google | `disconnect-requested` | bận ngắt | `fetch disconnect` |
+| Google bận ngắt | trả lời ok | thông báo; vẫn bận | `fetch providers` (tải lại), `afterLoad` |
+| Google chờ tải lại | tải xong (thành công hay lỗi) | hết bận | `event` |
+| bất kỳ | `choice-edited` | model/effort chọn đổi; ChatGPT đổi model thì effort về mặc định hoặc đã lưu; báo "chưa được lưu" nếu khác đã lưu | |
+
+**Đăng nhập**:
+
+| Từ | Sự kiện | Tới | Effect |
+| --- | --- | --- | --- |
+| không đăng nhập | `login-requested` | nút đăng nhập khóa, xóa lỗi (ChatGPT: cả thông báo); lặp khi đang khởi động hoặc đã có login thì bị bỏ | ChatGPT: `open-window reserve`; Google: `fetch login-start` |
+| ChatGPT chờ cửa sổ | `window-blocked` | lỗi `POPUP_BLOCKED`, nút mở lại | |
+| ChatGPT chờ cửa sổ | `window-reserved` | | `fetch login-start` |
+| khởi động | `login-start` hợp lệ | ChatGPT: có login, `loginGen + 1`; Google: có login, link, ô nhập mã | lưu sessionStorage; ChatGPT: `open-window navigate`, `schedule poll-wait` 500; Google: `fetch poll` ngay |
+| khởi động | `login-start` sai phiên, URL không an toàn, lỗi (ChatGPT) | lỗi hiện ra, nút mở lại, không có login | `open-window close` |
+| khởi động | `login-start` Google: phiên không phải object | lỗi `INVALID_LOGIN_SESSION`, nút mở lại, không có login | |
+| khởi động | `login-start` Google: URL sai hoặc không an toàn | lỗi hiện ra, login vẫn giữ và đã lưu: hiện bảng đăng nhập và nút Hủy (người dùng hủy được), không poll | |
+| khởi động (ChatGPT) | phiên đã hết hạn lúc trả lời | `expired` ngay | đóng cửa sổ |
+| ChatGPT | `window-closed` (người dùng đã đóng) | lỗi "cửa sổ đã đóng"; vẫn poll | |
+| có login | `poll-due` (đúng `loginGen`) | ChatGPT: hết hạn thì `expired` | `fetch poll` |
+| có login | `poll` pending | ChatGPT: kiểm hết hạn, chép lại; Google: áp lại link/ô nhập | `schedule poll-wait` 1000 |
+| có login | `poll` kết thúc (`connected`, `cancelled`, `expired`, `failed`) | không login; thông báo hoặc lỗi theo trạng thái; ChatGPT xóa lỗi | xóa sessionStorage; `connected`: tải lại + `event` |
+| có login | `poll` trạng thái lạ (ChatGPT) | lỗi `INVALID_LOGIN_STATUS` kèm "kiểm tra lại" | |
+| có login | `poll` lỗi | ChatGPT: lỗi kèm "kiểm tra lại", không poll tự động; Google: phiên không còn (`404`) thì `expired`, lỗi khác thì báo | Google: `schedule` 2000 |
+| ChatGPT lỗi poll | `poll-retry-requested` | xóa lỗi | `schedule poll-wait` 0 |
+| có login | `login-cancel-requested` | `loginGen + 1`, nút hủy khóa (ChatGPT) | hủy poll, `fetch login-cancel` (DELETE) |
+| hủy | trả lời trạng thái kết thúc | như poll kết thúc | |
+| hủy | trả lời khác (ChatGPT) hoặc lỗi | lỗi (`CANCEL_NOT_CONFIRMED`), nút hủy mở lại, login giữ; Google: phiên không còn thì `expired`; trả lời nào cũng kết thúc | `schedule` poll 1000 |
+| Google có login | `login-input-submitted` (đã cắt khoảng trắng, không rỗng) | | `fetch login-input` |
+| Google | `login-input` ok | ô nhập xóa và đóng, áp phiên mới | |
+| Google | `login-input` lỗi | lỗi hiện ra, ô nhập giữ | |
+| bất kỳ | kết quả poll, hủy với `loginGen` cũ | không đổi (gồm poll bay trước khi hủy) | |
+
+**Khôi phục sau tải lại** (`boot-restored` mang chuỗi sessionStorage thô):
+
+| Từ | Sự kiện | Tới | Effect |
+| --- | --- | --- | --- |
+| không login | chuỗi `null` hoặc sai hình dạng | không đổi | |
+| không login | JSON hỏng | không đổi | xóa sessionStorage |
+| không login | ChatGPT hợp lệ | có login | ghi lại sessionStorage; `schedule poll-wait` 0 (poll một lần, poll thấy hết hạn thì kết thúc) |
+| không login | Google còn hạn | có login | `fetch poll` ngay |
+| không login | Google hết hạn | không đổi | xóa sessionStorage, không gọi mạng |
+
+Khác bản trước pha 2 (đầy đủ trong mục #123 của `architecture-changes-v1.md`): Google cũng bỏ poll trả lời muộn sau hủy hoặc kết thúc (có `loginGen`) và tải trạng thái có `loadId`; bấm đăng nhập lặp bị bỏ; lỗi có câu riêng của nó (cửa sổ đã đóng, URL không an toàn) hiện câu đó ở cả hai ngôn ngữ; một dòng chữ giống hệt không ghi lại vào vùng `aria-live`; cuộn tới mục Google không bị hủy bởi lượt tải mới hơn.

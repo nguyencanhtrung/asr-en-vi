@@ -9,8 +9,31 @@ const noStrings = (source) => source.replace(/"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.
 // assert.doesNotMatch prints the whole file on failure; say only what matched.
 const absent = (source, pattern, label) => assert.equal(source.match(pattern)?.[0], undefined, label);
 
-const VIEWS = ["shell.js"]; // add each migrated view file here
-const CORES = ["shell-core.js"];
+const VIEWS = ["shell.js", "connections.js", "antigravity.js"]; // add each migrated view file here
+const CORES = ["shell-core.js", "provider-core.js"];
+
+// Each rule is a pattern over the view source (comments stripped); `rules` returns the labels that match.
+const STATE = String.raw`(?:state|(?:\w+\.)?getState\(\)|appState)`;
+const rules = (source) => {
+  const found = [];
+  const hit = (label, pattern) => {
+    if (pattern.test(source)) found.push(label);
+  };
+  hit("assigns into state", new RegExp(String.raw`\b${STATE}(\.[A-Za-z_$][\w$]*|\[[^\]]+\])+\s*(=(?!=)|[-+*/]=|\+\+|--)`));
+  // Aliases of the state: const s = state / store.getState(), destructuring it, Object.assign into it.
+  hit("aliases or destructures the state", new RegExp(String.raw`\b(const|let|var)\s+[\w$\{\}\s,:[\]]+=\s*${STATE}\s*[;\n]`));
+  hit("assigns into state with Object.assign", new RegExp(String.raw`Object\.assign\(\s*${STATE}(?![\w$])`));
+  hit("deletes from state", new RegExp(String.raw`\bdelete\s+${STATE}(?![\w$])`));
+  hit("calls a mutating method on state", new RegExp(String.raw`\b${STATE}(\.[A-Za-z_$][\w$]*)*\.(push|pop|shift|unshift|splice|sort|reverse|fill|set|delete|add|clear)\(`));
+  hit("has a module-level let/var", /(^|\n)(let|var)\s/);
+  hit("brings back a request counter or flag", /\b\w*(Seq|InFlight|Timer)\b/);
+  // A module-level object or collection that the file mutates is state kept outside the store.
+  for (const [, name] of source.matchAll(/(?:^|\n)(?:export\s+)?const\s+(\w+)\s*=\s*(?:\{|\[|new\s+(?:Map|Set|WeakMap|WeakSet)\b)/g)) {
+    const mutated = new RegExp(String.raw`\b${name}(\.[A-Za-z_$][\w$]*|\[[^\]]+\])\s*(=(?!=)|[-+*/]=|\+\+|--)|\b${name}(\.[A-Za-z_$][\w$]*)*\.(push|pop|shift|unshift|splice|sort|reverse|fill|set|delete|add|clear)\(|Object\.assign\(\s*${name}\b`);
+    if (mutated.test(source)) found.push(`mutates module-level ${name}`);
+  }
+  return found;
+};
 
 test("core files are pure: no DOM, network, timer, storage, clock or randomness", () => {
   const forbidden = /\b(document|window|fetch|XMLHttpRequest|setTimeout|setInterval|clearTimeout|localStorage|sessionStorage|Date\.now|new Date|Math\.random|navigator|location)\b/;
@@ -18,28 +41,40 @@ test("core files are pure: no DOM, network, timer, storage, clock or randomness"
 });
 
 test("views do not assign into store state or keep module-level mutable state", () => {
-  for (const name of VIEWS) {
-    const source = code(name);
-    const assignsState = /\b(state|getState\(\)|appState)(\.[A-Za-z_$][\w$]*|\[[^\]]+\])+\s*(=(?!=)|[-+*/]=|\+\+|--)/;
-    absent(source, assignsState, `${name} assigns into state`);
-    // Aliases of the state: const s = state / getState(), destructuring it, Object.assign into it.
-    absent(source, /\b(const|let|var)\s+[\w${}\s,:[\]]+=\s*(state|getState\(\)|appState)\s*[;\n]/, `${name} aliases or destructures the state`);
-    absent(source, /Object\.assign\(\s*(state|getState\(\)|appState)\b/, `${name} assigns into state with Object.assign`);
-    absent(source, /(^|\n)(let|var)\s/, `${name} has a module-level let/var`);
-    absent(source, /\b\w*(Seq|InFlight)\b/, `${name} brings back a request counter or flag`);
-  }
+  for (const name of VIEWS) assert.deepEqual(rules(code(name)), [], name);
 });
 
-test("views touch storage only to read the remembered choices for the open action", () => {
+test("the view rules catch the shapes they exist for", () => {
+  const bad = {
+    "assigns into state": "state.count = 1;",
+    "aliases or destructures the state": "const s = store.getState();\ns.count = 1;",
+    "assigns into state with Object.assign": "Object.assign(state, { a: 1 });",
+    "deletes from state": "delete state.a;",
+    "calls a mutating method on state": "state.list.push(1);",
+    "has a module-level let/var": "let current = null;",
+    "brings back a request counter or flag": "const loadSeq = 0;",
+    "mutates module-level cache": "const cache = {};\ncache.a = 1;",
+  };
+  for (const [label, source] of Object.entries(bad)) assert.ok(rules(source).includes(label), label);
+  assert.ok(rules("const pollTimer = 0;").includes("brings back a request counter or flag"));
+  assert.ok(rules("store.getState().x = 1;").includes("assigns into state"));
+  assert.ok(rules("Object.assign(store.getState(), {});").includes("assigns into state with Object.assign"));
+  assert.ok(rules("delete store.getState().a;").includes("deletes from state"));
+  assert.ok(rules("export const cache = {};\ncache.a = 1;").includes("mutates module-level cache"));
+  assert.ok(rules("const items = [];\nitems.push(1);").includes("mutates module-level items"));
+  assert.ok(rules("const { a } = store.getState();").includes("aliases or destructures the state"));
+  // Reading a slice and writing DOM properties is what a view does.
+  assert.deepEqual(rules("const els = { a: document.body };\nels.a.hidden = true;\nconst s = state.chatgpt;\nrender(s);"), []);
+});
+
+test("views touch storage only to read the remembered choices for the boot and open actions", () => {
   for (const name of VIEWS) {
     // The runner dependencies hand storage to the storage effect; nothing else may touch it.
     const source = code(name).replace(/\n\s*storage: \{.*\},/, "");
     absent(source, /\.(setItem|removeItem|clear)\(/, `${name} writes storage outside an effect`);
-    absent(source, /sessionStorage/, `${name} reads sessionStorage`);
-    const readers = source.match(/function readStored\(\) \{[\s\S]*?\n\}/);
-    assert.ok(readers, "readStored exists");
-    const outside = source.replace(readers[0], "");
-    absent(outside, /localStorage|getItem/, `${name} reads storage outside readStored`);
+    const reader = source.match(/function readStored\([^)]*\) \{[\s\S]*?\n\}/);
+    const outside = reader ? source.replace(reader[0], "") : source;
+    absent(outside, /localStorage|sessionStorage|getItem/, `${name} reads storage outside readStored`);
   }
 });
 
@@ -58,13 +93,16 @@ test("shell.js publishes every helper the unmigrated scripts still call", () => 
   }
 });
 
-test("shell.html loads the view as a module before the unmigrated deferred scripts", () => {
+test("shell.html loads each view as a module; the unmigrated scripts stay deferred", () => {
   const html = web("shell.html");
   const order = [...html.matchAll(/<script[^>]*src="\/assets\/([\w-]+\.js)"[^>]*>/g)].map((match) => [match[1], match[0]]);
   const names = order.map(([name]) => name);
   assert.ok(names.indexOf("shell.js") < names.indexOf("history.js"));
   assert.match(order[names.indexOf("shell.js")][1], /type="module"/);
-  for (const [name, tag] of order.filter(([name]) => !["i18n.js", "theme.js", "shell.js"].includes(name))) {
+  for (const [name, tag] of order.filter(([name]) => !["i18n.js", "theme.js", ...VIEWS].includes(name))) {
     assert.match(tag, /\bdefer\b/, name);
   }
+  for (const name of VIEWS) assert.match(order[names.indexOf(name)][1], /type="module"/, name);
+  // Both provider views run in document order, the core's owner first.
+  assert.ok(names.indexOf("connections.js") < names.indexOf("antigravity.js"));
 });

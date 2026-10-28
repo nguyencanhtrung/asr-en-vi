@@ -424,5 +424,80 @@ test("navigate effect calls the injected navigate", () => {
 
 test("upload, storage and navigate effects need a key", () => {
   const run = createRunner({ fetch: fakeFetch(), ...fakeTimers() });
-  for (const type of ["upload", "storage", "navigate"]) assert.throws(() => run({ type }, () => {}), /needs a key/);
+  for (const type of ["upload", "storage", "navigate", "open-window", "event"]) assert.throws(() => run({ type }, () => {}), /needs a key/);
+});
+
+function fakeWindow() {
+  const handle = { closed: false, opener: "x", document: { title: "", body: { textContent: "" } }, replaced: [], location: { replace: (url) => handle.replaced.push(url) } };
+  handle.close = () => {
+    handle.closed = true;
+  };
+  return handle;
+}
+
+test("open-window reserves a blank window, answers ok, then navigates and closes it", () => {
+  const handle = fakeWindow();
+  const opened = [];
+  const run = createRunner({ fetch: fakeFetch(), ...fakeTimers(), open: (url, target) => (opened.push([url, target]), handle) });
+  const actions = [];
+  const dispatch = (action) => actions.push(action);
+  run({ type: "open-window", key: "w", op: "reserve", title: "T", text: "body", ok: "w-ok", error: "w-blocked", meta: { m: 1 } }, dispatch);
+  assert.deepEqual(opened, [["about:blank", "_blank"]]);
+  assert.equal(handle.opener, null);
+  assert.equal(handle.document.title, "T");
+  assert.equal(handle.document.body.textContent, "body");
+  assert.deepEqual(actions, [{ type: "w-ok", meta: { m: 1 } }]);
+  run({ type: "open-window", key: "w", op: "navigate", url: "https://x.example/", closed: "w-closed", meta: { m: 1 } }, dispatch);
+  assert.deepEqual(handle.replaced, ["https://x.example/"]);
+  run({ type: "open-window", key: "w", op: "close" }, dispatch);
+  assert.equal(handle.closed, true);
+  // The user already closed it: navigating reports `closed` instead.
+  run({ type: "open-window", key: "w", op: "navigate", url: "https://y.example/", closed: "w-closed", meta: { m: 2 } }, dispatch);
+  assert.deepEqual(actions.at(-1), { type: "w-closed", meta: { m: 2 } });
+  assert.deepEqual(handle.replaced, ["https://x.example/"]);
+});
+
+test("open-window answers blocked when the browser refuses or the window throws", () => {
+  const actions = [];
+  const dispatch = (action) => actions.push(action);
+  const blocked = createRunner({ fetch: fakeFetch(), ...fakeTimers(), open: () => null });
+  blocked({ type: "open-window", key: "w", op: "reserve", ok: "ok", error: "no", meta: 1 }, dispatch);
+  const throwing = createRunner({ fetch: fakeFetch(), ...fakeTimers(), open: () => ({ get document() { throw new Error("cross-origin"); } }) });
+  throwing({ type: "open-window", key: "w", op: "reserve", ok: "ok", error: "no", meta: 2 }, dispatch);
+  assert.deepEqual(actions, [{ type: "no", meta: 1 }, { type: "no", meta: 2 }]);
+  // Without a reserved window, navigate reports closed and close does nothing.
+  blocked({ type: "open-window", key: "w", op: "navigate", url: "/", closed: "gone", meta: 3 }, dispatch);
+  blocked({ type: "open-window", key: "w", op: "close" }, dispatch);
+  assert.deepEqual(actions.at(-1), { type: "gone", meta: 3 });
+  assert.throws(() => blocked({ type: "open-window", key: "w", op: "other" }, dispatch), /unknown open-window op/);
+});
+
+test("event effect calls the injected emit", () => {
+  const names = [];
+  createRunner({ fetch: fakeFetch(), ...fakeTimers(), emit: (name) => names.push(name) })({ type: "event", key: "e", name: "app:changed" }, () => {});
+  assert.deepEqual(names, ["app:changed"]);
+});
+
+test("deps.now stamps the clock on schedule, fetch and window actions; without it nothing is added", async () => {
+  const fetch = fakeFetch();
+  const timers = fakeTimers();
+  const actions = [];
+  const dispatch = (action) => actions.push(action);
+  let clock = 100;
+  const run = createRunner({ fetch, ...timers, now: () => clock, open: () => fakeWindow() });
+  run({ type: "schedule", key: "s", delay: 5, action: { type: "tick" } }, dispatch);
+  clock = 200;
+  timers.fire();
+  run({ type: "fetch", key: "f", url: "/x", init: {}, ok: "ok", error: "err", meta: 1 }, dispatch);
+  clock = 300;
+  fetch.calls[0].resolve(reply(200, {}));
+  await tick();
+  run({ type: "open-window", key: "w", op: "reserve", ok: "opened", error: "no" }, dispatch);
+  assert.deepEqual(actions.map((a) => [a.type, a.now]), [["tick", 200], ["ok", 300], ["opened", 300]]);
+
+  const plain = [];
+  const plainTimers = fakeTimers();
+  createRunner({ fetch: fakeFetch(), ...plainTimers })({ type: "schedule", key: "s", delay: 0, action: { type: "tick" } }, (a) => plain.push(a));
+  plainTimers.fire();
+  assert.deepEqual(plain, [{ type: "tick" }]); // no `now` key when the dep is missing
 });

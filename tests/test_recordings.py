@@ -602,7 +602,14 @@ async def test_shell_route_and_script_are_protected_and_refresh_uses_shell(clien
     page = await client.get("/meetings/known-id")
     assert page.status_code == 200
     assert "ASR EN VI" in page.text
-    for name in ("shell.js", "shell-core.js", "store.js"):
+    for name in (
+        "shell.js",
+        "shell-core.js",
+        "store.js",
+        "provider-core.js",
+        "connections.js",
+        "antigravity.js",
+    ):
         script = await client.get(f"/assets/{name}")
         assert script.status_code == 200, name
         assert script.headers["content-type"].startswith("text/javascript"), name
