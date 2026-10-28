@@ -247,7 +247,7 @@ Kiến trúc
 
 #### Nguyên nhân đo được
 
-Đếm dòng gán `connectionState.<trường>` trong `connections.js` và `antigravityState.<trường>` trong `antigravity.js` (`=`, `+=`, `++`) tại 67b8f13 bằng `git show 67b8f13:<file> | grep -cE '<tên state>\.[A-Za-z]+\s*(=[^=]|[-+*/]=|\+\+|--)'`: 31 + 25 = 56. Hai file dài 912 + 461 dòng; chín cặp luồng lặp (tải, bắt đầu đăng nhập, poll, hủy, kết thúc đăng nhập, lưu, kiểm tra, ngắt kết nối, dựng danh sách model).
+Đếm lần gán vào `connectionState.<trường>` trong `connections.js` và `antigravityState.<trường>` trong `antigravity.js` tại 67b8f13 (bỏ chú thích; `=`, `+=`, `++`, `--` hậu tố và tiền tố, gán lồng): 32 + 3 tiền tố + 26 = 61. Cách đếm đầu tiên bằng `grep -c` trên dòng bỏ sót `++x` tiền tố và gán lồng nên ra 56; số đúng là 61. Hai file dài 912 + 461 dòng; chín cặp luồng lặp (tải, bắt đầu đăng nhập, poll, hủy, kết thúc đăng nhập, lưu, kiểm tra, ngắt kết nối, dựng danh sách model).
 
 Nguồn: `git show 67b8f13:src/asr_en_vi/web/connections.js`, `git show 67b8f13:src/asr_en_vi/web/antigravity.js`; issue #118.
 
@@ -268,7 +268,7 @@ Khác biệt hành vi so với bản cũ (đều nhỏ, ghi để review): Googl
 
 | | Trước | Sau |
 | --- | --- | --- |
-| Lệnh gán state trong `connections.js` + `antigravity.js` | 56 | 0 |
+| Lệnh gán state trong `connections.js` + `antigravity.js` | 61 (bản đầu ghi 56) | 0 |
 | Bộ đếm và cờ chống response cũ trong view | 8 (`pollGeneration`, `loadGeneration`, `pollTimer` x2, `savingModel`, `verifying`, `disconnecting`, `busy`) | 0 (id trong state của core) |
 | Unit test JS | 70 | 133, dưới 0,2 s |
 | `connections.js` + `antigravity.js` (dòng) | 1373 | 1358: view 279 + core 1079 (`wc -l`) |
@@ -290,6 +290,68 @@ Nguồn: `tests/web/provider-core.test.mjs`, `tests/web/store.test.mjs`, `tests/
 #### Liên kết issue/PR
 
 Issue #123; thuộc #118.
+
+#### Tag
+
+Kiến trúc
+
+#### Tài liệu đích
+
+- `docs/release/runtime-v0.1.0.md` — kiến trúc frontend.
+
+### #126 (pha 3 của #118) — `notes.js` chuyển sang reducer
+
+#### Vấn đề
+
+`notes.js` (2093 dòng) giữ một object `state` sửa trực tiếp ở hàng trăm chỗ, trộn logic với DOM và chống response cũ bằng bộ đếm `loadSeq`, `readSeq`, `pollSeq`, `selectionSeq`, `sourceSeq`, bộ hẹn giờ `pollTimer` và cờ `requestInFlight`, `cancelInFlight`, `saveInFlight`, `transcriptionRequestInFlight`. Những luồng khó nhất của tab (response tới sai thứ tự khi đổi cuộc họp, poll cũ, hủy giữa chừng, tạo hoặc lưu lặp, xung đột revision, khôi phục bản nháp) chỉ kiểm được bằng Playwright. Bản nháp và bước task còn được tạo ngay trong lúc render.
+
+#### Nguyên nhân đo được
+
+Đếm lần gán vào `state`, `choice`, `data`, `draft`, `notes` tại 6f1a609 trong `git show 6f1a609:src/asr_en_vi/web/notes.js`, bỏ chú thích, đếm từng lần xuất hiện (không phải dòng): gán và gán kép `<tên>(.trường|[chỉ số])+ (=|+=|-=|*=|/=|++|--)` 121; `++`/`--` tiền tố 3 (`++choice.loadSeq`, `++state.readSeq`, `++state.sourceSeq`); đổi Map/Set `state.<x>.set|delete|add|clear(`, `data.saveInFlight.add|delete(` 12; tổng 136. Mười tên `*Seq`, `*InFlight`, `*Timer` (`cancelInFlight`, `loadSeq`, `pollSeq`, `pollTimer`, `readSeq`, `requestInFlight`, `saveInFlight`, `selectionSeq`, `sourceSeq`, `transcriptionRequestInFlight`). Bản nháp (`revisionDraft`) và bước task (`renderTaskSteps`) còn được tạo và ghi vào state ngay trong lúc render.
+
+Nguồn: `git show 6f1a609:src/asr_en_vi/web/notes.js`; issue #118.
+
+#### Thay đổi thiết kế
+
+- `notes-core.js`: core thuần (`initialState`, `reduce`, `selectView`, `selectSummary`, `hasUnsavedDraft`) cùng các hàm thuần chuyển từ `notes.js` (nhãn, thông báo lỗi theo mã, chuẩn hóa revision, trích dẫn và request chờ, `markdownBlocks`, `sourceReference`, `sourceFromHref`). Thời gian, id ngẫu nhiên (`requestId`), giá trị đã lưu (`stored`), địa chỉ trang (`href`, `origin`) và trạng thái ẩn của trang vào qua action.
+- `notes.js`: ES module khoảng 0,5 nghìn dòng, store riêng, render từ `selectView` bằng `setProp`, handler chỉ dispatch. Vị trí trong `shell.html` giữ nguyên (sau `history.js`, trước `connections.js`); `<script type="module">` thay `defer`.
+- Effect mới `call` (`key`, `name`, `args`, `ok`, `error`, `meta`) và tham số `calls` của `createRunner`: một cổng cho lệnh tới `history.js` (`setNotesSourceLock`, `setNotesSummary`, `selectTab`, `markNotesSource`, `showNotesSourceTab`, `focusSpeakerCatalog`, `refreshMeeting`, `seekNotesSource`, `playRecording`) và cho clipboard, tải file, `history.replaceState`. Kết quả bất đồng bộ (tua, phát, chép) về thành action; hủy/thay thế theo `key` như `fetch`.
+- Poll bằng `schedule`; `localStorage` (chế độ Xem/Viết) và request chờ, ngôn ngữ đầu ra (local + session) bằng `storage`; id request tạo trong view (`crypto.randomUUID`) và vào bằng action `notes/start-clicked`.
+- Route `/assets/notes-core.js` có bảo vệ truy cập; `notes.js` và `notes-core.js` thêm vào hai test asset.
+- Gate `tests/web/shell-view.test.mjs`: thêm `notes.js` (view) và `notes-core.js` (core); sửa hai điểm mù từ pha 2: `${…}` trong template literal được quét như mã, bí danh lát cắt (`const s = state.x; s.y = 1`) bị bắt; mỗi điểm có ví dụ xấu trong test.
+- Bảng trạng thái và chuyển trạng thái: `frontend-design-v1.md` mục 11.7. ADR 0010 thêm effect `call`.
+
+Khác biệt hành vi so với bản cũ (đều nhỏ, ghi để review): request đọc/tải lựa chọn có key riêng nên không bị hủy giữa chừng, response cũ bị bỏ bằng id (như bản cũ); sau khi tạo notes mà máy chủ trả task đã kết thúc ngay, nút "Đang gửi yêu cầu…" tắt trước khi lần đọc lại xong (bản cũ giữ tới khi đọc xong); ô cảnh báo liên kết hỏng chỉ dựng lại khi nội dung đổi (bản cũ dựng lại mỗi lần render, làm vùng `aria-live` đọc lại); nội dung vẫn giống nhau thì không ghi lại vào DOM; request chờ và ngôn ngữ đã lưu được đọc ở mỗi sự kiện context cho cuộc họp chưa có trong state (bản cũ đọc ngôn ngữ một lần, còn request chờ thì đọc lại ở mỗi lần render tới khi thấy); bản nháp và bước task được đối chiếu sau mỗi action thay vì khi render; tóm tắt gửi cho `history.js` chỉ khi context tới hoặc tóm tắt đổi (bản cũ gửi mỗi lần render); lỗi mở nguồn để nút "Tua bản ghi" bị khóa (bản cũ giữ trạng thái trước); vùng `aria-live` trạng thái notes chỉ ghi giá trị cuối (bản cũ ghi hai lần khi đang chép lời hoặc sau lỗi chưa chắc chắn); `markNotesSource` và `seekNotesSource` chạy sau một tick (`schedule` delay 0, action `source-shown`) để view vẽ thẻ nguồn trước, như bản cũ; gõ vào bản nháp render lại đầy đủ nên hộp xung đột ẩn ngay khi phím gõ làm hết xung đột (bản cũ chờ lần render đầy đủ kế tiếp); lưu bị 409 thì cảnh báo xung đột chỉ hiện khi bản mới nhất đã đọc xong (bản cũ không render giữa 409 và lần đọc đó); ô xem trước chỉ dựng lại khi các khối Markdown đổi (khóa JSON), nên ẩn/hiện tab trình duyệt hay một lượt poll không làm mất focus bàn phím trên chip trích dẫn (bản cũ dựng lại mỗi lần render); tên người nói mặc định đi cùng action context (view hỏi `history.js` khi nhận `asr:meeting-context`) thay vì hỏi lúc render, nên người nói mới thêm ở tab Bản ghi (chưa có đoạn nào) chưa vào câu nhắc tới context kế tiếp; render chỉ chạy khi có meeting (bản cũ còn vẽ lại tab ẩn khi trả lời tải/lưu lựa chọn, chép/tải xuống tới sau lúc rời cuộc họp; không thấy được).
+
+#### Số đo trước và sau
+
+Điều kiện đo: Node 24.13.0, `node --test tests/web/*.test.mjs`, một lần chạy cục bộ; lần gán đếm như mục "Nguyên nhân đo được" (`=`, `+=`, `++`/`--` tiền tố và hậu tố, gán lồng) vào `state` và các bí danh của nó (`state`, `choice`, `data`, `draft`, `notes`; tức `state.choice`, `meetingNotes()`, `revisionDraft()`), cộng lệnh `.set/.delete/.add/.clear` trên Map/Set của state: 121 phép gán + 3 tiền tố + 12 lệnh Map/Set = 136 trên `git show 6f1a609:src/asr_en_vi/web/notes.js` bỏ comment. Dòng này đếm cả thay đổi Map/Set, mà số đo của #123 không đếm. Sau: 0 ở `notes.js`, kiểm bằng gate; `notes-core.js` tạo state mới nên không gán tại chỗ.
+
+| | Trước | Sau |
+| --- | --- | --- |
+| Lần gán/đổi state trong `notes.js` (gồm thay đổi Map/Set) | 136 | 0 |
+| Bộ đếm và cờ chống response cũ trong view | 10 | 0 (id trong state của core; `transcriptionRequestInFlight` chỉ còn là tên trường do `history.js` gửi) |
+| Unit test JS | 133 | 237 (98 cho core notes, 4 cho runner `call`, 2 thêm cho gate), 0,1 s |
+| `notes.js` (dòng) | 2093 | khoảng 2,5 nghìn: view khoảng 0,5 nghìn + core khoảng 1,9 nghìn (`wc -l`) |
+
+Nguồn: `tests/web/notes-core.test.mjs`, `tests/web/shell-view.test.mjs`.
+
+#### Đánh đổi và phương án đã loại
+
+- `history.js` chưa chuyển nên lệnh tới nó đi qua một effect `call` có tên, thay vì thêm một loại effect cho từng lệnh; câu hỏi chỉ đọc (`hasUnsavedTranscriptDrafts` lúc trang đóng, `currentContext` lúc boot, `defaultSpeakerNames` lúc nhận context) view gọi thẳng vì reducer không chờ giá trị trả về tức thời. Tên người nói vào state qua action context: `history.js` phát `asr:meeting-context` khi đổi tên, gán đoạn hay sửa đoạn; thêm người nói thì không, nên tên mới vào câu nhắc ở context kế tiếp.
+- Request đọc không bị hủy khi có request mới hơn (key theo id) để giữ hành vi cũ; test Playwright của #12 chờ response thứ nhất đọc xong.
+- Tổng số dòng tăng (khoảng 2,5 nghìn so với 2093) vì reducer tạo state mới thay vì gán tại chỗ: đổi lại mọi chuyển trạng thái nằm ở một nơi và test được ngoài trình duyệt.
+- Câu "Revision notes mới nhất không khớp." giữ làm hằng `LATEST_MISMATCH`: bản cũ tạo nó rồi hiển thị câu của lỗi 409; bảng tiếng Anh vẫn cần nó.
+
+#### Follow-up
+
+- Lỗi pha 1 còn mở: dialog tự đóng trong lúc lưu (xem comment #118 ngày 2026-10-28); đọc notes của cuộc họp A trả lời muộn (start/cancel/409) làm rơi lần đọc đầu của cuộc họp B vì `readId` dùng chung (đã có ở bản cũ qua `readSeq`; bỏ qua đọc khi `meetingId` khác meeting hiện tại, hoặc stale theo từng meeting); `LATEST_MISMATCH` là chuỗi chết, xóa cùng bản tiếng Anh khi `i18n.js` mở ở pha 5.
+- Pha 4–5 của #118; `tr`, `setProp` lặp giữa `shell.js`, `connections.js` và `notes.js`, gom khi bỏ global ở pha 5.
+- Góp ý pha 2 còn mở: cuộn tới mục Google trước khi view Google render xong, `gen` trong meta của `POST …/input`, descriptor còn trường không ai đọc, cờ descriptor thực chất là switch theo provider.
+
+#### Liên kết issue/PR
+
+Issue #126; thuộc #118.
 
 #### Tag
 

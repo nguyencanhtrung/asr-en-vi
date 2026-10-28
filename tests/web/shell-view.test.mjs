@@ -5,12 +5,15 @@ import test from "node:test";
 // Migrated files keep their rules by construction; these scans keep them from drifting back.
 const web = (name) => readFileSync(new URL(`../../src/asr_en_vi/web/${name}`, import.meta.url), "utf8");
 const code = (name) => web(name).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
-const noStrings = (source) => source.replace(/"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`/g, '""');
+// Text in quotes goes; the code inside a template literal's ${…} stays, so it is scanned too.
+const noStrings = (source) => source
+  .replace(/`(?:[^`\\]|\\.)*`/g, (template) => [...template.matchAll(/\$\{([^}]*)\}/g)].map((match) => match[1]).join(";"))
+  .replace(/"(?:[^"\\\n]|\\.)*"/g, '""');
 // assert.doesNotMatch prints the whole file on failure; say only what matched.
 const absent = (source, pattern, label) => assert.equal(source.match(pattern)?.[0], undefined, label);
 
-const VIEWS = ["shell.js", "connections.js", "antigravity.js"]; // add each migrated view file here
-const CORES = ["shell-core.js", "provider-core.js"];
+const VIEWS = ["shell.js", "connections.js", "antigravity.js", "notes.js"]; // add each migrated view file here
+const CORES = ["shell-core.js", "provider-core.js", "notes-core.js"];
 
 // Each rule is a pattern over the view source (comments stripped); `rules` returns the labels that match.
 const STATE = String.raw`(?:state|(?:\w+\.)?getState\(\)|appState)`;
@@ -27,21 +30,37 @@ const rules = (source) => {
   hit("calls a mutating method on state", new RegExp(String.raw`\b${STATE}(\.[A-Za-z_$][\w$]*)*\.(push|pop|shift|unshift|splice|sort|reverse|fill|set|delete|add|clear)\(`));
   hit("has a module-level let/var", /(^|\n)(let|var)\s/);
   hit("brings back a request counter or flag", /\b\w*(Seq|InFlight|Timer)\b/);
+  const mutates = (name, deep = false) => new RegExp(String.raw`\b${name}(\.[A-Za-z_$][\w$]*|\[[^\]]+\])${deep ? "+" : ""}\s*(=(?!=)|[-+*/]=|\+\+|--)|\b${name}(\.[A-Za-z_$][\w$]*)*\.(push|pop|shift|unshift|splice|sort|reverse|fill|set|delete|add|clear)\(|Object\.assign\(\s*${name}\b`).test(source);
   // A module-level object or collection that the file mutates is state kept outside the store.
   for (const [, name] of source.matchAll(/(?:^|\n)(?:export\s+)?const\s+(\w+)\s*=\s*(?:\{|\[|new\s+(?:Map|Set|WeakMap|WeakSet)\b)/g)) {
-    const mutated = new RegExp(String.raw`\b${name}(\.[A-Za-z_$][\w$]*|\[[^\]]+\])\s*(=(?!=)|[-+*/]=|\+\+|--)|\b${name}(\.[A-Za-z_$][\w$]*)*\.(push|pop|shift|unshift|splice|sort|reverse|fill|set|delete|add|clear)\(|Object\.assign\(\s*${name}\b`);
-    if (mutated.test(source)) found.push(`mutates module-level ${name}`);
+    if (mutates(name)) found.push(`mutates module-level ${name}`);
+  }
+  // A slice of the state held under another name (const s = state.chatgpt) is the state: writing to it is too.
+  for (const [, name] of source.matchAll(new RegExp(String.raw`\b(?:const|let|var)\s+(\w+)\s*=\s*${STATE}(?:\.[A-Za-z_$][\w$]*|\[[^\]]+\])*\s*[;\n]`, "g"))) {
+    if (mutates(name, true)) found.push(`mutates an alias of the state ${name}`);
   }
   return found;
 };
 
+const forbidden = /\b(document|window|fetch|XMLHttpRequest|setTimeout|setInterval|clearTimeout|localStorage|sessionStorage|Date\.now|new Date|Math\.random|navigator|location|crypto|performance|history|requestAnimationFrame)\b/;
+
 test("core files are pure: no DOM, network, timer, storage, clock or randomness", () => {
-  const forbidden = /\b(document|window|fetch|XMLHttpRequest|setTimeout|setInterval|clearTimeout|localStorage|sessionStorage|Date\.now|new Date|Math\.random|navigator|location)\b/;
   for (const name of CORES) absent(noStrings(code(name)), forbidden, name);
 });
 
 test("views do not assign into store state or keep module-level mutable state", () => {
   for (const name of VIEWS) assert.deepEqual(rules(code(name)), [], name);
+});
+
+test("core purity names crypto, performance, history and animation frames", () => {
+  for (const line of ["crypto.randomUUID()", "performance.now()", "history.replaceState(null, '', u)", "requestAnimationFrame(f)"]) {
+    assert.ok(forbidden.test(noStrings(line)), line);
+  }
+});
+
+test("core purity sees code inside template literals", () => {
+  assert.ok(forbidden.test(noStrings("const a = `x ${document.title} y`;")));
+  assert.ok(!forbidden.test(noStrings('const a = `a fetch ${1}` + "window";')));
 });
 
 test("the view rules catch the shapes they exist for", () => {
@@ -62,6 +81,10 @@ test("the view rules catch the shapes they exist for", () => {
   assert.ok(rules("delete store.getState().a;").includes("deletes from state"));
   assert.ok(rules("export const cache = {};\ncache.a = 1;").includes("mutates module-level cache"));
   assert.ok(rules("const items = [];\nitems.push(1);").includes("mutates module-level items"));
+  assert.ok(rules("const s = state.chatgpt;\ns.count = 1;").includes("mutates an alias of the state s"));
+  assert.ok(rules("const c = store.getState().choice;\nc.status.chatgpt = 1;").includes("mutates an alias of the state c"));
+  assert.ok(rules("const c = store.getState().choice;\nc.list[0].x++;").includes("mutates an alias of the state c"));
+  assert.ok(rules("const list = store.getState().items;\nlist.push(1);").includes("mutates an alias of the state list"));
   assert.ok(rules("const { a } = store.getState();").includes("aliases or destructures the state"));
   // Reading a slice and writing DOM properties is what a view does.
   assert.deepEqual(rules("const els = { a: document.body };\nels.a.hidden = true;\nconst s = state.chatgpt;\nrender(s);"), []);

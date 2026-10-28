@@ -769,3 +769,54 @@ def test_the_row_is_scrolled_into_view_only_with_motion_the_reader_allows(
     assert scrolls[0]["block"] == "nearest"
     # Playback may follow along too, but never with motion the reader switched off.
     assert {call["behavior"] for call in scrolls} == {behavior}
+
+
+def early_document(segment_ids):
+    return {
+        **long_document(segment_ids),
+        "overview": [{"text": "Early point.", "source_ids": [segment_ids[1]]}],
+    }
+
+
+def test_a_row_near_the_first_screen_lands_between_the_player_bar_and_the_viewport_bottom(
+    live, signed_in, tmp_path
+):
+    _context, page = signed_in(viewport=DESKTOP, reduced_motion="reduce")
+    meeting_id, _revision, _snapshot, segment_ids = seed_cited_notes(
+        live.settings.data_dir,
+        early_document,
+        segment_starts=[float(second) for second in range(40)],
+    )
+    _write_test_recording(live.settings.data_dir, meeting_id, tmp_path)
+    open_notes(live, page, meeting_id)
+
+    # A real click would scroll the chip into view first and hide the order of mark, seek and card.
+    assert page.evaluate("window.scrollY") == 0
+    page.locator(CHIP).filter(has_text="00:01").dispatch_event("click")
+
+    row = page.locator(".transcript-segment.is-notes-source")
+    expect(row).to_have_count(1)
+    assert row.get_attribute("data-segment-id") == segment_ids[1]
+    expect(page.locator("#notes-source-status")).to_contain_text("tua", timeout=10_000)
+    bar, box = rect(page.locator(".player-bar")), rect(row)
+    assert box["top"] >= bar["bottom"] - 1 and box["bottom"] <= page.viewport_size["height"] + 1
+
+
+def test_a_tab_switch_keeps_keyboard_focus_on_a_citation_chip(live, signed_in):
+    _context, page = signed_in(viewport=DESKTOP)
+    meeting_id, *_ = seed_cited_notes(live.settings.data_dir)
+    open_notes(live, page, meeting_id)
+    chip = page.locator(CHIP).first
+    chip.focus()
+    expect(chip).to_be_focused()
+
+    page.evaluate(
+        """() => {
+          for (const hidden of [true, false]) {
+            Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
+            document.dispatchEvent(new Event("visibilitychange"));
+          }
+        }"""
+    )
+
+    expect(chip).to_be_focused()

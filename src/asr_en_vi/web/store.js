@@ -67,8 +67,12 @@ export function combine(features) {
 // answers ok or error (blocked); op navigate {url, closed, meta} sends the reserved window to url, or answers
 // `closed` when the user already closed it; op close closes it. Handles live outside the cancel/latest-wins map.
 // event {key, name}: calls deps.emit(name) (a DOM CustomEvent for scripts that are not migrated yet).
-// deps.now (optional): stamps `now` on the actions it dispatches for fetch, schedule and open-window (not upload), so reducers get the clock as data.
-export function createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, storage, navigate, open, emit, now }) {
+// call {key, name, args?, ok?, error?, meta?}: calls deps.calls[name](...args) for scripts and browser APIs the core cannot
+// reach (history.js commands, clipboard, download, history.replaceState). Without ok/error it runs at once and returns nothing.
+// With ok and/or error the result (a value or a promise) answers {type: ok, value, meta} or {type: error, error: {message}, meta}
+// with the same latest-wins/cancel rules as fetch; a call whose name is unknown throws.
+// deps.now (optional): stamps `now` on the actions it dispatches for fetch, schedule, open-window and call results (not upload), so reducers get the clock as data.
+export function createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, storage, navigate, open, emit, calls, now }) {
   const active = new Map(); // key -> { stop }
   const windows = new Map(); // key -> reserved window handle
   const stamp = (action) => (now ? { ...action, now: now() } : action);
@@ -180,6 +184,30 @@ export function createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, 
         windows.delete(key);
       } else {
         throw new Error(`unknown open-window op: ${effect.op}`);
+      }
+    } else if (type === "call") {
+      const fn = calls?.[effect.name];
+      if (typeof fn !== "function") throw new Error(`unknown call: ${effect.name}`);
+      const args = effect.args ?? [];
+      if (!effect.ok && !effect.error) {
+        fn(...args);
+      } else {
+        const entry = start(key, () => {});
+        const finish = (action) => {
+          if (!alive(key, entry)) return; // cancelled or replaced: drop the late result
+          active.delete(key);
+          if (action) dispatch({ ...stamp(action), meta: effect.meta });
+        };
+        let result;
+        try {
+          result = Promise.resolve(fn(...args));
+        } catch (error) {
+          result = Promise.reject(error);
+        }
+        result.then(
+          (value) => finish(effect.ok && { type: effect.ok, value }),
+          (error) => finish(effect.error && { type: effect.error, error: { message: String(error?.message ?? error) } }),
+        );
       }
     } else if (type === "event") {
       emit(effect.name);
