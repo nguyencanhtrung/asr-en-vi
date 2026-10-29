@@ -216,7 +216,7 @@ const meetingPath = (id) => `/meetings/${encodeURIComponent(id)}`;
 
 // A transport or HTTP failure as the reducer reasons about it.
 const NETWORK = t("Không kết nối được với máy chủ trên máy này.");
-function failureOf(error, fallback = NETWORK) {
+export function failureOf(error, fallback = NETWORK) {
   if (error && error.status !== undefined) {
     const detail = error.body && error.body.detail;
     return { api: true, status: error.status, message: responseMessage(error.status, error.body), code: (detail && detail.code) || "" };
@@ -536,6 +536,25 @@ function installMeeting(state, incoming, kind) {
   return { ...state, meeting: mergeTranscription(previous, incoming), notes, installKind: kind, installRev: state.installRev + 1 };
 }
 
+// The task slice (task-core.js) reduces the same answers: the meeting on screen takes the task as its own.
+function takeTask(state, meetingId, task) {
+  const { meeting } = state;
+  if (!meeting || meeting.id !== meetingId || !task || typeof task !== "object" || Array.isArray(task)) return state;
+  // notes.js takes the lock from a meeting object it has not seen before; the copy must carry the lock as reported
+  // since the load, not the one the server sent then (the old in-place edit kept the object, so it was never re-read).
+  const lock = state.notes.lockKnown && typeof meeting.notes_source_locked === "boolean" ? { notes_source_locked: state.notes.locked } : {};
+  return { ...state, meeting: { ...meeting, ...lock, transcription: { ...(meeting.transcription || {}), task } } };
+}
+
+// The meeting read again after a run succeeded: a newer copy from the server, with the sidebar following the query.
+function refreshedMeeting(state, action) {
+  const payload = action.response.body;
+  const meeting = payload && payload.meeting && typeof payload.meeting === "object" ? payload.meeting : payload;
+  if (!state.meeting || state.meeting.id !== action.meta.meetingId || !meeting || !meeting.transcription) return state;
+  const fetched = reduce(state, { type: "history/meeting-fetched", meeting });
+  return repaintSidebar(fetched.state);
+}
+
 // ---- loading one meeting ----
 
 function requestMeeting(state, meetingId, at) {
@@ -795,6 +814,13 @@ export function reduce(state, action) {
       if (!meeting || !state.meeting || state.meeting.id !== meeting.id) return out(state);
       return out(installMeeting(state, meeting, "refresh"));
     }
+    case "task/poll-loaded":
+    case "task/start-succeeded":
+    case "task/cancel-succeeded":
+      return out(takeTask(state, action.meta.meetingId, action.response.body));
+    case "task/refresh-loaded":
+      return out(refreshedMeeting(state, action));
+
     case "history/meeting-updated":
       // The unmigrated code edited the current meeting in place; a copy it held from before is not the meeting.
       return action.meeting && action.meeting === state.meeting ? out({ ...state }) : out(state);

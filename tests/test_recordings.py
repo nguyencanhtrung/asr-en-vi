@@ -610,6 +610,7 @@ async def test_shell_route_and_script_are_protected_and_refresh_uses_shell(clien
         "notes.js",
         "history.js",
         "history-core.js",
+        "task-core.js",
         "provider-core.js",
         "connections.js",
         "antigravity.js",

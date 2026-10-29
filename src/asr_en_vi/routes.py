@@ -278,6 +278,10 @@ def install_routes(
     async def history_core_js() -> FileResponse:
         return _asset_response("history-core.js", "text/javascript")
 
+    @app.get("/assets/task-core.js", include_in_schema=False)
+    async def task_core_js() -> FileResponse:
+        return _asset_response("task-core.js", "text/javascript")
+
     @app.get("/meetings/{meeting_id}", include_in_schema=False)
     async def meeting_page(meeting_id: str) -> HTMLResponse:
         return _asset_response("shell.html", "text/html")
