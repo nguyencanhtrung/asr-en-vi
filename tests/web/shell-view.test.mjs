@@ -13,7 +13,9 @@ const noStrings = (source) => source
 const absent = (source, pattern, label) => assert.equal(source.match(pattern)?.[0], undefined, label);
 
 const VIEWS = ["shell.js", "connections.js", "antigravity.js", "notes.js"]; // add each migrated view file here
-const CORES = ["shell-core.js", "provider-core.js", "notes-core.js"];
+const CORES = ["shell-core.js", "provider-core.js", "notes-core.js", "history-core.js"];
+// Modules whose view is only partly migrated: loaded as a module, but not gated until the last phase moves.
+const PARTIAL = ["history.js"];
 
 // Each rule is a pattern over the view source (comments stripped); `rules` returns the labels that match.
 const STATE = String.raw`(?:state|(?:\w+\.)?getState\(\)|appState)`;
@@ -122,10 +124,10 @@ test("shell.html loads each view as a module; the unmigrated scripts stay deferr
   const names = order.map(([name]) => name);
   assert.ok(names.indexOf("shell.js") < names.indexOf("history.js"));
   assert.match(order[names.indexOf("shell.js")][1], /type="module"/);
-  for (const [name, tag] of order.filter(([name]) => !["i18n.js", "theme.js", ...VIEWS].includes(name))) {
+  for (const [name, tag] of order.filter(([name]) => !["i18n.js", "theme.js", ...VIEWS, ...PARTIAL].includes(name))) {
     assert.match(tag, /\bdefer\b/, name);
   }
-  for (const name of VIEWS) assert.match(order[names.indexOf(name)][1], /type="module"/, name);
+  for (const name of [...VIEWS, ...PARTIAL]) assert.match(order[names.indexOf(name)][1], /type="module"/, name);
   // Both provider views run in document order, the core's owner first.
   assert.ok(names.indexOf("connections.js") < names.indexOf("antigravity.js"));
 });

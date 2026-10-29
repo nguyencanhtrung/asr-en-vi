@@ -361,6 +361,66 @@ Kiến trúc
 
 - `docs/release/runtime-v0.1.0.md` — kiến trúc frontend.
 
+### #128 (pha 4a của #118) — điều hướng và thư viện cuộc họp trong `history.js` chuyển sang reducer
+
+#### Vấn đề
+
+Phần điều hướng và thư viện của `history.js` (danh sách, tìm kiếm, lịch, chọn cuộc họp, tab, sửa tên/ngày, xóa) giữ trong object `state` sửa tại chỗ, chống response cũ bằng `loadSeq`, `searchSeq`, `saveSeq` và hai bộ hẹn giờ `searchTimer`, `tabTimer`. Thứ tự response (đổi cuộc họp giữa chừng, tìm kiếm gõ nhanh, lưu rồi đổi cuộc họp, xóa lỗi rồi tải lại) chỉ kiểm được bằng Playwright.
+
+#### Nguyên nhân đo được
+
+Đếm lần gán vào trường điều hướng/thư viện của `state` trong `git show 2819779:src/asr_en_vi/web/history.js`, bỏ chú thích, đếm từng lần xuất hiện (không phải dòng), cùng cách đếm với #126 (tính cả bí danh của `state`): gán và gán kép `<tên>(.trường|[chỉ số])+ (=|+=|-=|*=|/=|++|--)` vào các trường `calendar`, `deletionRequestMeetingId`, `deletionRequestPending`, `draft`, `editorBusy`, `loadSeq`, `meeting` (gồm `state.meeting.transcription =`), `meetings`, `notesCount`, `notesKnown`, `notesSourceLockKnown`, `notesSourceLocked`, `notesTaskStatus`, `query`, `recent`, `results`, `saveSeq`, `searchFailed`, `tab`, `tabTimer`, `total`, `view` = 54, cộng 3 phép gán qua bí danh `draft` của `state.draft` trong `showConflict` (`draft.original.title`, `draft.original.meeting_date`, `draft.version`) = 57; `++` tiền tố 3 (`++state.searchSeq`, `++state.loadSeq`, `++state.saveSeq`); đổi Map `deletionFailures.set|delete(` 3; tổng 63. Các trường task và transcript của `state` (`selectedGenerationId`, `taskPollId`, `transcriptMutation*`, `editingSegment`, …) và các phép gán vào `draft` của bản nháp transcript không được đếm. Năm bộ đếm và bộ hẹn giờ thuộc phần 4a: `loadSeq`, `saveSeq`, `searchSeq`, `searchTimer`, `tabTimer`. Các tên `*InFlight`/`*Timer` còn lại (`taskPollTimer`, `taskRequestInFlight`, `transcriptMutationInFlight`, `transcriptReloadInFlight`, `transcriptionRequestInFlight`) thuộc 4b/4c, giữ nguyên.
+
+Nguồn: `git show 2819779:src/asr_en_vi/web/history.js`; issue #118.
+
+#### Thay đổi thiết kế
+
+- `history-core.js`: core thuần (`initialState`, `reduce`, các selector `selectHeading/Sidebar/Calendar/LockStatus/Editor/Deletion`) cùng hàm thuần chuyển từ `history.js` (ngày và lưới lịch, `meetingIdFromPathname`, chọn thế hệ transcript, tab mặc định). Địa chỉ trang (`pathname`, `search`, `hash`, tab hiện tại) vào qua trường `at` mà view đóng dấu lên mọi action; ngày hôm nay vào qua `history/booted`.
+- `history.js`: ES module, một store `combine({history: reduce})`; `render` so sánh với bản đã vẽ và chỉ vẽ phần đổi; handler chỉ dispatch. Phần task (4b) và transcript (4c) còn mệnh lệnh, giữ trong object `legacy`; chúng báo sửa tại chỗ bằng `history/meeting-updated` và tải lại bằng `history/meeting-fetched`.
+- Effect mới ở `history.js`: `history/list`, `/search`, `/search-timer`, `/tab-timer`, `/meeting`, `/save`, `/conflict`, `/delete`, và lệnh `address.push` qua `calls`.
+- Route `/assets/history-core.js` có bảo vệ truy cập; thêm vào hai test asset. `shell.html` đổi `history.js` sang `type="module"`.
+- Gate `tests/web/shell-view.test.mjs`: `history-core.js` vào CORES; `history.js` vào `PARTIAL` (phải là module, miễn quy tắc view cho tới khi 4c xong).
+- Bảng trạng thái và chuyển trạng thái: `frontend-design-v1.md` mục 11.8. ADR 0010 thêm một ý: địa chỉ vào core như dữ liệu `at`.
+
+Khác biệt hành vi so với bản cũ (đều nhỏ, ghi để review): danh sách cuộc họp tải lại nhiều lần thì kết quả mới nhất theo id thắng (bản cũ: cái tới sau cùng); xóa ô tìm kiếm hủy luôn hẹn giờ và tìm kiếm đang chạy; lịch vẽ lại ngay khi danh sách về, còn thanh bên chờ kết quả tìm kiếm; `aria-current` ở thanh bên theo view ngay, `repaintSidebar` của phần cũ chỉ dựng lại khi dữ liệu đổi; tên và ngày đang sửa nằm trong state (sự kiện input), giá trị DOM đi kèm khi gửi; promise của `loadMeeting` trả `false` ngay lúc bị thay thế (bản cũ: khi response cũ tới); hộp thoại xóa hiện lỗi khi tải lại kết thúc hoặc bị thay; cài cuộc họp tạo bản sao đã gộp (bản cũ sửa object nhận về); phản hồi lưu không phải object tính là lỗi; tab chỉ vẽ lại khi đổi; ngày tính bằng số học ngày dân sự (cùng kết quả cho năm 1000–9999); focus bàn phím trên link ở sidebar được giữ khi danh sách dựng lại (bản cũ rơi về `body` khi tải xong hoặc làm mới danh sách); sau khi xóa thất bại, nút xác nhận tắt tới khi tải lại xong kể cả khi gõ lại tên (bản cũ bật lại nếu gõ lại tên); lần lưu metadata cũ của cuộc họp đã rời bị hủy khi lưu cuộc họp khác (khóa `history/save`, bản mới nhất thắng). Giữ như cũ: nút "Xóa ngày" gán `value` trực tiếp để bỏ ngày nhập dở; làm mới cùng cuộc họp vẽ tab trước khi báo `asr:meeting-context` cho `notes.js`, để focus tiêu đề nguồn không rơi vào panel đang ẩn. Số lần `asr:meeting-context` mỗi lần tải giữ 4.
+
+#### Số đo trước và sau
+
+Điều kiện đo: Node 24.13.0, `node --test tests/web/*.test.mjs`, một lần chạy cục bộ; lần gán đếm như mục "Nguyên nhân đo được": 57 phép gán (54 + 3 qua bí danh) + 3 tiền tố + 3 lệnh Map = 63 trên `git show 2819779:src/asr_en_vi/web/history.js` bỏ comment. Sau: 0 trong mã 4a của `history.js` (mọi thay đổi điều hướng/thư viện đi qua `reduce`); còn 1 phép gán ở cầu nối 4b/4c (`editTranscription` ghi `meeting.transcription` vào cuộc họp của store) và các sửa tại chỗ phần tử thế hệ transcript (`generation.source_version`, `item.text`, danh sách người nói), mà số đếm trước không tính; hết khi 4b/4c chuyển. `history-core.js` tạo state mới nên không gán tại chỗ.
+
+| | Trước | Sau |
+| --- | --- | --- |
+| Lần gán/đổi state điều hướng/thư viện trong `history.js` (gồm Map) | 63 | 0 ở mã 4a; 1 ở cầu nối 4b/4c |
+| Bộ đếm và bộ hẹn giờ chống response cũ ở phần 4a | 5 | 0 (id trong state của core) |
+| Unit test JS | 237 | 314 (77 cho core history) |
+| `history.js` (dòng) | 4295 | khoảng 4,8 nghìn: view và phần cũ 3857 + core 972 (`wc -l`) |
+
+Nguồn: `tests/web/history-core.test.mjs`, `tests/web/shell-view.test.mjs`.
+
+#### Đánh đổi và phương án đã loại
+
+- Phần 4b/4c đọc state qua `legacy` và `nav()` chỉ để đọc; chúng sửa meeting tại chỗ rồi báo `history/meeting-updated` (chỉ nhận nếu đúng object store đang giữ; `editTranscription` truyền chính object nó vừa sửa, nên bản cầm từ trước một `await` bị bỏ qua). Đây là cầu nối tạm tới khi 4b/4c chuyển.
+- `history.js` chưa vào gate view (VIEWS) vì còn mã 4b/4c mệnh lệnh; vào ở 4c.
+- Chuỗi "Không thể tải dữ liệu cuộc họp." giữ làm giá trị dự phòng: `i18n.js` chưa mở và `test_i18n` đòi mọi mục catalog xuất hiện dạng `t("…")`.
+- Tổng số dòng tăng vì reducer tạo state mới thay vì gán tại chỗ: đổi lại mọi chuyển trạng thái nằm ở một nơi và test được ngoài trình duyệt.
+
+#### Follow-up
+
+- 4b (task) và 4c (transcript) của #118, rồi `history.js` vào VIEWS; bỏ `legacy` và `history/meeting-updated`.
+- Chuỗi dự phòng chết ở trên xóa cùng bản tiếng Anh khi `i18n.js` mở ở pha 5.
+
+#### Liên kết issue/PR
+
+Issue #128; thuộc #118.
+
+#### Tag
+
+Kiến trúc
+
+#### Tài liệu đích
+
+- `docs/release/runtime-v0.1.0.md` — kiến trúc frontend.
+
 ## 4. Mốc AC-13 (#16 → #99 → #104)
 
 Đã chuyển bảng mốc và điều kiện đo vào [báo cáo nghiệm thu](acceptance-report-v1.md).

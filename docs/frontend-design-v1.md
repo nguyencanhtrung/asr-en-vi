@@ -269,7 +269,7 @@ Việc chốt tài liệu này xác nhận hướng thiết kế. Các tiêu ch�
 
 ## 11. Kiến trúc mã frontend: reducer, effect và store
 
-Quyết định và lý do nằm ở [ADR 0010](adr/0010-frontend-reducer-core.md). Mục này là quy ước cho code; từ pha 1 `shell.js`, từ pha 2 `connections.js` và `antigravity.js`, từ pha 3 `notes.js` đã theo kiến trúc này, các file UI còn lại chuyển dần theo 11.4. Hành vi người dùng thấy không đổi.
+Quyết định và lý do nằm ở [ADR 0010](adr/0010-frontend-reducer-core.md). Mục này là quy ước cho code; từ pha 1 `shell.js`, từ pha 2 `connections.js` và `antigravity.js`, từ pha 3 `notes.js`, từ pha 4a điều hướng và thư viện cuộc họp của `history.js` đã theo kiến trúc này, các file UI còn lại chuyển dần theo 11.4. Hành vi người dùng thấy không đổi.
 
 ### 11.1. Các lớp
 
@@ -309,7 +309,9 @@ Mỗi pha thêm vào tài liệu này bảng state và chuyển trạng thái c�
 | 1 | `shell.js` (xong, #121): dialog tạo cuộc họp và upload, xem 11.5; #117 thêm bước tách audio thành effect đứng trước effect `shell/upload` |
 | 2 | `connections.js` và `antigravity.js` dùng chung một core provider (xong, #123), xem 11.6 |
 | 3 | `notes.js` + `notes-core.js` (xong, #126): chế độ xem/soạn, chọn provider/model, task notes, lưu revision, nguồn trích dẫn, xem 11.7 |
-| 4 | `history.js` tách thành core điều hướng/meeting, transcript và generation, calendar, search, polling task, khóa nguồn notes |
+| 4a | `history.js` + `history-core.js` (xong, #128): danh sách và tìm kiếm cuộc họp, lịch, view, tải cuộc họp, tab, tóm tắt và khóa nguồn notes, sửa metadata, xóa cuộc họp, xem 11.8 |
+| 4b | task phiên âm: bắt đầu, hủy, poll, request id chờ, ngôn ngữ, tự chạy |
+| 4c | transcript: generation, bản nháp, sửa đoạn và người nói, theo dõi phát, đánh dấu nguồn notes |
 | 5 | bỏ global và `CustomEvent` còn sót, xóa code chết, cập nhật tài liệu |
 
 ### 11.5. Shell: dialog tạo cuộc họp
@@ -534,3 +536,103 @@ Core `notes-core.js` (`initialState`, `reduce`, `selectView`, `selectSummary`, `
 **Quy ước view**: `render` chỉ chạy khi có meeting (bản cũ còn vẽ lại tab đang ẩn khi một trả lời tới sau lúc rời cuộc họp: tải/lưu lựa chọn, chép/tải xuống; không thấy được vì tab ẩn và context kế tiếp vẽ lại); ô xem trước Markdown chỉ dựng lại khi các khối đổi (khóa JSON), nên focus trên chip trích dẫn được giữ; câu hỏi chỉ đọc tới `history.js` gọi thẳng: `currentContext` lúc boot, `defaultSpeakerNames` lúc nhận `asr:meeting-context` (tên vào action `notes/context`), `hasUnsavedTranscriptDrafts` lúc trang đóng; ghi chú đã copy/tải chỉ cập nhật `#notes-copy-export-status` khi có chữ (như bản cũ).
 
 **Khác bản trước pha 3** (đầy đủ trong mục #126 của `architecture-changes-v1.md`): ô cảnh báo liên kết hỏng không dựng lại khi nội dung không đổi; sau một lần tạo notes mà máy chủ trả task đã kết thúc ngay, nút "Đang gửi yêu cầu…" tắt trước khi lần đọc lại xong; lỗi mở nguồn để lại nút tua bị khóa; không vẽ lại tab ẩn khi trả lời tới sau lúc rời cuộc họp; nhắc tên người nói không thấy người nói mới thêm ở tab Bản ghi tới context kế tiếp; ô xem trước không dựng lại khi khối không đổi, nên ẩn/hiện tab hay một lượt poll không làm mất focus trên chip trích dẫn.
+
+### 11.8. Lịch sử: điều hướng và thư viện cuộc họp
+
+Core `history-core.js` (`initialState`, `reduce`, các selector `selectHeading`, `selectSidebar`, `selectCalendar`, `selectLockStatus`, `selectEditor`, `selectDeletion` và các hàm thuần chuyển từ `history.js`: số học ngày, `monthGrid`, `formatRecordingDuration`, `generationsFor`, `mergeTranscription`). View `history.js` là `<script type="module">` đứng đúng vị trí cũ (sau `shell.js`, trước `notes.js`), tạo **một** store của trang bằng `combine({ history: reduce })` để 4b/4c thêm lát `task`, `transcript` vào cùng store. Phần task và transcript chưa chuyển vẫn chạy bằng lệnh trực tiếp trong `history.js` trên một object `legacy` (ghi chú "until 4b/4c"): nó đọc cuộc họp hiện tại bằng `nav()`, không gán state điều hướng, và báo cuộc họp đổi bằng `history/meeting-updated` (sửa tại chỗ `transcription` của cuộc họp đang xem) hoặc `history/meeting-fetched` (bản mới hơn lấy từ máy chủ, được trộn như khi tải). `history.js` chưa vào danh sách `VIEWS` của gate (pha 4c làm); `history-core.js` đã vào `CORES`.
+
+Địa chỉ trang và đồng hồ vào core bằng dữ liệu: view đóng dấu mọi action (cả kết quả `fetch` do runner gửi) bằng `at` = `{pathname, search, hash, tab}` (`tab` là tab mà entry lịch sử hiện tại nhớ), action `booted` mang `today`, các action lịch mang ngày chúng nói tới. Core không đọc `location`, `history` hay `Date`; số học ngày dùng công thức ngày dân sự thuần.
+
+**State** (`state.history`): `meetings`, `recent`, `total`, `listId`; `query` (chữ đang gõ), `shownQuery` (query mà sidebar vẽ lần cuối), `results`, `searchFailed`, `searchId`; `calendar` {`year`, `month`, `selected` là ngày hoặc `undated`}; `view` (`home`, `loading`, `error`, `meeting`, `calendar`), `heading` (view error giữ tiêu đề cũ), `loadId`, `loadDone`, `loadError`, `meeting` (không bị xóa khi chuyển sang cuộc họp khác đang tải); `tab`, `tabWaiting`; `notes` {`count`, `known`, `status`, `locked`, `lockKnown`}; `editor` {`session`, `original`, `version`, `title`, `date`, `busy`, `error`, `conflict`, `saveLabel`, `focusDate`}, `editSeq`, `saveId`, `editStatus`; `deletion` {`pending`, `meetingId`, `failures`, `dialog` {`open`, `confirmation`, `error`}, `after`}. Các bộ đếm sự kiện view vẽ theo, theo thứ tự cố định mỗi lần state đổi: `legacy` {`rev`, `kind`: `switch` hoặc `home`: code task/transcript chưa chuyển dừng poll và đặt lại}, `installRev` + `installKind` (`load`, `save`, `conflict`, `refresh`: một cuộc họp từ máy chủ thành cuộc họp hiện tại), `paintRev` (vẽ lại phần đầu cuộc họp và transcript), `lockRev`, `summaryRev`, `contextRev` (báo `asr:meeting-context` cho notes.js, sau khi view và tab đã vẽ), `readyRev` (cuộc họp tải xong: theo dõi task đang chạy, tự chép lời nếu hộp tạo yêu cầu), `focus` {`rev`, `target`}.
+
+**Id chống response cũ và key effect**: `listId` (`history/list`), `searchId` (`history/search`), `loadId` (`history/meeting`; `loadId` cũng tăng khi về home hoặc mở lịch), `saveId` (`history/save`, `history/conflict`; đóng editor cũng tăng `saveId`), `editor.session` (một phiên sửa: kết quả lưu chỉ áp khi cuộc họp và phiên còn đúng), xóa (`history/delete`, meta là id cuộc họp). Timer: `history/search-timer` (`schedule` 120 ms), `history/tab-timer` (`schedule` 4000 ms). Lệnh tới trình duyệt: `call address.push` (`history/address`).
+
+**Khởi động, view và địa chỉ**:
+
+| Từ | Sự kiện | Tới | Effect |
+| --- | --- | --- | --- |
+| bất kỳ | `booted {today}` | `calendar` ở hôm nay; địa chỉ có cuộc họp: như `meeting-requested`, không thì như `home-shown`; | `fetch` danh sách |
+| bất kỳ | `home-shown`, `home-clicked` (bấm logo; địa chỉ khác `/` thì đẩy một entry), `popped` không có cuộc họp trong địa chỉ | `view = home`, `loadId + 1` (hủy tải đang chạy), tab về `null`, `legacy` dừng poll, `contextRev + 1`, sidebar theo query đang gõ | hủy timer tab; `call address.push /` nếu cần |
+| bất kỳ | `calendar-opened` (hoặc bấm một ngày/`Chưa đặt ngày` ở lịch nhỏ) | `view = calendar`, `loadId + 1`, `contextRev + 1`, focus tiêu đề lịch; đã ở lịch: không làm gì | `fetch` danh sách |
+| bất kỳ | `meeting-link-clicked {meetingId}` | như `meeting-requested`; địa chỉ khác thì đẩy một entry | `call address.push` |
+| bất kỳ | `popped` có cuộc họp, `hash-changed` | cuộc họp: như `meeting-requested` (cùng cuộc họp: vẽ luôn tab mà địa chỉ nêu); hash đổi khi đang xem cuộc họp: chọn lại tab theo địa chỉ | |
+
+**Tải một cuộc họp** (`meeting-requested {meetingId}`):
+
+| Từ | Sự kiện | Tới | Effect |
+| --- | --- | --- | --- |
+| bất kỳ | cuộc họp khác cuộc họp hiện tại | `loadId + 1`, `view = loading`, tab về `null`, editor đóng (`saveId + 1`), `legacy = switch` | `fetch` cuộc họp (key `history/meeting`), hủy timer tab |
+| bất kỳ | cùng cuộc họp | `loadId + 1`, `view = meeting`, `paintRev + 1` (vẽ ngay điều đã biết), tab theo địa chỉ, tab đang hiện hoặc mặc định | `fetch` cuộc họp |
+| đang tải | `meeting-loaded` ok, `loadId` khớp, cuộc họp hợp lệ | cuộc họp (không lùi `metadata_version`), ghi chú reset nếu là cuộc họp khác, khóa nguồn theo `notes_source_locked`, `view = meeting`, tab, `installRev`, `paintRev`, `contextRev`, `readyRev`, `loadDone` | `fetch` danh sách nếu chưa có |
+| đang tải | `meeting-loaded` ok nhưng thiếu `id`/`title` hoặc `language_hint` sai | `view = error` với câu "Máy chủ không trả về metadata cuộc họp hợp lệ." hoặc "Cuộc họp chưa có gợi ý ngôn ngữ hợp lệ.", `contextRev + 1`, `loadDone` | |
+| đang tải | `meeting-load-failed` (HTTP hoặc mạng), `loadId` khớp | `view = error` với lời máy chủ hoặc "Không kết nối được…", `contextRev + 1`, `loadDone` | |
+| đang tải | `meeting-loaded`, `meeting-load-failed` với `loadId` cũ | không đổi (response cũ) | |
+| đang tải | rời đi (home, lịch, cuộc họp khác) | `loadId` mới; câu trả lời của tải cũ bị bỏ | |
+
+**Danh sách và tìm kiếm**:
+
+| Từ | Sự kiện | Tới | Effect |
+| --- | --- | --- | --- |
+| bất kỳ | `list-loaded` hợp lệ, `listId` khớp | `meetings`, `recent`, `total` | có query: `fetch` tìm kiếm (sidebar vẽ khi có câu trả lời); không: sidebar theo query |
+| bất kỳ | `list-failed`, `listId` khớp, hoặc body sai hình dạng | danh sách cũ được giữ | như trên |
+| bất kỳ | `list-loaded` với `listId` cũ | không đổi | |
+| bất kỳ | `search-input {value}` có chữ | `query` | `schedule` 120 ms (gõ tiếp thì thay timer cũ) |
+| bất kỳ | `search-input` rỗng (xóa hộp hoặc Escape) | `query = ""`, sidebar về "Gần đây" ngay, `searchId + 1` | hủy timer và request tìm kiếm |
+| bất kỳ | `search-due` | `searchId + 1` | `fetch` tìm kiếm (thay request đang chạy) |
+| đang tìm | `search-loaded` / `search-failed`, `searchId` khớp | `results`, `searchFailed`, sidebar vẽ theo `query` | |
+| đang tìm | câu trả lời với `searchId` cũ | không đổi | |
+
+**Lịch** (chung cho lịch nhỏ và lớn): `calendar-step-clicked` đổi tháng (không vượt năm 1000–9999), `calendar-month-chosen`, `calendar-year-entered {text}` (lúc gõ, Enter và blur: chỉ nhận đủ bốn chữ số trong khoảng; chữ lẻ giữ nguyên trong ô khi gõ và view trả năm thật về ô khi Enter/blur), `calendar-today-clicked {today}`, `calendar-date-clicked {date, mini}`, `calendar-undated-clicked {mini}`, `calendar-arrow-pressed {date, step}` (±1 ngày, ±7 ngày; không vượt khoảng năm). `mini` mở lịch lớn như `calendar-opened`. Duyệt lịch không đổi metadata cuộc họp. Focus ngày sau phím mũi tên hoặc bấm ngày ở lịch lớn là việc của view sau khi vẽ.
+
+**Tab**:
+
+| Từ | Sự kiện | Tới | Effect |
+| --- | --- | --- | --- |
+| đang xem cuộc họp | `tab-chosen {tab}` khác tab hiện tại | `tab` | `call address.push` entry mới `#tab`; entry bị rời nhớ tab của nó |
+| đang xem cuộc họp | `tab-chosen` cùng tab, tab lạ, hoặc không ở view cuộc họp | không đổi | |
+| đang xem cuộc họp | `source-tab-shown` (mở nguồn notes từ liên kết bấm) | `tab = transcript` | `call address.push` nếu địa chỉ chưa là địa chỉ đó |
+| tab `null` | `notes-summary-reported {known: true}` | tab theo địa chỉ, rồi tab đang có, rồi mặc định: `notes` khi đã có bản notes hoặc task đang chạy, không thì `transcript` | hủy timer tab |
+| tab `null` | `notes-summary-reported {known: false}` | chỉ cập nhật tóm tắt | |
+| tab `null`, notes.js không trả lời | `tab-timed-out` (4000 ms) | `tab = transcript` | |
+| tab đã chọn | `tab-timed-out`, `notes-summary-reported` muộn | tab giữ nguyên | |
+| bất kỳ | rời cuộc họp | tab về `null` | hủy timer tab |
+
+**Khóa nguồn notes**: `notes-source-lock-reported {meetingId, locked, known}` bị bỏ nếu cuộc họp khác; không đổi giá trị thì không vẽ lại. Khóa chưa biết hoặc đang giữ thì dòng trạng thái khóa hiện, ngày họp (khi khác ngày gốc) và lưu ngày bị chặn; sửa tên vẫn được khi ngày trả về giá trị gốc.
+
+**Sửa metadata**:
+
+| Từ | Sự kiện | Tới | Effect |
+| --- | --- | --- | --- |
+| có cuộc họp | `editor-opened` | `editor` mới từ cuộc họp (`original`, `version`), focus tên | |
+| đang sửa | `editor-edited {title|date}` | giá trị trong `editor` | |
+| đang sửa, không bận | `editor-submitted` tên rỗng hoặc dài hơn 200 ký tự, ngày nhập dở (`badInput`), hoặc đổi ngày khi khóa | `editor.error`; ngày nhập dở: focus ô ngày | |
+| đang sửa, không bận | `editor-submitted` không đổi gì | editor đóng | |
+| đang sửa, không bận | `editor-submitted` có đổi | `busy = true`, `saveId + 1` | `fetch PATCH` chỉ các trường đổi cùng `expected_metadata_version` |
+| bận | `editor-submitted` | không đổi (không gửi lần hai) | |
+| bận | `save-succeeded`, đúng cuộc họp và phiên | cuộc họp thay bằng bản trả về, editor đóng, "Đã lưu tên và ngày họp.", `paintRev + 1` và focus menu thao tác nếu đang ở view cuộc họp | `fetch` danh sách |
+| bận | `save-succeeded` sai phiên (editor đã đóng, mở lại, hoặc đổi cuộc họp) | không áp | `fetch` danh sách |
+| bận | `save-failed` 409 `stale_version` | vẫn bận | `fetch` bản mới nhất (`history/conflict`) |
+| bận | `conflict-loaded`, đúng phiên | trường đã sửa giữ bản nháp, trường chưa sửa theo giá trị mới, `version` mới, `conflict` nêu bản kia, nhãn "Lưu bản nháp lên bản mới nhất", cuộc họp thay bằng bản mới, hết bận | `fetch` danh sách |
+| bận | `conflict-failed` hoặc body sai, đúng phiên | `conflict` nêu chưa tải được bản mới, bản nháp giữ, hết bận | |
+| bận | `conflict-loaded`/`conflict-failed`, sai phiên | không áp, hết bận nếu `saveId` còn khớp | `fetch` danh sách (khi tải được) |
+| bận | `save-failed` khác | `editor.error` (lời máy chủ hoặc "Không kết nối được…"), hết bận, bản nháp giữ | |
+| đang sửa | `editor-cancelled` | editor đóng, `saveId + 1` (kết quả lưu đang bay không còn đụng editor), focus menu thao tác | |
+
+**Xóa cuộc họp**:
+
+| Từ | Sự kiện | Tới | Effect |
+| --- | --- | --- | --- |
+| có cuộc họp, không đang xóa | `deletion-opened` | hộp thoại mở, ô xác nhận trống, nút xóa tắt, focus ô xác nhận | |
+| hộp thoại mở | `deletion-confirmation-edited` | nút bật khi chữ khớp đúng tên | |
+| hộp thoại mở, tên khớp | `deletion-submitted` | `pending`, xóa lỗi cũ của cuộc họp, nút "Đang dọn dữ liệu…" | `fetch DELETE` |
+| `pending` hoặc tên không khớp | `deletion-submitted`, `deletion-opened` | không đổi (không gửi lần hai) | |
+| `pending` | `deletion-succeeded` đúng `meeting_id` và `status = deleted`, hoặc 404 `meeting_not_found` | khỏi `meetings`, `recent`, `results`; `total - 1`; hộp thoại đóng; cuộc họp đang xem (địa chỉ còn là của nó): về home, focus tiêu đề trang | `call address.push /`; `fetch` danh sách |
+| `pending` | `deletion-succeeded` sai nội dung | như lỗi với câu "Máy chủ chưa xác nhận việc xóa cuộc họp." | |
+| `pending` | `deletion-failed` | hết `pending`; lỗi lưu theo cuộc họp (`meeting_task_active`, `meeting_deletion_cleanup_failed` kèm `cleanupMarked`, hoặc lời máy chủ) hiện ở phần đầu cuộc họp; còn đang xem cuộc họp thì tải lại nó (nút xác nhận vẫn tắt, nhãn "Đang dọn dữ liệu…", tới khi tải xong), rồi hiện lỗi trong hộp thoại nếu còn mở và xóa ô xác nhận | `fetch` cuộc họp |
+| bất kỳ | `deletion-dialog-closed` (Esc, nút Đóng, nút ×) | hộp thoại đóng, ô xác nhận trống; yêu cầu đang bay vẫn chạy | |
+
+Nút "Thử dọn tiếp" thay "Xóa cuộc họp" khi cuộc họp có dấu dọn dẹp (`deletion_status`) hoặc lần xóa vừa rồi báo dọn dẹp lỗi.
+
+**Cầu nối tới code 4b/4c**: `history.js` vẽ theo thứ tự cố định: đặt lại `legacy`; cuộc họp mới từ máy chủ (`installRev`: đối chiếu bản nháp transcript, vẽ phần transcript phụ thuộc khóa, báo notes.js); đầu cuộc họp và transcript (`paintRev`); âm thanh; view và tiêu đề; tab; dòng khóa, editor, hộp thoại xóa; sidebar và lịch; tóm tắt; báo notes.js (`contextRev`); sẵn sàng (`readyRev`); focus. `asr:meeting-context` đọc view đang vẽ thật trên trang, nên lần báo giữa chừng của code transcript thấy view cũ như bản trước. `window.ASRMeetingHistory` giữ nguyên tên hàm và giá trị trả về: `setNotesSummary`, `setNotesSourceLock`, `selectTab`, `showNotesSourceTab`, `refreshMeeting` dispatch action; `currentContext`, `defaultSpeakerNames`, `hasUnsavedTranscriptDrafts` đọc thẳng; `markNotesSource`, `playRecording`, `seekNotesSource`, `focusSpeakerCatalog` là code 4c. `refreshMeeting` và `seekNotesSource` đợi lần tải xong (`true`) hoặc bị thay (`false`).
+
+**Khác bản trước pha 4a** (đầy đủ trong mục #128 của `architecture-changes-v1.md`): lần làm mới danh sách mới nhất thắng (bản cũ: câu trả lời tới sau cùng thắng); câu hỏi tìm kiếm đang gõ bị hủy khi xóa hộp; lịch vẽ ngay khi danh sách về, còn sidebar chờ câu trả lời tìm kiếm; `aria-current` của sidebar theo view ngay; sửa metadata giữ chữ đang gõ trong state và lấy lại giá trị ô khi nộp; lỗi trong hộp thoại xóa hiện khi lần tải lại kết thúc hoặc bị thay, và nút xác nhận tắt tới lúc đó; focus trên link sidebar được giữ khi danh sách dựng lại; lần lưu cũ bị hủy khi lưu cuộc họp khác.
