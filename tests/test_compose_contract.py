@@ -213,4 +213,4 @@ def test_claimed_task_starting_stage_has_a_vietnamese_label():
     script = (ROOT / "src/asr_en_vi/web/history.js").read_text(encoding="utf-8")
     labels = script.split("const TASK_STAGES = {", 1)[1].split("};", 1)[0]
 
-    assert '    starting: t("Đang bắt đầu"),' in labels
+    assert '  starting: t("Đang bắt đầu"),' in labels
