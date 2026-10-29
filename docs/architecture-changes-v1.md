@@ -421,6 +421,67 @@ Kiến trúc
 
 - `docs/release/runtime-v0.1.0.md` — kiến trúc frontend.
 
+### #130 (pha 4b của #118) — task phiên âm trong `history.js` chuyển sang reducer
+
+#### Vấn đề
+
+Phần task phiên âm của `history.js` (bắt đầu, hủy, poll tiến độ, request id chờ ở sessionStorage, ngôn ngữ, lỗi task, chẩn đoán) chạy mệnh lệnh trên object `legacy`, với hẹn giờ `taskPollTimer`, cờ `taskRequestInFlight` và chống response cũ bằng so sánh `taskPollId` với `nav().meeting`. Thứ tự response (poll tới sau khi rời cuộc họp, bắt đầu hoặc hủy bị lỗi mạng, hủy giữa chừng, bấm lặp, khôi phục request chờ sau tải lại, đổi nhịp khi trang ẩn) chỉ kiểm được bằng Playwright.
+
+#### Nguyên nhân đo được
+
+Đếm trên `git show e9b3e50:src/asr_en_vi/web/history.js` bỏ chú thích, cùng cách đếm với #126 và #128 (từng lần xuất hiện, không phải dòng): 7 trường task của `legacy` (`taskPollTimer`, `taskPollId`, `taskRequestInFlight`, `pendingTaskRequestId`, `transcriptionLanguageMeetingId`, `transcriptionLanguageSelection`, `taskRequestError`) được gán 18 lần (`legacy.<trường> =`: `taskRequestError` 5, `taskPollTimer` 3, mỗi trường còn lại 2) và đọc/gán tổng cộng 42 lần; hai tên `*Timer`/`*InFlight` của phần task (`taskPollTimer` 9 lần xuất hiện, `taskRequestInFlight` 7). `transcriptionRequestInFlight` (2 lần) là tên trường hợp đồng gửi cho `notes.js`, giữ nguyên.
+
+Nguồn: `git show e9b3e50:src/asr_en_vi/web/history.js`; issue #118, #130.
+
+#### Thay đổi thiết kế
+
+- `task-core.js`: core thuần (`initialState`, `reduce`, `selectTask`, `selectRuntime`, `selectRequestBusy`, `displayedLanguage`, `diagnosticCommand`). Id request mới, nhịp ẩn/hiện của trang, chuỗi sessionStorage và khóa tự chạy vào qua action; ghi sessionStorage và xóa khóa tự chạy bằng effect `storage`; poll bằng `schedule` + `fetch`; sao chép lệnh chẩn đoán bằng effect `call`.
+- Lát `task` cùng store với `history` (`combine({history, task})`). Đối tượng task ở lại trong cuộc họp của `history-core`; bốn action `task/poll-loaded`, `task/start-succeeded`, `task/cancel-succeeded`, `task/refresh-loaded` do cả hai lát xử lý (`history-core` đặt task vào cuộc họp mới tạo, không sửa tại chỗ). View đóng dấu mọi action bằng `shown` (cuộc họp lát history đang giữ, kể cả ở trang chủ hoặc khi cuộc họp khác đang tải) như `at`, và đổi `legacy.rev`, `readyRev` của `history-core` thành `task/meeting-left`, `task/meeting-ready`.
+- `history.js`: bỏ 7 trường task khỏi `legacy`, bỏ `editTranscription`, `startTaskPolling`, `pollTask` và các hàm request id; `renderTranscription` chỉ đọc `selectTask`. `history-core.js` thêm bốn case dùng chung và xuất `failureOf`; cuộc họp nhận task mang khóa nguồn notes như đã báo (`notes-core` chỉ đọc lại `notes_source_locked` khi nhận object cuộc họp mới, mà object nay đổi mỗi lượt poll). Thanh bên chỉ vẽ lại khi id cuộc họp mở đổi; "Tải lại bản mới nhất" bỏ kết quả theo `installRev` thay vì so object cuộc họp (object nay đổi mỗi lượt poll, nên so object sẽ bỏ nhầm khi đang chạy task).
+- Route `/assets/task-core.js` có bảo vệ truy cập; thêm vào hai test asset. Gate `shell-view.test.mjs`: `task-core.js` vào CORES.
+- Bảng trạng thái và chuyển trạng thái: `frontend-design-v1.md` mục 11.9. ADR 0010 thêm một ý về `shown` và action dùng chung giữa các lát. Không thêm loại effect.
+
+Khác biệt hành vi so với bản cũ (đều nhỏ, ghi để review; đã đối chiếu từng ý với `git show e9b3e50`): chỉ một lần đọc poll chạy cho mỗi task (bản cũ: `visibilitychange` hoặc cuộc họp tải lại giữa lúc đọc đặt thêm timer, hai lần đọc có thể chồng nhau); request poll bị hủy khi rời cuộc họp (bản cũ để chạy rồi bỏ kết quả); nút Hủy giữ tắt tới khi yêu cầu hủy xong (bản cũ: lượt poll kế tiếp vẽ lại và bật nút, bấm được lần hai); câu trả lời bắt đầu hoặc hủy tới sau khi một cuộc họp khác đã tải xong không đổi cuộc họp đang hiện (ở trang chủ hoặc khi cuộc họp khác đang tải thì như bản cũ: câu trả lời áp vào cuộc họp history còn giữ và poll chạy tới khi task kết thúc; bản cũ sửa object cuộc họp cũ, đặt `taskPollId` và timer cho cuộc họp không còn hiện, và với lỗi bắt đầu ghi một dòng lên trạng thái của cuộc họp khác), nhưng request chờ vẫn được rút; lỗi của yêu cầu gắn với cuộc họp của nó (bản cũ: một biến chung hiện ở mọi cuộc họp tới khi có bắt đầu hoặc hủy thành công); ô ngôn ngữ nhớ lựa chọn của người dùng, không nhớ giá trị vừa vẽ (bản cũ ghi lại giá trị đang hiện mỗi lần vẽ); request chờ đọc từ sessionStorage một lần khi cuộc họp tải xong (bản cũ: mỗi lần vẽ khi bộ nhớ chưa có của cuộc họp đó); dòng "mất kết nối", "không tải được transcript mới" và kết quả sao chép giữ tới sự kiện task kế tiếp, khi lần tải lại cuộc họp xong hoặc khi rời cuộc họp (khi mở lại cùng cuộc họp, bản cũ xóa ngay lúc bấm; bản cũ: tới lần vẽ transcript kế tiếp, do bất kỳ nguyên nhân); body 2xx không phải object là lỗi rõ ràng (bản cũ: khi bắt đầu, `TypeError` hiện chữ lỗi của JS ở khối lỗi; khi hủy, task bị gỡ khỏi cuộc họp, nút Bắt đầu hiện và poll dừng, không báo lỗi; khi poll, task rỗng được vẽ rồi dòng "mất kết nối"); khóa tự chạy mà `removeItem` bị chặn thì vẫn chạy đúng một lần (bản cũ: không chạy); nút Hủy vẽ lại khi bấm nên `asr:meeting-context` có thêm một lần (cùng nội dung) lúc bấm hủy và lúc sao chép lệnh; thanh bên không còn dựng lại khi cuộc họp cùng id được thay bằng object mới (người dùng không thấy). Chuỗi `asr:meeting-context` phát cho `notes.js` khác ở số lần, giá trị cuối giống hệt; mỗi lần thêm là một lần `notes.js` đọc lại notes (`GET …/notes`): lúc bắt đầu phát `{inflight true, task trước đó}` rồi `{false, task nhận}` (bản cũ: thêm `{true, task nhận}` ở giữa); poll tới `succeeded` (có đọc lại cuộc họp) phát 3 lần (bản cũ 4), tới `canceled` như cũ; tải cuộc họp khôi phục request chờ từ sessionStorage thêm 1 lần; mở lại cuộc họp đang có dòng "mất kết nối", "không tải được transcript mới" hoặc kết quả sao chép thêm 1 lần; hủy lỗi hoặc thành công thêm 1 đến 2 lần, trước câu trả lời vẫn mang task cũ; bấm sao chép lệnh chẩn đoán phát 1 lần; lần poll hoặc đọc lại thất bại cũng phát, nên khi máy chủ mất kết nối, lần đọc notes kèm theo cũng lỗi và tab Notes hiện lỗi đọc tới lượt poll tốt kế tiếp (bản cũ: không phát, tab Notes không đổi). Tải lại cuộc họp giữa lúc task chạy (không có request chờ) như cũ. Giữ như cũ: nhịp 1000/3000 ms, thử lại 3000 ms, `transcriptionRequestInFlight` giữ `true` tới khi đọc lại cuộc họp xong, `asr:meeting-context` cho `notes.js` giữ hình dạng và thời điểm sau mỗi lần vẽ task.
+
+#### Số đo trước và sau
+
+Điều kiện đo: Node 24.13.0, `node --test tests/web/*.test.mjs`, một lần chạy cục bộ; lần gán đếm như mục "Nguyên nhân đo được". Sau: 0 trường task trong `legacy`, 0 tên `taskPollTimer`/`taskRequestInFlight` trong `history.js` (cùng biểu thức chính quy trên bản hiện tại); `selectRequestBusy` thay cho cờ.
+
+| | Trước | Sau |
+| --- | --- | --- |
+| Lần gán trường task của `legacy` | 18 | 0 |
+| Tên `*Timer`/`*InFlight` của phần task trong `history.js` | 2 (16 lần xuất hiện) | 0 |
+| Unit test JS | 314 | 399 (85 cho core task), 0,1 s |
+| `history.js` (dòng) | 3857 | 3588 |
+| `history-core.js` (dòng) | 972 | 998 (`wc -l`) |
+| `task-core.js` (dòng) | 0 | 501 (`wc -l`) |
+
+Nguồn: `tests/web/task-core.test.mjs`, `tests/web/shell-view.test.mjs`.
+
+#### Đánh đổi và phương án đã loại
+
+- `shown` đóng dấu lên mọi action thay vì để lát `task` giữ bản sao của cuộc họp: một bản sao sẽ lệch khỏi `meeting.transcription.task` mà `history-core` giữ và `notes.js` đọc. Đổi lại mỗi action mang thêm một object nhỏ; reducer test dựng nó bằng một hàm cùng hình dạng.
+- `legacy.rev` và `readyRev` đổi thành action trong view vì `history-core` không phát được action; phản ứng trực tiếp trên `history/meeting-requested` buộc `task-core` lặp lại phép chọn cuộc họp (địa chỉ, `popped`, `hash-changed`).
+- Yêu cầu bắt đầu, hủy và đọc lại cuộc họp không bị hủy khi rời cuộc họp (server đã nhận; hủy giữa đường làm mất câu trả lời, nên request chờ rút chậm); khóa `task/start` dùng chung vì cờ cũ cũng dùng chung.
+- Chữ trạng thái theo từng status và bảng nhãn giai đoạn ở lại view (`TASK_STAGES` còn được test tương thích đọc từ `history.js`).
+
+#### Follow-up
+
+- 4c (transcript) của #118, rồi `history.js` vào VIEWS; bỏ `legacy`, `editTranscription` đã bỏ ở 4b, còn `history/meeting-updated` cho transcript.
+- Chuỗi "Chưa xác nhận được việc nhận tác vụ…" không còn hiện (dòng trạng thái giữ "Bản ghi đã lưu…" như bản cũ); `history.js` giữ nó làm literal chết để `test_i18n` không báo mục dư: xóa literal và bản tiếng Anh khi `i18n.js` mở ở pha 5.
+
+#### Liên kết issue/PR
+
+Issue #130; thuộc #118.
+
+#### Tag
+
+Kiến trúc
+
+#### Tài liệu đích
+
+- `docs/release/runtime-v0.1.0.md` — kiến trúc frontend.
+
 ## 4. Mốc AC-13 (#16 → #99 → #104)
 
 Đã chuyển bảng mốc và điều kiện đo vào [báo cáo nghiệm thu](acceptance-report-v1.md).

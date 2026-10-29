@@ -1,11 +1,11 @@
 // Meeting history: sidebar recent/search, synced month calendars, meeting navigation and metadata editing
-// (phase 4a of #118), plus the task and transcript code that is not migrated yet (phases 4b and 4c).
+// (phase 4a of #118) and the transcription task (phase 4b), plus the transcript code that is not migrated yet (4c).
 //
-// The navigation and library state lives in history-core.js; this file renders it and dispatches actions.
-// The task and transcript code below still runs imperatively on the `legacy` object. It never assigns
-// navigation state: it reads the current meeting from the store and reports a changed one with
-// `history/meeting-updated` (edited in place) or `history/meeting-fetched` (a newer copy from the server).
-// Contract: docs/adr/0010-frontend-reducer-core.md; state table: docs/frontend-design-v1.md §11.8.
+// The navigation and library state lives in history-core.js and the task state in task-core.js, both in one store;
+// this file renders them and dispatches actions. The transcript code below still runs imperatively on the `legacy`
+// object. It never assigns navigation state: it reads the current meeting from the store and reports a changed one
+// with `history/meeting-updated` (edited in place) or `history/meeting-fetched` (a newer copy from the server).
+// Contract: docs/adr/0010-frontend-reducer-core.md; state tables: docs/frontend-design-v1.md §11.8 and §11.9.
 // Depends on the globals shell.js publishes (requestJson, ApiError, formatMeetingDate, sameOriginAudioSource,
 // meetingIdFromPath).
 import { combine, createRunner, createStore } from "./store.js";
@@ -31,6 +31,15 @@ import {
   selectSidebar,
   sourceMutationUnavailable as coreSourceMutationUnavailable,
 } from "./history-core.js";
+import {
+  autoStartStorageKey,
+  initialState as taskInitialState,
+  reduce as reduceTask,
+  requestStorageKey,
+  selectRequestBusy,
+  selectRuntime,
+  selectTask,
+} from "./task-core.js";
 
 const $ = (selector) => document.querySelector(selector);
 const WEEKDAYS = [t("T2"), t("T3"), t("T4"), t("T5"), t("T6"), t("T7"), t("CN")];
@@ -38,7 +47,6 @@ const MONTHS = [
   t("Tháng 1"), t("Tháng 2"), t("Tháng 3"), t("Tháng 4"), t("Tháng 5"), t("Tháng 6"),
   t("Tháng 7"), t("Tháng 8"), t("Tháng 9"), t("Tháng 10"), t("Tháng 11"), t("Tháng 12"),
 ];
-const LANGUAGE_HINTS = new Set(Object.keys(LANGUAGES));
 const REVIEW_REASON_LABELS = {
   asr_uncertain: t("Nhận dạng chưa chắc"),
   overlap: t("Có lời nói chồng lấn"),
@@ -70,16 +78,13 @@ function setProp(element, name, value) {
 
 // ---- store ----
 
-// Until 4b/4c: the task and transcript code keeps its own fields here instead of in the store.
+// Until 4c: the transcript code keeps its own fields here instead of in the store.
 // It reads the navigation state through nav() and never assigns it.
 // 4c also owns the module-level scroll and playback-follow lets further down (lastManualScroll, ownScrollUntil,
 // activeSegmentId); they were IIFE lets before the move and stay there until 4c folds them in.
 const legacy = {
   selectedGenerationId: null,
   currentGenerationId: null,
-  taskPollTimer: 0,
-  taskPollId: null,
-  taskRequestInFlight: false,
   transcriptMutationInFlight: false,
   notesSourceSegmentId: null, // the transcript row the open notes source names (see markNotesSource)
   transcriptMutationFocus: null,
@@ -91,14 +96,10 @@ const legacy = {
   transcriptDrafts: new Map(),
   editingSegment: null, // { generationId, segmentId }: the one segment whose editor is open
   renamingSpeaker: null, // { generationId, speakerId }: the one speaker chip being renamed
-  pendingTaskRequestId: null,
-  transcriptionLanguageMeetingId: null,
-  transcriptionLanguageSelection: null,
-  taskRequestError: null,
 };
 
 // What the view painted last, to paint only what changed.
-const memo = { rendered: initialState };
+const memo = { rendered: initialState, task: taskInitialState };
 
 const nav = () => store.getState().history;
 const sourceMutationUnavailable = () => coreSourceMutationUnavailable(nav());
@@ -109,7 +110,25 @@ function addressNow() {
   return { pathname: window.location.pathname, search: window.location.search, hash: window.location.hash, tab: remembered || null };
 }
 
-const stamp = (action) => ({ ...action, at: addressNow() });
+// The meeting on screen as the task slice reasons about it: history-core owns the meeting, and `combine` hands a
+// slice only its own state, so the facts enter task-core as data on each action, like the address.
+function shownNow() {
+  const state = nav();
+  const meeting = state.meeting;
+  if (!meeting) return null;
+  const transcription = meeting.transcription || {};
+  const generation = transcription.generation || null;
+  return {
+    id: meeting.id,
+    language: meeting.language_hint,
+    task: transcription.task || null,
+    generation: Boolean(generation),
+    generationLanguage: generation ? generation.language_hint : null,
+    blocked: coreSourceMutationUnavailable(state),
+  };
+}
+
+const stamp = (action) => ({ ...action, at: addressNow(), shown: shownNow() });
 const dispatch = (action) => store.dispatch(stamp(action));
 
 // "address.push": a new history entry. The entry being left remembers its tab, so Back restores it even if the
@@ -123,23 +142,18 @@ const run = createRunner({
   fetch: (url, init) => fetch(url, init),
   setTimeout: (callback, delay) => window.setTimeout(callback, delay),
   clearTimeout: (id) => window.clearTimeout(id),
-  calls: { "address.push": pushAddress },
+  storage: { session: () => window.sessionStorage },
+  calls: { "address.push": pushAddress, "clipboard.write": writeClipboard, "clipboard.select": selectDiagnosticCommand },
 });
 const store = createStore({
-  reduce: combine({ history: reduce }),
-  initialState: { history: initialState },
+  reduce: combine({ history: reduce, task: reduceTask }),
+  initialState: { history: initialState, task: taskInitialState },
   run: (effect, send) => run(effect, (action) => send(stamp(action))),
 });
 
 // Tell the store that the task or transcript code edited the current meeting object in place.
 function reportMeeting(meeting = nav().meeting) {
   dispatch({ type: "history/meeting-updated", meeting });
-}
-
-// Until 4b/4c: a poll or a task request replaces the transcription of the meeting it holds, then reports it.
-function editTranscription(meeting, transcription) {
-  meeting.transcription = transcription;
-  reportMeeting(meeting);
 }
 
 // ---- painting ----
@@ -156,7 +170,7 @@ function notifyMeetingContext() {
     detail: {
       meeting: view === "meeting" ? nav().meeting : null,
       view,
-      transcriptionRequestInFlight: legacy.taskRequestInFlight,
+      transcriptionRequestInFlight: selectRequestBusy(store.getState().task),
     },
   }));
 }
@@ -164,7 +178,9 @@ function notifyMeetingContext() {
 function render(root) {
   const s = root.history;
   const p = memo.rendered;
+  const taskRev = root.task.rev !== memo.task.rev;
   memo.rendered = s;
+  memo.task = root.task;
   if (s.legacy.rev !== p.legacy.rev) resetLegacy(s.legacy.kind);
   if (s.installRev !== p.installRev) meetingInstalled(s);
   else if (s.lockRev !== p.lockRev) renderLegacyLock();
@@ -172,6 +188,9 @@ function render(root) {
   const tabFirst = s.installRev === p.installRev && s.tab !== p.tab && s.view === "meeting" && p.view === "meeting";
   if (tabFirst) renderTabs(s);
   if (s.paintRev !== p.paintRev && s.meeting) renderMeeting(s.meeting);
+  // A task answer repaints the transcription unless the meeting was painted above anyway.
+  const painted = (s.paintRev !== p.paintRev && s.meeting) || s.installRev !== p.installRev || s.lockRev !== p.lockRev;
+  if (taskRev && !painted) repaintTranscription();
   if (s.view === "meeting" && s.meeting) loadAudio(s.meeting);
   if (s.view !== p.view || s.heading !== p.heading || s.paintRev !== p.paintRev) renderViews(s);
   if (!tabFirst && (s.tab !== p.tab || s.paintRev !== p.paintRev || (s.view === "meeting" && p.view !== "meeting"))) renderTabs(s);
@@ -179,7 +198,7 @@ function render(root) {
   renderEditor(s);
   renderDeletion(s);
   if (s.view !== p.view || s.shownQuery !== p.shownQuery || s.results !== p.results || s.recent !== p.recent
-    || s.total !== p.total || s.searchFailed !== p.searchFailed || s.meeting !== p.meeting) renderSidebar(s);
+    || s.total !== p.total || s.searchFailed !== p.searchFailed || openMeetingId(s) !== openMeetingId(p)) renderSidebar(s);
   if (s.meetings !== p.meetings || s.calendar !== p.calendar) renderCalendars(s);
   if (s.summaryRev !== p.summaryRev && s.meeting) {
     const transcription = s.meeting.transcription || {};
@@ -189,6 +208,15 @@ function render(root) {
   if (s.readyRev !== p.readyRev && s.meeting) meetingReady(s.meeting);
   if (s.focus.rev !== p.focus.rev) focusTarget(s.focus.target);
   if (s.editor && p.editor && s.editor.focusDate !== p.editor.focusDate) $("#edit-date").focus();
+}
+
+// The sidebar marks the open meeting by id; a task answer replaces the meeting object every second.
+const openMeetingId = (s) => (s.meeting ? s.meeting.id : null);
+
+function repaintTranscription() {
+  const meeting = nav().meeting;
+  if (meeting && meeting.transcription) renderTranscription(meeting.transcription);
+  else notifyMeetingContext();
 }
 
 const FOCUS = {
@@ -238,7 +266,6 @@ function loadAudio(meeting) {
 // depends on the notes source lock, and tell notes.js.
 function meetingInstalled(s) {
   const meeting = s.meeting;
-  if (s.installKind === "load") rotateTerminalTaskRequestId(meeting.id, meeting.transcription && meeting.transcription.task);
   reconcileTranscriptDrafts(meeting && meeting.transcription);
   renderLegacyLock();
   notifyMeetingContext();
@@ -258,18 +285,20 @@ function renderLock(s) {
   setProp($("#notes-lock-status"), "hidden", status.hidden);
 }
 
-// A meeting finished loading: follow its running task, and start the transcription the create dialog asked for.
+// A meeting finished loading: task-core follows its running task, restores a pending request id and starts the
+// transcription the create dialog asked for. The values it cannot read itself come with the action.
 function meetingReady(meeting) {
-  startTaskPolling(meeting.id, meeting.transcription && meeting.transcription.task);
-  const transcription = meeting.transcription || {};
-  if (takeAutoStartRequest(meeting.id) && !transcription.task && !transcription.generation) {
-    void startTranscription({ auto: true });
-  }
+  dispatch({
+    type: "task/meeting-ready",
+    requestId: newRequestId(),
+    stored: readStored(requestStorageKey(meeting.id)),
+    autoStart: readStored(autoStartStorageKey(meeting.id)) !== null,
+  });
 }
 
-// The unmigrated task and transcript code starts over for another meeting (or home).
+// Leaving a meeting (or home) stops its task poll; the unmigrated transcript code starts over for another meeting.
 function resetLegacy(kind) {
-  stopTaskPolling();
+  dispatch({ type: "task/meeting-left" });
   if (kind !== "switch") return;
   legacy.selectedGenerationId = null;
   legacy.currentGenerationId = null;
@@ -742,15 +771,13 @@ const TASK_STAGES = {
   canceled: t("Đã hủy"),
   interrupted: t("Bị gián đoạn"),
 };
-const TASK_ERROR_MESSAGES = {
-  diarization_decoder_unavailable: t("Bộ giải mã âm thanh local không khả dụng. Kiểm tra dependencies âm thanh của ứng dụng."),
-  diarization_model_load_failed: t("Không thể nạp model Community-1 local. Kiểm tra các model assets đã được cấp quyền và tải đầy đủ."),
-  diarization_cuda_failed: t("Community-1 không chạy được trên CUDA đã chọn. Kiểm tra CUDA hoặc chọn CPU."),
-  diarization_input_decode_failed: t("Không thể giải mã bản ghi. Tải lại file âm thanh hợp lệ rồi thử lại."),
-  diarization_failed: t("Nhận dạng người nói thất bại. Kiểm tra worker logs rồi thử lại."),
-  publication_failed: t("Không thể lưu transcript hoàn chỉnh. Kiểm tra bộ nhớ lưu trữ rồi thử lại."),
+// Lines that stand in for the status text while a notice is up (see task-core.js `notice`).
+const NOTICE_TEXT = {
+  "poll-lost": t("Tạm mất kết nối khi đọc tiến độ. Tác vụ vẫn thuộc worker; đang thử đọc lại."),
+  "refresh-lost": t("Tác vụ đã hoàn tất; không tải được transcript mới. Mở lại cuộc họp để thử lại."),
 };
-const SAFE_TASK_ID = /^[0-9a-f]{32}$/;
+// phase 5: remove (no longer shown; kept only so the i18n catalog entry stays used)
+const UNUSED_START_UNCONFIRMED = t("Chưa xác nhận được việc nhận tác vụ. Yêu cầu chưa được tự gửi lại.");
 
 function formatElapsedSeconds(value) {
   const seconds = Math.max(0, Number(value) || 0);
@@ -769,39 +796,25 @@ function formatTimestamp(secondsValue) {
   return `${clock}.${String(fraction).padStart(2, "0")}`;
 }
 
-function renderTaskError(task) {
+function renderTaskError(view) {
   const container = $("#transcription-error");
   clearReloadLatestAction(container);
-  const taskFailed = task && ["failed", "interrupted"].includes(task.status);
-  container.hidden = !taskFailed && !legacy.taskRequestError;
-
-  const details = $("#task-diagnostic-details");
-  const commandWrap = $("#task-diagnostic-command-wrap");
-  const commandInput = $("#task-diagnostic-command");
-  const copyStatus = $("#task-diagnostic-copy-status");
-  details.hidden = true;
-  commandWrap.hidden = true;
-  commandInput.value = "";
-  copyStatus.textContent = "";
-
-  const code = task && typeof task.error_code === "string" ? task.error_code : "";
-  const diagnosticMessage = Object.hasOwn(TASK_ERROR_MESSAGES, code)
-    ? TASK_ERROR_MESSAGES[code]
-    : "";
-  $("#transcription-error-message").textContent = legacy.taskRequestError || (
-    taskFailed
-      ? diagnosticMessage || task.error_message || t("Tác vụ chưa hoàn tất.")
-      : ""
-  );
-
-  if (legacy.taskRequestError) return;
-  if (!diagnosticMessage || !task || !SAFE_TASK_ID.test(task.id || "")) return;
-  $("#task-diagnostic-code").textContent = code;
-  $("#task-diagnostic-id").textContent = task.id;
-  details.hidden = false;
-  commandInput.value = `docker compose exec -T app python -m asr_en_vi.cli task diagnose ${task.id}`;
-  commandWrap.hidden = false;
+  setProp(container, "hidden", !view.error.visible);
+  setProp($("#transcription-error-message"), "textContent", tr(view.error.message));
+  const diagnostic = view.error.diagnostic;
+  // Written only when different: the command stays selected after "Lệnh đã được chọn".
+  setProp($("#task-diagnostic-details"), "hidden", !diagnostic);
+  setProp($("#task-diagnostic-command-wrap"), "hidden", !diagnostic);
+  setProp($("#task-diagnostic-code"), "textContent", diagnostic ? diagnostic.code : $("#task-diagnostic-code").textContent);
+  setProp($("#task-diagnostic-id"), "textContent", diagnostic ? diagnostic.id : $("#task-diagnostic-id").textContent);
+  setProp($("#task-diagnostic-command"), "value", diagnostic ? diagnostic.command : "");
+  setProp($("#task-diagnostic-copy-status"), "textContent", COPY_STATUS[view.copy] ?? "");
 }
+
+const COPY_STATUS = {
+  copied: t("Đã sao chép lệnh."),
+  selected: t("Lệnh đã được chọn. Nhấn Ctrl+C hoặc ⌘C để sao chép."),
+};
 
 function renderTranscriptMutationError() {
   const panel = $("#transcript-mutation-error");
@@ -827,24 +840,6 @@ function renderTranscriptMutationError() {
     appendReloadLatestButton(panel, mutationError.generationId);
   } else {
     clearReloadLatestAction(panel);
-  }
-}
-
-async function copyDiagnosticCommand() {
-  const input = $("#task-diagnostic-command");
-  const status = $("#task-diagnostic-copy-status");
-  if (!input.value) return;
-  try {
-    if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("Clipboard unavailable");
-    await navigator.clipboard.writeText(input.value);
-    status.textContent = t("Đã sao chép lệnh.");
-  } catch {
-    input.focus();
-    input.select();
-    const copied = document.execCommand("copy");
-    status.textContent = copied
-      ? t("Đã sao chép lệnh.")
-      : t("Lệnh đã được chọn. Nhấn Ctrl+C hoặc ⌘C để sao chép.");
   }
 }
 
@@ -1528,14 +1523,15 @@ async function copyTranscriptDraft(button) {
 }
 
 async function reloadLatestTranscript(button) {
-  const previousMeeting = nav().meeting;
-  const meetingId = previousMeeting && previousMeeting.id;
+  const installed = nav().installRev;
+  const meetingId = nav().meeting && nav().meeting.id;
   if (!meetingId || legacy.transcriptReloadInFlight || legacy.transcriptMutationInFlight) return;
   legacy.transcriptReloadInFlight = true;
   syncTranscriptMutationControls();
   try {
     const payload = await requestJson(`/api/meetings/${encodeURIComponent(meetingId)}`);
-    if (nav().meeting !== previousMeeting) return;
+    // A task answer replaces the meeting object every second; only a load, save or refresh installs another copy.
+    if (nav().installRev !== installed || !nav().meeting) return;
     const latest = payload && payload.meeting && typeof payload.meeting === "object"
       ? payload.meeting
       : payload;
@@ -3122,31 +3118,10 @@ async function saveSpeakerAssignment(select, { reviewed = false } = {}) {
 }
 
 function renderRuntimeProfile(runtime) {
-  const panel = $("#runtime-profile");
-  const device = runtime && runtime.device;
-  panel.dataset.device = device || "unavailable";
-  if (device === "cuda") {
-    $("#runtime-backend").textContent = `GPU · CUDA · ${runtime.compute_type}`;
-  } else if (device === "cpu") {
-    $("#runtime-backend").textContent = `CPU fallback · ${runtime.compute_type}`;
-  } else {
-    $("#runtime-backend").textContent = t("Worker chưa sẵn sàng");
-  }
-  $("#runtime-model").textContent = runtime && runtime.model_name
-    ? runtime.model_name
-    : t("Chưa xác định");
-}
-
-function validLanguageHint(value) {
-  return typeof value === "string" && LANGUAGE_HINTS.has(value) ? value : null;
-}
-
-function defaultTranscriptionLanguage(meeting, task = null) {
-  const taskLanguage = validLanguageHint(task && task.language_hint);
-  if (taskLanguage) return taskLanguage;
-  const current = meeting && meeting.transcription && meeting.transcription.generation;
-  const generationLanguage = validLanguageHint(current && current.language_hint);
-  return generationLanguage || validLanguageHint(meeting && meeting.language_hint) || "en";
+  const profile = selectRuntime(runtime);
+  $("#runtime-profile").dataset.device = profile.device;
+  $("#runtime-backend").textContent = tr(profile.backend);
+  $("#runtime-model").textContent = tr(profile.model);
 }
 
 function taskStageLabel(task) {
@@ -3155,20 +3130,13 @@ function taskStageLabel(task) {
 
 // The bar is the share of the recording already transcribed; without a usable duration it is
 // indeterminate (no value attribute, no percent) rather than a guess.
-function renderTaskProgress(task) {
-  $("#task-progress").hidden = !task;
-  if (!task) return;
-  const duration = Number(task.audio_duration_seconds);
-  const known = Number.isFinite(duration) && duration > 0;
-  const fraction = known
-    ? Math.min(1, Math.max(0, Number(task.transcript_end_seconds) || 0) / duration)
-    : 0;
+function renderTaskProgress(progress, task) {
+  $("#task-progress").hidden = !progress;
+  if (!progress) return;
   const bar = $("#task-progress-bar");
-  if (known) bar.value = fraction;
+  if (progress.known) bar.value = progress.fraction;
   else bar.removeAttribute("value");
-  // Rounding must not announce 100% before the last second is transcribed.
-  const percent = fraction >= 1 ? 100 : Math.min(99, Math.round(fraction * 100));
-  $("#task-progress-percent").textContent = known ? `${percent}%` : "";
+  $("#task-progress-percent").textContent = progress.known ? `${progress.percent}%` : "";
   $("#task-progress-stage").textContent = taskStageLabel(task);
 }
 
@@ -3176,27 +3144,27 @@ function renderTranscription(transcription) {
   const meeting = nav().meeting;
   const task = transcription && transcription.task;
   const generation = transcription && transcription.generation;
-  const active = Boolean(task && ACTIVE_TASK_STATES.includes(task.status));
-  const workerChecking = active && task.worker_state === "checking-worker";
+  const view = selectTask(store.getState().task, shownNow());
+  const workerChecking = view.workerChecking;
   const startButton = $("#start-transcription");
   const cancelButton = $("#cancel-transcription");
   const measurements = $("#task-measurements");
 
-  syncTranscriptionLanguageControl(meeting, task);
+  renderLanguageControl(view);
   renderRuntimeProfile(transcription && transcription.runtime);
 
-  startButton.hidden = active;
-  startButton.disabled = legacy.taskRequestInFlight || sourceMutationUnavailable();
+  startButton.hidden = view.active;
+  startButton.disabled = view.requestBusy || sourceMutationUnavailable();
   startButton.textContent = generation ? t("Chạy lại bản ghi") : t("Bắt đầu chép lời");
   // The first run is the decisive action; running again over a transcript is not.
   startButton.classList.toggle("primary-button", !generation);
   startButton.classList.toggle("secondary-button", Boolean(generation));
-  cancelButton.hidden = !active;
-  cancelButton.disabled = !task || task.status === "stopping";
-  cancelButton.textContent = task && task.status === "stopping" ? t("Đang dừng…") : t("Hủy chép lời");
-  renderTaskProgress(active ? task : null);
+  cancelButton.hidden = !view.active;
+  cancelButton.disabled = view.cancelDisabled;
+  cancelButton.textContent = view.stopping ? t("Đang dừng…") : t("Hủy chép lời");
+  renderTaskProgress(view.progress, task);
   measurements.hidden = !task;
-  renderTaskError(task);
+  renderTaskError(view);
 
   if (!task) {
     $("#transcription-status").textContent = generation
@@ -3222,6 +3190,7 @@ function renderTranscription(transcription) {
     $("#task-segment-count").textContent = String(task.segment_count || 0);
     $("#task-transcript-end").textContent = formatTimestamp(task.transcript_end_seconds || 0);
   }
+  if (view.notice) $("#transcription-status").textContent = NOTICE_TEXT[view.notice];
   const status = $("#transcription-status");
   status.dataset.workerState = task && task.worker_state ? task.worker_state : "";
   status.classList.toggle("is-checking-worker", workerChecking);
@@ -3234,271 +3203,42 @@ function renderTranscription(transcription) {
   notifyMeetingContext();
 }
 
-function newTaskRequestId() {
+function renderLanguageControl(view) {
+  const selector = $("#transcription-language");
+  if (!selector || !view.language) return;
+  setProp(selector, "value", view.language.value);
+  setProp(selector, "disabled", view.language.disabled);
+}
+
+// ---- transcription task: the view of task-core.js ----
+
+function newRequestId() {
   if (window.crypto && typeof window.crypto.randomUUID === "function") {
     return window.crypto.randomUUID();
   }
   return `task-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function taskRequestStorageKey(meetingId) {
-  return "asr-en-vi:transcription-request:" + meetingId;
-}
-
-function rememberPendingTaskRequest(pending) {
-  legacy.pendingTaskRequestId = pending;
+// The only reads of sessionStorage: task-core does not read storage, the values enter through its actions.
+function readStored(key) {
   try {
-    window.sessionStorage.setItem(
-      taskRequestStorageKey(pending.meetingId),
-      JSON.stringify({ requestId: pending.requestId, languageHint: pending.languageHint }),
-    );
-  } catch {
-    // The in-memory fallback is already recorded above.
-  }
-  return pending;
-}
-
-function readPendingTaskRequest(meetingId, fallbackLanguage) {
-  if (legacy.pendingTaskRequestId && legacy.pendingTaskRequestId.meetingId === meetingId) {
-    return legacy.pendingTaskRequestId;
-  }
-  const key = taskRequestStorageKey(meetingId);
-  try {
-    const stored = window.sessionStorage.getItem(key);
-    if (!stored) return null;
-    let requestId = stored;
-    let languageHint = fallbackLanguage;
-    try {
-      const parsed = JSON.parse(stored);
-      if (typeof parsed === "string") requestId = parsed;
-      else if (parsed && typeof parsed === "object") {
-        requestId = parsed.requestId;
-        languageHint = validLanguageHint(parsed.languageHint) || fallbackLanguage;
-      }
-    } catch {
-      // Pre-language-selection clients stored the request ID as plain text.
-    }
-    if (typeof requestId !== "string" || !requestId) return null;
-    return rememberPendingTaskRequest({
-      meetingId,
-      requestId,
-      languageHint: validLanguageHint(languageHint) || "en",
-    });
+    return window.sessionStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
-function getPendingTaskRequest(meetingId, languageHint) {
-  const fallbackLanguage = validLanguageHint(languageHint) || "en";
-  return readPendingTaskRequest(meetingId, fallbackLanguage) || rememberPendingTaskRequest({
-    meetingId,
-    requestId: newTaskRequestId(),
-    languageHint: fallbackLanguage,
-  });
+// Commands of the clipboard effects (`call`): the copy button, and the fallback that selects the command.
+function writeClipboard(text) {
+  if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("Clipboard unavailable");
+  return navigator.clipboard.writeText(text);
 }
 
-function selectedTranscriptionLanguage(meeting) {
-  const selector = $("#transcription-language");
-  return validLanguageHint(selector && selector.value)
-    || defaultTranscriptionLanguage(meeting);
-}
-
-function syncTranscriptionLanguageControl(meeting, task) {
-  const selector = $("#transcription-language");
-  if (!selector || !meeting) return;
-  const fallbackLanguage = defaultTranscriptionLanguage(meeting, task);
-  const pending = readPendingTaskRequest(meeting.id, fallbackLanguage);
-  const active = Boolean(task && ACTIVE_TASK_STATES.includes(task.status));
-  const pendingLanguage = pending && validLanguageHint(pending.languageHint);
-  const rememberedLanguage = legacy.transcriptionLanguageMeetingId === meeting.id
-    ? validLanguageHint(legacy.transcriptionLanguageSelection)
-    : null;
-  // A pending request can coexist with the previous completed task in the meeting payload
-  // after a lost POST response. Its language is the only safe value to display or retry.
-  const languageHint = pendingLanguage
-    || (active && validLanguageHint(task && task.language_hint))
-    || rememberedLanguage
-    || validLanguageHint(task && task.language_hint)
-    || fallbackLanguage;
-  legacy.transcriptionLanguageMeetingId = meeting.id;
-  legacy.transcriptionLanguageSelection = languageHint;
-  selector.value = validLanguageHint(languageHint) || "en";
-  // An uncertain POST may already have created a task. Keep its request ID and language paired
-  // until the server answers; changing the selector here would make a retry misleading.
-  selector.disabled = active || Boolean(pending);
-}
-
-function clearPendingTaskRequestId(meetingId) {
-  try {
-    window.sessionStorage.removeItem(taskRequestStorageKey(meetingId));
-  } catch {
-    // The in-memory fallback is cleared below.
-  }
-  if (legacy.pendingTaskRequestId && legacy.pendingTaskRequestId.meetingId === meetingId) {
-    legacy.pendingTaskRequestId = null;
-  }
-}
-
-function rotateTerminalTaskRequestId(meetingId, task) {
-  if (!task || ACTIVE_TASK_STATES.includes(task.status)) return;
-  const pending = readPendingTaskRequest(
-    meetingId,
-    validLanguageHint(task.language_hint) || "en",
-  );
-  // A terminal task in a freshly loaded meeting can be the previous completed run while a
-  // newer POST is still uncertain. Only retire the stored request after seeing that same run.
-  if (!pending || pending.requestId === task.request_id) clearPendingTaskRequestId(meetingId);
-}
-
-function stopTaskPolling() {
-  if (legacy.taskPollTimer) window.clearTimeout(legacy.taskPollTimer);
-  legacy.taskPollTimer = 0;
-  legacy.taskPollId = null;
-}
-
-function scheduleTaskPoll(meetingId, taskId, delay = document.hidden ? 3000 : 1000) {
-  if (legacy.taskPollTimer) window.clearTimeout(legacy.taskPollTimer);
-  legacy.taskPollTimer = window.setTimeout(() => void pollTask(meetingId, taskId), delay);
-}
-
-function startTaskPolling(meetingId, task) {
-  if (!task || !ACTIVE_TASK_STATES.includes(task.status)) {
-    stopTaskPolling();
-    return;
-  }
-  if (legacy.taskPollId !== task.id) stopTaskPolling();
-  legacy.taskPollId = task.id;
-  if (!legacy.taskPollTimer) scheduleTaskPoll(meetingId, task.id);
-}
-
-async function refreshMeetingTranscription(meetingId) {
-  const payload = await requestJson(`/api/meetings/${encodeURIComponent(meetingId)}`);
-  const meeting = payload && payload.meeting && typeof payload.meeting === "object" ? payload.meeting : payload;
-  if (!nav().meeting || nav().meeting.id !== meetingId || !meeting || !meeting.transcription) return;
-  rotateTerminalTaskRequestId(meetingId, meeting.transcription.task);
-  dispatch({ type: "history/meeting-fetched", meeting });
-  renderTranscription(nav().meeting.transcription);
-  repaintSidebar();
-}
-
-async function pollTask(meetingId, taskId) {
-  legacy.taskPollTimer = 0;
-  if (legacy.taskPollId !== taskId || !nav().meeting || nav().meeting.id !== meetingId) return;
-  try {
-    const task = await requestJson(`/api/tasks/${encodeURIComponent(taskId)}`);
-    if (legacy.taskPollId !== taskId || !nav().meeting || nav().meeting.id !== meetingId) return;
-    const meeting = nav().meeting;
-    editTranscription(meeting, { ...(meeting.transcription || {}), task });
-    renderTranscription(meeting.transcription);
-    if (ACTIVE_TASK_STATES.includes(task.status)) {
-      scheduleTaskPoll(meetingId, taskId);
-    } else {
-      rotateTerminalTaskRequestId(meetingId, task);
-      stopTaskPolling();
-      if (task.status === "succeeded") {
-        try {
-          await refreshMeetingTranscription(meetingId);
-        } catch {
-          $("#transcription-status").textContent = t("Tác vụ đã hoàn tất; không tải được transcript mới. Mở lại cuộc họp để thử lại.");
-        }
-      }
-    }
-  } catch {
-    if (legacy.taskPollId !== taskId) return;
-    $("#transcription-status").textContent = t("Tạm mất kết nối khi đọc tiến độ. Tác vụ vẫn thuộc worker; đang thử đọc lại.");
-    scheduleTaskPoll(meetingId, taskId, 3000);
-  }
-}
-
-// Reasons an automatic start was refused; the manual button stays for a deliberate retry.
-const AUTO_START_REASONS = {
-  system_busy: t("Máy đang bận vì một tác vụ khác đang chạy."),
-  processing_unavailable: t("Slot xử lý của máy chưa sẵn sàng."),
-  worker_unavailable: t("Worker chép lời chưa sẵn sàng."),
-  model_unavailable: t("Model chép lời local chưa được chuẩn bị."),
-  diarization_model_unavailable: t("Model nhận dạng người nói chưa được chuẩn bị."),
-};
-
-// The create dialog leaves a one-shot key for a meeting it saved with "Chép lời ngay" on.
-// It is removed before anything is sent, so a reload or Back never sends again.
-function takeAutoStartRequest(meetingId) {
-  const key = `asr-en-vi:auto-transcribe:${meetingId}`;
-  try {
-    if (window.sessionStorage.getItem(key) === null) return false;
-    window.sessionStorage.removeItem(key);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function startTranscription({ auto = false } = {}) {
-  const meeting = nav().meeting;
-  if (!meeting || legacy.taskRequestInFlight || sourceMutationUnavailable()) return;
-  const pending = getPendingTaskRequest(meeting.id, selectedTranscriptionLanguage(meeting));
-  const requestId = pending.requestId;
-  const languageHint = pending.languageHint;
-  legacy.taskRequestInFlight = true;
-  legacy.taskRequestError = null;
-  renderTranscription(meeting.transcription);
-  try {
-    const task = await requestJson("/api/tasks", {
-      method: "POST",
-      body: JSON.stringify({
-        meeting_id: meeting.id,
-        request_id: requestId,
-        language_hint: languageHint,
-      }),
-    });
-    clearPendingTaskRequestId(meeting.id);
-    legacy.taskRequestError = null;
-    editTranscription(meeting, { ...(meeting.transcription || {}), task });
-    renderTranscription(meeting.transcription);
-    startTaskPolling(meeting.id, task);
-    if (task.status === "succeeded") await refreshMeetingTranscription(meeting.id);
-  } catch (requestError) {
-    const definitiveError = Number.isInteger(requestError && requestError.status)
-      && requestError.status >= 400
-      && requestError.status < 500;
-    if (definitiveError) clearPendingTaskRequestId(meeting.id);
-    const retryGuidance = definitiveError
-      ? t("Bấm lại để gửi một yêu cầu mới.")
-      : t("Bấm lại để xác minh bằng cùng request ID và ngôn ngữ gợi ý.");
-    const code = requestError && requestError.payload && requestError.payload.detail
-      ? requestError.payload.detail.code
-      : "";
-    legacy.taskRequestError = auto && Object.hasOwn(AUTO_START_REASONS, code)
-      ? t("{reason} Cuộc họp đã được lưu nhưng chưa chép lời. Ứng dụng không tự thử lại; bấm “Bắt đầu chép lời” khi máy sẵn sàng.", { reason: AUTO_START_REASONS[code] })
-      : `${requestError && requestError.message ? requestError.message : t("Không thể xác nhận yêu cầu.")} ${retryGuidance}`;
-    $("#transcription-status").textContent = t("Chưa xác nhận được việc nhận tác vụ. Yêu cầu chưa được tự gửi lại.");
-  } finally {
-    legacy.taskRequestInFlight = false;
-    if (nav().meeting && nav().meeting.id === meeting.id) renderTranscription(nav().meeting.transcription);
-    else notifyMeetingContext();
-  }
-}
-
-async function cancelTranscription() {
-  const meeting = nav().meeting;
-  const task = meeting && meeting.transcription && meeting.transcription.task;
-  if (!meeting || !task || !ACTIVE_TASK_STATES.includes(task.status) || task.status === "stopping") return;
-  $("#cancel-transcription").disabled = true;
-  try {
-    const updated = await requestJson(`/api/tasks/${encodeURIComponent(task.id)}/cancel`, {
-      method: "POST",
-      body: JSON.stringify({}),
-    });
-    legacy.taskRequestError = null;
-    editTranscription(meeting, { ...meeting.transcription, task: updated });
-    renderTranscription(meeting.transcription);
-    startTaskPolling(meeting.id, updated);
-  } catch (requestError) {
-    legacy.taskRequestError = requestError && requestError.message
-      ? requestError.message
-      : t("Không thể gửi yêu cầu hủy. Trạng thái tác vụ chưa được thay đổi trên giao diện.");
-    renderTranscription(meeting.transcription);
-  }
+function selectDiagnosticCommand() {
+  const input = $("#task-diagnostic-command");
+  input.focus();
+  input.select();
+  return document.execCommand("copy");
 }
 
 window.ASRMeetingHistory = Object.freeze({
@@ -3517,7 +3257,7 @@ window.ASRMeetingHistory = Object.freeze({
     return {
       meeting: state.view === "meeting" ? state.meeting : null,
       view: state.view,
-      transcriptionRequestInFlight: legacy.taskRequestInFlight,
+      transcriptionRequestInFlight: selectRequestBusy(store.getState().task),
     };
   },
   hasUnsavedTranscriptDrafts() {
@@ -3632,15 +3372,11 @@ $("#meeting-edit").addEventListener("submit", (event) => {
 });
 
 $("#transcription-language").addEventListener("change", (event) => {
-  const meeting = nav().meeting;
-  const language = validLanguageHint(event.currentTarget.value);
-  if (!meeting || !language) return;
-  legacy.transcriptionLanguageMeetingId = meeting.id;
-  legacy.transcriptionLanguageSelection = language;
+  dispatch({ type: "task/language-chosen", language: event.currentTarget.value });
 });
-$("#start-transcription").addEventListener("click", () => void startTranscription());
-$("#cancel-transcription").addEventListener("click", () => void cancelTranscription());
-$("#task-diagnostic-copy").addEventListener("click", () => void copyDiagnosticCommand());
+$("#start-transcription").addEventListener("click", () => dispatch({ type: "task/start-clicked", requestId: newRequestId() }));
+$("#cancel-transcription").addEventListener("click", () => dispatch({ type: "task/cancel-clicked" }));
+$("#task-diagnostic-copy").addEventListener("click", () => dispatch({ type: "task/copy-clicked" }));
 $("#generation-selector").addEventListener("change", (event) => {
   const transcription = nav().meeting && nav().meeting.transcription;
   const current = transcription && transcription.generation;
@@ -3813,13 +3549,7 @@ window.addEventListener("scroll", () => {
   if (now <= ownScrollUntil) ownScrollUntil = now + OWN_SCROLL_GAP_MS;
   else lastManualScroll = now;
 }, { passive: true });
-document.addEventListener("visibilitychange", () => {
-  if (!legacy.taskPollId) return;
-  const task = nav().meeting && nav().meeting.transcription && nav().meeting.transcription.task;
-  if (task && ACTIVE_TASK_STATES.includes(task.status)) {
-    scheduleTaskPoll(nav().meeting.id, task.id);
-  }
-});
+document.addEventListener("visibilitychange", () => dispatch({ type: "task/visibility-changed", hidden: document.hidden }));
 
 const searchInput = $("#history-search");
 searchInput.addEventListener("input", () => dispatch({ type: "history/search-input", value: searchInput.value }));
@@ -3854,4 +3584,5 @@ $("#meeting-tabs").addEventListener("keydown", (event) => {
 });
 
 store.subscribe(render);
+dispatch({ type: "task/visibility-changed", hidden: document.hidden });
 dispatch({ type: "history/booted", today: todayKey() });
