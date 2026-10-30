@@ -1,0 +1,6 @@
+# Used only by scripts/start.sh for `model prepare`: `run -v` cannot widen the
+# services' read-only /models mount, an override file replaces it by target.
+services:
+  worker:
+    volumes:
+      - "${ASR_MODEL_HOST_PATH:-./models}:/models:rw"

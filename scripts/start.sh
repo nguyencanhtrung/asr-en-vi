@@ -259,9 +259,10 @@ fi
 if [ "$mode" = offline ]; then
     compose_runtime run --pull never --rm --no-deps worker python -m asr_en_vi.cli model check
 else
-    compose_runtime run --pull never --rm --no-deps --user "$(id -u):$(id -g)" \
+    compose_runtime -f compose.model-prepare.yaml run --pull never --rm --no-deps \
+        --user "$(id -u):$(id -g)" \
         -e HF_HOME=/tmp/huggingface -e HF_HUB_OFFLINE=0 -e TRANSFORMERS_OFFLINE=0 \
-        -v "$model_host_path:/models:rw" worker python -m asr_en_vi.cli model prepare
+        worker python -m asr_en_vi.cli model prepare
 fi
 compose_runtime run --pull never --rm --no-deps worker python -m asr_en_vi.cli runtime check
 compose_runtime up --pull never --no-build --detach --wait \
