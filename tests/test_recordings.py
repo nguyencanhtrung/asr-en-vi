@@ -606,6 +606,7 @@ async def test_shell_route_and_script_are_protected_and_refresh_uses_shell(clien
         "shell.js",
         "shell-core.js",
         "store.js",
+        "channel.js",
         "notes-core.js",
         "notes.js",
         "history.js",

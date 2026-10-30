@@ -350,9 +350,10 @@ def test_rerun_language_is_retained_across_an_uncertain_retry(live, signed_in):
     # An unrelated meeting render must not replace the user's choice with the previous
     # generation's language before the rerun request is sent.
     page.evaluate(
-        """meetingId => {
-          window.ASRMeetingHistory.setNotesSourceLock(meetingId, true, true);
-          window.ASRMeetingHistory.setNotesSourceLock(meetingId, false, true);
+        """async meetingId => {
+          const { meetingHistory } = await import("/assets/history.js");
+          meetingHistory.setNotesSourceLock(meetingId, true, true);
+          meetingHistory.setNotesSourceLock(meetingId, false, true);
         }""",
         meeting_id,
     )

@@ -40,7 +40,7 @@ export function formatBytes(value, locale) {
   return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(amount)} ${unit}`;
 }
 
-export function formatDuration(seconds) {
+function formatDuration(seconds) {
   if (seconds >= 3600 && seconds % 3600 === 0) return t("{n} giờ", { n: seconds / 3600 });
   if (seconds >= 60 && seconds % 60 === 0) return t("{n} phút", { n: seconds / 60 });
   if (seconds >= 60) return t("{n} phút", { n: decimal(seconds / 60) });
@@ -75,7 +75,7 @@ function policyField(policy, names) {
 }
 
 // -> { policy } or { error: t() }
-export function normalizePolicy(payload) {
+function normalizePolicy(payload) {
   const source = payload && payload.policy && typeof payload.policy === "object" ? payload.policy : payload;
   if (!source || typeof source !== "object") return { error: t("Chính sách file không đúng định dạng.") };
   const rawExtensions = policyField(source, ["supported_extensions", "extensions", "allowed_extensions"]);
@@ -92,12 +92,12 @@ export function normalizePolicy(payload) {
   return { policy: { extensions: [...new Set(extensions)], maxBytes, maxDurationSeconds } };
 }
 
-export function fileExtension(filename) {
+function fileExtension(filename) {
   const finalDot = filename.lastIndexOf(".");
   return finalDot >= 0 ? filename.slice(finalDot).toLowerCase() : "";
 }
 
-export function formValuesAreValid(form) {
+function formValuesAreValid(form) {
   const title = form.title.trim();
   const dateIsValid = !form.date || /^\d{4}-\d{2}-\d{2}$/.test(form.date);
   return Boolean(title && Array.from(title).length <= 200 && ["en", "vi"].includes(form.language) && dateIsValid);

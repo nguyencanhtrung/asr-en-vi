@@ -1,6 +1,7 @@
 // View of the Google Antigravity section of the connections dialog. It renders the second provider of the
 // store created in connections.js; the flows are the same provider-core.js reducer with the Antigravity descriptor.
-import { dispatch, readStored, renderSection, setAttr, setProp, store, tr } from "./connections.js";
+import { dispatch, readStored, renderSection, store } from "./connections.js";
+import { setAttr, setProp, tr } from "./shell.js";
 import { ANTIGRAVITY } from "./provider-core.js";
 
 const els = {

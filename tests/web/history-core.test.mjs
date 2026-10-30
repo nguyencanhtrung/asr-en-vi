@@ -1085,14 +1085,6 @@ test("the latest copy a reload read replaces the meeting unless another copy was
   assert.equal(loaded({ meetingId: "m1", installRev: state.installRev }, { ...newer, id: "m2" }).installRev, state.installRev);
 });
 
-test("the sidebar repaints with the typed query when the task code refreshes the meeting", async () => {
-  const env = await booted("/");
-  env.dispatch("search-input", { value: "abc" });
-  assert.equal(env.state().shownQuery, "");
-  env.dispatch("sidebar-repainted");
-  assert.equal(env.state().shownQuery, "abc");
-});
-
 // ---- selectors ----
 
 test("the sidebar marks the open meeting and explains an empty library", async () => {

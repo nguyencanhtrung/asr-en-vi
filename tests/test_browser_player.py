@@ -655,9 +655,12 @@ def test_timestamp_click_still_seeks_and_plays_under_the_player_bar(live, signed
 def seek_notes_source(page, seconds):
     """Open a notes source at `seconds` the way the notes do; whether the seek went through."""
     return page.evaluate(
-        """([meetingId, seconds]) => window.ASRMeetingHistory.seekNotesSource({
-          meetingId, snapshotId: "snapshot", segmentId: "segment", startSeconds: seconds,
-        })""",
+        """async ([meetingId, seconds]) => {
+          const { meetingHistory } = await import("/assets/history.js");
+          return meetingHistory.seekNotesSource({
+            meetingId, snapshotId: "snapshot", segmentId: "segment", startSeconds: seconds,
+          });
+        }""",
         [page.locator("#meeting-audio").get_attribute("data-meeting-id"), seconds],
     )
 
@@ -707,9 +710,12 @@ def test_notes_source_seek_moves_the_real_recording_without_playing_it(live, sig
     page, meeting_id = real_recording_page(live, signed_in, tmp_path)
     audio = page.locator("#meeting-audio")
     sought = page.evaluate(
-        """meetingId => window.ASRMeetingHistory.seekNotesSource({
-          meetingId, snapshotId: "snapshot", segmentId: "segment", startSeconds: 6.5,
-        })""",
+        """async meetingId => {
+          const { meetingHistory } = await import("/assets/history.js");
+          return meetingHistory.seekNotesSource({
+            meetingId, snapshotId: "snapshot", segmentId: "segment", startSeconds: 6.5,
+          });
+        }""",
         meeting_id,
     )
     assert sought is True

@@ -163,7 +163,10 @@ def test_a_date_edited_after_the_notes_is_said_on_the_card_which_keeps_the_saved
     update_meeting(
         live.settings.data_dir, meeting_id, expected_version=1, fields={"meeting_date": later}
     )
-    page.evaluate("id => window.ASRMeetingHistory.refreshMeeting(id)", meeting_id)
+    page.evaluate(
+        "async id => (await import('/assets/history.js')).meetingHistory.refreshMeeting(id)",
+        meeting_id,
+    )
 
     expect(difference).to_have_text(note, timeout=10_000)
     expect(page.locator("#notes-source-date")).to_have_text(date or NO_DATE)  # still the snapshot's
@@ -211,7 +214,10 @@ def test_a_date_edited_after_a_transcript_re_run_is_said_beside_the_re_run_note(
         expected_version=1,
         fields={"meeting_date": "2026-10-20"},
     )
-    page.evaluate("id => window.ASRMeetingHistory.refreshMeeting(id)", meeting_id)
+    page.evaluate(
+        "async id => (await import('/assets/history.js')).meetingHistory.refreshMeeting(id)",
+        meeting_id,
+    )
 
     expect(difference).to_have_text(
         f"{RE_RUN_NOTE} Ngày họp hiện tại (2026-10-20) khác ngày họp trong bản chụp (2026-10-19).",
@@ -229,7 +235,10 @@ def test_a_title_edited_after_the_notes_leaves_the_card_without_a_difference(liv
     update_meeting(
         live.settings.data_dir, meeting_id, expected_version=1, fields={"title": "Renamed"}
     )
-    page.evaluate("id => window.ASRMeetingHistory.refreshMeeting(id)", meeting_id)
+    page.evaluate(
+        "async id => (await import('/assets/history.js')).meetingHistory.refreshMeeting(id)",
+        meeting_id,
+    )
 
     # The page installs the meeting, and tells the card, before it repaints the heading.
     expect(page.locator("#meeting-title")).to_have_text("Renamed", timeout=10_000)
@@ -255,7 +264,10 @@ def test_a_speaker_renamed_after_the_notes_is_said_on_the_card_which_keeps_the_s
         expected_source_version=snapshot["source_version"],
         display_name="Dana",
     )
-    page.evaluate("id => window.ASRMeetingHistory.refreshMeeting(id)", meeting_id)
+    page.evaluate(
+        "async id => (await import('/assets/history.js')).meetingHistory.refreshMeeting(id)",
+        meeting_id,
+    )
 
     difference = page.locator("#notes-source-difference")
     expect(difference).to_have_text(

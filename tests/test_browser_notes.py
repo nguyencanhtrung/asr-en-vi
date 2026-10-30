@@ -419,7 +419,10 @@ def test_notes_language_pending_request_survives_reload_and_saved_language_is_re
         "language-browser",
         "## Tổng quan\n\nBản notes tiếng Việt.\n",
     )
-    page.evaluate(f"window.ASRMeetingHistory.refreshMeeting('{meeting_id}')")
+    page.evaluate(
+        "async id => (await import('/assets/history.js')).meetingHistory.refreshMeeting(id)",
+        meeting_id,
+    )
     expect(page.locator("#notes-revision-meta")).to_contain_text(
         "Ngôn ngữ: Tiếng Việt", timeout=10_000
     )
@@ -546,7 +549,10 @@ def test_notes_browser_generation_revisions_conflicts_copy_export_and_markdown_s
         second_markdown,
     )
     assert second_revision["source_snapshot_id"] == second_source["id"]
-    page.evaluate(f"window.ASRMeetingHistory.refreshMeeting('{meeting_id}')")
+    page.evaluate(
+        "async id => (await import('/assets/history.js')).meetingHistory.refreshMeeting(id)",
+        meeting_id,
+    )
     expect(page.locator("#notes-revision-selector option")).to_have_count(2, timeout=10_000)
     expect(page.locator("#notes-revision-selector")).to_have_value(first_revision["id"])
     expect(page.locator("#notes-markdown")).to_have_value(draft)
@@ -591,7 +597,10 @@ def test_notes_browser_generation_revisions_conflicts_copy_export_and_markdown_s
         expected_edit_version=3,
         markdown=hostile_markdown,
     )
-    page.evaluate(f"window.ASRMeetingHistory.refreshMeeting('{meeting_id}')")
+    page.evaluate(
+        "async id => (await import('/assets/history.js')).meetingHistory.refreshMeeting(id)",
+        meeting_id,
+    )
     expect(page.locator("#notes-markdown")).to_have_value(hostile_markdown, timeout=10_000)
     assert page.locator("#notes-preview script, #notes-preview img").count() == 0
     assert page.locator('#notes-preview a[href^="https://"]').count() == 0

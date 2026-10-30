@@ -1,7 +1,10 @@
 // View of the notes tab: reads store state, renders the DOM, dispatches actions.
 // All state and rules live in notes-core.js (contract: docs/adr/0010-frontend-reducer-core.md).
-// history.js is not migrated yet: its commands leave as `call` effects (the registry below), and its
-// events (asr:meeting-context, popstate, ...) come in as actions.
+// Commands to history.js leave as `call` effects (the registry below); what it announces (the channel's
+// meeting context, the provider choice, popstate, ...) comes in as actions.
+import { meetingContext as meetingChannel, providerChoice } from "./channel.js";
+import { meetingHistory } from "./history.js";
+import { setAttr, setProp, tr } from "./shell.js";
 import { createRunner, createStore } from "./store.js";
 import {
   VIEW_MODE_KEY,
@@ -80,24 +83,6 @@ const els = {
   sourceStatus: $("#notes-source-status"),
   sourceClose: $("#notes-source-close"),
 };
-
-// Core text is data ({text, params}); t() turns it into the page language.
-function tr(message) {
-  if (message === null || message === undefined) return "";
-  if (typeof message !== "object") return String(message);
-  if (Array.isArray(message)) return message.map(tr).join("");
-  const params = message.params && Object.fromEntries(Object.entries(message.params).map(([name, value]) => [name, tr(value)]));
-  return t(message.text, params);
-}
-
-// Write only what changed: a rewrite with the same value still fires observers and live regions.
-function setProp(element, name, value) {
-  if (element[name] !== value) element[name] = value;
-}
-
-function setAttr(element, name, value) {
-  if (element.getAttribute(name) !== value) element.setAttribute(name, value);
-}
 
 function setData(element, name, value) {
   if (element.dataset[name] !== value) element.dataset[name] = value;
@@ -375,28 +360,21 @@ function render(state) {
 
 // ---- runner ----
 
-const meetingHistory = () => window.ASRMeetingHistory;
-const toHistory = (method) => (...args) => {
-  const history = meetingHistory();
-  return history && typeof history[method] === "function" ? history[method](...args) : undefined;
-};
-
 const run = createRunner({
   fetch: (url, init) => fetch(url, init),
   setTimeout: (callback, delay) => window.setTimeout(callback, delay),
   clearTimeout: (id) => window.clearTimeout(id),
   storage: { local: () => window.localStorage, session: () => window.sessionStorage },
   calls: {
-    "history.setNotesSourceLock": toHistory("setNotesSourceLock"),
-    "history.setNotesSummary": toHistory("setNotesSummary"),
-    "history.selectTab": toHistory("selectTab"),
-    "history.markNotesSource": toHistory("markNotesSource"),
-    "history.showNotesSourceTab": toHistory("showNotesSourceTab"),
-    "history.focusSpeakerCatalog": toHistory("focusSpeakerCatalog"),
-    "history.refreshMeeting": toHistory("refreshMeeting"),
-    // Without history.js there is no player to send to.
-    "history.seekNotesSource": async (source) => Boolean(meetingHistory()) && meetingHistory().seekNotesSource(source),
-    "history.playRecording": async () => Boolean(meetingHistory()) && meetingHistory().playRecording(),
+    "history.setNotesSourceLock": meetingHistory.setNotesSourceLock,
+    "history.setNotesSummary": meetingHistory.setNotesSummary,
+    "history.selectTab": meetingHistory.selectTab,
+    "history.markNotesSource": meetingHistory.markNotesSource,
+    "history.showNotesSourceTab": meetingHistory.showNotesSourceTab,
+    "history.focusSpeakerCatalog": meetingHistory.focusSpeakerCatalog,
+    "history.refreshMeeting": meetingHistory.refreshMeeting,
+    "history.seekNotesSource": async (source) => meetingHistory.seekNotesSource(source),
+    "history.playRecording": async () => meetingHistory.playRecording(),
     replaceUrl: (url) => window.history.replaceState(window.history.state, "", url),
     copy: (text) => navigator.clipboard.writeText(text),
     download: (filename, text) => {
@@ -423,12 +401,11 @@ function meetingContext(detail) {
   const meetingId = meeting ? meeting.id : null;
   // Renames, segment assignments and edits publish a context, so the names travel with it (an added
   // speaker without segments shows up at the next context).
-  const history = window.ASRMeetingHistory;
   const generation = currentGeneration(meeting);
   dispatch({
     type: "notes/context",
     detail,
-    speakerNames: history && generation ? history.defaultSpeakerNames(generation) : [],
+    speakerNames: generation ? meetingHistory.defaultSpeakerNames(generation) : [],
     href: window.location.href,
     stored: meetingId
       ? {
@@ -459,7 +436,7 @@ els.nameSpeakers.addEventListener("click", (event) => {
 els.openTranscript.addEventListener("click", () => dispatch({ type: "notes/open-transcript-clicked" }));
 els.reload.addEventListener("click", () => dispatch({ type: "notes/choice-reload-clicked" }));
 // Connections saved a model or changed a provider status: reload before a new run can start.
-window.addEventListener("asr:provider-choice-changed", () => dispatch({ type: "notes/provider-choice-changed" }));
+providerChoice.subscribe(() => dispatch({ type: "notes/provider-choice-changed" }));
 els.language.addEventListener("change", (event) => dispatch({ type: "notes/language-chosen", language: event.currentTarget.value }));
 els.provider.addEventListener("change", (event) => dispatch({ type: "notes/provider-picked", provider: event.currentTarget.value }));
 els.model.addEventListener("change", (event) => dispatch({ type: "notes/model-picked", model: event.currentTarget.value }));
@@ -509,16 +486,13 @@ dispatch({
   hidden: document.hidden,
   origin: window.location.origin,
 });
-document.addEventListener("asr:meeting-context", (event) => meetingContext(event.detail || {}));
-// A deferred asset can load after history has already published its first context.
-if (window.ASRMeetingHistory && typeof window.ASRMeetingHistory.currentContext === "function") {
-  meetingContext(window.ASRMeetingHistory.currentContext());
-}
+meetingChannel.subscribe(meetingContext);
+// history.js has already published its first context by now (this module imports it).
+meetingContext(meetingHistory.currentContext());
 window.addEventListener("popstate", () => dispatch({ type: "notes/location-changed", href: window.location.href }));
 // A reload or close drops every in-memory draft, so warn while a notes or transcript draft is unsaved.
 window.addEventListener("beforeunload", (event) => {
-  const meetings = window.ASRMeetingHistory;
-  const unsaved = hasUnsavedDraft(store.getState()) || Boolean(meetings && meetings.hasUnsavedTranscriptDrafts());
+  const unsaved = hasUnsavedDraft(store.getState()) || meetingHistory.hasUnsavedTranscriptDrafts();
   if (!unsaved) return;
   event.preventDefault();
   event.returnValue = "";

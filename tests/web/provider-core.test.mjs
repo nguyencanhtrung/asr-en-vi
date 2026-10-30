@@ -64,7 +64,7 @@ function setup() {
     storage: { session: () => ({ setItem: (k, v) => written.push(["write", k, v]), removeItem: (k) => written.push(["remove", k]) }) },
     navigate: () => {},
     open,
-    emit: (name) => events.push(name),
+    calls: { "provider.choice-changed": () => events.push("provider.choice-changed") },
     now: () => clock.now,
   });
   const store = createStore({ reduce, initialState, run });
@@ -236,7 +236,7 @@ for (const { d, other, save } of CASES) {
     assert.equal(selectView(d, own(env, d)).saveDisabled, true);
     await env.answer(env.is(...save), 200, d === CHATGPT ? { models: { chatgpt: other }, reasoning_effort: "default" } : {});
     assert.equal(own(env, d).savedModel, other);
-    assert.deepEqual(env.events, ["asr:provider-choice-changed"]);
+    assert.deepEqual(env.events, ["provider.choice-changed"]);
 
     dispatch(env, d, "verify-requested");
     dispatch(env, d, "verify-requested");
@@ -378,7 +378,7 @@ test("ChatGPT: disconnect asks first, needs a disconnected answer, and tells not
   assert.deepEqual(s.models, []);
   assert.equal(s.ui, "focus:sign-in");
   assert.equal(s.message.text.startsWith("Đã xóa thông tin"), true);
-  assert.deepEqual(env.events, ["asr:provider-choice-changed"]);
+  assert.deepEqual(env.events, ["provider.choice-changed"]);
 });
 
 test("Google: disconnect reloads the status, then tells notes.js; the busy flag holds until then", async () => {
@@ -392,7 +392,7 @@ test("Google: disconnect reloads the status, then tells notes.js; the busy flag 
   const s = own(env, ANTIGRAVITY);
   assert.equal(s.info.status, "disconnected");
   assert.equal(s.pending.disconnect, false);
-  assert.deepEqual(env.events, ["asr:provider-choice-changed"]);
+  assert.deepEqual(env.events, ["provider.choice-changed"]);
 });
 
 test("a failed disconnect keeps the connection and frees the button", async () => {
@@ -435,7 +435,7 @@ test("ChatGPT: login reserves the window first, sends it to the URL and polls", 
   assert.equal(s.login, null);
   assert.equal(s.message.text, "Đã xác thực tài khoản ChatGPT.");
   assert.deepEqual(env.written.at(-1), ["remove", "asr.chatgpt.pendingLogin"]);
-  assert.deepEqual(env.events, ["asr:provider-choice-changed"]);
+  assert.deepEqual(env.events, ["provider.choice-changed"]);
   assert.equal(env.pending(env.is("GET", "/api/providers")).length, 1); // the account reload
 });
 
@@ -623,7 +623,7 @@ test("Google: login shows the link and the code input, polls at once and again e
   assert.equal(own(env, ANTIGRAVITY).login, null);
   assert.equal(own(env, ANTIGRAVITY).loginLink, null);
   assert.equal(own(env, ANTIGRAVITY).message.text, "Đã kết nối Google Antigravity qua OMP.");
-  assert.deepEqual(env.events, ["asr:provider-choice-changed"]);
+  assert.deepEqual(env.events, ["provider.choice-changed"]);
 });
 
 test("Google: an unsafe or malformed link is an error and does not start polling", async () => {
