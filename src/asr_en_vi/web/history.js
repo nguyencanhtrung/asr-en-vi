@@ -5,8 +5,10 @@
 // transcript-core.js and the playback state in playback-core.js, all in one store; this file renders them and
 // dispatches actions.
 // Contract: docs/adr/0010-frontend-reducer-core.md; state tables: docs/frontend-design-v1.md §11.8 to §11.11.
-// Depends on the globals shell.js publishes (formatMeetingDate, sameOriginAudioSource, meetingIdFromPath).
+// Announces the open meeting on the channel (channel.js) and offers notes.js its commands (meetingHistory).
 import { combine, createRunner, createStore } from "./store.js";
+import { meetingContext } from "./channel.js";
+import { formatMeetingDate, meetingIdFromPath, sameOriginAudioSource, setProp, tr } from "./shell.js";
 import {
   ACTIVE_TASK_STATES,
   LANGUAGES,
@@ -81,20 +83,6 @@ const VIEWS = {
   meeting: "#meeting-view",
   calendar: "#calendar-view",
 };
-
-// Core text is data ({text, params}); t() turns it into the page language.
-function tr(message) {
-  if (message === null || message === undefined) return "";
-  if (typeof message !== "object") return String(message);
-  if (Array.isArray(message)) return message.map(tr).join("");
-  const params = message.params && Object.fromEntries(Object.entries(message.params).map(([name, value]) => [name, tr(value)]));
-  return t(message.text, params);
-}
-
-// Write only what changed: a rewrite with the same value still fires observers and live regions.
-function setProp(element, name, value) {
-  if (element[name] !== value) element[name] = value;
-}
 
 // ---- store ----
 
@@ -185,7 +173,7 @@ const store = createStore({
 
 // ---- painting ----
 
-// The view on screen, read from the page itself: the unmigrated renderers announce the meeting while the
+// The view on screen, read from the page itself: the DOM renderers announce the meeting while the
 // core's view is already ahead of what is painted.
 function paintedView() {
   return Object.keys(VIEWS).find((name) => !$(VIEWS[name]).hidden) ?? null;
@@ -193,13 +181,14 @@ function paintedView() {
 
 function notifyMeetingContext() {
   const view = paintedView();
-  document.dispatchEvent(new CustomEvent("asr:meeting-context", {
+  meetingContext.dispatch({
+    type: "channel/meeting-context",
     detail: {
       meeting: view === "meeting" ? nav().meeting : null,
       view,
       "transcriptionRequestInFlight": selectRequestBusy(store.getState().task),
     },
-  }));
+  });
 }
 
 // What the view painted last, to paint only what changed; it lives in this closure.
@@ -379,11 +368,6 @@ function renderTabCounts(generation) {
 }
 
 // ---- sidebar ----
-
-// The unmigrated code refreshed the meeting: the sidebar follows the typed query again, as it always did.
-function repaintSidebar() {
-  dispatch({ type: "history/sidebar-repainted" });
-}
 
 function renderSidebar(s) {
   const view = selectSidebar(s);
@@ -635,7 +619,7 @@ function onCalendarKeydown(event) {
 // ---- meeting navigation ----
 
 // Resolves true when this call painted the final view, false when newer navigation won.
-// Call it outside a store drain (not from a render or an asr:meeting-context handler): inside one the dispatch
+// Call it outside a store drain (not from a render or a channel/meeting-context subscriber): inside one the dispatch
 // is queued, so loadId would still be the old one here and the promise would resolve false at once.
 function loadMeeting(meetingId) {
   dispatch({ type: "history/meeting-requested", meetingId });
@@ -780,8 +764,6 @@ const NOTICE_TEXT = {
   "poll-lost": t("Tạm mất kết nối khi đọc tiến độ. Tác vụ vẫn thuộc worker; đang thử đọc lại."),
   "refresh-lost": t("Tác vụ đã hoàn tất; không tải được transcript mới. Mở lại cuộc họp để thử lại."),
 };
-// phase 5: remove (no longer shown; kept only so the i18n catalog entry stays used)
-const UNUSED_START_UNCONFIRMED = t("Chưa xác nhận được việc nhận tác vụ. Yêu cầu chưa được tự gửi lại.");
 
 function formatElapsedSeconds(value) {
   const seconds = Math.max(0, Number(value) || 0);
@@ -2371,7 +2353,7 @@ function selectDiagnosticCommand() {
   return document.execCommand("copy");
 }
 
-window.ASRMeetingHistory = Object.freeze({
+export const meetingHistory = Object.freeze({
   // `known` is false until notes.js has read this meeting's notes; the first answer settles the default tab.
   setNotesSummary(meetingId, revisionCount, taskStatus, known = true) {
     dispatch({ type: "history/notes-summary-reported", meetingId, count: revisionCount, status: taskStatus, known });

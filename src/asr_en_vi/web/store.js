@@ -66,13 +66,12 @@ export function combine(features) {
 // open-window {key, op, ...}: op reserve {title, text, ok, error, meta} opens a blank window through deps.open and
 // answers ok or error (blocked); op navigate {url, closed, meta} sends the reserved window to url, or answers
 // `closed` when the user already closed it; op close closes it. Handles live outside the cancel/latest-wins map.
-// event {key, name}: calls deps.emit(name) (a DOM CustomEvent for scripts that are not migrated yet).
-// call {key, name, args?, ok?, error?, meta?}: calls deps.calls[name](...args) for scripts and browser APIs the core cannot
-// reach (history.js commands, clipboard, download, history.replaceState). Without ok/error it runs at once and returns nothing.
+// call {key, name, args?, ok?, error?, meta?}: calls deps.calls[name](...args) for what the core cannot reach
+// (history.js commands, a message on the channel, clipboard, download, history.replaceState). Without ok/error it runs at once and returns nothing.
 // With ok and/or error the result (a value or a promise) answers {type: ok, value, meta} or {type: error, error: {message}, meta}
 // with the same latest-wins/cancel rules as fetch; a call whose name is unknown throws.
 // deps.now (optional): stamps `now` on the actions it dispatches for fetch, schedule, open-window and call results (not upload), so reducers get the clock as data.
-export function createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, storage, navigate, open, emit, calls, now }) {
+export function createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, storage, navigate, open, calls, now }) {
   const active = new Map(); // key -> { stop }
   const windows = new Map(); // key -> reserved window handle
   const stamp = (action) => (now ? { ...action, now: now() } : action);
@@ -209,8 +208,6 @@ export function createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, 
           (error) => finish(effect.error && { type: effect.error, error: { message: String(error?.message ?? error) } }),
         );
       }
-    } else if (type === "event") {
-      emit(effect.name);
     } else {
       throw new Error(`unknown effect type: ${type}`);
     }

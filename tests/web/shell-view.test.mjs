@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 
 // Migrated files keep their rules by construction; these scans keep them from drifting back.
@@ -12,8 +12,16 @@ const noStrings = (source) => source
 // assert.doesNotMatch prints the whole file on failure; say only what matched.
 const absent = (source, pattern, label) => assert.equal(source.match(pattern)?.[0], undefined, label);
 
-const VIEWS = ["shell.js", "connections.js", "antigravity.js", "notes.js", "history.js"]; // add each migrated view file here
-const CORES = ["shell-core.js", "provider-core.js", "notes-core.js", "history-core.js", "task-core.js", "transcript-core.js", "playback-core.js"];
+// Every file in src/asr_en_vi/web/*.js is in exactly one of these lists (docs/adr/0010-frontend-reducer-core.md).
+const VIEWS = ["shell.js", "connections.js", "antigravity.js", "notes.js", "history.js", "access.js"];
+const CORES = ["shell-core.js", "provider-core.js", "notes-core.js", "history-core.js", "task-core.js", "transcript-core.js", "playback-core.js", "channel.js"];
+// Not a view and not a pure core. `top` is every name the file may declare at its top level; `classic` marks the
+// scripts that load without type="module" (they run before first paint and share their binding as a page global).
+const EXCEPTIONS = {
+  "store.js": { reason: "the runner: fetch, timers, storage and XHR arrive as injected dependencies", top: ["createStore", "combine", "createRunner"], classic: false },
+  "i18n.js": { reason: "classic script: t() and UI_LOCALE are read-only page bindings that every module and the markup need before any module runs", top: ["t", "UI_LOCALE"], classic: true },
+  "theme.js": { reason: "classic script: applies the theme before first paint, no module can run that early", top: [], classic: true },
+};
 
 // Each rule is a pattern over the view source (comments stripped); `rules` returns the labels that match.
 const STATE = String.raw`(?:state|(?:\w+\.)?getState\(\)|appState)`;
@@ -104,31 +112,132 @@ test("views touch storage only to read the remembered choices for the boot and o
   }
 });
 
-test("shell.js publishes every helper the unmigrated scripts still call", () => {
-  const published = web("shell.js").match(/Object\.assign\(window, \{([^}]*)\}\)/);
-  assert.ok(published, "window publication exists");
-  const names = published[1].split(",").map((name) => name.trim());
-  for (const script of ["history.js", "notes.js", "connections.js", "antigravity.js"]) {
-    const source = code(script);
-    for (const name of ["ApiError", "requestJson", "meetingIdFromPath", "formatMeetingDate", "sameOriginAudioSource"]) {
-      if (new RegExp(`\\b${name}\\b`).test(source)) assert.ok(names.includes(name), `${script} uses ${name}`);
-    }
+
+// ---- the whole directory: classification, globals, custom events, scripts ----
+
+const webFiles = (extension) => readdirSync(new URL("../../src/asr_en_vi/web/", import.meta.url)).filter((name) => name.endsWith(extension)).sort();
+
+// What is wrong with the way `names` are sorted into the lists: an unlisted file, a file listed twice or a ghost entry.
+const classify = (names, lists) => {
+  const problems = [];
+  for (const name of names) {
+    const homes = Object.entries(lists).filter(([, members]) => members.includes(name)).map(([home]) => home);
+    if (homes.length === 0) problems.push(`${name} is in no list`);
+    if (homes.length > 1) problems.push(`${name} is in ${homes.join(" and ")}`);
   }
-  for (const name of ["ApiError", "requestJson", "meetingIdFromPath", "formatMeetingDate", "sameOriginAudioSource"]) {
-    assert.ok(names.includes(name), name);
+  for (const members of Object.values(lists)) for (const name of members) if (!names.includes(name)) problems.push(`${name} is listed but missing`);
+  return problems;
+};
+
+// A module reaches another through import/export, never through the page: nothing is written to window or
+// globalThis, and no custom event travels between modules.
+const globalRules = (source) => {
+  const found = [];
+  const hit = (label, pattern) => {
+    if (pattern.test(source)) found.push(label);
+  };
+  hit("assigns a window property", /\bwindow(\.[\w$]+|\[[^\]]+\])\s*(=(?!=)|[-+*/]=|\+\+|--)/);
+  hit("uses globalThis", /\bglobalThis\b/);
+  hit("assigns into window with Object.assign", /Object\.assign\(\s*window\b/);
+  hit("defines a window property", /Object\.defineProperty\(\s*window\b/);
+  hit("uses CustomEvent", /\bCustomEvent\b/);
+  hit("listens for a namespaced event", /addEventListener\(\s*["'`][^"'`]*:/);
+  hit("dispatches a namespaced event", /dispatchEvent\(\s*new\s+\w*Event\(\s*["'`][^"'`]*:/);
+  return found;
+};
+
+// Names a file declares at column 0 (comments stripped); the body of a function or an IIFE is indented.
+const topLevelNames = (source) => [...source.matchAll(/^(?:export\s+)?(?:async\s+)?(?:function\*?|const|let|var|class)\s+(\{[^}]*\}|\[[^\]]*\]|[\w$]+)/gm)]
+  .flatMap((match) => match[1].match(/[\w$]+/g));
+
+// The page's scripts: {src, module, inline}.
+const scriptsOf = (html) => [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)].map(([, attributes, body]) => ({
+  src: attributes.match(/\bsrc="\/assets\/([\w-]+\.js)"/)?.[1] ?? null,
+  module: /\btype="module"/.test(attributes),
+  inline: !/\bsrc=/.test(attributes) || body.trim() !== "",
+}));
+
+// A name that used to be a window global and is now imported: a file that uses it must declare or import it.
+const FORMER_GLOBALS = ["ApiError", "requestJson", "meetingIdFromPath", "formatMeetingDate", "sameOriginAudioSource", "ASRMeetingHistory", "tr", "setProp", "setAttr"];
+const undeclaredFormerGlobals = (source) => FORMER_GLOBALS.filter((name) => {
+  const word = new RegExp(String.raw`(?<![\w$.])${name}(?![\w$])`);
+  const declared = new RegExp(String.raw`(?:function|const|let|var|class)\s+${name}\b|import\s*\{[^}]*\b${name}\b[^}]*\}`);
+  return word.test(noStrings(source)) && !declared.test(source);
+});
+
+test("every web/*.js file is a view, a core or a listed exception", () => {
+  assert.deepEqual(classify(webFiles(".js"), { VIEWS, CORES, EXCEPTIONS: Object.keys(EXCEPTIONS) }), []);
+  for (const [name, { reason }] of Object.entries(EXCEPTIONS)) assert.ok(reason.length > 20, `${name} has a reason`);
+});
+
+test("no module writes a global or sends a custom event, in any web file", () => {
+  for (const name of webFiles(".js")) assert.deepEqual(globalRules(code(name)), [], name);
+});
+
+test("no module reads a name that used to be a window global without importing it", () => {
+  for (const name of webFiles(".js")) assert.deepEqual(undeclaredFormerGlobals(code(name)), [], name);
+});
+
+// What is wrong with the scripts of one page: an inline script, or a classic script that is not a listed exception.
+const pageProblems = (html, classic) => scriptsOf(html).flatMap((script) => [
+  ...(script.inline ? ["has an inline script"] : []),
+  ...(!script.module && !script.inline && !classic.includes(script.src) ? [`loads ${script.src} as a classic script`] : []),
+]);
+
+test("pages carry no inline script; only the listed exceptions load as classic scripts", () => {
+  const classic = Object.keys(EXCEPTIONS).filter((name) => EXCEPTIONS[name].classic);
+  for (const page of webFiles(".html")) {
+    assert.ok(scriptsOf(web(page)).length > 0, page);
+    assert.deepEqual(pageProblems(web(page), classic), [], page);
   }
 });
 
-test("shell.html loads each view as a module; the unmigrated scripts stay deferred", () => {
-  const html = web("shell.html");
-  const order = [...html.matchAll(/<script[^>]*src="\/assets\/([\w-]+\.js)"[^>]*>/g)].map((match) => [match[1], match[0]]);
-  const names = order.map(([name]) => name);
+test("a classic script declares nothing at the top level but its allowlist", () => {
+  for (const [name, { top }] of Object.entries(EXCEPTIONS)) assert.deepEqual([...new Set(topLevelNames(code(name)))].sort(), [...top].sort(), name);
+});
+
+test("shell.html and access.html load each view as a module, in an order that keeps imports ready", () => {
+  const order = scriptsOf(web("shell.html")).filter((script) => script.src);
+  const names = order.map((script) => script.src);
   assert.ok(names.indexOf("shell.js") < names.indexOf("history.js"));
-  assert.match(order[names.indexOf("shell.js")][1], /type="module"/);
-  for (const [name, tag] of order.filter(([name]) => !["i18n.js", "theme.js", ...VIEWS].includes(name))) {
-    assert.match(tag, /\bdefer\b/, name);
-  }
-  for (const name of VIEWS) assert.match(order[names.indexOf(name)][1], /type="module"/, name);
-  // Both provider views run in document order, the core's owner first.
+  assert.ok(names.indexOf("history.js") < names.indexOf("notes.js"));
   assert.ok(names.indexOf("connections.js") < names.indexOf("antigravity.js"));
+  for (const name of VIEWS.filter((view) => view !== "access.js")) assert.equal(order[names.indexOf(name)].module, true, name);
+  assert.equal(scriptsOf(web("access.html")).find((script) => script.src === "access.js").module, true);
+  // theme.js and i18n.js come first, before any module can paint.
+  assert.deepEqual(names.slice(0, 2), ["i18n.js", "theme.js"]);
+});
+
+test("the directory gate catches the shapes it exists for", () => {
+  assert.deepEqual(classify(["a.js", "b.js"], { VIEWS: ["a.js"], CORES: [], EXCEPTIONS: [] }), ["b.js is in no list"]);
+  assert.deepEqual(classify(["a.js"], { VIEWS: ["a.js"], CORES: ["a.js"], EXCEPTIONS: [] }), ["a.js is in VIEWS and CORES"]);
+  assert.deepEqual(classify(["a.js"], { VIEWS: ["a.js", "gone.js"], CORES: [], EXCEPTIONS: [] }), ["gone.js is listed but missing"]);
+  const bad = {
+    "assigns a window property": "window.ASRMeetingHistory = {};",
+    "uses globalThis": "globalThis.shared = 1;",
+    "assigns into window with Object.assign": "Object.assign(window, { a });",
+    "defines a window property": "Object.defineProperty(window, 'a', { value: 1 });",
+    "uses CustomEvent": "new CustomEvent('x');",
+    "listens for a namespaced event": 'window.addEventListener("asr:thing", f);',
+    "dispatches a namespaced event": 'document.dispatchEvent(new Event("asr:thing"));',
+  };
+  for (const [label, source] of Object.entries(bad)) assert.ok(globalRules(source).includes(label), label);
+  assert.ok(globalRules("window['x'] = 1;").includes("assigns a window property"));
+  assert.ok(globalRules("window.x += 1;").includes("assigns a window property"));
+  // Reading window, nested properties and native events are what a view does.
+  assert.deepEqual(globalRules('const a = window.location.href;\nwindow.location.href = a;\nwindow.addEventListener("popstate", f);\nselect.dispatchEvent(new Event("change"));\nif (window.x == 1) {}'), []);
+  assert.deepEqual(topLevelNames("const { t, UI_LOCALE } = (() => {\n  const lang = 1;\n  function inner() {}\n})();\nexport function open() {}\nlet x;"), ["t", "UI_LOCALE", "open", "x"]);
+  assert.deepEqual(scriptsOf('<script src="/assets/a.js"></script><script type="module" src="/assets/b.js"></script><script>boot()</script>'), [
+    { src: "a.js", module: false, inline: false },
+    { src: "b.js", module: true, inline: false },
+    { src: null, module: false, inline: true },
+  ]);
+  assert.equal(scriptsOf('<script src="/assets/a.js">boot()</script>')[0].inline, true);
+  assert.deepEqual(pageProblems('<script src="/assets/i18n.js"></script><script type="module" src="/assets/x.js"></script>', ["i18n.js"]), []);
+  assert.deepEqual(pageProblems('<script src="/assets/x.js" defer></script>', ["i18n.js"]), ["loads x.js as a classic script"]);
+  assert.deepEqual(pageProblems("<script>boot()</script>", ["i18n.js"]), ["has an inline script"]);
+  assert.deepEqual(undeclaredFormerGlobals("const d = formatMeetingDate(x);"), ["formatMeetingDate"]);
+  assert.deepEqual(undeclaredFormerGlobals('import { formatMeetingDate } from "./shell.js";\nformatMeetingDate(x);'), []);
+  assert.deepEqual(undeclaredFormerGlobals("export function tr(message) { return tr(message); }\nconst other = obj.tr(x);"), []);
+  assert.deepEqual(undeclaredFormerGlobals("ASRMeetingHistory.refreshMeeting(id);"), ["ASRMeetingHistory"]);
 });

@@ -24,7 +24,7 @@ export const MIN_YEAR = 1000;
 export const MAX_YEAR = 9999;
 export const MEETING_TABS = ["notes", "transcript"];
 export const TAB_PENDING_MS = 4000; // if notes.js never answers, the page falls back to the transcript
-export const SEARCH_DEBOUNCE_MS = 120;
+const SEARCH_DEBOUNCE_MS = 120;
 export const ACTIVE_TASK_STATES = ["accepted", "running", "stopping"];
 export const LANGUAGES = { en: "English", vi: t("Tiếng Việt") };
 
@@ -692,7 +692,7 @@ function meetingLoaded(state, action) {
 
 function meetingLoadFailed(state, action) {
   if (action.meta.loadId !== state.loadId) return out(state);
-  const failure = failureOf(action.error, t("Không thể tải dữ liệu cuộc họp."));
+  const failure = failureOf(action.error);
   return loadFailed(state, failure.message, addressOf(action));
 }
 
@@ -825,8 +825,6 @@ export function reduce(state, action) {
       return searchLoaded(state, action);
     case "history/search-failed":
       return searchFailed(state, action);
-    case "history/sidebar-repainted":
-      return out(repaintSidebar(state));
 
     case "history/calendar-step-clicked":
       return out({ ...state, calendar: shiftMonth(state.calendar, action.step) });

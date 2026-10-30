@@ -13,13 +13,13 @@
 
 export const VIEW_MODE_KEY = "asr-en-vi:notes-view-mode";
 export const ACTIVE_TASK_STATES = ["accepted", "running", "stopping"];
-export const PROVIDER_IDS = ["chatgpt", "antigravity"];
-export const POLL_DELAY = 1000;
-export const POLL_DELAY_HIDDEN = 3000;
+const PROVIDER_IDS = ["chatgpt", "antigravity"];
+const POLL_DELAY = 1000;
+const POLL_DELAY_HIDDEN = 3000;
 
 const t = (text, params) => (params ? { text, params } : { text });
 
-export const TASK_STATE_LABELS = {
+const TASK_STATE_LABELS = {
   accepted: t("Đã nhận"),
   running: t("Đang xử lý"),
   stopping: t("Đang dừng"),
@@ -29,7 +29,7 @@ export const TASK_STATE_LABELS = {
   interrupted: t("Bị gián đoạn"),
 };
 // Position of each backend stage among the steps listed in #notes-steps (shell.html).
-export const TASK_STEP_OF_STAGE = {
+const TASK_STEP_OF_STAGE = {
   accepted: 0,
   starting: 1,
   starting_notes: 1,
@@ -84,7 +84,7 @@ export const requestStorageKey = (meetingId) => `asr-en-vi:notes-request:${meeti
 export const pendingRequestStorageKey = (meetingId) => `asr-en-vi:notes-request-v2:${meetingId}`;
 export const outputLanguageStorageKey = (meetingId) => `asr-en-vi:notes-output-language:${meetingId}`;
 
-export function providerLabel(provider) {
+function providerLabel(provider) {
   return PROVIDER_LABELS[provider] || PROVIDER_LABELS.chatgpt;
 }
 
@@ -94,21 +94,21 @@ export function failureMessage(code, provider) {
   return build ? [build(providerLabel(provider)), " ", NEXT_STEP] : "";
 }
 
-export function formatSeconds(value) {
+function formatSeconds(value) {
   if (!Number.isFinite(value) || value < 0) return "00:00:00";
   const seconds = Math.floor(value);
   return `${String(Math.floor(seconds / 3600)).padStart(2, "0")}:${String(Math.floor((seconds % 3600) / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
 // mm:ss, or h:mm:ss from one hour on: the time a chip shows and says.
-export function chipLabel(seconds) {
+function chipLabel(seconds) {
   const total = Math.floor(seconds);
   const minutes = String(Math.floor((total % 3600) / 60)).padStart(2, "0");
   const rest = String(total % 60).padStart(2, "0");
   return total >= 3600 ? `${Math.floor(total / 3600)}:${minutes}:${rest}` : `${minutes}:${rest}`;
 }
 
-export function safeFilename(value) {
+function safeFilename(value) {
   const title = typeof value === "string" ? value : "meeting-notes";
   const cleaned = title
     .normalize("NFKC")
@@ -167,7 +167,7 @@ function normalizeCitations(citations) {
     }));
 }
 
-export function normalizeRevision(revision, meetingId) {
+function normalizeRevision(revision, meetingId) {
   if (
     !revision
     || typeof revision.id !== "string"
@@ -190,7 +190,7 @@ export function normalizeRevision(revision, meetingId) {
 }
 
 const isNotesTask = (task) => Boolean(task && (task.kind === undefined || task.kind === "notes"));
-export const isActiveStatus = (status) => ACTIVE_TASK_STATES.includes(status);
+const isActiveStatus = (status) => ACTIVE_TASK_STATES.includes(status);
 const activeTask = (data) => Boolean(data && data.task && isActiveStatus(data.task.status));
 
 // null when the payload is not the published notes shape.
@@ -400,7 +400,7 @@ const referenceKey = (reference) => `${reference.meetingId}\u0000${reference.sna
 // shows none and never another bullet's. Each entry is used once, in order. Identical bullets cannot
 // be told apart, so a text keeps its chips only while the notes hold as many bullets with it as they
 // were made with: once one was edited or removed, or another was edited into a copy, none keeps a chip.
-export function citedBullets(lines, citations) {
+function citedBullets(lines, citations) {
   const found = new Map();
   if (!citations.length) return found;
   const keyOf = (section, text) => `${section}\u0000${text}`;
@@ -488,7 +488,7 @@ function citationChip(revision, source) {
 }
 
 // Blocks of the preview: {kind: heading, level, nodes} | {kind: list, items: [{nodes, chips}]} | {kind: paragraph, lines: [nodes]}.
-export function markdownBlocks(markdown, revision, mode, origin) {
+function markdownBlocks(markdown, revision, mode, origin) {
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
   // The panel's own heading is an h3, so the shallowest heading in the notes becomes an h4.
   const shallowest = Math.min(
@@ -663,9 +663,9 @@ export function modelName(state, provider, modelId) {
   const model = models && models.find((item) => item.id === modelId);
   return model ? model.display_name : modelId;
 }
-export const effortLabel = (effort) => (effort === "medium" ? "Medium" : "High");
+const effortLabel = (effort) => (effort === "medium" ? "Medium" : "High");
 
-export function effortFor(state, provider, modelId) {
+function effortFor(state, provider, modelId) {
   if (provider === "antigravity") {
     const saved = state.choice.preferences.reasoning_efforts.antigravity;
     return saved === "medium" ? "medium" : "high";
@@ -708,7 +708,7 @@ function newRunChoiceReady(state, meeting) {
   return readiness.ready && Boolean(readiness.model);
 }
 
-export function canStartNotes(state) {
+function canStartNotes(state) {
   const meeting = state.meeting;
   const data = currentEntry(state);
   const generation = currentGeneration(meeting);
@@ -742,7 +742,7 @@ function needsConnection(state, data, provider, readiness, pending) {
     && (choice.status[provider] !== "connected" || !readiness.ready || !readiness.model);
 }
 
-export function selectedRevision(state) {
+function selectedRevision(state) {
   const data = currentEntry(state);
   return (data && data.revisions.find((item) => item.id === data.selectedNoteId)) || null;
 }
@@ -755,7 +755,7 @@ export function hasUnsavedDraft(state) {
 }
 
 // What history.js shows about the notes: count, task status, and whether the server has answered.
-export function selectSummary(state) {
+function selectSummary(state) {
   const meeting = state.meeting;
   if (!meeting) return null;
   const data = currentEntry(state);
@@ -1190,10 +1190,6 @@ function saveFailed(state, action) {
   return out(state, [request(`notes/save-latest/${revisionId}`, noteEndpoint(revisionId), "GET", undefined, "save-latest", { meetingId, revisionId, conflictMessage: error.message })]);
 }
 
-// The old code built this text for a latest revision of another note and then showed the 409 text instead;
-// it stays so the English table entry has its source string.
-export const LATEST_MISMATCH = t("Revision notes mới nhất không khớp.");
-
 function conflictLatest(state, action, failed) {
   const { meetingId, revisionId, conflictMessage } = action.meta;
   const latest = failed ? null : parseDetail(object(action.response.body));
@@ -1300,7 +1296,7 @@ function validSnapshot(snapshot, meetingId, snapshotId) {
   return Boolean(snapshot && snapshot.id === snapshotId && snapshot.meeting_id === meetingId && Array.isArray(snapshot.segments));
 }
 
-export function speakerForSnapshot(snapshot, segment) {
+function speakerForSnapshot(snapshot, segment) {
   if (typeof segment.speaker_name === "string" && segment.speaker_name) return segment.speaker_name;
   const speakerId = segment.speaker_id;
   const speaker = Array.isArray(snapshot.speakers)

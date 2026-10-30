@@ -16,7 +16,7 @@
 
 const MANUAL_SCROLL_QUIET_MS = 2000; // a manual scroll this recent keeps the list from following
 const OWN_SCROLL_GAP_MS = 200; // a scroll event this soon after our scroll, or its last event, is ours
-export const SEEK_TIMEOUT_MS = 5000; // how long a seek waits for the audio metadata
+const SEEK_TIMEOUT_MS = 5000; // how long a seek waits for the audio metadata
 const SCROLL_KEYS = new Set([" ", "ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"]);
 // Each waiter has its own metadata deadline, as each call of the old seekNotesSource had its own timer.
 const KEY = { seek: "playback/seek", timeout: (id) => `playback/seek-timeout/${id}` };

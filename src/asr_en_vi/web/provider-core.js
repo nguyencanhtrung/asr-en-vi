@@ -19,9 +19,9 @@ export const timestamp = (value) => ({ fmt: "timestamp", value });
 const KNOWN = ["connected", "disconnected", "reconnect_required"];
 const SESSION_DONE = ["connected", "cancelled", "expired", "failed"];
 const VIETNAMESE = /[À-ỹ]/u;
-const CHOICE_CHANGED = { type: "event", key: "provider/choice-changed", name: "asr:provider-choice-changed" };
+const CHOICE_CHANGED = { type: "call", key: "provider/choice-changed", name: "provider.choice-changed" };
 
-export const EFFORT_LABELS = {
+const EFFORT_LABELS = {
   none: t("Không suy luận (none)"),
   low: t("Thấp (low)"),
   medium: t("Trung bình (medium)"),
@@ -29,7 +29,7 @@ export const EFFORT_LABELS = {
   xhigh: t("Rất cao (xhigh)"),
   max: t("Tối đa (max)"),
 };
-export const DEFAULT_EFFORT_LABEL = t("Mặc định của mô hình");
+const DEFAULT_EFFORT_LABEL = t("Mặc định của mô hình");
 
 // Request errors every provider shares (the old connectionRequest table).
 const REQUEST_ERRORS = {
@@ -229,7 +229,7 @@ export const ANTIGRAVITY = {
   verifyWithEffort: false,
   confirmDisconnect: false,
   clearMessages: false,
-  effort: { kind: "fixed", initial: "high", values: ["high", "medium"] },
+  effort: { kind: "fixed", initial: "high" },
   effortLabels: { medium: "Medium", high: "High" },
   reconnect: {
     suffix: undefined,
@@ -284,10 +284,8 @@ export const ANTIGRAVITY = {
   },
 };
 
-const BY_ID = { chatgpt: CHATGPT, antigravity: ANTIGRAVITY };
-
 // Header buttons: visible status and the spoken equivalent for each launcher state.
-export const LAUNCHER_COPY = {
+const LAUNCHER_COPY = {
   loading: [t("Đang kiểm tra"), t("đang kiểm tra trạng thái")],
   connected: [t("Đã kết nối"), t("đã kết nối")],
   reconnect_required: [t("Cần đăng nhập lại"), t("cần đăng nhập lại")],
@@ -901,7 +899,7 @@ function headerLoaded(d, s, body) {
 
 // ---- reducers ----
 
-export function reduceProvider(d, state, action) {
+function reduceProvider(d, state, action) {
   const meta = action.meta;
   switch (action.type) {
     case "provider/header-requested":

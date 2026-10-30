@@ -1,6 +1,6 @@
 // View of the create-meeting dialog: reads store state, renders the DOM, dispatches actions.
 // All state and rules live in shell-core.js (contract: docs/adr/0010-frontend-reducer-core.md).
-// Unmigrated scripts (history.js, ...) still use the helpers published on window at the bottom.
+// The helpers every view shares (tr, setProp, setAttr, and the date and audio helpers history.js uses) are exported.
 import { createRunner, createStore } from "./store.js";
 import {
   AUTO_TRANSCRIBE_KEY,
@@ -9,7 +9,6 @@ import {
   formatBytes,
   initialState,
   reduce,
-  responseMessage,
   selectView,
 } from "./shell-core.js";
 
@@ -40,11 +39,18 @@ const transferProgress = document.querySelector("#transfer-progress");
 const uploadProgress = document.querySelector("#upload-progress");
 const uploadProgressValue = document.querySelector("#upload-progress-value");
 
+function formatTimestamp(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return String(value || "");
+  return new Intl.DateTimeFormat(UI_LOCALE, { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
 // Core text is data ({text, params}); t() turns it into the page language.
-function tr(message) {
+export function tr(message) {
   if (message === null || message === undefined) return "";
   if (typeof message !== "object") return String(message);
   if (Array.isArray(message)) return message.map(tr).join("");
+  if (message.fmt === "timestamp") return formatTimestamp(message.value);
   if (message.fmt === "bytes") return formatBytes(message.value, UI_LOCALE);
   if (message.fmt === "decimal") return new Intl.NumberFormat(UI_LOCALE, { maximumFractionDigits: 1 }).format(message.value);
   const params = message.params && Object.fromEntries(Object.entries(message.params).map(([name, value]) => [name, tr(value)]));
@@ -52,11 +58,11 @@ function tr(message) {
 }
 
 // Write only what changed: a rewrite with the same value still fires observers and live regions.
-function setProp(element, name, value) {
+export function setProp(element, name, value) {
   if (element[name] !== value) element[name] = value;
 }
 
-function setAttr(element, name, value) {
+export function setAttr(element, name, value) {
   if (element.getAttribute(name) !== value) element.setAttribute(name, value);
 }
 
@@ -194,50 +200,8 @@ dialog.addEventListener("click", (event) => {
   if (event.target === dialog) requestClose();
 });
 
-// Helpers that history.js and the other unmigrated scripts still call; published on window until phase 5.
-class ApiError extends Error {
-  constructor(message, status, payload) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.payload = payload;
-  }
-}
-
-async function requestJson(path, options = {}) {
-  const method = (options.method || "GET").toUpperCase();
-  const headers = { Accept: "application/json" };
-  if (method !== "GET" && method !== "HEAD") headers["Content-Type"] = "application/json";
-  const requestOptions = {
-    method,
-    headers,
-    credentials: "same-origin",
-    cache: "no-store",
-  };
-  if (options.body !== undefined) requestOptions.body = options.body;
-  if (options.signal) requestOptions.signal = options.signal;
-
-  let response;
-  try {
-    response = await fetch(path, requestOptions);
-  } catch (error) {
-    if (error && error.name === "AbortError") throw error;
-    const networkError = new Error(t("Không kết nối được với máy chủ trên máy này."));
-    networkError.kind = "network";
-    throw networkError;
-  }
-
-  let payload = null;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = null;
-  }
-  if (!response.ok) throw new ApiError(tr(responseMessage(response.status, payload)), response.status, payload);
-  return payload;
-}
-
-function meetingIdFromPath() {
+// Helpers history.js calls.
+export function meetingIdFromPath() {
   const match = window.location.pathname.match(/^\/meetings\/([^/]+)\/?$/);
   if (!match) return null;
   try {
@@ -248,7 +212,7 @@ function meetingIdFromPath() {
   }
 }
 
-function formatMeetingDate(value) {
+export function formatMeetingDate(value) {
   if (!value) return { label: t("Chưa đặt ngày"), dateTime: "" };
   const date = String(value).slice(0, 10);
   const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -266,7 +230,7 @@ function formatMeetingDate(value) {
   };
 }
 
-function sameOriginAudioSource(audioUrl, meetingId) {
+export function sameOriginAudioSource(audioUrl, meetingId) {
   const fallback = `/api/meetings/${encodeURIComponent(meetingId)}/audio`;
   if (typeof audioUrl !== "string" || !audioUrl.trim()) return fallback;
   try {
@@ -277,5 +241,3 @@ function sameOriginAudioSource(audioUrl, meetingId) {
     return fallback;
   }
 }
-
-Object.assign(window, { ApiError, requestJson, meetingIdFromPath, formatMeetingDate, sameOriginAudioSource });

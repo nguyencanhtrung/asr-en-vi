@@ -622,6 +622,106 @@ Kiến trúc
 
 - `docs/release/runtime-v0.1.0.md` — kiến trúc frontend.
 
+### #135 (pha 5 của #118) — bỏ global và `CustomEvent`, xóa code chết, gate quét mọi file
+
+#### Vấn đề
+
+Sau pha 4d mọi tính năng đã có reducer, nhưng bốn đường nối cũ vẫn còn: `window.ASRMeetingHistory` (lệnh từ `notes.js` tới `history.js`), `asr:meeting-context` (`CustomEvent` từ `history.js` tới `notes.js`), `asr:provider-choice-changed` (effect `event` từ `provider-core.js` tới `notes.js`) và `Object.assign(window, …)` trong `shell.js` (helper cho `history.js`, tới lúc đó ngầm là global). Gate view chỉ quét các file trong danh sách, nên một file mới hay `access.js`, `theme.js`, `i18n.js` nằm ngoài. Còn code chết để lại từ các pha trước và bốn bản sao helper (`tr`, `setProp`, `setAttr`).
+
+#### Nguyên nhân đo được
+
+Đếm trên `git show 4e29c59:src/asr_en_vi/web/*.js` (mọi file `.js`, từng lần xuất hiện): `CustomEvent` 3, `ASRMeetingHistory` 7, `asr:meeting-context` và `asr:provider-choice-changed` 6, `Object.assign(window` 1; `function tr(` 4 bản, `function setProp(` 4, `function setAttr(` 3. 32 `export` không file web nào khác và không test nào dùng. Hằng `LATEST_MISMATCH` (notes-core), literal `UNUSED_START_UNCONFIRMED` (history) và các mục EN của chúng không có nơi dùng; `ApiError` và `requestJson` (shell.js) không có nơi gọi nào sau pha 4 (`grep` trên toàn `web/`).
+
+Nguồn: `git show 4e29c59`; issue #118, #135.
+
+#### Thay đổi thiết kế
+
+- `channel.js` (mới, 16 dòng): hai store dựng bằng `createStore`, `meetingContext` (action `channel/meeting-context {detail}`, state là `detail` cuối) và `providerChoice` (action `channel/provider-choice-changed`, state là bộ đếm). `history.js` dispatch lên `meetingContext` với một `detail` mới mỗi lần (cùng điểm báo, cùng trường, kể cả khóa có nháy `"transcriptionRequestInFlight"`); `notes.js` đăng ký, đổi thành `notes/context`, và vẫn đọc `currentContext()` đúng chỗ cũ (sau khi đăng ký). Subscriber chạy đồng bộ trong `dispatch`, theo thứ tự báo. Chi tiết: `frontend-design-v1.md` 11.12, ADR 0010.
+- Lệnh `notes.js` → `history.js`: `window.ASRMeetingHistory = Object.freeze({…})` thành `export const meetingHistory = Object.freeze({…})` (cùng hàm, cùng giá trị trả về); `notes.js` import nó, bỏ `meetingHistory()`, `toHistory` và mọi nhánh `Boolean(meetingHistory()) &&` (`history.js` luôn chạy trước).
+- Bỏ loại effect `event` và tham số `emit` của runner (còn tám loại). `provider-core.js` phát `call provider.choice-changed` đúng chỗ cũ (cùng số lần); `connections.js` nối nó vào `providerChoice.dispatch`.
+- `shell.js`: bỏ `Object.assign(window, …)`, `ApiError`, `requestJson`; export `tr`, `setProp`, `setAttr`, `formatMeetingDate`, `sameOriginAudioSource`, `meetingIdFromPath` và `history.js`, `notes.js`, `connections.js`, `antigravity.js` import chúng; còn 1 bản `tr`, `setProp`, `setAttr` (trước: 4, 4, 3). `tr` của shell xử lý thêm `fmt: "timestamp"` (bản của `connections.js`), gộp thành một; bản của `notes.js` và `history.js` là phần chung, nên không khác quan sát được. Không có global ngầm nào khác: mọi tên được dùng mà không khai báo trong file là `t`/`UI_LOCALE` (i18n) hoặc API trình duyệt (kiểm bằng phân tích tên chưa khai báo từng file).
+- `access.js` là module (`type="module"` thay `defer`) và qua các quy tắc view của gate (không có core, xem mục dưới). `theme.js`, `i18n.js` giữ là script thường: ngoại lệ ghi trong ADR 0010 (chạy trước lần vẽ đầu; `t`/`UI_LOCALE` chỉ-đọc); `i18n.js` không có hàm cấp cao nhất nào khác ngoài binding `t`, `UI_LOCALE`.
+- Gate (`tests/web/shell-view.test.mjs`): mọi `web/*.js` nằm đúng một trong `VIEWS`, `CORES`, `EXCEPTIONS`; quy tắc không-global/không-`CustomEvent` quét mọi file; trang không có script nội tuyến và chỉ ngoại lệ được nạp không-module; ngoại lệ chỉ khai báo tên trong danh sách cho phép; một tên từng là global mà không import thì fail. Quy tắc cũ giữ nguyên, không nới. Mỗi quy tắc mới có ví dụ xấu trong cùng test.
+- Code chết đã xóa: `LATEST_MISMATCH` và mục EN, `UNUSED_START_UNCONFIRMED` và mục EN, chuỗi "Không thể tải dữ liệu cuộc họp." (fallback của `failureOf` trong `meetingLoadFailed`: lỗi từ runner luôn có `status` hoặc `message` khác rỗng nên nhánh fallback không bao giờ chạy trong trình duyệt; còn lại dùng câu mất kết nối mặc định) và mục EN, `BY_ID` (provider-core), `repaintSidebar()` của `history.js` và action `history/sidebar-repainted` (không ai gọi, cũng chết ở `4e29c59`; helper `repaintSidebar(state)` của core còn dùng), `effort.values` của Antigravity, `ApiError`, `requestJson`, 32 từ khóa `export` không ai import (hàm giữ lại vì nơi khác trong file dùng). `ANTIGRAVITY.login.firstPoll` được giữ: `pollWait(d, d.login.firstPoll, …)` đọc nó cho cả hai provider.
+- Route `/assets/channel.js` có bảo vệ truy cập; thêm vào hai test asset.
+- `access.js` không có core: trang trước đăng nhập chỉ có một form và một request, state duy nhất là nút đang bận; ADR 0010 ghi nó là ngoại lệ có lý do.
+- Hook Playwright: `window.ASRMeetingHistory.*` (12 chỗ trong `tests/test_browser_*.py` và 1 trong `scripts/offline-smoke.py`) thành `import("/assets/history.js")` rồi `.meetingHistory.*`; `dispatchEvent(new CustomEvent('asr:provider-choice-changed'))` thành `import("/assets/channel.js")` rồi `providerChoice.dispatch(...)`. Cùng instance module với trang. Không sửa assertion về hành vi.
+- Test flaky `test_incomplete_pending_request_waits_for_choice_loading_before_completion`: `localStorage` ghi bằng `page.add_init_script` trước `goto` thay vì sau `goto` (bản cũ ghi sau khi trang đã tải, có thể trước hoặc sau lúc notes đọc).
+
+Khác biệt hành vi so với bản cũ (đối chiếu với `git show 4e29c59`):
+
+- Tin báo lồng (báo trong lúc subscriber của kênh còn chạy) được xếp hàng, và nhiều tin lồng như vậy tới subscriber thành MỘT lần giao với state cuối (`providerChoice`: một lần giao, bộ đếm nhảy N); `dispatchEvent` cũ giao từng tin lồng ngay. Đã đo: toàn bộ suite trình duyệt (378 test, 2506 lần báo) và lần chạy đối chiếu 32 bước thấy 0 tin lồng, vì mọi chỗ báo chạy trong lần vẽ của history hoặc trong callback hoãn, và lệnh của subscriber notes tới history được store history xếp hàng. Thứ tự giữ nguyên. Không có kịch bản Playwright hiện có phụ thuộc vào điều này.
+- Một lỗi tải cuộc họp có `error` không có `status` và `message` rỗng nay hiện câu mất kết nối thay cho "Không thể tải dữ liệu cuộc họp."; runner không tạo lỗi như vậy từ `fetch`.
+- Một lỗi ném trong subscriber của kênh (lỗi lập trình trong reducer hoặc render của notes) nay đi ngược về nơi báo: lượt vẽ của history (hoặc lượt drain của store provider) dừng ở chỗ báo, như mọi lỗi subscriber của store (ADR 0010); `dispatchEvent` cũ ghi lỗi của listener rồi chạy tiếp. Tương tự, `notes.js` nay import `history.js` và `shell.js`, nên một lỗi khi nạp hai module đó làm `notes.js` không chạy. Không có đường chạy bình thường nào ném lỗi như vậy.
+- Ngoài các mục trên, không còn khác biệt thấy được.
+
+#### Số đo trước và sau
+
+Điều kiện đo: Node 24.13.0, `node --test 'tests/web/*.test.mjs'`, một lần chạy cục bộ; đếm lần xuất hiện bằng `grep -o` trên mọi `src/asr_en_vi/web/*.js`, trước = `git show 4e29c59:<file>`.
+
+| | Trước | Sau |
+| --- | --- | --- |
+| `CustomEvent`, `ASRMeetingHistory`, `asr:meeting-context`/`asr:provider-choice-changed`, `Object.assign(window` | 3, 7, 6, 1 | 0, 0, 0, 0 |
+| Bản sao `tr`, `setProp`, `setAttr` | 4, 4, 3 | 1, 1, 1 |
+| Loại effect | 9 | 8 |
+| `export` cấp module trong `web/*.js` | 148 | 121 |
+| Mục EN trong `i18n.js` | 715 | 712 |
+| File `web/*.js` | 16 | 17 (`channel.js`) |
+| Dòng `web/*.js` | 11291 | 11189 |
+| Test trong `shell-view.test.mjs` | 8 | 13 |
+| Unit test JS | 510 | 523 (10 cho kênh, 5 mới cho gate, bớt 1 test effect `event`, bớt 1 test của `history/sidebar-repainted`) |
+
+Nguồn: `tests/web/channel.test.mjs`, `tests/web/shell-view.test.mjs`.
+
+#### Đánh đổi và phương án đã loại
+
+- Hai store nhỏ làm kênh thay vì một store cho cả trang: mỗi view giữ store, runner và phụ thuộc riêng; một store chung phải gộp mọi `calls` và `now` vào một runner.
+- `call` vẫn là effect cho lệnh `notes` → `history` (có giá trị trả về hoặc lời hứa), không đổi thành action: hai store khác nhau không dùng chung hàng đợi action.
+- Giữ `i18n.js`, `theme.js` là script thường thay vì module: chạy trước lần vẽ đầu và cung cấp `t` cho mọi module; ngoại lệ có lý do và gate (danh sách tên cho phép) chặn chúng lớn thêm.
+- `store.js` ở `EXCEPTIONS` thay vì `CORES`: nó nhận `fetch`, timer, storage làm phụ thuộc nên tên tham số trùng quy tắc "core thuần".
+
+#### Follow-up
+
+- Quy tắc "tên từng là global" là danh sách cố định; phát hiện tên chưa khai báo tổng quát cần trình phân tích cú pháp (không thêm dependency).
+
+#### Liên kết issue/PR
+
+Issue #135; thuộc #118.
+
+#### Tag
+
+Kiến trúc
+
+#### Tài liệu đích
+
+- `docs/release/runtime-v0.1.0.md` — kiến trúc frontend.
+
+### Tổng kết refactor #118
+
+Mục tiêu: đưa `src/asr_en_vi/web/` từ JS dùng global và state sửa tại chỗ sang core reducer thuần, effect là dữ liệu, store tự viết (ADR 0010), không đổi hành vi người dùng thấy, không framework, không build step, không dependency runtime, không nới CSP.
+
+| Pha | Issue / PR | Chuyển gì |
+| --- | --- | --- |
+| 0 | #119 / PR #120 | ADR 0010, `store.js` (`createStore`, `combine`, `createRunner`), `node --test` và Node trong CI |
+| 1 | #121 / PR #122 | `shell-core.js` + `shell.js`: dialog tạo cuộc họp và upload |
+| 2 | #123 / PR #124 | `provider-core.js`: một core cho ChatGPT và Google Antigravity, `connections.js`, `antigravity.js` |
+| 3 | #126 / PR #127 | `notes-core.js` + `notes.js`: tab Meeting notes |
+| 4a | #128 / PR #129 | `history-core.js`: điều hướng và thư viện cuộc họp |
+| 4b | #130 / PR #131 | `task-core.js`: task phiên âm |
+| 4c | #132 / PR #133 | `transcript-core.js`: sửa transcript và người nói |
+| 4d | #134 / PR #136 | `playback-core.js`: phát lại, tua nguồn notes |
+| 5 | #135 | `channel.js`; bỏ global, `CustomEvent`, effect `event`; `access.js` thành module qua quy tắc view; gate quét mọi file; xóa code chết |
+
+Bảng state và chuyển trạng thái của từng core nằm ở `frontend-design-v1.md` 11.5 đến 11.12; chi tiết, số đo và khác biệt hành vi từng pha ở các mục #119 đến #135 phía trên.
+
+Gate trong CI (`tests/web/shell-view.test.mjs`, chạy trong `scripts/check.sh`): mọi `web/*.js` thuộc đúng một trong view, core, ngoại lệ; view không gán state hay giữ `let`/`var`/object cấp module; core không chạm DOM, mạng, timer, storage, đồng hồ, ngẫu nhiên; không file nào gán `window`/`globalThis`, dùng `CustomEvent` hay sự kiện `ns:tên`; trang không có script nội tuyến; ngoại lệ (`i18n.js`, `theme.js`, `store.js`) chỉ khai báo tên trong danh sách cho phép.
+
+Unit test JS: 0 (trước pha 0) → 19 (pha 0) → 510 (hết pha 4d) → 523 (pha 5). Playwright giữ nguyên, trừ hook kỹ thuật ở pha 5.
+
+Mục tùy chọn trong comment của #118: pha 5 xử lý `LATEST_MISMATCH` và mục EN của nó, `ANTIGRAVITY.effort.values` (xóa), test flaky `test_incomplete_pending_request_waits_for_choice_loading_before_completion` (`add_init_script` trước `goto`); `ANTIGRAVITY.login.firstPoll` giữ vì `pollWait` đọc nó cho cả hai provider; `memo.rendered`, các `let` cấp module và `PARTIAL` đã xong ở 4d.
+
+Còn mở sau #118 (không đổi hành vi nên không làm trong pha 5): trình duyệt tự đóng dialog tạo cuộc họp giữa lúc lưu rồi mở lại (pha 1); cuộn tới mục Google trước khi view Google vẽ xong, và trả lời `POST …/input` của Google chưa kiểm thế hệ đăng nhập (pha 2); `readId` dùng chung giữa các cuộc họp (pha 3); khóa `history/save` latest-wins theo cuộc họp, poll cũ hơn câu trả lời hủy, `shownOf` thuần cho harness task (4a đến 4c); khóa `transcript/copy` latest-wins và chi phí mỗi phím gõ trong trình sửa (4c); hơn mười cờ descriptor provider còn là switch theo provider; live region không ghi lại khi chữ không đổi (chỉ sửa nếu kiểm bằng trình đọc màn hình thấy cần).
+
 ## 4. Mốc AC-13 (#16 → #99 → #104)
 
 Đã chuyển bảng mốc và điều kiện đo vào [báo cáo nghiệm thu](acceptance-report-v1.md).

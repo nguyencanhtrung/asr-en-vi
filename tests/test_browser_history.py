@@ -5131,7 +5131,10 @@ def test_lock_arriving_mid_edit_disables_saving_but_not_cancel(live, browser_con
         worker_ready=True,
         output_language="en",
     )
-    page.evaluate("id => window.ASRMeetingHistory.refreshMeeting(id)", meeting_id)
+    page.evaluate(
+        "async id => (await import('/assets/history.js')).meetingHistory.refreshMeeting(id)",
+        meeting_id,
+    )
     for control in (editor, row.get_by_role("button", name="Lưu đoạn"), row.locator("select")):
         expect(control).to_be_disabled()
     cancel = row.get_by_role("button", name="Hủy")

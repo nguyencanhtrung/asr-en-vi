@@ -1,7 +1,9 @@
 // View of the connections dialog and the header buttons: reads store state, renders the DOM, dispatches actions.
 // All state and rules live in provider-core.js (contract: docs/adr/0010-frontend-reducer-core.md). This module
 // also creates the one store both providers share; antigravity.js imports it and renders the Google section.
+import { providerChoice } from "./channel.js";
 import { createRunner, createStore } from "./store.js";
+import { setAttr, setProp, tr } from "./shell.js";
 import { ANTIGRAVITY, CHATGPT, initialState, reduce, selectLauncher, selectView } from "./provider-core.js";
 
 const launcherElements = {
@@ -40,33 +42,8 @@ const els = {
   verificationResult: document.querySelector("#connection-verification-result"),
 };
 
-// Core text is data ({text, params}); t() turns it into the page language.
-function formatTimestamp(value) {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return String(value || "");
-  return new Intl.DateTimeFormat(UI_LOCALE, { dateStyle: "medium", timeStyle: "short" }).format(date);
-}
-
-export function tr(message) {
-  if (message === null || message === undefined) return "";
-  if (typeof message !== "object") return String(message);
-  if (Array.isArray(message)) return message.map(tr).join("");
-  if (message.fmt === "timestamp") return formatTimestamp(message.value);
-  const params = message.params && Object.fromEntries(Object.entries(message.params).map(([name, value]) => [name, tr(value)]));
-  return t(message.text, params);
-}
-
-// Write only what changed: a rewrite with the same value still fires observers and live regions.
-export function setProp(element, name, value) {
-  if (element[name] !== value) element[name] = value;
-}
-
-export function setAttr(element, name, value) {
-  if (element.getAttribute(name) !== value) element.setAttribute(name, value);
-}
-
 // Rebuild a select only when its option list changed, so an open list and the focus survive other updates.
-export function renderOptions(select, options, value) {
+function renderOptions(select, options, value) {
   const signature = JSON.stringify(options);
   if (select.dataset.options !== signature) {
     select.dataset.options = signature;
@@ -160,7 +137,7 @@ const base = createRunner({
   storage: { local: () => window.localStorage, session: () => window.sessionStorage },
   navigate: (url) => window.location.assign(url),
   open: (url, target) => window.open(url, target),
-  emit: (name) => window.dispatchEvent(new CustomEvent(name)),
+  calls: { "provider.choice-changed": () => providerChoice.dispatch({ type: "channel/provider-choice-changed" }) },
   now: () => Date.now(),
 });
 // The reserved window shows a sentence in the page language; the effect carries it as data.

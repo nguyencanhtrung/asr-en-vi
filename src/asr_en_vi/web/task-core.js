@@ -84,7 +84,7 @@ const validLanguage = (value) => (typeof value === "string" && LANGUAGE_HINTS.ha
 
 // ---- language ----
 
-export function defaultLanguage(shown, task = null) {
+function defaultLanguage(shown, task = null) {
   const taskLanguage = validLanguage(task && task.language_hint);
   if (taskLanguage) return taskLanguage;
   return validLanguage(shown && shown.generationLanguage) || validLanguage(shown && shown.language) || "en";
@@ -351,7 +351,7 @@ function refreshFailedLoading(state, action) {
 
 // ---- the diagnostic command ----
 
-export function diagnosticCommand(task) {
+function diagnosticCommand(task) {
   return task && SAFE_TASK_ID.test(task.id || "") ? `docker compose exec -T app python -m asr_en_vi.cli task diagnose ${task.id}` : "";
 }
 

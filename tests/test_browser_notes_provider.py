@@ -518,7 +518,10 @@ def test_stored_pending_request_without_provider_means_chatgpt(live, signed_in):
 
 
 def announce_choice_change(page):
-    page.evaluate("window.dispatchEvent(new CustomEvent('asr:provider-choice-changed'))")
+    page.evaluate(
+        "async () => (await import('/assets/channel.js')).providerChoice.dispatch("
+        "{ type: 'channel/provider-choice-changed' })"
+    )
 
 
 def test_model_saved_elsewhere_refreshes_the_open_notes_panel(live, signed_in, fake_notes_provider):
@@ -539,6 +542,25 @@ def test_model_saved_elsewhere_refreshes_the_open_notes_panel(live, signed_in, f
         page.locator("#notes-start").click()
     assert runs[0]["expected_model"] == "gpt-6-luna"
     assert runs[0]["expected_reasoning_effort"] == "low"
+
+
+def test_model_saved_in_the_connections_dialog_refreshes_the_open_notes_panel(
+    live, signed_in, fake_notes_provider
+):
+    _context, page = signed_in()
+    meeting_id, _generation, _ = seed_completed_transcript(live.settings.data_dir)
+    save_preference(page, live, "chatgpt", CHATGPT_MODEL, "high")
+    mock_providers(page, live)
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
+    expect(page.locator("#notes-model")).to_have_value(CHATGPT_MODEL)
+    page.locator("#launcher-chatgpt").click()
+    expect(page.locator("#connections-dialog")).to_be_visible()
+    expect(page.locator("#connection-model")).to_have_value(CHATGPT_MODEL)
+    page.locator("#connection-model").select_option("gpt-6-luna")
+    page.get_by_role("button", name="Lưu mô hình và effort").click()
+    expect(page.locator("#connection-model-status")).to_contain_text("Luna")
+    page.locator("#connections-close").click()
+    expect(page.locator("#notes-model")).to_have_value("gpt-6-luna")
 
 
 def test_antigravity_run_confirms_model_and_thinking_level(live, signed_in, fake_notes_provider):
@@ -715,12 +737,11 @@ def test_incomplete_pending_request_waits_for_choice_loading_before_completion(
         route.continue_()
 
     page.route(f"{live.url}/api/meetings/{meeting_id}/notes-runs", notes_request)
-    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
     stored = {"request_id": "old-incomplete-request-2", "output_language": "en"}
-    page.evaluate(
-        "([key, value]) => localStorage.setItem(key, value)",
-        [f"asr-en-vi:notes-request-v2:{meeting_id}", json.dumps(stored)],
-    )
+    # Written before the page script runs, so the first notes load always sees the stored request.
+    key = json.dumps(f"asr-en-vi:notes-request-v2:{meeting_id}")
+    page.add_init_script(f"localStorage.setItem({key}, {json.dumps(json.dumps(stored))})")
+    page.goto(f"{live.url}/meetings/{meeting_id}#notes")
 
     held = []
     page.route(f"{live.url}/api/notes-preferences", lambda route: held.append(route))

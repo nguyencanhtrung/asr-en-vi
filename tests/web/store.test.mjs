@@ -424,7 +424,7 @@ test("navigate effect calls the injected navigate", () => {
 
 test("upload, storage and navigate effects need a key", () => {
   const run = createRunner({ fetch: fakeFetch(), ...fakeTimers() });
-  for (const type of ["upload", "storage", "navigate", "open-window", "event"]) assert.throws(() => run({ type }, () => {}), /needs a key/);
+  for (const type of ["upload", "storage", "navigate", "open-window", "call"]) assert.throws(() => run({ type }, () => {}), /needs a key/);
 });
 
 function fakeWindow() {
@@ -470,12 +470,6 @@ test("open-window answers blocked when the browser refuses or the window throws"
   blocked({ type: "open-window", key: "w", op: "close" }, dispatch);
   assert.deepEqual(actions.at(-1), { type: "gone", meta: 3 });
   assert.throws(() => blocked({ type: "open-window", key: "w", op: "other" }, dispatch), /unknown open-window op/);
-});
-
-test("event effect calls the injected emit", () => {
-  const names = [];
-  createRunner({ fetch: fakeFetch(), ...fakeTimers(), emit: (name) => names.push(name) })({ type: "event", key: "e", name: "app:changed" }, () => {});
-  assert.deepEqual(names, ["app:changed"]);
 });
 
 test("deps.now stamps the clock on schedule, fetch and window actions; without it nothing is added", async () => {

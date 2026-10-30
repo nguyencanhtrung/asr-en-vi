@@ -1807,7 +1807,8 @@ print(json.dumps({"observed_schema": observed_schema, "tables": tables,
                     self._configure_notes_preference_in_browser_api(context)
                     notes_before = self.api.json("GET", f"/api/meetings/{meeting_id}/notes")
                     page.locator("body").evaluate(
-                        "(body, meetingId) => window.ASRMeetingHistory.refreshMeeting(meetingId)",
+                        "async (body, meetingId) => (await import('/assets/history.js'))"
+                        ".meetingHistory.refreshMeeting(meetingId)",
                         meeting_id,
                     )
                     # The provider session stays connected; only the model catalog cannot load offline.
