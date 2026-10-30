@@ -50,7 +50,7 @@ const FOCUS_TEXT = { kind: "segment-text", generationId: "g2", segmentId: "s1", 
 const FOCUS_NAME = { kind: "speaker-name", generationId: "g2", speakerId: "A", control: "submit" };
 
 // The page as the view wires it: the real store and runner over fakes, the facts of the meeting on screen stamped on
-// every action, and the bridge the view makes from history-core's `installRev` and `legacy.rev`.
+// every action, and the bridge the view makes from history-core's `installRev` and `left.rev`.
 async function setup({ lock = false } = {}) {
   const requests = [];
   const calls = [];
@@ -82,7 +82,7 @@ async function setup({ lock = false } = {}) {
     const was = seen;
     seen = root.history;
     if (seen.installRev !== was.installRev) send("transcript/meeting-installed");
-    if (seen.legacy.rev !== was.legacy.rev && seen.legacy.kind === "switch") send("transcript/meeting-switched");
+    if (seen.left.rev !== was.left.rev && seen.left.kind === "switch") send("transcript/meeting-switched");
   });
   const open = (match) => (r) => !r.done && !r.signal.aborted && match(r);
   const answer = async (match, status, body) => {

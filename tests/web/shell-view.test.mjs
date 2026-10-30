@@ -12,10 +12,8 @@ const noStrings = (source) => source
 // assert.doesNotMatch prints the whole file on failure; say only what matched.
 const absent = (source, pattern, label) => assert.equal(source.match(pattern)?.[0], undefined, label);
 
-const VIEWS = ["shell.js", "connections.js", "antigravity.js", "notes.js"]; // add each migrated view file here
-const CORES = ["shell-core.js", "provider-core.js", "notes-core.js", "history-core.js", "task-core.js", "transcript-core.js"];
-// Modules whose view is only partly migrated: loaded as a module, but not gated until the last phase moves.
-const PARTIAL = ["history.js"];
+const VIEWS = ["shell.js", "connections.js", "antigravity.js", "notes.js", "history.js"]; // add each migrated view file here
+const CORES = ["shell-core.js", "provider-core.js", "notes-core.js", "history-core.js", "task-core.js", "transcript-core.js", "playback-core.js"];
 
 // Each rule is a pattern over the view source (comments stripped); `rules` returns the labels that match.
 const STATE = String.raw`(?:state|(?:\w+\.)?getState\(\)|appState)`;
@@ -31,7 +29,8 @@ const rules = (source) => {
   hit("deletes from state", new RegExp(String.raw`\bdelete\s+${STATE}(?![\w$])`));
   hit("calls a mutating method on state", new RegExp(String.raw`\b${STATE}(\.[A-Za-z_$][\w$]*)*\.(push|pop|shift|unshift|splice|sort|reverse|fill|set|delete|add|clear)\(`));
   hit("has a module-level let/var", /(^|\n)(let|var)\s/);
-  hit("brings back a request counter or flag", /\b\w*(Seq|InFlight|Timer)\b/);
+  // Quoted text (a field name another script reads) is not a counter.
+  if (/\b\w*(Seq|InFlight|Timer)\b/.test(noStrings(source))) found.push("brings back a request counter or flag");
   const mutates = (name, deep = false) => new RegExp(String.raw`\b${name}(\.[A-Za-z_$][\w$]*|\[[^\]]+\])${deep ? "+" : ""}\s*(=(?!=)|[-+*/]=|\+\+|--)|\b${name}(\.[A-Za-z_$][\w$]*)*\.(push|pop|shift|unshift|splice|sort|reverse|fill|set|delete|add|clear)\(|Object\.assign\(\s*${name}\b`).test(source);
   // A module-level object or collection that the file mutates is state kept outside the store.
   for (const [, name] of source.matchAll(/(?:^|\n)(?:export\s+)?const\s+(\w+)\s*=\s*(?:\{|\[|new\s+(?:Map|Set|WeakMap|WeakSet)\b)/g)) {
@@ -77,6 +76,8 @@ test("the view rules catch the shapes they exist for", () => {
     "mutates module-level cache": "const cache = {};\ncache.a = 1;",
   };
   for (const [label, source] of Object.entries(bad)) assert.ok(rules(source).includes(label), label);
+  assert.ok(rules("const loadSeq = 0;").includes("brings back a request counter or flag"));
+  assert.ok(!rules('const d = { "xInFlight": 1 };').includes("brings back a request counter or flag"));
   assert.ok(rules("const pollTimer = 0;").includes("brings back a request counter or flag"));
   assert.ok(rules("store.getState().x = 1;").includes("assigns into state"));
   assert.ok(rules("Object.assign(store.getState(), {});").includes("assigns into state with Object.assign"));
@@ -124,10 +125,10 @@ test("shell.html loads each view as a module; the unmigrated scripts stay deferr
   const names = order.map(([name]) => name);
   assert.ok(names.indexOf("shell.js") < names.indexOf("history.js"));
   assert.match(order[names.indexOf("shell.js")][1], /type="module"/);
-  for (const [name, tag] of order.filter(([name]) => !["i18n.js", "theme.js", ...VIEWS, ...PARTIAL].includes(name))) {
+  for (const [name, tag] of order.filter(([name]) => !["i18n.js", "theme.js", ...VIEWS].includes(name))) {
     assert.match(tag, /\bdefer\b/, name);
   }
-  for (const name of [...VIEWS, ...PARTIAL]) assert.match(order[names.indexOf(name)][1], /type="module"/, name);
+  for (const name of VIEWS) assert.match(order[names.indexOf(name)][1], /type="module"/, name);
   // Both provider views run in document order, the core's owner first.
   assert.ok(names.indexOf("connections.js") < names.indexOf("antigravity.js"));
 });

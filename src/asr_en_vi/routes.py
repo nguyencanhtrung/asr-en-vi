@@ -286,6 +286,10 @@ def install_routes(
     async def transcript_core_js() -> FileResponse:
         return _asset_response("transcript-core.js", "text/javascript")
 
+    @app.get("/assets/playback-core.js", include_in_schema=False)
+    async def playback_core_js() -> FileResponse:
+        return _asset_response("playback-core.js", "text/javascript")
+
     @app.get("/meetings/{meeting_id}", include_in_schema=False)
     async def meeting_page(meeting_id: str) -> HTMLResponse:
         return _asset_response("shell.html", "text/html")
