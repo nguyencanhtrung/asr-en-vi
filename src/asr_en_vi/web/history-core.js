@@ -277,7 +277,7 @@ export const initialState = {
   summaryRev: 0, // the notes summary changed
   contextRev: 0, // the page tells notes.js about the meeting
   readyRev: 0, // a meeting finished loading
-  legacy: { rev: 0, kind: null }, // switch | home: the unmigrated task/transcript code resets
+  left: { rev: 0, kind: null }, // switch | home: the view resets the task, transcript and playback slices
   focus: { rev: 0, target: null }, // an element the view moves focus to after painting
 };
 
@@ -651,7 +651,7 @@ function requestMeeting(state, meetingId, at) {
   const same = Boolean(state.meeting && state.meeting.id === meetingId);
   let result = out({ ...state, loadId: state.loadId + 1 });
   if (!same) {
-    result = then(result, (s) => out({ ...s, legacy: { rev: s.legacy.rev + 1, kind: "switch" } }));
+    result = then(result, (s) => out({ ...s, left: { rev: s.left.rev + 1, kind: "switch" } }));
     result = then(result, resetTab);
     result = then(result, (s) => out(closeEditor(s)));
     result = then(result, (s) => out({ ...s, view: "loading", heading: "loading" }));
@@ -697,7 +697,7 @@ function meetingLoadFailed(state, action) {
 }
 
 function showHome(state, at) {
-  let next = bump({ ...state, loadId: state.loadId + 1, view: "home", heading: "home", legacy: { rev: state.legacy.rev + 1, kind: "home" } }, "contextRev");
+  let next = bump({ ...state, loadId: state.loadId + 1, view: "home", heading: "home", left: { rev: state.left.rev + 1, kind: "home" } }, "contextRev");
   next = repaintSidebar(next);
   return then(resetTab(next), (s) => out(settleDeletion(s, at)));
 }

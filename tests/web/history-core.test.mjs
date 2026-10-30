@@ -367,7 +367,7 @@ test("opening another meeting shows loading and drops the editor; the old meetin
   assert.equal(s.view, "loading");
   assert.equal(s.editor, null);
   assert.equal(s.meeting.id, "m1");
-  assert.equal(s.legacy.kind, "switch");
+  assert.equal(s.left.kind, "switch");
   assert.deepEqual(env.calls.at(-1), ["address.push", "/meetings/m2", null, null]);
   await env.answer(GET("m2"), 200, meeting("m2"));
   s = env.state();
@@ -462,8 +462,8 @@ test("reloading the meeting on screen paints what is known at once and never ste
   env.dispatch("meeting-requested", { meetingId: "m1" });
   assert.equal(env.state().view, "meeting");
   assert.equal(env.state().paintRev, paint + 1);
-  assert.equal(env.state().legacy.kind, "switch", "same meeting: no reset");
-  assert.equal(env.state().legacy.rev, 1, "only the boot reset");
+  assert.equal(env.state().left.kind, "switch", "same meeting: no reset");
+  assert.equal(env.state().left.rev, 1, "only the boot reset");
   await env.answer(GET("m1"), 200, meeting("m1", { metadata_version: 1, title: "Old title" }));
   assert.equal(env.state().meeting.title, "Meeting m1");
   assert.equal(env.state().meeting.metadata_version, 3);

@@ -554,6 +554,74 @@ Kiến trúc
 
 - `docs/release/runtime-v0.1.0.md` — kiến trúc frontend.
 
+### #134 (pha 4d của #118) — phát lại và nguồn notes trong `history.js` chuyển sang reducer
+
+#### Vấn đề
+
+Phần phát lại của `history.js` (hàng đang phát theo thời gian bản ghi, tự cuộn theo, tạm dừng khi người dùng cuộn tay, đánh dấu và tua tới nguồn notes, cổng `playRecording`) chạy mệnh lệnh trên 3 biến `let` cấp module (`lastManualScroll`, `ownScrollUntil`, `activeSegmentId`), trường `legacy.notesSourceSegmentId` và đọc hàng thẳng từ DOM; `memo` và `noticeWritten` cũng giữ trạng thái đã vẽ ở cấp module. Vì vậy `history.js` còn nằm ngoài gate view (`PARTIAL`). Thứ tự (tua khi bản ghi chưa có metadata, đổi cuộc họp giữa lúc tua, cuộn tay sát mốc 2 giây) chỉ kiểm được bằng Playwright.
+
+#### Nguyên nhân đo được
+
+Đếm trên `git show ded1ced:src/asr_en_vi/web/history.js` bỏ chú thích (cùng cách đếm với #132: từng lần xuất hiện, `\b<tên>\b`): `legacy` 7 lần, `memo` 8, `lastManualScroll` 4, `ownScrollUntil` 5, `activeSegmentId` 3, `noticeWritten` 3; `legacy.notesSourceSegmentId =` được gán 2 lần; 4 dòng `let` ở cột 0 (`lastManualScroll`, `ownScrollUntil`, `activeSegmentId`, `noticeWritten`). Tên `transcriptionRequestInFlight` (2 lần) là tên trường hợp đồng gửi cho `notes.js`.
+
+Nguồn: `git show ded1ced:src/asr_en_vi/web/history.js`; issue #118, #134.
+
+#### Thay đổi thiết kế
+
+- `playback-core.js`: core thuần (`initialState`, `reduce`, `activeRows`, `sourceRow`, `validSource`, `canPlay`, `isScrollKey`). Đồng hồ, dữ kiện âm thanh (`currentTime`, `paused`, `ended`, đã có metadata, cuộc họp của `<audio>`), hai dữ kiện bố cục (danh sách còn dưới thanh trình phát, focus ở ô nhập), cuộn/wheel/touch/phím cuộn và `prefers-reduced-motion` vào qua action; các hàng lấy từ `shown.rows` (đoạn của generation đang vẽ). Việc cần làm là dữ liệu: lệnh vẽ `ops` (`scroll`, `reveal`) view chạy rồi xác nhận bằng `playback/painted`; đặt thời gian `<audio>` là effect `call playback.seek`; chờ metadata là `schedule` 5000 ms.
+- Lát `playback` cùng store với `history`, `task`, `transcript` (`combine({history, task, transcript, playback})`). `shown` thêm `tab`, `generationId`, `rows`; view đóng dấu mọi action bằng `now`.
+- `history-core.js`: trường `legacy {rev, kind}` đổi tên thành `left`; view vẫn đổi bộ đếm đó thành `task/meeting-left`, `transcript/meeting-switched` và thêm `playback/meeting-left`.
+- `history.js`: bỏ `legacy`, `memo`, `noticeWritten`, 3 biến `let` của phần phát lại, `waitForAudioMetadata`, `applyNotesSourceMark`, `followsPlayback`. Trạng thái đã vẽ nằm trong closure của subscriber; số của dòng trạng thái chung nằm ở `data-notice-rev` của chính phần tử. `transcriptionRequestInFlight` giữ nguyên tên (`notes.js` đọc), viết thành khóa có nháy; quy tắc "bộ đếm hoặc cờ yêu cầu" của gate view nay chỉ quét mã ngoài chuỗi. `history.js` vào `VIEWS` của gate (bỏ `PARTIAL`), `playback-core.js` vào `CORES`.
+- Route `/assets/playback-core.js` có bảo vệ truy cập; thêm vào hai test asset.
+- Bảng trạng thái và chuyển trạng thái: `frontend-design-v1.md` mục 11.11, kể cả lỗi và response cũ. Không thêm loại effect.
+
+Khác biệt hành vi so với bản cũ (đã đối chiếu từng ý với `git show ded1ced`):
+
+- Tua đang đợi metadata bị bỏ (trả `false`) khi người dùng đổi cuộc họp, về trang chủ, hoặc khi generation đang xem đổi (người dùng chọn, hoặc lần chạy lại xong tự chuyển sang bản mới); bản cũ vẫn đặt thời gian khi `loadedmetadata` của bất kỳ cuộc họp nào tới (có thể đặt vào bản ghi của cuộc họp khác). Lần tua cùng đích (`meetingId`, `startSeconds`) với lần đang đợi nhập vào nó như bản cũ: cả hai cùng nhận kết quả (mở nguồn rồi bấm "Tua bản ghi" lúc chưa có metadata: cả hai `true`, `playRecording` vẫn chạy); mỗi lần vẫn có hạn 5000 ms riêng tính từ lúc nó gọi (lần đầu quá hạn trả `false`, lần sau vẫn đợi), như bản cũ; bản cũ đặt `currentTime` một lần cho mỗi lần đợi, nay một lần chung, cùng giá trị nên không khác quan sát được. Lần tua khác đích thay lần đang đợi và lần cũ trả `false`.
+- `markNotesSource` gọi trong lúc store đang xử lý (từ `asr:meeting-context`) tô dấu khi lượt xử lý kết thúc thay vì ngay lập tức (cùng một tác vụ, trước khi trình duyệt vẽ); giá trị trả về vẫn đồng bộ và cùng quy tắc.
+- Hàng đang phát tính từ đoạn của generation đang vẽ thay vì đọc DOM: khác chỉ trong khoảng giữa lúc state chọn generation khác và lúc danh sách được vẽ lại (không hàng nào đang phát trong khoảng đó; bản cũ dùng hàng của danh sách cũ).
+- Dữ kiện bố cục (hai lần `getBoundingClientRect` và `activeElement`) đọc ở mỗi mẫu khi đang phát, không chỉ khi hàng hiện tại đổi; chỉ đọc, không thấy được.
+- Lỗi `error` của `<audio>` luôn được lắng nghe (bản cũ chỉ trong lúc đợi metadata); không có tác dụng khi không có lần tua đang đợi.
+- Phần tử `#transcript-mutation-status` thêm thuộc tính `data-notice-rev`; không thấy được.
+- Cuộn, wheel, chạm và phím cuộn nay là action (mỗi sự kiện một lần dispatch nhẹ, không có `at` và `shown`); các lượt vẽ chỉ-phát-lại bỏ qua phần còn lại của `render`.
+
+#### Số đo trước và sau
+
+Điều kiện đo: Node 24.13.0, `node --test 'tests/web/*.test.mjs'`, một lần chạy cục bộ; lần xuất hiện đếm như mục "Nguyên nhân đo được".
+
+| | Trước | Sau |
+| --- | --- | --- |
+| Lần xuất hiện của `legacy`, `memo`, `lastManualScroll`, `ownScrollUntil`, `activeSegmentId`, `noticeWritten` trong `history.js` | 30 | 0 |
+| `let` cấp module trong `history.js` | 4 | 0 |
+| Unit test JS | 466 | 510 (44 cho core phát lại) |
+| `history.js` (dòng) | 2748 | 2738 |
+| `playback-core.js` (dòng) | 0 | 187 (`wc -l`) |
+
+Nguồn: `tests/web/playback-core.test.mjs`, `tests/web/shell-view.test.mjs`.
+
+#### Đánh đổi và phương án đã loại
+
+- Lát riêng thay vì mở rộng `transcript-core.js`: phát lại có đồng hồ, cuộn tay và lần tua riêng, không dùng bản nháp hay lần ghi của transcript; hai lát độc lập để mỗi core nhỏ và test riêng.
+- Hàng cho core là mảng đoạn của generation (qua `shown.rows`) thay vì danh sách đo từ DOM: core quyết định hàng nào đang phát từ dữ liệu, view chỉ tô. Đổi lại view phải khai báo generation nào đang được vẽ (khóa vẽ của danh sách).
+- `reveal` đo bố cục lúc vẽ (view báo lại `scroll-started`) thay vì view đưa bố cục của mọi hàng vào action: core chưa biết hàng nào được chọn khi nhận `mark-requested`.
+- `playRecording` không có state: cổng tab là hàm thuần của core, còn `audio.play()` là việc của view.
+
+#### Follow-up
+
+- Phase 5 (#135): bỏ `window.ASRMeetingHistory` và `CustomEvent` còn sót, xóa code chết.
+
+#### Liên kết issue/PR
+
+Issue #134; thuộc #118.
+
+#### Tag
+
+Kiến trúc
+
+#### Tài liệu đích
+
+- `docs/release/runtime-v0.1.0.md` — kiến trúc frontend.
+
 ## 4. Mốc AC-13 (#16 → #99 → #104)
 
 Đã chuyển bảng mốc và điều kiện đo vào [báo cáo nghiệm thu](acceptance-report-v1.md).

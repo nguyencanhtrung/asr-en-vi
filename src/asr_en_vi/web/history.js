@@ -1,12 +1,10 @@
 // Meeting history: sidebar recent/search, synced month calendars, meeting navigation and metadata editing
-// (phase 4a of #118), the transcription task (phase 4b) and the transcript editing (phase 4c), plus the playback
-// code that is not migrated yet (4d).
+// (phase 4a of #118), the transcription task (phase 4b), the transcript editing (phase 4c) and the playback (4d).
 //
-// The navigation and library state lives in history-core.js, the task state in task-core.js and the transcript
-// state in transcript-core.js, all in one store; this file renders them and dispatches actions. The playback code
-// below still runs imperatively on the `legacy` object. It never assigns navigation state: it reads the current
-// meeting from the store.
-// Contract: docs/adr/0010-frontend-reducer-core.md; state tables: docs/frontend-design-v1.md §11.8 to §11.10.
+// The navigation and library state lives in history-core.js, the task state in task-core.js, the transcript state in
+// transcript-core.js and the playback state in playback-core.js, all in one store; this file renders them and
+// dispatches actions.
+// Contract: docs/adr/0010-frontend-reducer-core.md; state tables: docs/frontend-design-v1.md §11.8 to §11.11.
 // Depends on the globals shell.js publishes (formatMeetingDate, sameOriginAudioSource, meetingIdFromPath).
 import { combine, createRunner, createStore } from "./store.js";
 import {
@@ -40,6 +38,14 @@ import {
   selectRuntime,
   selectTask,
 } from "./task-core.js";
+import {
+  canPlay,
+  initialState as playbackInitialState,
+  isScrollKey,
+  reduce as reducePlayback,
+  sourceRow,
+  validSource,
+} from "./playback-core.js";
 import {
   awaitsLatestReload,
   displayed,
@@ -92,17 +98,6 @@ function setProp(element, name, value) {
 
 // ---- store ----
 
-// Until 4d: the playback code keeps its own field here instead of in the store.
-// It reads the navigation state through nav() and never assigns it.
-// 4d also owns the module-level scroll and playback-follow lets further down (lastManualScroll, ownScrollUntil,
-// activeSegmentId); they were IIFE lets before the move and stay there until 4d folds them in.
-const legacy = {
-  notesSourceSegmentId: null, // the transcript row the open notes source names (see markNotesSource)
-};
-
-// What the view painted last, to paint only what changed.
-const memo = { rendered: initialState, task: taskInitialState, transcript: transcriptInitialState };
-
 const nav = () => store.getState().history;
 const tstate = () => store.getState().transcript;
 const transcriptionNow = () => {
@@ -132,6 +127,7 @@ function shownNow() {
   if (!meeting) return null;
   const transcription = meeting.transcription || {};
   const generation = transcription.generation || null;
+  const onScreen = shownGeneration().generation;
   return {
     id: meeting.id,
     language: meeting.language_hint,
@@ -142,11 +138,24 @@ function shownNow() {
     generation: Boolean(generation),
     generationLanguage: generation ? generation.language_hint : null,
     blocked: coreSourceMutationUnavailable(state),
+    tab: state.tab,
+    generationId: onScreen ? onScreen.id : null,
+    // The playback slice reasons about the rows on the page: those of the generation whose list is painted.
+    rows: onScreen && onScreen.id === paintedGenerationId() && Array.isArray(onScreen.segments) ? onScreen.segments : null,
   };
 }
 
-const stamp = (action) => ({ ...action, at: addressNow(), shown: shownNow() });
+// The generation whose rows the transcript list holds (its render key starts with the generation id).
+function paintedGenerationId() {
+  const key = $("#transcript-generation").dataset.renderKey;
+  return key ? key.split(":").slice(0, -2).join(":") : null;
+}
+
+// The clock enters the core as data, on every action.
+const stamp = (action) => ({ ...action, at: addressNow(), shown: shownNow(), now: performance.now() });
 const dispatch = (action) => store.dispatch(stamp(action));
+// Scroll events come in bursts and need neither the address nor the meeting.
+const dispatchBare = (action) => store.dispatch({ ...action, now: performance.now() });
 
 // "address.push": a new history entry. The entry being left remembers its tab, so Back restores it even if the
 // default for an address without a hash has changed since.
@@ -160,11 +169,17 @@ const run = createRunner({
   setTimeout: (callback, delay) => window.setTimeout(callback, delay),
   clearTimeout: (id) => window.clearTimeout(id),
   storage: { session: () => window.sessionStorage },
-  calls: { "address.push": pushAddress, "clipboard.write": writeClipboard, "clipboard.select": selectDiagnosticCommand, "transcript.copy": copyTranscriptDraft },
+  calls: {
+    "address.push": pushAddress,
+    "clipboard.write": writeClipboard,
+    "clipboard.select": selectDiagnosticCommand,
+    "transcript.copy": copyTranscriptDraft,
+    "playback.seek": seekAudio,
+  },
 });
 const store = createStore({
-  reduce: combine({ history: reduce, task: reduceTask, transcript: reduceTranscript }),
-  initialState: { history: initialState, task: taskInitialState, transcript: transcriptInitialState },
+  reduce: combine({ history: reduce, task: reduceTask, transcript: reduceTranscript, playback: reducePlayback }),
+  initialState: { history: initialState, task: taskInitialState, transcript: transcriptInitialState, playback: playbackInitialState },
   run: (effect, send) => run(effect, (action) => send(stamp(action))),
 });
 
@@ -182,18 +197,24 @@ function notifyMeetingContext() {
     detail: {
       meeting: view === "meeting" ? nav().meeting : null,
       view,
-      transcriptionRequestInFlight: selectRequestBusy(store.getState().task),
+      "transcriptionRequestInFlight": selectRequestBusy(store.getState().task),
     },
   }));
 }
 
-function render(root) {
+// What the view painted last, to paint only what changed; it lives in this closure.
+const render = ((memory) => (root) => {
   const s = root.history;
-  const p = memo.rendered;
-  const taskRev = root.task.rev !== memo.task.rev;
-  memo.rendered = s;
-  memo.task = root.task;
-  if (s.legacy.rev !== p.legacy.rev) resetLegacy(s.legacy.kind);
+  const p = memory.history;
+  const taskRev = root.task.rev !== memory.task.rev;
+  const playbackOnly = s === p && root.task === memory.task && root.transcript === memory.transcript;
+  memory.history = s;
+  memory.task = root.task;
+  if (playbackOnly) {
+    paintPlayback(root, memory);
+    return;
+  }
+  if (s.left.rev !== p.left.rev) meetingLeft(s.left.kind);
   if (s.installRev !== p.installRev) meetingInstalled();
   else if (s.lockRev !== p.lockRev) renderLegacyLock();
   // A refresh of the same meeting shows the tab first, so notes.js hears of the meeting with its panel visible.
@@ -220,8 +241,9 @@ function render(root) {
   if (s.readyRev !== p.readyRev && s.meeting) meetingReady(s.meeting);
   if (s.focus.rev !== p.focus.rev) focusTarget(s.focus.target);
   if (s.editor && p.editor && s.editor.focusDate !== p.editor.focusDate) $("#edit-date").focus();
-  paintTranscript(root);
-}
+  paintTranscript(root, memory);
+  paintPlayback(root, memory);
+})({ history: initialState, task: taskInitialState, transcript: transcriptInitialState, playback: playbackInitialState });
 
 // The sidebar marks the open meeting by id; a task answer replaces the meeting object every second.
 const openMeetingId = (s) => (s.meeting ? s.meeting.id : null);
@@ -308,12 +330,11 @@ function meetingReady(meeting) {
   });
 }
 
-// Leaving a meeting (or home) stops its task poll; the transcript starts over for another meeting.
-function resetLegacy(kind) {
+// Leaving a meeting (or home) stops its task poll and its seek; the transcript and the notes source mark start over for another meeting.
+function meetingLeft(kind) {
   dispatch({ type: "task/meeting-left" });
-  if (kind !== "switch") return;
-  dispatch({ type: "transcript/meeting-switched" });
-  legacy.notesSourceSegmentId = null;
+  if (kind === "switch") dispatch({ type: "transcript/meeting-switched" });
+  dispatch({ type: "playback/meeting-left", kind });
 }
 
 // ---- meeting tabs: Meeting notes | Transcript & bản ghi ----
@@ -647,37 +668,11 @@ async function leaveCalendar() {
   $(target).focus();
 }
 
-function waitForAudioMetadata(audio) {
-  if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) return Promise.resolve(true);
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (ready) => {
-      if (settled) return;
-      settled = true;
-      window.clearTimeout(timer);
-      audio.removeEventListener("loadedmetadata", onReady);
-      audio.removeEventListener("error", onError);
-      resolve(ready);
-    };
-    const onReady = () => finish(true);
-    const onError = () => finish(false);
-    const timer = window.setTimeout(() => finish(false), 5000);
-    audio.addEventListener("loadedmetadata", onReady, { once: true });
-    audio.addEventListener("error", onError, { once: true });
-  });
-}
-
-async function seekNotesSource({ meetingId, snapshotId, segmentId, startSeconds }) {
-  if (
-    typeof meetingId !== "string"
-    || !meetingId
-    || typeof snapshotId !== "string"
-    || !snapshotId
-    || typeof segmentId !== "string"
-    || !segmentId
-    || !Number.isFinite(startSeconds)
-    || startSeconds < 0
-  ) return false;
+// Resolves true when the player was sent to the source, false when the source could not be shown or a newer seek,
+// a meeting or transcript change, an audio error or the metadata timeout won (the core decides, see playback-core.js).
+async function seekNotesSource(source) {
+  const { meetingId, snapshotId, segmentId, startSeconds } = source; // no source at all rejects, as before 4d
+  if (!validSource(source)) return false;
   const path = `/meetings/${encodeURIComponent(meetingId)}`;
   const query = `?notes_source=${encodeURIComponent(snapshotId)}&segment=${encodeURIComponent(segmentId)}`;
   if (window.location.pathname !== path || window.location.search !== query) {
@@ -695,15 +690,17 @@ async function seekNotesSource({ meetingId, snapshotId, segmentId, startSeconds 
     const painted = await loadMeeting(meetingId);
     if (!painted || !showing()) return false;
   }
-  const audio = $("#meeting-audio");
-  if (audio.dataset.meetingId !== meetingId || !(await waitForAudioMetadata(audio))) return false;
-  try {
-    audio.currentTime = startSeconds;
-    updateActiveTranscriptIntervals();
-    return true;
-  } catch {
-    return false;
-  }
+  const seekId = newRequestId();
+  return new Promise((resolve) => {
+    const stop = store.subscribe((root) => {
+      const { seek, seekDone } = root.playback;
+      if (seekDone && seekDone.ids.includes(seekId)) resolve(seekDone.ok);
+      else if (!seek || !seek.ids.includes(seekId)) resolve(false); // replaced by a newer seek or dropped with its meeting
+      else return;
+      stop();
+    });
+    dispatch({ type: "playback/seek-requested", seekId, meetingId, startSeconds, ...audioFacts() });
+  });
 }
 
 // ---- metadata editing ----
@@ -759,7 +756,7 @@ function renderDeletion(s) {
 }
 
 
-// ---- task and transcript (phases 4b and 4c): still imperative, on the legacy object ----
+// ---- task and transcript (phases 4b and 4c): the DOM they paint ----
 
 const TASK_STAGES = {
   accepted: t("Đã nhận"),
@@ -1670,83 +1667,111 @@ function updateTranscriptRenderKey(generation) {
   $("#transcript-generation").dataset.renderKey = `${generation.id}:${generation.source_version}:true`;
 }
 
-// The active segment follows playback while the transcript list is on screen, unless the user took
-// over the scroll in the last two seconds. A wheel, a touch move, a scroll key or any scroll the
-// app did not start counts as theirs.
-const MANUAL_SCROLL_QUIET_MS = 2000;
-const OWN_SCROLL_GAP_MS = 200; // a scroll event this soon after our scroll, or its last event, is ours
-const SCROLL_KEYS = new Set([" ", "ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"]);
-let lastManualScroll = -Infinity;
-let ownScrollUntil = 0;
-let activeSegmentId = null;
+// ---- playback: the view of playback-core.js ----
 
-function followsPlayback(audio) {
-  if (audio.paused || audio.ended) return false;
-  if (performance.now() - lastManualScroll < MANUAL_SCROLL_QUIET_MS) return false;
+// What only the page knows about the audio and the list: the recording time, whether it plays, whether its metadata
+// is loaded, and (while it plays) whether some of the list shows below the player bar and whether focus is in a
+// transcript field.
+function audioFacts() {
+  const audio = $("#meeting-audio");
+  const facts = {
+    time: audio.currentTime,
+    paused: audio.paused,
+    ended: audio.ended,
+    ready: audio.readyState >= HTMLMediaElement.HAVE_METADATA,
+    audioMeetingId: audio.dataset.meetingId ?? null,
+    reduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    visible: false,
+    typing: false,
+  };
+  if (audio.paused || audio.ended) return facts;
   // Reading the notes while audio plays must not pull the page to the transcript: follow only
   // while some of the list shows below the player bar.
   const bar = $(".player-bar").getBoundingClientRect();
   const list = $("#transcript-segments").getBoundingClientRect();
-  if (list.bottom <= bar.bottom || list.top >= window.innerHeight) return false;
+  facts.visible = !(list.bottom <= bar.bottom || list.top >= window.innerHeight);
   const focused = document.activeElement;
-  return !(
+  facts.typing = Boolean(
     focused
     && focused.closest("#transcription-panel")
-    && (focused.matches("textarea, input, select") || focused.isContentEditable)
+    && (focused.matches("textarea, input, select") || focused.isContentEditable),
   );
+  return facts;
 }
 
-// The row of the open notes source stays marked and labelled whatever plays, and a re-render of the
-// list marks it again: this runs after every pass over the rows.
-function applyNotesSourceMark() {
-  const id = legacy.notesSourceSegmentId;
+// The command of the effect `playback.seek`: the answer is the audio as it is now.
+function seekAudio(seconds) {
+  $("#meeting-audio").currentTime = seconds;
+  return audioFacts();
+}
+
+// The rows playing now and the row of the open notes source, painted from the slice: this runs after every pass over
+// the rows (a re-render of the list asks for a new sample).
+function paintPlaybackRows(slice) {
+  const active = new Set(slice.active);
+  const items = [...$("#transcript-segments").querySelectorAll(".transcript-segment")];
+  for (const item of items) {
+    const playing = active.has(item.dataset.segmentId);
+    item.classList.toggle("is-playback-active", playing);
+    if (playing) item.setAttribute("aria-current", "true");
+    else item.removeAttribute("aria-current");
+  }
   for (const item of $("#transcript-segments").querySelectorAll(".is-notes-source")) {
-    if (item.dataset.segmentId === id) continue;
+    if (item.dataset.segmentId === slice.mark) continue;
     item.classList.remove("is-notes-source");
     item.querySelector(":scope > .segment-source-mark")?.remove();
   }
-  const row = id ? segmentRow(id) : null;
-  if (!row || row.classList.contains("is-notes-source")) return row;
+  const row = slice.mark ? segmentRow(slice.mark) : null;
+  if (!row || row.classList.contains("is-notes-source")) return;
   row.classList.add("is-notes-source");
   const label = document.createElement("span");
   label.className = "segment-source-mark";
   label.textContent = t("Nguồn của mục notes");
   row.append(label);
-  return row;
+}
+
+// A scroll the app starts is told to the core first, so the scroll events it causes are not the user's.
+function runPlaybackOp(op) {
+  const row = segmentRow(op.id);
+  if (!row) return;
+  if (op.op === "reveal") {
+    // Bring the source row into view when it is not, moving the page no further than that takes so the card above
+    // stays as visible as it can.
+    const bar = $(".player-bar").getBoundingClientRect();
+    const box = row.getBoundingClientRect();
+    if (box.top >= bar.bottom && box.bottom <= window.innerHeight) return;
+    dispatchBare({ type: "playback/scroll-started" });
+  }
+  row.scrollIntoView({ block: "nearest", behavior: op.smooth ? "smooth" : "auto" });
+}
+
+function paintPlayback(root, memory) {
+  const slice = root.playback;
+  const painted = memory.playback;
+  memory.playback = slice;
+  if (slice.rev !== painted.rev) paintPlaybackRows(slice);
+  for (const op of slice.ops) runPlaybackOp(op);
+  if (slice.ops.length) dispatchBare({ type: "playback/painted", through: slice.ops.at(-1).n });
+}
+
+// A new sample of the audio: which rows play now, and whether the list follows.
+function updateActiveTranscriptIntervals() {
+  dispatch({ type: "playback/sampled", ...audioFacts() });
 }
 
 // Mark the row a saved notes source names (its ID, else the row spanning its time, since a newer
-// transcript has other IDs) and bring it into view when it is not, moving the page no further than
-// that takes so the card above stays as visible as it can. Null clears the mark.
+// transcript has other IDs) and bring it into view when it is not. Null clears the mark. True when a row was found.
 function markNotesSource(segmentId, startSeconds) {
-  let id = null;
-  if (segmentId) {
-    const rows = [...$("#transcript-segments").querySelectorAll(".transcript-segment")];
-    const row = rows.find((item) => item.dataset.segmentId === segmentId)
-      || rows.find((item) => (
-        Number(item.dataset.startSeconds) <= startSeconds && startSeconds < Number(item.dataset.endSeconds)
-      ));
-    id = row ? row.dataset.segmentId : null;
-  }
-  legacy.notesSourceSegmentId = id;
-  const row = applyNotesSourceMark();
-  if (!row) return false;
-  const bar = $(".player-bar").getBoundingClientRect();
-  const box = row.getBoundingClientRect();
-  if (box.top < bar.bottom || box.bottom > window.innerHeight) {
-    ownScrollUntil = performance.now() + OWN_SCROLL_GAP_MS;
-    row.scrollIntoView({
-      block: "nearest",
-      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-    });
-  }
-  return true;
+  const shown = shownNow();
+  const found = sourceRow((shown && shown.rows) || [], segmentId, startSeconds) !== null;
+  dispatch({ type: "playback/mark-requested", segmentId, startSeconds, reduced: audioFacts().reduced });
+  return found;
 }
 
 // Start the recording where it is, but only while its player is on screen: the Transcript tab. A browser
 // may also refuse without a recent gesture, which is not an error.
 async function playRecording() {
-  if (nav().tab !== "transcript") return false;
+  if (!canPlay(shownNow())) return false;
   const audio = $("#meeting-audio");
   try {
     await audio.play();
@@ -1754,34 +1779,6 @@ async function playRecording() {
   } catch {
     return false;
   }
-}
-
-function updateActiveTranscriptIntervals() {
-  const audio = $("#meeting-audio");
-  const seconds = audio.currentTime;
-  const items = [...$("#transcript-segments").querySelectorAll(".transcript-segment")];
-  let current = null;
-  for (const [index, item] of items.entries()) {
-    const start = Number(item.dataset.startSeconds);
-    const end = Number(item.dataset.endSeconds);
-    const withinEnd = seconds < end || (index === items.length - 1 && seconds <= end);
-    const active = Number.isFinite(seconds) && seconds >= start && withinEnd;
-    item.classList.toggle("is-playback-active", active);
-    if (active) item.setAttribute("aria-current", "true");
-    else item.removeAttribute("aria-current");
-    if (active && !current) current = item;
-  }
-  applyNotesSourceMark();
-  // Compare ids, not elements: a re-render of the same transcript is not a new active segment.
-  const currentId = current ? current.dataset.segmentId : null;
-  const changed = currentId !== null && currentId !== activeSegmentId;
-  activeSegmentId = currentId;
-  if (!changed || !followsPlayback(audio)) return;
-  ownScrollUntil = performance.now() + OWN_SCROLL_GAP_MS;
-  current.scrollIntoView({
-    block: "nearest",
-    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-  });
 }
 
 function clearReloadLatestActions() {
@@ -1891,8 +1888,6 @@ function resolveTranscriptMutationFocus(descriptor) {
   return null;
 }
 
-let noticeWritten = 0; // the noticeRev of the transcript slice the shared status line was last written for
-
 function syncTranscriptMutationControls() {
   const { mutation, reload, notice, noticeRev } = tstate();
   const busy = Boolean(mutation);
@@ -1940,8 +1935,8 @@ function syncTranscriptMutationControls() {
   $("#transcript-generation").setAttribute("aria-busy", busy ? "true" : "false");
   // The shared status line is announced (aria-live): a reported result is written again, anything else only when its words change.
   const status = $("#transcript-mutation-status");
-  if (noticeRev !== noticeWritten) {
-    noticeWritten = noticeRev;
+  if (String(noticeRev) !== (status.dataset.noticeRev ?? "0")) {
+    status.dataset.noticeRev = String(noticeRev); // the noticeRev the line was last written for
     status.textContent = tr(notice);
   } else setProp(status, "textContent", tr(notice));
   setProp(status, "hidden", !notice);
@@ -2165,11 +2160,11 @@ function moveTranscriptFocus(focus) {
 
 // Paint what the transcript slice changed: bring it up to date with the installed meeting first (it reconciles the
 // drafts), then the paint commands in order, the tail, the focus move, and the controls.
-function paintTranscript(root) {
+function paintTranscript(root, memory) {
   const slice = root.transcript;
-  const painted = memo.transcript;
+  const painted = memory.transcript;
   if (!root.history.meeting) {
-    memo.transcript = slice;
+    memory.transcript = slice;
     // The status line is written at once, into the hidden meeting view, as before; opening the next meeting does not announce it.
     if (slice !== painted) syncTranscriptMutationControls();
     if (slice.ops.length) dispatch({ type: "transcript/painted", through: slice.ops.at(-1).n }); // no page to run them on
@@ -2179,7 +2174,7 @@ function paintTranscript(root) {
     dispatch({ type: slice.installed !== root.history.installRev ? "transcript/meeting-installed" : "transcript/transcription-shown" });
     return;
   }
-  memo.transcript = slice;
+  memory.transcript = slice;
   for (const op of slice.ops) runTranscriptOp(op);
   if (slice.rev !== painted.rev) paintTranscriptTail(transcriptionNow());
   setProp($("#speaker-add-name"), "value", slice.addName);
@@ -2392,7 +2387,7 @@ window.ASRMeetingHistory = Object.freeze({
     return {
       meeting: state.view === "meeting" ? state.meeting : null,
       view: state.view,
-      transcriptionRequestInFlight: selectRequestBusy(store.getState().task),
+      "transcriptionRequestInFlight": selectRequestBusy(store.getState().task),
     };
   },
   hasUnsavedTranscriptDrafts() {
@@ -2690,25 +2685,20 @@ $("#transcript-segments").addEventListener("change", (event) => {
   const select = event.target.closest("select[data-speaker-assignment]");
   if (select) dispatchAssignment(select, false);
 });
-for (const eventName of ["timeupdate", "seeked", "loadedmetadata", "play"]) {
+for (const eventName of ["timeupdate", "seeked", "play"]) {
   $("#meeting-audio").addEventListener(eventName, updateActiveTranscriptIntervals);
 }
-const noteManualScroll = () => {
-  lastManualScroll = performance.now();
-};
+$("#meeting-audio").addEventListener("loadedmetadata", () => dispatch({ type: "playback/metadata-loaded", ...audioFacts() }));
+$("#meeting-audio").addEventListener("error", () => dispatch({ type: "playback/audio-failed" }));
+// A wheel, a touch move, a scroll key or any scroll the app did not start counts as the user's. A scrollbar drag
+// sends no wheel or key first; our own smooth scroll keeps sending scroll events, which the core tells apart.
 for (const eventName of ["wheel", "touchmove"]) {
-  window.addEventListener(eventName, noteManualScroll, { passive: true });
+  window.addEventListener(eventName, () => dispatchBare({ type: "playback/manual-scrolled" }), { passive: true });
 }
 window.addEventListener("keydown", (event) => {
-  if (SCROLL_KEYS.has(event.key)) noteManualScroll();
+  if (isScrollKey(event.key)) dispatchBare({ type: "playback/manual-scrolled" });
 });
-// A scrollbar drag sends no wheel or key first. Our own smooth scroll keeps sending scroll events,
-// each one holding the window open a little longer, however far it travels.
-window.addEventListener("scroll", () => {
-  const now = performance.now();
-  if (now <= ownScrollUntil) ownScrollUntil = now + OWN_SCROLL_GAP_MS;
-  else lastManualScroll = now;
-}, { passive: true });
+window.addEventListener("scroll", () => dispatchBare({ type: "playback/scrolled" }), { passive: true });
 document.addEventListener("visibilitychange", () => dispatch({ type: "task/visibility-changed", hidden: document.hidden }));
 
 const searchInput = $("#history-search");

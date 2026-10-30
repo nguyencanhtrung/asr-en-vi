@@ -42,7 +42,7 @@ const meeting = (id, extra = {}, transcription = {}) => ({
 const GENERATION = { id: "g1", generation_number: 1, source_version: 1, status: "complete", language_hint: "vi", segments: [], speakers: [] };
 
 // The page as the view wires it: the real store and runner over fakes, the facts of the meeting on screen stamped on
-// every action, and the two bridges the view makes from history revisions (`legacy.rev` -> left, `readyRev` -> ready).
+// every action, and the two bridges the view makes from history revisions (`left.rev` -> left, `readyRev` -> ready).
 function setup(path = "/meetings/m1") {
   const requests = [];
   const timers = [];
@@ -89,7 +89,7 @@ function setup(path = "/meetings/m1") {
   store.subscribe((root) => {
     const was = seen;
     seen = root.history;
-    if (seen.legacy.rev !== was.legacy.rev) send("task/meeting-left");
+    if (seen.left.rev !== was.left.rev) send("task/meeting-left");
     if (seen.readyRev !== was.readyRev) {
       const id = seen.meeting.id;
       send("task/meeting-ready", { requestId: `new-${nextId += 1}`, stored: stored.get(requestStorageKey(id)) ?? null, autoStart: stored.has(autoStartStorageKey(id)) });
