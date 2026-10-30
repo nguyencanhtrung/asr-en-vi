@@ -482,6 +482,78 @@ Kiến trúc
 
 - `docs/release/runtime-v0.1.0.md` — kiến trúc frontend.
 
+### #132 (pha 4c của #118) — sửa transcript trong `history.js` chuyển sang reducer
+
+#### Vấn đề
+
+Phần sửa transcript của `history.js` (chọn generation, trình sửa đoạn và đổi tên người nói, bản nháp theo generation, bốn lần ghi, xung đột 409 và "Tải lại bản mới nhất", dòng trạng thái và focus sau khi ghi) chạy mệnh lệnh trên 12 trường của object `legacy`, với cờ `transcriptMutationInFlight`, `transcriptReloadInFlight`, và sửa trực tiếp object cuộc họp trong store (`item.text = …`, `generation.source_version = …`, rồi `history/meeting-updated`). Thứ tự response (ghi tới sau khi cuộc họp được làm mới, đổi cuộc họp giữa lúc ghi, 409, bấm lưu lặp, bản nháp sống qua lần tải lại) chỉ kiểm được bằng Playwright.
+
+#### Nguyên nhân đo được
+
+Đếm trên `git show ee95686:src/asr_en_vi/web/history.js` bỏ chú thích (cùng cách đếm với #130: từng lần xuất hiện, `\b<tên>\b`; "gán" là `legacy.<trường> =` không phải `==`): 12 trường transcript của `legacy` (`selectedGenerationId`, `currentGenerationId`, `transcriptMutationInFlight`, `transcriptMutationFocus`, `…FocusAfter`, `…FocusDescriptor`, `transcriptMutationStatusDescriptor`, `transcriptMutationError`, `transcriptReloadInFlight`, `transcriptDrafts`, `editingSegment`, `renamingSpeaker`) có 134 lần xuất hiện, trong đó 32 lần gán (`transcriptDrafts` là `Map` sửa bằng `.set`/`.delete`, không đếm là gán); tên `*InFlight` của phần transcript: `transcriptMutationInFlight` (20 lần), `transcriptReloadInFlight` (8), `setTranscriptMutationInFlight` (hàm). `transcriptionRequestInFlight` là tên trường hợp đồng gửi cho `notes.js`, giữ nguyên.
+
+Nguồn: `git show ee95686:src/asr_en_vi/web/history.js`; issue #118, #132.
+
+#### Thay đổi thiết kế
+
+- `transcript-core.js`: core thuần (`initialState`, `reduce`, `navigation`, `displayed`, `draftOf`, `fieldValue`, `hasUnsavedDrafts`, `speakerAddReady`, `awaitsLatestReload`). Bản nháp là object thường, không sửa tại chỗ; id lần ghi là bộ đếm trong state (không `crypto`); chữ gõ, giá trị ô chọn và hai descriptor của điều khiển đang dùng vào qua action; vị trí focus sau khi ghi là `focus {rev, mode, target, from}`; các bước DOM bản cũ làm theo thứ tự là hàng đợi `ops` mà view chạy rồi xác nhận (`transcript/painted`).
+- Lát `transcript` cùng store với `history` và `task` (`combine({history, task, transcript})`). Câu trả lời của lần ghi là **một** action, `transcript/mutation-succeeded`, do cả hai lát xử lý: `history-core` đặt giá trị vào cuộc họp mới tạo (`applyFieldAnswer`, `applySpeakerAdded`, xuất ra để lát transcript tính cùng kết quả), không sửa tại chỗ. `transcript/reload-loaded` cũng vậy. View đóng dấu `shown` thêm `meeting`, `view`, `installRev`, và đổi `installRev` thành `transcript/meeting-installed`, `legacy.rev` (đổi cuộc họp) thành `transcript/meeting-switched`.
+- `history.js`: bỏ 12 trường khỏi `legacy` (còn `notesSourceSegmentId` của 4d), bỏ `reportMeeting`, `history/meeting-updated`, mọi hàm lưu/mở/đóng trình sửa/tải lại/đối chiếu bản nháp; còn lại hàm dựng DOM, `runTranscriptOp` (chạy `ops`), `moveTranscriptFocus`, `paintTranscript`, `mutationFacts` và các handler chỉ dispatch. Sao chép bản nháp là effect `call transcript.copy`. `history-core.js` thêm `answerOf`, `applyFieldAnswer`, `applySpeakerAdded`, `isRecord` (core transcript dùng chung) và hai case dùng chung; cuộc họp nhận câu trả lời mang khóa nguồn notes như đã báo (như `takeTask`).
+- Route `/assets/transcript-core.js` có bảo vệ truy cập; thêm vào hai test asset. Gate `shell-view.test.mjs`: `transcript-core.js` vào CORES.
+- Bảng trạng thái và chuyển trạng thái: `frontend-design-v1.md` mục 11.10, kể cả lỗi, xung đột và response cũ. ADR 0010 thêm một ý về lệnh vẽ là dữ liệu. Không thêm loại effect.
+
+Khác biệt hành vi so với bản cũ (đều nhỏ; đã đối chiếu từng ý với `git show ee95686`): cuộc họp nhận giá trị đã lưu là object mới, không phải object sửa tại chỗ (bản cũ: `item.text = serverValue` trong `applyTranscriptMutationResult`), nên `notes.js` nhận object cuộc họp mới trong `asr:meeting-context` sau lần lưu (khóa nguồn notes giữ như đã báo; thêm người nói vẫn không báo `notes.js`, như cũ); dòng trạng thái chung chỉ được ghi khi chữ đổi (bản cũ ghi lại cùng chữ "Đang lưu…" ở mỗi lần đồng bộ điều khiển); nút "Thêm vào transcript hiện tại" cho một bản nháp đã mất không làm gì (bản cũ: `TypeError` ở `draft.value`, không bắt); ô tên người nói mới được core theo dõi bằng sự kiện `input` (bản cũ so với DOM lúc có kết quả): khác chỉ khi giá trị ô đổi mà không có sự kiện `input`; chữ báo kết quả sao chép ghi vào bản duyệt khớp generation, trường và mục (bản cũ: bản duyệt của nút bấm), khác chỉ khi hai bản duyệt cùng một bản nháp hiện cùng lúc (không xảy ra: bản duyệt trong bảng khôi phục chỉ có cho generation khác generation đang xem); việc chuyển nút tải lại giữa khối lỗi và trình sửa chạy khi đổi trạng thái mở/đóng, kể cả khi hàng không có trong DOM (bản cũ: bỏ qua nếu hàng không có); sau khi cài cuộc họp, phần transcript vẽ ở lượt dispatch kế tiếp (cùng đồng bộ), sau khi bản nháp được đối chiếu (bản cũ: đối chiếu rồi vẽ trong cùng lượt); bấm Lưu liên tiếp khi đang bận, trả lời cũ sau khi đổi cuộc họp và đổi generation hoạt động như cũ (đã kiểm bằng test Playwright hiện có). Các khác biệt còn lại, đều đã đối chiếu với `git show ee95686`:
+
+- Lỗi cũ được sửa: đổi tên người nói khi một câu trả lời poll của tác vụ hoặc một lần tải lại cùng cuộc họp thay object cuộc họp trong lúc lần đổi tên đang bay làm `applyTranscriptMutationResult` ném `ReferenceError: item is not defined` (`item` khai báo `const` trong khối `if (generation) {}` ở trên, dùng ngoài khối, `history.js:1252` của bản cũ): bản cũ hiện lỗi đó ở dòng báo và dòng trạng thái chung, giữ ô đổi tên mở, bản nháp đã bị bỏ, không hiện "Đã lưu tên người nói."; bản mới cập nhật nhãn và hiện "Đã lưu tên người nói.".
+- Thân phản hồi 2xx không phải object (chuỗi, `null`, mảng, số) là lần ghi lỗi ở cả hai lát, với chữ mặc định của từng loại ("Không thể lưu đoạn transcript.", "Không thể lưu tên người nói.", "Không thể lưu người nói.", "Không thể thêm người nói."); bản nháp và trình sửa giữ, trừ lựa chọn người nói (bản nháp bỏ như mọi lần lựa chọn lỗi). Bản cũ: với `null` hoặc thân không phải JSON, báo lỗi bằng chữ của `TypeError` do trình duyệt sinh (`result.text` trên `null`); với chuỗi, mảng hoặc số JSON, chạy nhánh thành công: không áp giá trị (phiên bản 0), bỏ bản nháp, đóng trình sửa về chữ cũ và báo chữ thành công của loại đó ("Đã lưu.", "Đã lưu tên người nói.", "Đã thêm người nói.", "Đã lưu lựa chọn người nói." với ô chọn về người nói cũ). Bản mới không phát `asr:meeting-context` cho trường hợp này (bản cũ: 1 lần với chuỗi, mảng hoặc số, trừ thêm người nói).
+- "Tải lại bản mới nhất" thành công gửi 2 sự kiện `asr:meeting-context` (bản cũ 3: `meetingInstalled` vẽ lại và báo, rồi `renderTranscription` tường minh báo thêm một lần); payload như cũ, mỗi sự kiện là một lượt đọc của `notes.js`.
+- Sau 409 của lựa chọn người nói, dòng trạng thái chung kết thúc bằng chữ xung đột; bản cũ kết thúc bằng "Thay đổi transcript đã hoàn tất." vì lần dựng lại bắt buộc chạy `syncTranscriptMutationControls` khi còn đang ghi và viết "Đang lưu…" đè lên chữ xung đột. Giữ hành vi mới.
+- Cuộc họp hiện tại bị xóa khi một lần lưu đang bay: bản nháp đã lưu bị bỏ như cũ, kể cả tên người nói thêm (`hasUnsavedTranscriptDrafts()` là false); dòng trạng thái chung đọc "Thay đổi transcript đã hoàn tất." thay vì chữ thành công của bản cũ ("Đã lưu." cho chữ đoạn, "Đã lưu tên người nói." cho tên, "Đã thêm người nói." cho thêm và thêm lại); lựa chọn người nói như cũ (bản cũ đã trả về sớm và đọc "Thay đổi transcript đã hoàn tất."). Dòng này được ghi ngay vào view cuộc họp đang ẩn, như cũ.
+- Mỗi lần kết quả được báo, dòng trạng thái chung được ghi lại kể cả khi chữ giống lần trước ("Không có thay đổi." hai lần liền, từ chối phiên bản lặp lại), như bản cũ, nên vùng aria-live đọc lại; chỉ "Đang lưu…" và các lần đồng bộ điều khiển không ghi lại cùng chữ.
+- Lựa chọn người nói chỉ ghi dòng trạng thái chung, không ghi dòng `p.segment-edit-status` của hàng (bản cũ: descriptor `speaker-assignment` không có dòng đích).
+- Đồng bộ điều khiển (`syncTranscriptMutationControls`) chạy khi lát transcript đổi, không chạy ở lượt vẽ mà lát không đổi (mỗi giây poll của tác vụ); các lần dựng lại hàng/chip/generation vẫn tự đồng bộ. Bản cũ chỉ đồng bộ khi vẽ khóa nguồn, tải lại bản mới nhất, dựng lại hàng hoặc chip, và khi bắt đầu/kết thúc một lần ghi; bản mới đồng bộ nhiều lần hơn (cả mỗi phím gõ), không thấy được vì kết quả chỉ phụ thuộc state.
+- Mỗi phím gõ trong trình sửa chạy 2 dispatch (`transcript/draft-typed`, rồi `transcript/painted` vì mỗi lần nhớ bản nháp có một lệnh `review`) và 2 lượt vẽ, không đổi DOM ngoài bản duyệt bản nháp; ô thêm người nói thêm 1 dispatch và 1 lượt vẽ mỗi phím (`transcript/add-name-typed`). Bản cũ không dispatch gì khi gõ.
+- Sao chép bản nháp dùng một khóa effect `transcript/copy` (mới nhất thắng): sao chép bản nháp thứ hai trước khi lần đầu xong thì bản duyệt đầu không nhận "Đã sao chép bản nháp." (bản cũ ghi cả hai); không xảy ra trong thực tế vì clipboard trả lời trong vài ms.
+
+#### Số đo trước và sau
+
+Điều kiện đo: Node 24.13.0, `node --test 'tests/web/*.test.mjs'`, một lần chạy cục bộ; lần xuất hiện và lần gán đếm như mục "Nguyên nhân đo được".
+
+| | Trước | Sau |
+| --- | --- | --- |
+| Lần xuất hiện của 12 trường transcript của `legacy` trong `history.js` | 134 | 0 |
+| Lần gán các trường đó | 32 | 0 |
+| Tên `*InFlight` của phần transcript trong `history.js` | 3 (40 lần xuất hiện) | 0 |
+| Unit test JS | 399 | 466 (62 cho core transcript) |
+| `history.js` (dòng) | 3588 | 2748 |
+| `history-core.js` (dòng) | 998 | 1095 (`wc -l`) |
+| `transcript-core.js` (dòng) | 0 | 817 (`wc -l`) |
+
+Nguồn: `tests/web/transcript-core.test.mjs`, `tests/web/history-core.test.mjs`, `tests/web/shell-view.test.mjs`.
+
+#### Đánh đổi và phương án đã loại
+
+- `ops` là hàng đợi trong state thay vì view so hai state rồi suy ra DOM: bản cũ sửa DOM từng bước (thay một hàng, giữ trình sửa đang mở và con trỏ, cập nhật nhãn mà không dựng lại) và so hai state không tái hiện được thứ tự đó mà không dựng lại hàng đang gõ. Đổi lại state mang cả việc vẽ chờ xác nhận.
+- `shown.meeting` là cả object cuộc họp, không phải bản sao các generation: core cần so với cuộc họp lúc gửi (`mutation.meeting`) để biết trang đã được làm mới trong lúc ghi; một bản sao sẽ lệch khỏi cuộc họp `history-core` giữ.
+- Lát chỉ vẽ khi đã đồng bộ với cuộc họp cài, nên mỗi lần cài có một lượt vẽ trễ (cùng một lượt dispatch) trước khi transcript hiện; đổi lại bản nháp luôn được đối chiếu trước khi vẽ như bản cũ.
+- Lựa chọn generation tính lại từ cuộc họp ở mỗi action (`navigation`), nhớ `lastCurrent` thay vì `legacy.currentGenerationId` gán lúc vẽ.
+
+#### Follow-up
+
+- 4d (theo dõi phát, cuộn tay, đánh dấu và tua nguồn notes), rồi `history.js` vào VIEWS; bỏ `legacy`.
+
+#### Liên kết issue/PR
+
+Issue #132; thuộc #118.
+
+#### Tag
+
+Kiến trúc
+
+#### Tài liệu đích
+
+- `docs/release/runtime-v0.1.0.md` — kiến trúc frontend.
+
 ## 4. Mốc AC-13 (#16 → #99 → #104)
 
 Đã chuyển bảng mốc và điều kiện đo vào [báo cáo nghiệm thu](acceptance-report-v1.md).

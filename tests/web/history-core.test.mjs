@@ -986,17 +986,103 @@ test("a newer copy from the server merges into the current meeting; another meet
   assert.equal(env.state().meeting.transcription.generation.source_version, 2, "an older generation does not replace the page's");
 });
 
-test("an in-place edit is reported once and only for the meeting on screen", async () => {
+const SEGMENT = { id: "s1", text: "old", speaker_id: "A", assignment_version: 1 };
+const SPEAKER = { speaker_id: "A", display_name: "Speaker 1" };
+const WITH_ITEMS = { ...GENERATION, source_version: 2, segments: [SEGMENT], speakers: [SPEAKER] };
+const withItems = (extra = {}) => meeting("m1", { transcription: { generation: WITH_ITEMS, generation_history: [], task: null }, ...extra });
+const answer = (field, extra = {}) => ({
+  type: "transcript/mutation-succeeded",
+  meta: { kind: field, meetingId: "m1", generationId: "g1", field, itemId: field === "speakerName" ? "A" : "s1", ...extra.meta },
+  response: { status: 200, body: extra.body },
+});
+
+test("a saved transcript field is applied to the meeting as new objects, and notes.js is told", async () => {
   const env = await booted("/meetings/m1", "m1");
-  const current = env.state().meeting;
+  env.dispatch("meeting-fetched", { meeting: withItems() });
   const before = env.state();
-  env.dispatch("meeting-updated", { meeting: current });
-  assert.notEqual(env.state(), before, "subscribers hear of it");
-  assert.equal(env.state().meeting, current);
-  const stale = { ...current };
-  const middle = env.state();
-  env.dispatch("meeting-updated", { meeting: stale });
-  assert.equal(env.state(), middle, "a copy the code held from before is not the meeting");
+  const next = reduce(before, answer("segmentText", { body: { text: "new", source_version: 3 } })).state;
+  const generation = next.meeting.transcription.generation;
+  assert.equal(generation.segments[0].text, "new");
+  assert.equal(generation.source_version, 3);
+  assert.equal(before.meeting.transcription.generation.segments[0].text, "old", "the old meeting is not edited in place");
+  assert.notEqual(next.meeting, before.meeting);
+  assert.equal(next.contextRev, before.contextRev + 1);
+  const named = reduce(next, answer("speakerName", { body: { display_name: "Ann", source_version: 4 } })).state;
+  assert.equal(named.meeting.transcription.generation.speakers[0].display_name, "Ann");
+  const assigned = reduce(named, answer("speakerAssignment", { body: { speaker_id: "B", assignment_version: 2, source_version: 5 } })).state;
+  assert.deepEqual([assigned.meeting.transcription.generation.segments[0].speaker_id, assigned.meeting.transcription.generation.segments[0].assignment_version], ["B", 2]);
+});
+
+test("a saved field is not applied to another meeting, a missing item or an older source version", async () => {
+  const env = await booted("/meetings/m1", "m1");
+  env.dispatch("meeting-fetched", { meeting: withItems() });
+  const state = env.state();
+  const other = reduce(state, answer("segmentText", { meta: { meetingId: "m2" }, body: { text: "new", source_version: 3 } })).state;
+  assert.equal(other.meeting, state.meeting);
+  const missing = reduce(state, answer("segmentText", { meta: { itemId: "nope" }, body: { text: "new", source_version: 3 } })).state;
+  assert.equal(missing.meeting, state.meeting);
+  const older = reduce(state, answer("segmentText", { body: { text: "new", source_version: 1 } })).state;
+  assert.equal(older.meeting, state.meeting);
+  assert.equal(older.contextRev, state.contextRev + 1, "notes.js is told even when nothing changed, as before");
+});
+
+test("a speaker the server added goes into its generation only when the source version moves on", async () => {
+  const env = await booted("/meetings/m1", "m1");
+  env.dispatch("meeting-fetched", { meeting: withItems() });
+  const state = env.state();
+  const body = { speaker_id: "B", display_name: "Bob", first_seen_seconds: 0, last_seen_seconds: 1, source_version: 3, generation_id: "g1" };
+  const added = reduce(state, { type: "transcript/mutation-succeeded", meta: { kind: "speakerAdd", meetingId: "m1", generationId: "g1" }, response: { body } }).state;
+  assert.deepEqual(added.meeting.transcription.generation.speakers.map((item) => item.speaker_id), ["A", "B"]);
+  assert.equal(added.meeting.transcription.generation.source_version, 3);
+  assert.equal(added.contextRev, state.contextRev, "an added speaker does not reach notes.js, as before");
+  const stale = reduce(state, { type: "transcript/mutation-succeeded", meta: { kind: "speakerAdd", meetingId: "m1", generationId: "g1" }, response: { body: { ...body, source_version: 2 } } }).state;
+  assert.equal(stale.meeting, state.meeting);
+  // A past generation exists in the meeting: a reapply for it still does not count, an add that names it does.
+  const past = { ...WITH_ITEMS, id: "gh", source_version: 1, segments: [], speakers: [SPEAKER] };
+  env.dispatch("meeting-fetched", { meeting: withItems({ transcription: { generation: WITH_ITEMS, generation_history: [past], task: null } }) });
+  const withPast = env.state();
+  const reapplied = reduce(withPast, { type: "transcript/mutation-succeeded", meta: { kind: "speakerReapply", meetingId: "m1", generationId: "gh" }, response: { body: { ...body, generation_id: "g1" } } }).state;
+  assert.equal(reapplied.meeting, withPast.meeting, "a reapply counts only for the current generation");
+  const addedPast = reduce(withPast, { type: "transcript/mutation-succeeded", meta: { kind: "speakerAdd", meetingId: "m1", generationId: "g1" }, response: { body: { ...body, generation_id: "gh", source_version: 2 } } }).state;
+  assert.deepEqual(addedPast.meeting.transcription.generation_history[0].speakers.map((item) => item.speaker_id), ["A", "B"]);
+});
+
+test("a 2xx body that is no object changes nothing and does not throw", async () => {
+  const env = await booted("/meetings/m1", "m1");
+  env.dispatch("meeting-fetched", { meeting: withItems() });
+  const state = env.state();
+  for (const body of [null, "<html>login</html>", [], 7, undefined]) {
+    for (const field of ["segmentText", "speakerName", "speakerAssignment"]) assert.equal(reduce(state, answer(field, { body })).state, state);
+    const added = { type: "transcript/mutation-succeeded", meta: { kind: "speakerAdd", meetingId: "m1", generationId: "g1" }, response: { body } };
+    assert.equal(reduce(state, added).state, state);
+  }
+});
+
+test("a saved field keeps the notes source lock the page was told of, not the one the load carried", async () => {
+  const env = await booted("/meetings/m1", "m1");
+  env.dispatch("meeting-fetched", { meeting: withItems({ notes_source_locked: false }) });
+  env.dispatch("notes-source-lock-reported", { meetingId: "m1", locked: true, known: true });
+  const state = env.state();
+  assert.equal(state.meeting.notes_source_locked, false);
+  const saved = reduce(state, answer("segmentText", { body: { text: "new", source_version: 3 } })).state;
+  assert.equal(saved.meeting.notes_source_locked, true);
+  const body = { speaker_id: "B", display_name: "Bob", first_seen_seconds: 0, last_seen_seconds: 1, source_version: 3, generation_id: "g1" };
+  const added = reduce(state, { type: "transcript/mutation-succeeded", meta: { kind: "speakerAdd", meetingId: "m1", generationId: "g1" }, response: { body } }).state;
+  assert.equal(added.meeting.notes_source_locked, true);
+});
+
+test("the latest copy a reload read replaces the meeting unless another copy was installed meanwhile", async () => {
+  const env = await booted("/meetings/m1", "m1");
+  const state = env.state();
+  const loaded = (meta, body) => reduce(state, { type: "transcript/reload-loaded", meta, response: { body } }).state;
+  const newer = withItems();
+  const ok = loaded({ meetingId: "m1", installRev: state.installRev }, { meeting: newer });
+  assert.equal(ok.installRev, state.installRev + 1);
+  assert.equal(ok.installKind, "refresh");
+  assert.equal(ok.shownQuery, state.query);
+  assert.equal(loaded({ meetingId: "m1", installRev: state.installRev - 1 }, newer).installRev, state.installRev, "installed copy changed meanwhile");
+  assert.equal(loaded({ meetingId: "m1", installRev: state.installRev }, { ...newer, transcription: null }).installRev, state.installRev);
+  assert.equal(loaded({ meetingId: "m1", installRev: state.installRev }, { ...newer, id: "m2" }).installRev, state.installRev);
 });
 
 test("the sidebar repaints with the typed query when the task code refreshes the meeting", async () => {

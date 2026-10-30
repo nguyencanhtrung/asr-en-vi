@@ -4,9 +4,9 @@
 //
 // Scope (phase 4a of #118): the meeting list and search, the two calendars, the views (home, calendar,
 // loading, error, meeting), loading one meeting, the Notes | Transcript tabs, the notes summary and source
-// lock reported by notes.js, the metadata editor and meeting deletion. Transcription tasks (4b) and the
-// transcript (4c) stay imperative in history.js: they read the meeting from the store and report a changed one
-// with `history/meeting-updated` (edited in place) or `history/meeting-fetched` (a newer copy from the server).
+// lock reported by notes.js, the metadata editor and meeting deletion. The transcription task (4b) and the
+// transcript (4c) have their own slices; the answers they share with this one (`task/poll-loaded`,
+// `transcript/mutation-succeeded`, ...) are applied to the meeting here, as new objects, never in place.
 //
 // User-visible text is data: t(text, params) here only keeps the Vietnamese source string, and the view
 // translates it with the real t(). A param is a primitive, a t() result, or an array of those; an array is
@@ -152,6 +152,85 @@ export function mergeTranscription(previous, meeting) {
     .filter((item) => !current || item.id !== current.id)
     .sort((left, right) => left.generation_number - right.generation_number);
   return { ...meeting, transcription: { ...next, generation: current, generation_history: generationHistory } };
+}
+
+// ---- transcript answers (phase 4c) ----
+
+const ITEMS = { segmentText: "segments", speakerAssignment: "segments", speakerName: "speakers" };
+const itemKey = (field) => (ITEMS[field] === "segments" ? "id" : "speaker_id");
+
+// The meeting with one generation swapped for a changed copy.
+function withGeneration(meeting, generation) {
+  const transcription = meeting.transcription;
+  if (transcription.generation && transcription.generation.id === generation.id) {
+    return { ...meeting, transcription: { ...transcription, generation } };
+  }
+  const past = Array.isArray(transcription.generation_history) ? transcription.generation_history : [];
+  return { ...meeting, transcription: { ...transcription, generation_history: past.map((item) => (item.id === generation.id ? generation : item)) } };
+}
+
+export const isRecord = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+// What a transcript write answered, from the request's `meta` and the response body. `value` is the server's
+// copy of the field; a speaker answer carries the speaker it created.
+export function answerOf(meta, body) {
+  const base = { meetingId: meta.meetingId, generationId: meta.generationId, field: meta.field, itemId: meta.itemId, sourceVersion: body.source_version };
+  if (meta.kind === "speakerAdd" || meta.kind === "speakerReapply") {
+    const speaker = { speaker_id: body.speaker_id, display_name: body.display_name, first_seen_seconds: body.first_seen_seconds, last_seen_seconds: body.last_seen_seconds };
+    // Adding names the generation the server answers for; a reapply only counts for the one it asked.
+    return { ...base, speaker, generationId: meta.kind === "speakerAdd" ? body.generation_id || meta.generationId : meta.generationId, currentOnly: meta.kind === "speakerReapply" };
+  }
+  if (meta.field === "segmentText") return { ...base, value: body.text };
+  if (meta.field === "speakerAssignment") return { ...base, value: { speaker_id: body.speaker_id, assignment_version: body.assignment_version } };
+  return { ...base, value: body.display_name };
+}
+
+// A field write the server accepted, applied to the generation the page holds. Nothing changes when the meeting
+// is another one, the item is gone or the page already holds a newer source version. `transcription` is the
+// meeting's transcription after the write (null for another meeting); `bumped` says the version moved on.
+export function applyFieldAnswer(meeting, answer) {
+  const transcription = meeting && meeting.id === answer.meetingId ? meeting.transcription : null;
+  const generation = generationsFor(transcription).find((item) => item.id === answer.generationId);
+  const none = { meeting, transcription, generation, applied: false, changed: false, bumped: false };
+  if (!generation) return none;
+  const key = ITEMS[answer.field];
+  const list = Array.isArray(generation[key]) ? generation[key] : [];
+  const item = list.find((entry) => entry[itemKey(answer.field)] === answer.itemId);
+  const currentVersion = Number(generation.source_version) || 0;
+  const resultVersion = Number(answer.sourceVersion) || 0;
+  if (!item || resultVersion < currentVersion) return none;
+  const { value } = answer;
+  let changed;
+  let next;
+  if (answer.field === "segmentText") {
+    changed = item.text !== value;
+    next = { ...item, text: value };
+  } else if (answer.field === "speakerAssignment") {
+    changed = item.speaker_id !== value.speaker_id || item.assignment_version !== value.assignment_version;
+    next = { ...item, speaker_id: value.speaker_id, assignment_version: value.assignment_version };
+  } else {
+    changed = item.display_name !== value;
+    next = { ...item, display_name: value };
+  }
+  const bumped = resultVersion > currentVersion;
+  const updated = { ...generation, [key]: list.map((entry) => (entry === item ? next : entry)), ...(bumped ? { source_version: resultVersion } : {}) };
+  const updatedMeeting = withGeneration(meeting, updated);
+  return { meeting: updatedMeeting, transcription: updatedMeeting.transcription, generation: updated, applied: true, changed, bumped };
+}
+
+// A speaker the server added, put into the generation it names when that moves the source version on.
+export function applySpeakerAdded(meeting, answer) {
+  const transcription = meeting && meeting.id === answer.meetingId ? meeting.transcription : null;
+  const pool = answer.currentOnly ? generationsFor(transcription).filter((item) => transcription.generation && item.id === transcription.generation.id) : generationsFor(transcription);
+  const generation = pool.find((item) => item.id === answer.generationId);
+  const resultVersion = Number(answer.sourceVersion) || 0;
+  if (!generation || resultVersion <= (Number(generation.source_version) || 0)) return { meeting, transcription, generation, applied: false };
+  const speakers = Array.isArray(generation.speakers) ? generation.speakers : [];
+  const known = speakers.some((item) => item.speaker_id === answer.speaker.speaker_id);
+  const merged = known ? speakers.map((item) => (item.speaker_id === answer.speaker.speaker_id ? { ...item, ...answer.speaker } : item)) : [...speakers, answer.speaker];
+  const updated = { ...generation, speakers: merged, source_version: resultVersion };
+  const updatedMeeting = withGeneration(meeting, updated);
+  return { meeting: updatedMeeting, transcription: updatedMeeting.transcription, generation: updated, applied: true };
 }
 
 // ---- state ----
@@ -546,6 +625,17 @@ function takeTask(state, meetingId, task) {
   return { ...state, meeting: { ...meeting, ...lock, transcription: { ...(meeting.transcription || {}), task } } };
 }
 
+// The transcript slice reduces the same answer: the meeting on screen takes the saved field (or speaker) as its own.
+// notes.js is told of a saved field, not of an added speaker, as before.
+function takeTranscriptAnswer(state, action) {
+  if (!isRecord(action.response.body)) return state; // the transcript slice reports it as a failed write
+  const answer = answerOf(action.meta, action.response.body);
+  const result = answer.speaker ? applySpeakerAdded(state.meeting, answer) : applyFieldAnswer(state.meeting, answer);
+  const lock = state.notes.lockKnown && typeof state.meeting?.notes_source_locked === "boolean" ? { notes_source_locked: state.notes.locked } : {};
+  const next = result.applied ? { ...state, meeting: { ...result.meeting, ...lock } } : state;
+  return answer.speaker ? next : bump(next, "contextRev");
+}
+
 // The meeting read again after a run succeeded: a newer copy from the server, with the sidebar following the query.
 function refreshedMeeting(state, action) {
   const payload = action.response.body;
@@ -821,9 +911,16 @@ export function reduce(state, action) {
     case "task/refresh-loaded":
       return out(refreshedMeeting(state, action));
 
-    case "history/meeting-updated":
-      // The unmigrated code edited the current meeting in place; a copy it held from before is not the meeting.
-      return action.meeting && action.meeting === state.meeting ? out({ ...state }) : out(state);
+    case "transcript/mutation-succeeded":
+      return out(takeTranscriptAnswer(state, action));
+    case "transcript/reload-loaded": {
+      // The same meeting, still the one installed when the read began, comes back as a newer copy.
+      const body = action.response.body;
+      const meeting = body && body.meeting && typeof body.meeting === "object" ? body.meeting : body;
+      if (!state.meeting || action.meta.installRev !== state.installRev) return out(state);
+      if (!meeting || meeting.id !== action.meta.meetingId || !meeting.transcription) return out(state);
+      return out(repaintSidebar(reduce(state, { type: "history/meeting-fetched", meeting }).state));
+    }
 
     case "history/editor-opened":
       return openEditor(state);

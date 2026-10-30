@@ -1,13 +1,13 @@
 // Meeting history: sidebar recent/search, synced month calendars, meeting navigation and metadata editing
-// (phase 4a of #118) and the transcription task (phase 4b), plus the transcript code that is not migrated yet (4c).
+// (phase 4a of #118), the transcription task (phase 4b) and the transcript editing (phase 4c), plus the playback
+// code that is not migrated yet (4d).
 //
-// The navigation and library state lives in history-core.js and the task state in task-core.js, both in one store;
-// this file renders them and dispatches actions. The transcript code below still runs imperatively on the `legacy`
-// object. It never assigns navigation state: it reads the current meeting from the store and reports a changed one
-// with `history/meeting-updated` (edited in place) or `history/meeting-fetched` (a newer copy from the server).
-// Contract: docs/adr/0010-frontend-reducer-core.md; state tables: docs/frontend-design-v1.md §11.8 and §11.9.
-// Depends on the globals shell.js publishes (requestJson, ApiError, formatMeetingDate, sameOriginAudioSource,
-// meetingIdFromPath).
+// The navigation and library state lives in history-core.js, the task state in task-core.js and the transcript
+// state in transcript-core.js, all in one store; this file renders them and dispatches actions. The playback code
+// below still runs imperatively on the `legacy` object. It never assigns navigation state: it reads the current
+// meeting from the store.
+// Contract: docs/adr/0010-frontend-reducer-core.md; state tables: docs/frontend-design-v1.md §11.8 to §11.10.
+// Depends on the globals shell.js publishes (formatMeetingDate, sameOriginAudioSource, meetingIdFromPath).
 import { combine, createRunner, createStore } from "./store.js";
 import {
   ACTIVE_TASK_STATES,
@@ -40,6 +40,20 @@ import {
   selectRuntime,
   selectTask,
 } from "./task-core.js";
+import {
+  awaitsLatestReload,
+  displayed,
+  draftOf,
+  fieldValue,
+  hasSegmentDraft as coreHasSegmentDraft,
+  hasUnsavedDrafts,
+  initialState as transcriptInitialState,
+  isEditing,
+  isRenaming,
+  navigation,
+  reduce as reduceTranscript,
+  speakerAddReady,
+} from "./transcript-core.js";
 
 const $ = (selector) => document.querySelector(selector);
 const WEEKDAYS = [t("T2"), t("T3"), t("T4"), t("T5"), t("T6"), t("T7"), t("CN")];
@@ -78,30 +92,30 @@ function setProp(element, name, value) {
 
 // ---- store ----
 
-// Until 4c: the transcript code keeps its own fields here instead of in the store.
+// Until 4d: the playback code keeps its own field here instead of in the store.
 // It reads the navigation state through nav() and never assigns it.
-// 4c also owns the module-level scroll and playback-follow lets further down (lastManualScroll, ownScrollUntil,
-// activeSegmentId); they were IIFE lets before the move and stay there until 4c folds them in.
+// 4d also owns the module-level scroll and playback-follow lets further down (lastManualScroll, ownScrollUntil,
+// activeSegmentId); they were IIFE lets before the move and stay there until 4d folds them in.
 const legacy = {
-  selectedGenerationId: null,
-  currentGenerationId: null,
-  transcriptMutationInFlight: false,
   notesSourceSegmentId: null, // the transcript row the open notes source names (see markNotesSource)
-  transcriptMutationFocus: null,
-  transcriptMutationFocusAfter: null,
-  transcriptMutationFocusDescriptor: null,
-  transcriptMutationStatusDescriptor: null,
-  transcriptMutationError: null,
-  transcriptReloadInFlight: false,
-  transcriptDrafts: new Map(),
-  editingSegment: null, // { generationId, segmentId }: the one segment whose editor is open
-  renamingSpeaker: null, // { generationId, speakerId }: the one speaker chip being renamed
 };
 
 // What the view painted last, to paint only what changed.
-const memo = { rendered: initialState, task: taskInitialState };
+const memo = { rendered: initialState, task: taskInitialState, transcript: transcriptInitialState };
 
 const nav = () => store.getState().history;
+const tstate = () => store.getState().transcript;
+const transcriptionNow = () => {
+  const meeting = nav().meeting;
+  return meeting ? meeting.transcription : null;
+};
+// The generation on screen and whether it takes edits, as the core reads them from the meeting.
+const shownGeneration = () => displayed(tstate(), transcriptionNow());
+const transcriptDraft = (generationId, field, itemId) => draftOf(tstate().drafts, generationId, field, itemId);
+const isEditingSegment = (generationId, segmentId) => isEditing(tstate(), generationId, segmentId);
+const isRenamingSpeaker = (generationId, speakerId) => isRenaming(tstate(), generationId, speakerId);
+const hasSegmentDraft = (generationId, segmentId) => coreHasSegmentDraft(tstate(), generationId, segmentId);
+const speakerAddRecoveryReady = (generation, draft) => speakerAddReady(tstate(), generation, draft, sourceMutationUnavailable());
 const sourceMutationUnavailable = () => coreSourceMutationUnavailable(nav());
 
 // The page address enters the core as data: every action carries where the address pointed when it was made.
@@ -122,6 +136,9 @@ function shownNow() {
     id: meeting.id,
     language: meeting.language_hint,
     task: transcription.task || null,
+    meeting, // the transcript slice reasons about the meeting's generations (the object is never changed in place)
+    view: state.view,
+    installRev: state.installRev,
     generation: Boolean(generation),
     generationLanguage: generation ? generation.language_hint : null,
     blocked: coreSourceMutationUnavailable(state),
@@ -143,18 +160,13 @@ const run = createRunner({
   setTimeout: (callback, delay) => window.setTimeout(callback, delay),
   clearTimeout: (id) => window.clearTimeout(id),
   storage: { session: () => window.sessionStorage },
-  calls: { "address.push": pushAddress, "clipboard.write": writeClipboard, "clipboard.select": selectDiagnosticCommand },
+  calls: { "address.push": pushAddress, "clipboard.write": writeClipboard, "clipboard.select": selectDiagnosticCommand, "transcript.copy": copyTranscriptDraft },
 });
 const store = createStore({
-  reduce: combine({ history: reduce, task: reduceTask }),
-  initialState: { history: initialState, task: taskInitialState },
+  reduce: combine({ history: reduce, task: reduceTask, transcript: reduceTranscript }),
+  initialState: { history: initialState, task: taskInitialState, transcript: transcriptInitialState },
   run: (effect, send) => run(effect, (action) => send(stamp(action))),
 });
-
-// Tell the store that the task or transcript code edited the current meeting object in place.
-function reportMeeting(meeting = nav().meeting) {
-  dispatch({ type: "history/meeting-updated", meeting });
-}
 
 // ---- painting ----
 
@@ -182,7 +194,7 @@ function render(root) {
   memo.rendered = s;
   memo.task = root.task;
   if (s.legacy.rev !== p.legacy.rev) resetLegacy(s.legacy.kind);
-  if (s.installRev !== p.installRev) meetingInstalled(s);
+  if (s.installRev !== p.installRev) meetingInstalled();
   else if (s.lockRev !== p.lockRev) renderLegacyLock();
   // A refresh of the same meeting shows the tab first, so notes.js hears of the meeting with its panel visible.
   const tabFirst = s.installRev === p.installRev && s.tab !== p.tab && s.view === "meeting" && p.view === "meeting";
@@ -208,6 +220,7 @@ function render(root) {
   if (s.readyRev !== p.readyRev && s.meeting) meetingReady(s.meeting);
   if (s.focus.rev !== p.focus.rev) focusTarget(s.focus.target);
   if (s.editor && p.editor && s.editor.focusDate !== p.editor.focusDate) $("#edit-date").focus();
+  paintTranscript(root);
 }
 
 // The sidebar marks the open meeting by id; a task answer replaces the meeting object every second.
@@ -262,11 +275,10 @@ function loadAudio(meeting) {
   audio.load();
 }
 
-// A meeting from the server became the current one: reconcile the transcript drafts with it, repaint what
-// depends on the notes source lock, and tell notes.js.
-function meetingInstalled(s) {
-  const meeting = s.meeting;
-  reconcileTranscriptDrafts(meeting && meeting.transcription);
+// A meeting from the server became the current one: repaint what depends on the notes source lock and tell
+// notes.js. The transcript slice reconciles its drafts with it (paintTranscript asks for that) before the
+// transcript is painted.
+function meetingInstalled() {
   renderLegacyLock();
   notifyMeetingContext();
 }
@@ -296,17 +308,12 @@ function meetingReady(meeting) {
   });
 }
 
-// Leaving a meeting (or home) stops its task poll; the unmigrated transcript code starts over for another meeting.
+// Leaving a meeting (or home) stops its task poll; the transcript starts over for another meeting.
 function resetLegacy(kind) {
   dispatch({ type: "task/meeting-left" });
   if (kind !== "switch") return;
-  legacy.selectedGenerationId = null;
-  legacy.currentGenerationId = null;
-  legacy.transcriptMutationError = null;
-  legacy.editingSegment = null;
-  legacy.renamingSpeaker = null;
+  dispatch({ type: "transcript/meeting-switched" });
   legacy.notesSourceSegmentId = null;
-  clearSpeakerAddName();
 }
 
 // ---- meeting tabs: Meeting notes | Transcript & bản ghi ----
@@ -816,33 +823,6 @@ const COPY_STATUS = {
   selected: t("Lệnh đã được chọn. Nhấn Ctrl+C hoặc ⌘C để sao chép."),
 };
 
-function renderTranscriptMutationError() {
-  const panel = $("#transcript-mutation-error");
-  const message = $("#transcript-mutation-error-message");
-  const mutationError = legacy.transcriptMutationError;
-  const meeting = nav().meeting;
-  const generationExists = Boolean(
-    mutationError
-    && meeting
-    && meeting.id === mutationError.meetingId
-    && legacy.selectedGenerationId === mutationError.generationId
-    && generationsFor(meeting.transcription).some(
-      (generation) => generation.id === mutationError.generationId,
-    ),
-  );
-  panel.hidden = !generationExists;
-  if (!generationExists) {
-    clearReloadLatestAction(panel);
-    return;
-  }
-  message.textContent = mutationError.message;
-  if (mutationError.reloadLatest) {
-    appendReloadLatestButton(panel, mutationError.generationId);
-  } else {
-    clearReloadLatestAction(panel);
-  }
-}
-
 // How a run that did not finish reads alone, and after "lần chạy mới" / "lần tạo mới".
 const RUN_END_LABELS = { failed: t("Thất bại"), canceled: t("Đã hủy"), interrupted: t("Bị gián đoạn") };
 const NEW_RUN_END_WORDS = { failed: t("thất bại"), canceled: t("bị hủy"), interrupted: t("bị gián đoạn") };
@@ -900,25 +880,6 @@ function renderMeetingProcessingStatus(task, generation) {
   }
 }
 
-function transcriptDraftBucket(generationId, create = false) {
-  let bucket = legacy.transcriptDrafts.get(generationId);
-  if (!bucket && create) {
-    bucket = {
-      segmentText: new Map(),
-      speakerName: new Map(),
-      speakerAssignment: new Map(),
-      speakerAddName: new Map(),
-    };
-    legacy.transcriptDrafts.set(generationId, bucket);
-  }
-  return bucket || null;
-}
-
-function transcriptDraft(generationId, field, itemId) {
-  const bucket = transcriptDraftBucket(generationId);
-  return bucket ? bucket[field].get(itemId) || null : null;
-}
-
 // The backend names a speaker nobody renamed "Speaker 3"; its chip invites a name.
 const DEFAULT_SPEAKER_NAME = /^Speaker \d+$/;
 
@@ -935,150 +896,12 @@ function focusSpeakerCatalog() {
   const transcription = nav().meeting && nav().meeting.transcription;
   const current = transcription && transcription.generation;
   // Only the current transcript takes names, so a past one on screen gives way to it.
-  if (current && legacy.selectedGenerationId !== current.id) {
+  if (current && shownGeneration().selected !== current.id) {
     const selector = $("#generation-selector");
     selector.value = current.id;
     selector.dispatchEvent(new Event("change", { bubbles: true }));
   }
   $("#speaker-catalog-title").focus();
-}
-
-function isEditingSegment(generationId, segmentId) {
-  const editing = legacy.editingSegment;
-  return Boolean(editing && editing.generationId === generationId && editing.segmentId === segmentId);
-}
-
-function isRenamingSpeaker(generationId, speakerId) {
-  const renaming = legacy.renamingSpeaker;
-  return Boolean(renaming && renaming.generationId === generationId && renaming.speakerId === speakerId);
-}
-
-function hasSegmentDraft(generationId, segmentId) {
-  return Boolean(
-    transcriptDraft(generationId, "segmentText", segmentId)
-    || transcriptDraft(generationId, "speakerAssignment", segmentId),
-  );
-}
-
-// A conflict-marked draft can be the only copy of what the user typed, so Hủy and Esc keep it.
-function isConflictedDraft(generationId, field, itemId) {
-  const draft = transcriptDraft(generationId, field, itemId);
-  return Boolean(draft && draft.conflictCode);
-}
-
-// A conflict marks the draft while the page still shows the value the draft started from. Once a
-// reload shows a different one, the review already holds the latest and no reload is due.
-function awaitsLatestReload(draft, currentValue) {
-  return Boolean(draft && draft.conflictCode && draft.baseValue === currentValue);
-}
-
-// A closed row or chip cannot hold the reload (a read row keeps two tab stops), so a conflict still
-// waiting on it moves to the page's conflict panel when its editor closes, and back beside the
-// editor's buttons when it reopens.
-function placeLatestReload(generationId, field, itemId, currentValue, editorOpen) {
-  const draft = transcriptDraft(generationId, field, itemId);
-  if (!awaitsLatestReload(draft, currentValue)) return;
-  if (editorOpen) clearTranscriptMutationError(generationId);
-  else showTranscriptConflictNotice(generationId, draft.conflictCode);
-}
-
-// The generation on screen and whether it takes edits, as renderGenerationNavigation decides.
-function displayedGeneration() {
-  const transcription = nav().meeting && nav().meeting.transcription;
-  const current = transcription && transcription.generation;
-  const generation = generationsFor(transcription).find((item) => item.id === legacy.selectedGenerationId);
-  return {
-    generation,
-    editable: Boolean(
-      generation && current && current.id === generation.id && generation.status === "complete",
-    ),
-  };
-}
-
-function speakerAddRecoveryReady(generation, draft) {
-  return Boolean(
-    generation
-    && generation.status === "complete"
-    && !sourceMutationUnavailable()
-    && !(draft && draft.conflictCode)
-    && !legacy.transcriptMutationInFlight
-    && !legacy.transcriptReloadInFlight
-  );
-}
-
-function transcriptDraftBucketIsEmpty(bucket) {
-  return bucket.segmentText.size === 0
-    && bucket.speakerName.size === 0
-    && bucket.speakerAssignment.size === 0
-    && bucket.speakerAddName.size === 0;
-}
-
-function rememberSpeakerAddDraft(generationId, value, conflictCode = null) {
-  const generation = generationsFor(nav().meeting && nav().meeting.transcription)
-    .find((item) => item.id === generationId);
-  const bucket = transcriptDraftBucket(generationId, true);
-  const previous = bucket.speakerAddName.get("speaker-add-name");
-  const draft = {
-    value,
-    baseSourceVersion: previous ? previous.baseSourceVersion : Number(generation?.source_version) || 0,
-    conflictCode: conflictCode || previous?.conflictCode || null,
-  };
-  bucket.speakerAddName.set("speaker-add-name", draft);
-  return draft;
-}
-
-function clearSpeakerAddDraft(generationId) {
-  const bucket = transcriptDraftBucket(generationId);
-  if (!bucket) return;
-  bucket.speakerAddName.delete("speaker-add-name");
-  if (transcriptDraftBucketIsEmpty(bucket)) legacy.transcriptDrafts.delete(generationId);
-}
-
-function transcriptFieldValue(generationId, field, itemId) {
-  const transcription = nav().meeting && nav().meeting.transcription;
-  const generation = generationsFor(transcription).find((item) => item.id === generationId);
-  if (!generation) return undefined;
-  if (field === "segmentText" || field === "speakerAssignment") {
-    const segment = generation.segments.find((item) => item.id === itemId);
-    return segment && (field === "segmentText" ? segment.text : segment.speaker_id || "");
-  }
-  const speaker = generation.speakers.find((item) => item.speaker_id === itemId);
-  return speaker && speaker.display_name;
-}
-
-function rememberTranscriptDraft(generationId, field, itemId, value, { reviewed = false } = {}) {
-  const baseline = transcriptFieldValue(generationId, field, itemId);
-  const generation = generationsFor(nav().meeting && nav().meeting.transcription)
-    .find((item) => item.id === generationId);
-  const sourceVersion = Number(generation && generation.source_version) || 0;
-  const bucket = transcriptDraftBucket(generationId, true);
-  const drafts = bucket[field];
-  if (baseline === value) {
-    drafts.delete(itemId);
-    if (transcriptDraftBucketIsEmpty(bucket)) {
-      legacy.transcriptDrafts.delete(generationId);
-    }
-    removeTranscriptDraftReview(generationId, field, itemId);
-    return null;
-  }
-  const previous = drafts.get(itemId);
-  const rebased = Boolean(
-    reviewed
-    && previous
-    && previous.conflictCode === "source_version_changed"
-    && (baseline !== previous.baseValue || sourceVersion > previous.baseSourceVersion)
-  );
-  const draft = {
-    value,
-    baseValue: rebased || !previous ? baseline : previous.baseValue,
-    baseSourceVersion: rebased || !previous
-      ? sourceVersion
-      : previous.baseSourceVersion,
-    conflictCode: rebased ? null : previous && previous.conflictCode,
-  };
-  drafts.set(itemId, draft);
-  updateTranscriptDraftReview(generationId, field, itemId, draft, baseline);
-  return draft;
 }
 
 function removeTranscriptDraftReview(generationId, field, itemId) {
@@ -1121,150 +944,6 @@ function draftReviewValue(field, value, generation = null) {
   return value;
 }
 
-function reconcileTranscriptDrafts(transcription, savedResult = null) {
-  for (const [generationId, bucket] of legacy.transcriptDrafts) {
-    const generation = generationsFor(transcription).find((item) => item.id === generationId);
-    for (const [segmentId, draft] of bucket.segmentText) {
-      const segment = generation && generation.segments.find((item) => item.id === segmentId);
-      const saved = savedResult
-        && savedResult.generationId === generationId
-        && savedResult.field === "segmentText"
-        && savedResult.itemId === segmentId
-        && savedResult.draftValue === draft.value;
-      if (saved || (segment && segment.text === draft.value)) {
-        bucket.segmentText.delete(segmentId);
-        removeTranscriptDraftReview(generationId, "segmentText", segmentId);
-      } else if (segment && segment.text !== draft.baseValue) {
-        draft.conflictCode = "source_version_changed";
-      } else if (segment && draft.conflictCode === "source_version_changed") {
-        draft.conflictCode = null;
-      }
-    }
-    for (const [speakerId, draft] of bucket.speakerName) {
-      const speaker = generation && generation.speakers.find((item) => item.speaker_id === speakerId);
-      const saved = savedResult
-        && savedResult.generationId === generationId
-        && savedResult.field === "speakerName"
-        && savedResult.itemId === speakerId
-        && savedResult.draftValue === draft.value;
-      if (saved || (speaker && speaker.display_name === draft.value)) {
-        bucket.speakerName.delete(speakerId);
-        removeTranscriptDraftReview(generationId, "speakerName", speakerId);
-      } else if (speaker && speaker.display_name !== draft.baseValue) {
-        draft.conflictCode = "source_version_changed";
-      } else if (speaker && draft.conflictCode === "source_version_changed") {
-        draft.conflictCode = null;
-      }
-    }
-    for (const [segmentId, draft] of bucket.speakerAssignment) {
-      const segment = generation && generation.segments.find((item) => item.id === segmentId);
-      const saved = savedResult
-        && savedResult.generationId === generationId
-        && savedResult.field === "speakerAssignment"
-        && savedResult.itemId === segmentId
-        && savedResult.draftValue === draft.value;
-      if (saved || (segment && (segment.speaker_id || "") === draft.value)) {
-        bucket.speakerAssignment.delete(segmentId);
-        removeTranscriptDraftReview(generationId, "speakerAssignment", segmentId);
-      } else if (draft.conflictCode === "current_generation_changed") {
-        // Keep the choice attached to its historical generation for review.
-      } else if (segment && draft.conflictCode && draft.conflictCode !== "source_version_changed") {
-        if (Number(generation.source_version) > (Number(draft.baseSourceVersion) || 0)) {
-          draft.conflictCode = null;
-        }
-      } else if (segment && Number(generation.source_version) > (Number(draft.baseSourceVersion) || 0)) {
-        draft.conflictCode = null;
-      }
-    }
-    const currentGeneration = transcription && transcription.generation;
-    for (const draft of bucket.speakerAddName.values()) {
-      const currentGenerationChanged = currentGeneration && currentGeneration.id !== generationId;
-      const sourceVersionAdvanced = currentGeneration
-        && currentGeneration.id === generationId
-        && Number(currentGeneration.source_version) > (Number(draft.baseSourceVersion) || 0);
-      if (
-        ["source_version_changed", "current_generation_changed"].includes(draft.conflictCode)
-        && (currentGenerationChanged || sourceVersionAdvanced)
-      ) {
-        draft.conflictCode = null;
-      }
-    }
-    if (transcriptDraftBucketIsEmpty(bucket)) {
-      legacy.transcriptDrafts.delete(generationId);
-    }
-  }
-}
-function applyTranscriptMutationResult(
-  meetingId,
-  originalMeeting,
-  generationId,
-  field,
-  itemId,
-  draftValue,
-  serverValue,
-  sourceVersion,
-) {
-  const savedResult = { generationId, field, itemId, draftValue };
-  const meeting = nav().meeting;
-  const transcription = meeting && meeting.id === meetingId ? meeting.transcription : null;
-  const generation = generationsFor(transcription).find((item) => item.id === generationId);
-  let appliedToRefreshedState = false;
-  if (generation) {
-    const item = field === "segmentText" || field === "speakerAssignment"
-      ? generation.segments.find((segment) => segment.id === itemId)
-      : generation.speakers.find((speaker) => speaker.speaker_id === itemId);
-    const currentVersion = Number(generation.source_version) || 0;
-    const resultVersion = Number(sourceVersion) || 0;
-    if (item && resultVersion >= currentVersion) {
-      const changed = field === "segmentText"
-        ? item.text !== serverValue
-        : field === "speakerAssignment"
-          ? item.speaker_id !== serverValue.speaker_id
-            || item.assignment_version !== serverValue.assignment_version
-          : item.display_name !== serverValue;
-      if (field === "segmentText") item.text = serverValue;
-      else if (field === "speakerAssignment") {
-        item.speaker_id = serverValue.speaker_id;
-        item.assignment_version = serverValue.assignment_version;
-      } else item.display_name = serverValue;
-      if (resultVersion > currentVersion) generation.source_version = resultVersion;
-      appliedToRefreshedState = meeting !== originalMeeting && (resultVersion > currentVersion || changed);
-    }
-  }
-  reportMeeting();
-  reconcileTranscriptDrafts(transcription, savedResult);
-  if (transcription) {
-    const current = transcription.generation;
-    renderTranscriptDraftRecovery(
-      transcription,
-      legacy.selectedGenerationId || (current && current.id),
-    );
-  }
-  if (
-    appliedToRefreshedState
-    && nav().view === "meeting"
-    && legacy.selectedGenerationId === generation.id
-  ) {
-    const current = transcription.generation;
-    const editable = Boolean(
-      current && current.id === generation.id && generation.status === "complete",
-    );
-    if (editable && field === "speakerName") updateSpeakerLabelsInTranscript(generation, item);
-    else if (editable) updateTranscriptRenderKey(generation);
-    else renderTranscriptGeneration(generation, false);
-  }
-  notifyMeetingContext();
-  return { meeting, generation };
-}
-
-function transcriptConflictCode(error) {
-  const detail = error && error.payload && error.payload.detail;
-  const code = detail && detail.code;
-  return code === "source_version_changed" || code === "current_generation_changed"
-    ? code
-    : null;
-}
-
 function appendReloadLatestButton(container, generationId) {
   let button = container.querySelector("[data-reload-latest]");
   if (!button) {
@@ -1274,7 +953,7 @@ function appendReloadLatestButton(container, generationId) {
     button.dataset.reloadLatest = "true";
     button.dataset.transcriptMutation = "true";
     button.textContent = t("Tải lại bản mới nhất");
-    button.disabled = legacy.transcriptMutationInFlight || legacy.transcriptReloadInFlight;
+    button.disabled = Boolean(tstate().mutation || tstate().reload);
     container.append(button);
   }
   button.dataset.generationId = generationId;
@@ -1324,15 +1003,15 @@ function createTranscriptDraftReview(generationId, field, itemId, value, latestV
   return review;
 }
 
-function renderTranscriptDraftRecovery(transcription, selectedGenerationId) {
+function renderTranscriptDraftRecovery(transcription, shownId) {
   const panel = $("#transcript-draft-recovery");
   const generations = generationsFor(transcription);
   const entries = [];
-  for (const [generationId, bucket] of legacy.transcriptDrafts) {
+  for (const [generationId, bucket] of Object.entries(tstate().drafts)) {
     const generation = generations.find((item) => item.id === generationId);
     if (!generation) continue;
-    if (generationId === selectedGenerationId) {
-      for (const draft of bucket.speakerAddName.values()) {
+    if (generationId === shownId) {
+      for (const draft of Object.values(bucket.speakerAddName)) {
         entries.push({
           generationId,
           generationNumber: generation.generation_number,
@@ -1343,7 +1022,7 @@ function renderTranscriptDraftRecovery(transcription, selectedGenerationId) {
       }
       continue;
     }
-    for (const [segmentId, draft] of bucket.segmentText) {
+    for (const [segmentId, draft] of Object.entries(bucket.segmentText)) {
       const segment = generation.segments.find((item) => item.id === segmentId);
       if (segment) entries.push({
         generationId,
@@ -1356,7 +1035,7 @@ function renderTranscriptDraftRecovery(transcription, selectedGenerationId) {
         startSeconds: segment.start_seconds,
       });
     }
-    for (const draft of bucket.speakerAddName.values()) {
+    for (const draft of Object.values(bucket.speakerAddName)) {
       entries.push({
         generationId,
         generationNumber: generation.generation_number,
@@ -1365,7 +1044,7 @@ function renderTranscriptDraftRecovery(transcription, selectedGenerationId) {
         conflictCode: draft.conflictCode || "",
       });
     }
-    for (const [speakerId, draft] of bucket.speakerName) {
+    for (const [speakerId, draft] of Object.entries(bucket.speakerName)) {
       const speaker = generation.speakers.find((item) => item.speaker_id === speakerId);
       if (speaker) entries.push({
         generationId,
@@ -1377,7 +1056,7 @@ function renderTranscriptDraftRecovery(transcription, selectedGenerationId) {
         latestValue: speaker.display_name,
       });
     }
-    for (const [segmentId, draft] of bucket.speakerAssignment) {
+    for (const [segmentId, draft] of Object.entries(bucket.speakerAssignment)) {
       const segment = generation.segments.find((item) => item.id === segmentId);
       if (segment) entries.push({
         generationId,
@@ -1480,115 +1159,17 @@ function renderTranscriptDraftRecovery(transcription, selectedGenerationId) {
   }
 }
 
-async function copyTranscriptDraft(button) {
-  const draft = transcriptDraft(
-    button.dataset.generationId,
-    button.dataset.draftField,
-    button.dataset.draftItemId,
-  );
-  if (!draft) return;
-  const status = button.parentElement.querySelector(".transcript-draft-copy-status");
-  try {
-    if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("Clipboard unavailable");
-    await navigator.clipboard.writeText(draft.value);
-    status.textContent = t("Đã sao chép bản nháp.");
-  } catch {
-    const input = document.createElement("textarea");
-    input.value = draft.value;
-    input.setAttribute("readonly", "");
-    input.style.position = "fixed";
-    input.style.opacity = "0";
-    document.body.append(input);
-    input.focus();
-    input.select();
-    let copied = false;
-    try {
-      copied = document.execCommand("copy");
-    } catch {
-      // Keep the visible draft selectable when the clipboard command is unavailable.
-    }
-    input.remove();
-    if (copied) {
-      status.textContent = t("Đã sao chép bản nháp.");
-    } else {
-      const selection = window.getSelection();
-      const draftText = button.parentElement.querySelector(".transcript-draft-value");
-      const range = document.createRange();
-      range.selectNodeContents(draftText);
-      selection.removeAllRanges();
-      selection.addRange(range);
-      status.textContent = t("Bản nháp đã được chọn. Nhấn Ctrl+C hoặc ⌘C để sao chép.");
-    }
-  }
-}
-
-async function reloadLatestTranscript(button) {
-  const installed = nav().installRev;
-  const meetingId = nav().meeting && nav().meeting.id;
-  if (!meetingId || legacy.transcriptReloadInFlight || legacy.transcriptMutationInFlight) return;
-  legacy.transcriptReloadInFlight = true;
-  syncTranscriptMutationControls();
-  try {
-    const payload = await requestJson(`/api/meetings/${encodeURIComponent(meetingId)}`);
-    // A task answer replaces the meeting object every second; only a load, save or refresh installs another copy.
-    if (nav().installRev !== installed || !nav().meeting) return;
-    const latest = payload && payload.meeting && typeof payload.meeting === "object"
-      ? payload.meeting
-      : payload;
-    if (!latest || latest.id !== meetingId || !latest.transcription) {
-      throw new Error(t("Không tải được trạng thái transcript mới nhất."));
-    }
-    dispatch({ type: "history/meeting-fetched", meeting: latest });
-    clearReloadLatestActions();
-    legacy.transcriptMutationError = null;
-    delete $("#transcript-generation").dataset.renderKey;
-    renderTranscription(nav().meeting.transcription);
-    repaintSidebar();
-  } catch (error) {
-    if (button.isConnected) {
-      const status = button.parentElement.querySelector(".transcript-reload-status");
-      if (status) status.textContent = error && error.message
-        ? error.message
-        : t("Không thể tải transcript mới nhất.");
-    }
-  } finally {
-    legacy.transcriptReloadInFlight = false;
-    syncTranscriptMutationControls();
-  }
-}
-
-function clearSpeakerAddName() {
-  const input = $("#speaker-add-name");
-  if (input) input.value = "";
-}
-
+// The selector and the generation it names. The core decides which one that is (a new current transcript takes the
+// selection from the old one); this paints it.
 function renderGenerationNavigation(transcription) {
   const current = transcription && transcription.generation;
-  const generations = generationsFor(transcription);
+  const { generations, selected } = navigation(tstate(), transcription);
   const wrapper = $("#generation-navigation");
   const selector = $("#generation-selector");
-  const previousSelectedGenerationId = legacy.selectedGenerationId;
   if (!generations.length) {
     wrapper.hidden = true;
-    legacy.selectedGenerationId = null;
-    legacy.currentGenerationId = null;
-    if (previousSelectedGenerationId) clearSpeakerAddName();
     return null;
   }
-  if (current && current.id !== legacy.currentGenerationId) {
-    const previousCurrentId = legacy.currentGenerationId;
-    legacy.currentGenerationId = current.id;
-    if (!legacy.selectedGenerationId || legacy.selectedGenerationId === previousCurrentId) {
-      legacy.selectedGenerationId = current.id;
-    }
-  }
-  if (!generations.some((generation) => generation.id === legacy.selectedGenerationId)) {
-    legacy.selectedGenerationId = current ? current.id : generations.at(-1).id;
-  }
-  if (
-    previousSelectedGenerationId
-    && previousSelectedGenerationId !== legacy.selectedGenerationId
-  ) clearSpeakerAddName();
   const optionsKey = generations.map((generation) => generation.id).join(":");
   if (selector.dataset.optionsKey !== optionsKey) {
     selector.replaceChildren();
@@ -1602,14 +1183,10 @@ function renderGenerationNavigation(transcription) {
     selector.dataset.optionsKey = optionsKey;
   }
   wrapper.hidden = generations.length < 2;
-  selector.value = legacy.selectedGenerationId;
+  selector.value = selected;
   return {
-    generation: generations.find((generation) => generation.id === legacy.selectedGenerationId),
-    editable: Boolean(
-      current
-      && current.id === legacy.selectedGenerationId
-      && current.status === "complete",
-    ),
+    generation: generations.find((generation) => generation.id === selected),
+    editable: Boolean(current && current.id === selected && current.status === "complete"),
   };
 }
 
@@ -1736,57 +1313,15 @@ function speakerItem(speakerId) {
 
 // Swap one speaker between chip and rename form; the other speakers stay untouched.
 function replaceSpeakerItem(generationId, speakerId) {
-  const { generation, editable } = displayedGeneration();
+  const { generation, editable } = shownGeneration();
   if (!generation || generation.id !== generationId) return null;
   const speaker = generation.speakers.find((item) => item.speaker_id === speakerId);
   const current = speakerItem(speakerId);
   if (!speaker || !current) return null;
   const item = buildSpeakerItem(generation, speaker, editable);
   current.replaceWith(item);
-  if (editable) {
-    const renaming = isRenamingSpeaker(generationId, speakerId);
-    placeLatestReload(generationId, "speakerName", speakerId, speaker.display_name, renaming);
-  }
   syncTranscriptMutationControls();
   return item;
-}
-
-function openSpeakerRename(speakerId) {
-  const { generation, editable } = displayedGeneration();
-  if (!editable || sourceMutationUnavailable() || legacy.transcriptMutationInFlight) return;
-  const previous = legacy.renamingSpeaker;
-  legacy.renamingSpeaker = { generationId: generation.id, speakerId };
-  // One rename at a time: the one it leaves keeps its unsaved name as a draft.
-  if (previous && previous.speakerId !== speakerId) {
-    replaceSpeakerItem(previous.generationId, previous.speakerId);
-  }
-  const input = replaceSpeakerItem(generation.id, speakerId)?.querySelector("input");
-  if (input) {
-    input.focus();
-    input.select();
-  }
-}
-
-// Leave the rename and hand back the speaker's chip. `discard` is the Hủy path: it drops the typed
-// name, unless that name is a conflict-marked draft; the chip then stays marked for review.
-function closeSpeakerRename(generationId, speakerId, { discard = false } = {}) {
-  if (isRenamingSpeaker(generationId, speakerId)) legacy.renamingSpeaker = null;
-  if (discard && !isConflictedDraft(generationId, "speakerName", speakerId)) {
-    rememberTranscriptDraft(
-      generationId,
-      "speakerName",
-      speakerId,
-      transcriptFieldValue(generationId, "speakerName", speakerId),
-    );
-  }
-  return replaceSpeakerItem(generationId, speakerId)?.querySelector(".speaker-chip") || null;
-}
-
-function cancelSpeakerRename(speakerId) {
-  const renaming = legacy.renamingSpeaker;
-  if (!renaming || renaming.speakerId !== speakerId || legacy.transcriptMutationInFlight) return;
-  const chip = closeSpeakerRename(renaming.generationId, speakerId, { discard: true });
-  if (chip && !chip.disabled) chip.focus();
 }
 
 function renderTranscriptGeneration(generation, editable) {
@@ -1834,7 +1369,7 @@ function renderTranscriptGeneration(generation, editable) {
   const segments = Array.isArray(generation.segments) ? generation.segments : [];
   $("#transcript-empty").hidden = segments.length > 0;
   for (const segment of segments) list.append(buildSegmentRow(generation, segment, editable));
-  if (legacy.transcriptMutationInFlight) setTranscriptMutationInFlight(true);
+  if (tstate().mutation) syncTranscriptMutationControls();
   updateActiveTranscriptIntervals();
 }
 
@@ -2073,62 +1608,16 @@ function segmentRow(segmentId) {
 
 // Swap one row between read mode and editor; every other row stays as it is.
 function replaceSegmentRow(generationId, segmentId) {
-  const { generation, editable } = displayedGeneration();
+  const { generation, editable } = shownGeneration();
   if (!generation || generation.id !== generationId) return null;
   const segment = generation.segments.find((item) => item.id === segmentId);
   const current = segmentRow(segmentId);
   if (!segment || !current) return null;
   const row = buildSegmentRow(generation, segment, editable);
   current.replaceWith(row);
-  if (editable) {
-    const editing = isEditingSegment(generationId, segmentId);
-    placeLatestReload(generationId, "segmentText", segmentId, segment.text, editing);
-  }
   syncTranscriptMutationControls();
   updateActiveTranscriptIntervals();
   return row;
-}
-
-function openSegmentEditor(segmentId) {
-  const { generation, editable } = displayedGeneration();
-  if (!editable || sourceMutationUnavailable() || legacy.transcriptMutationInFlight) return;
-  const previous = legacy.editingSegment;
-  legacy.editingSegment = { generationId: generation.id, segmentId };
-  // One editor at a time: the row it leaves keeps its unsaved text in the draft store.
-  if (previous && previous.segmentId !== segmentId) {
-    replaceSegmentRow(previous.generationId, previous.segmentId);
-  }
-  const editor = replaceSegmentRow(generation.id, segmentId)?.querySelector(".segment-text-editor");
-  if (editor) {
-    editor.focus();
-    editor.setSelectionRange(editor.value.length, editor.value.length);
-  }
-}
-
-// Leave the editor and hand back the row's Sửa button. `discard` is the Hủy path: it drops the typed
-// text, unless that text is a conflict-marked draft; the row then stays marked for review.
-function closeSegmentEditor(generationId, segmentId, { discard = false } = {}) {
-  if (isEditingSegment(generationId, segmentId)) legacy.editingSegment = null;
-  if (discard && !isConflictedDraft(generationId, "segmentText", segmentId)) {
-    rememberTranscriptDraft(
-      generationId,
-      "segmentText",
-      segmentId,
-      transcriptFieldValue(generationId, "segmentText", segmentId),
-    );
-  }
-  return replaceSegmentRow(generationId, segmentId)?.querySelector(".segment-edit-button") || null;
-}
-
-function cancelSegmentEditor(segmentId) {
-  const editing = legacy.editingSegment;
-  if (!editing || editing.segmentId !== segmentId || legacy.transcriptMutationInFlight) return;
-  const button = closeSegmentEditor(editing.generationId, segmentId, { discard: true });
-  // A locked source disables Sửa; keep the keyboard on the row instead of dropping it to the page.
-  const target = button && !button.disabled
-    ? button
-    : button?.closest(".transcript-segment").querySelector(".segment-timestamp");
-  if (target) target.focus();
 }
 
 function createAssignmentDraftReview(generation, segment, draft, editable) {
@@ -2152,7 +1641,7 @@ function createAssignmentDraftReview(generation, segment, draft, editable) {
     apply.dataset.generationId = generation.id;
     apply.dataset.segmentId = segment.id;
     apply.dataset.transcriptMutation = "true";
-    apply.disabled = Boolean(draft.conflictCode) || legacy.transcriptMutationInFlight;
+    apply.disabled = Boolean(draft.conflictCode) || Boolean(tstate().mutation);
     apply.textContent = t("Áp dụng lại lựa chọn");
     const status = document.createElement("span");
     status.className = "transcript-assignment-draft-status";
@@ -2295,35 +1784,6 @@ function updateActiveTranscriptIntervals() {
   });
 }
 
-function transcriptMutationMessage(error, fallback) {
-  const code = error && error.payload && error.payload.detail && error.payload.detail.code;
-  if (code === "source_version_changed") {
-    return t("Transcript đã thay đổi. Bản nháp vẫn được giữ; hãy xem lại trước khi lưu lần nữa.");
-  }
-  if (code === "current_generation_changed") {
-    return t("Phiên bản này không còn là bản hiện tại. Bản nháp vẫn được giữ để xem lại và thêm vào transcript hiện tại.");
-  }
-  return error && error.message ? error.message : fallback;
-}
-
-function markTranscriptDraftConflict(generationId, field, itemId, code, status) {
-  const draft = transcriptDraft(generationId, field, itemId);
-  if (draft) draft.conflictCode = code;
-  if (status && status.isConnected) {
-    appendReloadLatestButton(status.parentElement, generationId);
-    return;
-  }
-  showTranscriptConflictNotice(generationId, code);
-}
-
-function showTranscriptConflictNotice(generationId, code) {
-  const message = code === "source_version_changed"
-    ? t("Transcript đã thay đổi. Bản nháp vẫn được giữ để xem lại.")
-    : t("Phiên bản transcript đã đổi. Bản nháp vẫn được giữ để sao chép.");
-  const meetingId = nav().meeting && nav().meeting.id;
-  if (meetingId) setTranscriptMutationError(meetingId, generationId, message, true);
-}
-
 function clearReloadLatestActions() {
   for (const container of [
     $("#transcript-generation"),
@@ -2342,60 +1802,19 @@ function clearReloadLatestAction(container) {
   }
 }
 
-function setTranscriptMutationInFlight(inFlight, statusSource = null) {
-  if (inFlight && !legacy.transcriptMutationInFlight) {
-    const active = document.activeElement;
-    legacy.transcriptMutationFocus = active
-      && active.matches("[data-transcript-mutation]")
-      ? active
-      : null;
-    legacy.transcriptMutationFocusDescriptor = legacy.transcriptMutationFocus
-      ? describeTranscriptMutationFocus(legacy.transcriptMutationFocus)
-      : null;
-    legacy.transcriptMutationStatusDescriptor = describeTranscriptMutationFocus(
-      statusSource || active,
-    );
-  }
-  legacy.transcriptMutationInFlight = inFlight;
-  syncTranscriptMutationControls();
-  if (!inFlight) {
-    const previousFocus = legacy.transcriptMutationFocus;
-    const descriptor = legacy.transcriptMutationFocusDescriptor;
-    const sameMeeting = !descriptor
-      || (nav().meeting && descriptor.meetingId === nav().meeting.id);
-    let focusTarget = sameMeeting ? legacy.transcriptMutationFocusAfter || previousFocus : null;
-    if ((!focusTarget || !focusTarget.isConnected) && legacy.transcriptMutationFocusDescriptor) {
-      focusTarget = resolveTranscriptMutationFocus(descriptor);
-    }
-    legacy.transcriptMutationFocus = null;
-    legacy.transcriptMutationFocusAfter = null;
-    legacy.transcriptMutationFocusDescriptor = null;
-    legacy.transcriptMutationStatusDescriptor = null;
-    if (
-      focusTarget
-      && focusTarget.isConnected
-      && (
-        document.activeElement === document.body
-        || document.activeElement === previousFocus
-        || document.activeElement === focusTarget
-      )
-    ) focusTarget.focus({ preventScroll: true });
-  }
-}
-
+// A control of the transcript as data: the core adds the meeting it belongs to.
 function describeTranscriptMutationFocus(element) {
-  const meetingId = nav().meeting && nav().meeting.id;
   if (element.id === "speaker-add-name") {
-    return { kind: "speaker-add", control: "input", meetingId };
+    return { kind: "speaker-add", control: "input" };
   }
-  if (element.closest("[data-reapply-speaker-add-draft]")) {
-    return { kind: "speaker-add", control: "submit", meetingId };
+  const reapplyAdd = element.closest("[data-reapply-speaker-add-draft]");
+  if (reapplyAdd) {
+    return { kind: "speaker-add", control: "reapply", generationId: reapplyAdd.dataset.generationId };
   }
   const assignmentReview = element.closest("[data-reapply-assignment-draft]");
   if (assignmentReview) {
     return {
       kind: "speaker-assignment",
-      meetingId,
       generationId: assignmentReview.dataset.generationId,
       segmentId: assignmentReview.dataset.segmentId,
     };
@@ -2404,7 +1823,6 @@ function describeTranscriptMutationFocus(element) {
   if (assignment) {
     return {
       kind: "speaker-assignment",
-      meetingId,
       generationId: assignment.dataset.generationId,
       segmentId: assignment.dataset.segmentId,
     };
@@ -2413,7 +1831,6 @@ function describeTranscriptMutationFocus(element) {
   if (textForm) {
     return {
       kind: "segment-text",
-      meetingId,
       generationId: textForm.dataset.generationId,
       segmentId: textForm.dataset.segmentId,
       control: element.matches(".segment-text-editor") ? "editor" : "submit",
@@ -2423,7 +1840,6 @@ function describeTranscriptMutationFocus(element) {
   if (speakerForm) {
     return {
       kind: "speaker-name",
-      meetingId,
       generationId: speakerForm.dataset.generationId,
       speakerId: speakerForm.dataset.speakerId,
       control: element.matches(".speaker-clear-name")
@@ -2432,16 +1848,19 @@ function describeTranscriptMutationFocus(element) {
     };
   }
   const addForm = element.closest("#speaker-add-form");
-  if (addForm) return { kind: "speaker-add", control: "submit", meetingId };
+  if (addForm) return { kind: "speaker-add", control: "submit" };
   return null;
 }
 
 function resolveTranscriptMutationFocus(descriptor) {
   if (!nav().meeting || descriptor.meetingId !== nav().meeting.id) return null;
   if (descriptor.kind === "speaker-add") {
-    return descriptor.control === "input"
-      ? $("#speaker-add-name")
-      : $("#speaker-add-form button[type='submit']");
+    if (descriptor.control === "input") return $("#speaker-add-name");
+    // The recovery button keeps focus while it is still there and usable (a failed write), as the old page refocused it.
+    const reapply = descriptor.control === "reapply" && [...document.querySelectorAll("[data-reapply-speaker-add-draft]")].find(
+      (element) => element.dataset.generationId === descriptor.generationId && !element.disabled,
+    );
+    return reapply || $("#speaker-add-form button[type='submit']");
   }
   if (descriptor.kind === "speaker-assignment") {
     return [...document.querySelectorAll(".segment-speaker-select")].find(
@@ -2472,42 +1891,11 @@ function resolveTranscriptMutationFocus(descriptor) {
   return null;
 }
 
-function resolveTranscriptMutationStatus(descriptor, fallback) {
-  if (descriptor && nav().meeting && descriptor.meetingId !== nav().meeting.id) return null;
-  if (fallback && fallback.isConnected) return fallback;
-  if (!descriptor || !nav().meeting) return null;
-  if (descriptor.kind === "segment-text") {
-    const form = [...document.querySelectorAll("form[data-segment-text]")].find(
-      (element) => element.dataset.generationId === descriptor.generationId
-        && element.dataset.segmentId === descriptor.segmentId,
-    );
-    return form && form.querySelector(".segment-edit-status");
-  }
-  if (descriptor.kind === "speaker-name") {
-    const form = [...document.querySelectorAll("form[data-speaker-name]")].find(
-      (element) => element.dataset.generationId === descriptor.generationId
-        && element.dataset.speakerId === descriptor.speakerId,
-    );
-    return form && form.querySelector(".speaker-form-status");
-  }
-  if (descriptor.kind === "speaker-add") return $("#speaker-add-status");
-  return null;
-}
-
-function reportTranscriptMutation(descriptor, fallback, message, isError = false) {
-  const target = resolveTranscriptMutationStatus(descriptor, fallback);
-  if (target) {
-    target.classList.toggle("is-error", isError);
-    target.textContent = message;
-  }
-  const globalStatus = $("#transcript-mutation-status");
-  const sameMeeting = !descriptor || !nav().meeting || descriptor.meetingId === nav().meeting.id;
-  globalStatus.textContent = sameMeeting ? message : t("Thay đổi transcript đã hoàn tất.");
-  globalStatus.hidden = false;
-  return target;
-}
+let noticeWritten = 0; // the noticeRev of the transcript slice the shared status line was last written for
 
 function syncTranscriptMutationControls() {
+  const { mutation, reload, notice, noticeRev } = tstate();
+  const busy = Boolean(mutation);
   for (const control of document.querySelectorAll(
     "#transcript-generation [data-transcript-mutation], "
     + "#transcription-error [data-transcript-mutation], "
@@ -2530,16 +1918,14 @@ function syncTranscriptMutationControls() {
       continue;
     }
     if (control.matches("#generation-selector, [data-reload-latest]")) {
-      control.disabled = legacy.transcriptMutationInFlight
-        || (control.matches("[data-reload-latest]") && legacy.transcriptReloadInFlight);
+      control.disabled = busy || (control.matches("[data-reload-latest]") && Boolean(reload));
       continue;
     }
     const assignmentDraft = control.matches("[data-reapply-assignment-draft]")
       ? transcriptDraft(control.dataset.generationId, "speakerAssignment", control.dataset.segmentId)
       : null;
     control.disabled = sourceMutationUnavailable()
-      || legacy.transcriptMutationInFlight
-      || (control.matches("[data-reload-latest]") && legacy.transcriptReloadInFlight)
+      || busy
       || Boolean(assignmentDraft && assignmentDraft.conflictCode);
     if (control.matches("[data-edit-segment], [data-speaker-chip]")) {
       // A locked source says why in #generation-mode; tie that reason to the disabled control.
@@ -2549,128 +1935,302 @@ function syncTranscriptMutationControls() {
   }
   // Hủy only drops local text, so a locked source leaves it usable; a save in flight does not.
   for (const cancel of document.querySelectorAll("#transcript-generation [data-edit-cancel]")) {
-    cancel.disabled = legacy.transcriptMutationInFlight;
+    cancel.disabled = busy;
   }
-  $("#transcript-generation").setAttribute(
-    "aria-busy",
-    legacy.transcriptMutationInFlight ? "true" : "false",
-  );
+  $("#transcript-generation").setAttribute("aria-busy", busy ? "true" : "false");
+  // The shared status line is announced (aria-live): a reported result is written again, anything else only when its words change.
   const status = $("#transcript-mutation-status");
-  if (legacy.transcriptMutationInFlight) {
-    status.hidden = false;
-    status.textContent = t("Đang lưu thay đổi transcript.");
-  } else {
-    if (status.textContent === t("Đang lưu thay đổi transcript.")) {
-      status.textContent = t("Thay đổi transcript đã hoàn tất.");
-    }
-    status.hidden = !status.textContent;
-  }
+  if (noticeRev !== noticeWritten) {
+    noticeWritten = noticeRev;
+    status.textContent = tr(notice);
+  } else setProp(status, "textContent", tr(notice));
+  setProp(status, "hidden", !notice);
 }
 
-function setTranscriptMutationError(meetingId, generationId, message, reloadLatest) {
-  legacy.transcriptMutationError = { meetingId, generationId, message, reloadLatest };
-  renderTranscriptMutationError();
-}
+// ---- the transcript slice: painting what the core asks for, and dispatching what the user does ----
 
-function clearTranscriptMutationError(generationId) {
-  if (
-    !legacy.transcriptMutationError
-    || (generationId && legacy.transcriptMutationError.generationId !== generationId)
-  ) return;
-  legacy.transcriptMutationError = null;
-  renderTranscriptMutationError();
-}
-
-async function saveSegmentText(form) {
+function renderTranscriptMutationError() {
+  const panel = $("#transcript-mutation-error");
+  const message = $("#transcript-mutation-error-message");
+  const { error } = tstate();
   const meeting = nav().meeting;
-  const generation = meeting && meeting.transcription && meeting.transcription.generation;
-  const editor = form.querySelector(".segment-text-editor");
-  const status = form.querySelector(".segment-edit-status");
-  const text = editor.value;
-  const segment = generation && generation.segments.find((item) => item.id === form.dataset.segmentId);
-  if (
-    !meeting
-    || sourceMutationUnavailable()
-    || !generation
-    || generation.id !== form.dataset.generationId
-    || !segment
-    || legacy.transcriptMutationInFlight
-  ) return;
-  status.classList.remove("is-error");
-  const draft = rememberTranscriptDraft(generation.id, "segmentText", segment.id, text);
-  if (segment.text === text) {
-    const edit = closeSegmentEditor(generation.id, segment.id);
-    reportTranscriptMutation(null, null, t("Không có thay đổi."));
-    if (edit) edit.focus();
+  const generationExists = Boolean(
+    error
+    && meeting
+    && meeting.id === error.meetingId
+    && shownGeneration().selected === error.generationId
+    && generationsFor(meeting.transcription).some((generation) => generation.id === error.generationId),
+  );
+  panel.hidden = !generationExists;
+  if (!generationExists) {
+    clearReloadLatestAction(panel);
     return;
   }
-  if (draft && draft.conflictCode === "source_version_changed") {
-    reportTranscriptMutation(
-      null,
-      status,
-      t("Transcript đã thay đổi. Xem bản mới nhất rồi chỉnh bản nháp trước khi lưu."),
-      true,
-    );
+  message.textContent = tr(error.message);
+  if (error.reloadLatest) appendReloadLatestButton(panel, error.generationId);
+  else clearReloadLatestAction(panel);
+}
+
+// Everything under the transcription status that follows the generation on screen.
+function paintTranscriptTail(transcription) {
+  const selected = renderGenerationNavigation(transcription);
+  renderTabCounts(selected && selected.generation);
+  renderTranscriptGeneration(selected && selected.generation, Boolean(selected && selected.editable));
+  renderTranscriptDraftRecovery(transcription, selected && selected.generation.id);
+  renderTranscriptMutationError();
+}
+
+// The transcript slice knows the installed meeting and has taken the selection from it.
+function transcriptSynced(root) {
+  const meeting = root.history.meeting;
+  if (!meeting) return true;
+  return root.transcript.installed === root.history.installRev && !navigation(root.transcript, meeting.transcription).changed;
+}
+
+// A control the core names, found on the page.
+const segmentForm = (generationId, segmentId) => [...document.querySelectorAll("form[data-segment-text]")].find(
+  (element) => element.dataset.generationId === generationId && element.dataset.segmentId === segmentId,
+) || null;
+const speakerForm = (generationId, speakerId) => [...document.querySelectorAll("form[data-speaker-name]")].find(
+  (element) => element.dataset.generationId === generationId && element.dataset.speakerId === speakerId,
+) || null;
+const assignmentSelect = (generationId, segmentId) => [...document.querySelectorAll(".segment-speaker-select")].find(
+  (element) => element.dataset.generationId === generationId && element.dataset.segmentId === segmentId,
+) || null;
+const draftReview = (generationId, field, itemId) => [...document.querySelectorAll(".transcript-draft-review")].find(
+  (review) => review.dataset.generationId === generationId
+    && review.dataset.draftField === field
+    && review.dataset.draftItemId === itemId,
+) || null;
+
+// The line beside a control that reports its write.
+function statusElement(descriptor) {
+  if (!descriptor) return null;
+  if (descriptor.kind === "segment-text") return segmentForm(descriptor.generationId, descriptor.segmentId)?.querySelector(".segment-edit-status") ?? null;
+  if (descriptor.kind === "speaker-name") return speakerForm(descriptor.generationId, descriptor.speakerId)?.querySelector(".speaker-form-status") ?? null;
+  if (descriptor.kind === "speaker-add") return $("#speaker-add-status");
+  return null;
+}
+
+// The element a reload button sits in, from the descriptor of the button (none: the conflict panel).
+function reloadHost(anchor) {
+  if (!anchor) return $("#transcript-mutation-error");
+  if (anchor.kind === "segment-text") return segmentForm(anchor.generationId, anchor.segmentId)?.querySelector(".segment-edit-actions") ?? null;
+  if (anchor.kind === "speaker-name") return speakerForm(anchor.generationId, anchor.speakerId);
+  return $("#speaker-add-form");
+}
+
+function runTranscriptOp(op) {
+  const transcription = transcriptionNow();
+  const find = (generationId) => generationsFor(transcription).find((item) => item.id === generationId);
+  switch (op.op) {
+    case "error":
+      renderTranscriptMutationError();
+      break;
+    case "recovery":
+      renderTranscriptDraftRecovery(transcription, shownGeneration().selected);
+      break;
+    case "row":
+      replaceSegmentRow(op.generationId, op.segmentId);
+      break;
+    case "chip":
+      replaceSpeakerItem(op.generationId, op.speakerId);
+      break;
+    case "labels": {
+      const generation = find(op.generationId);
+      const speaker = generation && generation.speakers.find((item) => item.speaker_id === op.speakerId);
+      if (generation && speaker) updateSpeakerLabelsInTranscript(generation, speaker);
+      break;
+    }
+    case "key":
+      updateTranscriptRenderKey(find(op.generationId));
+      break;
+    case "generation": {
+      const { generation, editable } = shownGeneration();
+      if (op.force) delete $("#transcript-generation").dataset.renderKey;
+      renderTranscriptGeneration(generation, op.editable ?? editable);
+      break;
+    }
+    case "status": {
+      const element = statusElement(op.target);
+      if (!element) break;
+      if (op.text !== undefined) element.textContent = tr(op.text);
+      element.classList.toggle("is-error", Boolean(op.error));
+      break;
+    }
+    case "clear-reload": {
+      const element = statusElement(op.target);
+      if (element) clearReloadLatestAction(element.parentElement);
+      break;
+    }
+    case "reload-button": {
+      const element = statusElement(op.target);
+      if (element) appendReloadLatestButton(element.parentElement, op.generationId);
+      break;
+    }
+    case "clear-reload-all":
+      clearReloadLatestActions();
+      break;
+    case "reload-note": {
+      const status = reloadHost(op.anchor)?.querySelector(".transcript-reload-status");
+      if (status) status.textContent = tr(op.text);
+      break;
+    }
+    case "review": {
+      const draft = transcriptDraft(op.generationId, op.field, op.itemId);
+      if (!draft) removeTranscriptDraftReview(op.generationId, op.field, op.itemId);
+      else updateTranscriptDraftReview(op.generationId, op.field, op.itemId, draft, fieldValue(transcription, op.generationId, op.field, op.itemId));
+      break;
+    }
+    case "assignment-note": {
+      const status = segmentRow(op.segmentId)?.querySelector(".transcript-assignment-draft-review .transcript-assignment-draft-status");
+      if (status) status.textContent = tr(op.text);
+      break;
+    }
+    case "assignment-synced": {
+      const segment = find(op.generationId)?.segments.find((item) => item.id === op.segmentId);
+      const select = assignmentSelect(op.generationId, op.segmentId);
+      if (!segment || !select) break;
+      select.value = segment.speaker_id || "";
+      select.dataset.currentSpeaker = segment.speaker_id || "";
+      select.dataset.assignmentVersion = String(segment.assignment_version || 1);
+      select.closest(".transcript-segment").querySelector(".transcript-assignment-draft-review")?.remove();
+      break;
+    }
+    case "assignment-failed": {
+      const select = assignmentSelect(op.generationId, op.segmentId);
+      if (!select) break;
+      if (op.conflict) {
+        select.value = op.value;
+        break;
+      }
+      const current = transcription && transcription.generation;
+      const segment = current && current.id === op.generationId && current.segments.find((item) => item.id === op.segmentId);
+      select.value = (segment && segment.speaker_id) || "";
+      select.closest(".transcript-segment").querySelector(".transcript-assignment-draft-review")?.remove();
+      break;
+    }
+    case "copy-status": {
+      const status = draftReview(op.generationId, op.field, op.itemId)?.querySelector(".transcript-draft-copy-status");
+      if (status) {
+        status.textContent = op.how === "copied"
+          ? t("Đã sao chép bản nháp.")
+          : t("Bản nháp đã được chọn. Nhấn Ctrl+C hoặc ⌘C để sao chép.");
+      }
+      break;
+    }
+    default:
+      throw new Error(`unknown transcript paint command: ${op.op}`);
+  }
+}
+
+// A focus target the core names: a control of a write, or the row, chip or editor an action moved to.
+function resolveTranscriptFocus(target) {
+  if (!target) return null;
+  const row = target.segmentId ? segmentRow(target.segmentId) : null;
+  if (target.kind === "segment-editor") return row?.querySelector(".segment-text-editor") ?? null;
+  if (target.kind === "segment-edit-button") {
+    const button = row?.querySelector(".segment-edit-button") ?? null;
+    if (!target.orTimestamp) return button;
+    // A locked source disables Sửa; keep the keyboard on the row instead of dropping it to the page.
+    return button && !button.disabled ? button : button?.closest(".transcript-segment").querySelector(".segment-timestamp") ?? null;
+  }
+  if (target.kind === "speaker-rename-input") return speakerItem(target.speakerId)?.querySelector("input") ?? null;
+  if (target.kind === "speaker-chip") {
+    const chip = speakerItem(target.speakerId)?.querySelector(".speaker-chip") ?? null;
+    return target.enabledOnly && chip && chip.disabled ? null : chip;
+  }
+  return resolveTranscriptMutationFocus(target);
+}
+
+function moveTranscriptFocus(focus) {
+  if (focus.mode === "now") {
+    const element = resolveTranscriptFocus(focus.target);
+    if (!element) return;
+    element.focus();
+    if (focus.caret === "end") element.setSelectionRange(element.value.length, element.value.length);
+    else if (focus.caret === "select") element.select();
     return;
   }
-  setTranscriptMutationInFlight(true, form);
+  // After a write: to the control the result moved to, else back to where the user was, but only if focus was not
+  // taken elsewhere meanwhile.
+  const previous = focus.from ? resolveTranscriptMutationFocus(focus.from) : null;
+  let element = focus.sameMeeting ? resolveTranscriptFocus(focus.target) : null;
+  if ((!element || !element.isConnected) && previous) element = previous;
+  const active = document.activeElement;
+  if (element && element.isConnected && (active === document.body || active === previous || active === element)) {
+    element.focus({ preventScroll: true });
+  }
+}
+
+// Paint what the transcript slice changed: bring it up to date with the installed meeting first (it reconciles the
+// drafts), then the paint commands in order, the tail, the focus move, and the controls.
+function paintTranscript(root) {
+  const slice = root.transcript;
+  const painted = memo.transcript;
+  if (!root.history.meeting) {
+    memo.transcript = slice;
+    // The status line is written at once, into the hidden meeting view, as before; opening the next meeting does not announce it.
+    if (slice !== painted) syncTranscriptMutationControls();
+    if (slice.ops.length) dispatch({ type: "transcript/painted", through: slice.ops.at(-1).n }); // no page to run them on
+    return;
+  }
+  if (!transcriptSynced(root)) {
+    dispatch({ type: slice.installed !== root.history.installRev ? "transcript/meeting-installed" : "transcript/transcription-shown" });
+    return;
+  }
+  memo.transcript = slice;
+  for (const op of slice.ops) runTranscriptOp(op);
+  if (slice.rev !== painted.rev) paintTranscriptTail(transcriptionNow());
+  setProp($("#speaker-add-name"), "value", slice.addName);
+  // Before focus moves: a control the write disabled takes no focus. The page rebuilds that touch the controls sync them
+  // themselves, so an unchanged slice (each task poll) needs no walk.
+  if (slice !== painted) syncTranscriptMutationControls();
+  if (slice.focus.rev !== painted.focus.rev) moveTranscriptFocus(slice.focus);
+  if (slice.ops.length) dispatch({ type: "transcript/painted", through: slice.ops.at(-1).n });
+}
+
+// What the page knows that the core cannot: which control has focus now (and which reports the write).
+function mutationFacts(statusSource = null) {
+  const active = document.activeElement;
+  return {
+    focus: active.matches("[data-transcript-mutation]") ? describeTranscriptMutationFocus(active) : null,
+    status: describeTranscriptMutationFocus(statusSource || active),
+  };
+}
+
+// The "copy draft" button: the clipboard, else a hidden textarea, else the draft text selected for Ctrl+C.
+async function copyTranscriptDraft(text, target) {
   try {
-    const result = await requestJson(
-      `/api/meetings/${encodeURIComponent(meeting.id)}/transcript-segments/${encodeURIComponent(segment.id)}/text`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({
-          expected_generation_id: generation.id,
-          expected_source_version: generation.source_version,
-          text,
-        }),
-      },
-    );
-    const applied = applyTranscriptMutationResult(
-      meeting.id,
-      meeting,
-      generation.id,
-      "segmentText",
-      segment.id,
-      text,
-      result.text,
-      result.source_version,
-    );
-    const feedbackStatus = resolveTranscriptMutationStatus(
-      legacy.transcriptMutationStatusDescriptor,
-      status,
-    );
-    if (applied.meeting && applied.meeting.id === meeting.id && applied.generation) {
-      if (feedbackStatus) clearReloadLatestAction(feedbackStatus.parentElement);
-      updateTranscriptRenderKey(applied.generation);
+    if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("Clipboard unavailable");
+    await navigator.clipboard.writeText(text);
+    return "copied";
+  } catch {
+    const input = document.createElement("textarea");
+    input.value = text;
+    input.setAttribute("readonly", "");
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.append(input);
+    input.focus();
+    input.select();
+    let copied = false;
+    try {
+      copied = document.execCommand("copy");
+    } catch {
+      // Keep the visible draft selectable when the clipboard command is unavailable.
     }
-    // The saved text is back in read mode; focus follows to its Sửa button once the save settles.
-    const edit = closeSegmentEditor(generation.id, segment.id);
-    if (edit) legacy.transcriptMutationFocusAfter = edit;
-    reportTranscriptMutation(
-      legacy.transcriptMutationStatusDescriptor,
-      status,
-      t("Đã lưu."),
-    );
-  } catch (error) {
-    const feedbackStatus = reportTranscriptMutation(
-      legacy.transcriptMutationStatusDescriptor,
-      status,
-      transcriptMutationMessage(error, t("Không thể lưu đoạn transcript.")),
-      true,
-    );
-    const code = transcriptConflictCode(error);
-    if (code) {
-      markTranscriptDraftConflict(
-        generation.id,
-        "segmentText",
-        segment.id,
-        code,
-        feedbackStatus,
-      );
+    input.remove();
+    if (copied) return "copied";
+    const draftText = draftReview(target.generationId, target.field, target.itemId)?.querySelector(".transcript-draft-value");
+    if (draftText) {
+      const range = document.createRange();
+      range.selectNodeContents(draftText);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
     }
-  } finally {
-    setTranscriptMutationInFlight(false);
+    return "selected";
   }
 }
 
@@ -2694,427 +2254,6 @@ function updateSpeakerLabelsInTranscript(generation, speaker) {
   }
   updateAssignmentDraftReviewLabels(generation);
   updateTranscriptRenderKey(generation);
-}
-
-async function saveSpeakerName(form, displayName = null, { reviewed = false } = {}) {
-  const meeting = nav().meeting;
-  const generation = meeting && meeting.transcription && meeting.transcription.generation;
-  const speakerId = form.dataset.speakerId;
-  const input = form.querySelector("input");
-  const status = form.querySelector(".speaker-form-status");
-  const requestedName = displayName === null ? input.value : displayName;
-  const speaker = generation && generation.speakers.find((item) => item.speaker_id === speakerId);
-  if (
-    !meeting
-    || sourceMutationUnavailable()
-    || !generation
-    || generation.id !== form.dataset.generationId
-    || !speaker
-    || legacy.transcriptMutationInFlight
-  ) return;
-  status.classList.remove("is-error");
-  const draft = rememberTranscriptDraft(
-    generation.id,
-    "speakerName",
-    speakerId,
-    requestedName,
-    { reviewed },
-  );
-  if (draft && draft.conflictCode === "source_version_changed") {
-    status.classList.add("is-error");
-    status.textContent = t("Tên người nói đã thay đổi. Xem tên mới nhất rồi chỉnh bản nháp trước khi lưu.");
-    return;
-  }
-  setTranscriptMutationInFlight(true, form);
-  try {
-    const result = await requestJson(
-      `/api/meetings/${encodeURIComponent(meeting.id)}/transcript-generations/${encodeURIComponent(generation.id)}/speakers/${encodeURIComponent(speakerId)}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({
-          expected_source_version: generation.source_version,
-          display_name: requestedName,
-        }),
-      },
-    );
-    const applied = applyTranscriptMutationResult(
-      meeting.id,
-      meeting,
-      generation.id,
-      "speakerName",
-      speakerId,
-      requestedName,
-      result.display_name,
-      result.source_version,
-    );
-    const feedbackStatus = resolveTranscriptMutationStatus(
-      legacy.transcriptMutationStatusDescriptor,
-      status,
-    );
-    if (applied.meeting && applied.meeting.id === meeting.id && applied.generation) {
-      if (feedbackStatus) clearReloadLatestAction(feedbackStatus.parentElement);
-      const currentSpeaker = applied.generation.speakers.find(
-        (item) => item.speaker_id === speakerId,
-      );
-      if (currentSpeaker && legacy.selectedGenerationId === applied.generation.id) {
-        updateSpeakerLabelsInTranscript(applied.generation, currentSpeaker);
-      }
-    }
-    // The new name is back on its chip; focus follows to it once the save settles.
-    const chip = closeSpeakerRename(generation.id, speakerId);
-    if (chip) legacy.transcriptMutationFocusAfter = chip;
-    reportTranscriptMutation(
-      legacy.transcriptMutationStatusDescriptor,
-      status,
-      t("Đã lưu tên người nói."),
-    );
-  } catch (error) {
-    const feedbackStatus = reportTranscriptMutation(
-      legacy.transcriptMutationStatusDescriptor,
-      status,
-      transcriptMutationMessage(error, t("Không thể lưu tên người nói.")),
-      true,
-    );
-    const code = transcriptConflictCode(error);
-    if (code) {
-      markTranscriptDraftConflict(
-        generation.id,
-        "speakerName",
-        speakerId,
-        code,
-        feedbackStatus,
-      );
-    }
-  } finally {
-    setTranscriptMutationInFlight(false);
-  }
-}
-
-async function addSpeaker(form) {
-  const meeting = nav().meeting;
-  const generation = meeting && meeting.transcription && meeting.transcription.generation;
-  const input = form.querySelector("#speaker-add-name");
-  const status = $("#speaker-add-status");
-  const existingDraft = generation
-    && transcriptDraft(generation.id, "speakerAddName", "speaker-add-name");
-  if (!meeting || sourceMutationUnavailable() || !speakerAddRecoveryReady(generation, existingDraft)) return;
-  const requestedName = input.value;
-  rememberSpeakerAddDraft(generation.id, requestedName);
-  status.classList.remove("is-error");
-  setTranscriptMutationInFlight(true, form);
-  try {
-    const result = await requestJson(
-      `/api/meetings/${encodeURIComponent(meeting.id)}/transcript-generations/${encodeURIComponent(generation.id)}/speakers`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          expected_source_version: generation.source_version,
-          display_name: requestedName,
-        }),
-      },
-    );
-    const speaker = {
-      speaker_id: result.speaker_id,
-      display_name: result.display_name,
-      first_seen_seconds: result.first_seen_seconds,
-      last_seen_seconds: result.last_seen_seconds,
-    };
-    const responseGenerationId = result.generation_id || generation.id;
-    const currentMeeting = nav().meeting;
-    const currentTranscription = currentMeeting && currentMeeting.id === meeting.id
-      ? currentMeeting.transcription
-      : null;
-    const targetGeneration = generationsFor(currentTranscription).find(
-      (item) => item.id === responseGenerationId,
-    );
-    const currentVersion = Number(targetGeneration && targetGeneration.source_version) || 0;
-    const resultVersion = Number(result.source_version) || 0;
-    let reconciled = false;
-    if (targetGeneration && resultVersion > currentVersion) {
-      const existing = targetGeneration.speakers.find(
-        (item) => item.speaker_id === speaker.speaker_id,
-      );
-      if (existing) Object.assign(existing, speaker);
-      else targetGeneration.speakers.push(speaker);
-      targetGeneration.source_version = resultVersion;
-      reportMeeting();
-      reconciled = true;
-    }
-    if (
-      reconciled
-      && nav().view === "meeting"
-      && legacy.selectedGenerationId === targetGeneration.id
-    ) {
-      const currentGeneration = currentTranscription.generation;
-      const editable = Boolean(
-        currentGeneration
-        && currentGeneration.id === targetGeneration.id
-        && targetGeneration.status === "complete",
-      );
-      renderTranscriptGeneration(targetGeneration, editable);
-      if (editable) {
-        const chip = speakerItem(speaker.speaker_id)?.querySelector(".speaker-chip");
-        if (chip) legacy.transcriptMutationFocusAfter = chip;
-      }
-    }
-    clearSpeakerAddDraft(generation.id);
-    if (input.value === requestedName) input.value = "";
-    renderTranscriptDraftRecovery(
-      nav().meeting && nav().meeting.transcription,
-      legacy.selectedGenerationId,
-    );
-    reportTranscriptMutation(
-      legacy.transcriptMutationStatusDescriptor,
-      status,
-      t("Đã thêm người nói."),
-    );
-  } catch (error) {
-    const feedbackStatus = reportTranscriptMutation(
-      legacy.transcriptMutationStatusDescriptor,
-      status,
-      transcriptMutationMessage(error, t("Không thể thêm người nói.")),
-      true,
-    );
-    const code = transcriptConflictCode(error);
-    const draft = transcriptDraft(generation.id, "speakerAddName", "speaker-add-name");
-    if (draft && code) draft.conflictCode = code;
-    if (code && feedbackStatus) appendReloadLatestButton(feedbackStatus.parentElement, generation.id);
-    renderTranscriptDraftRecovery(
-      nav().meeting && nav().meeting.transcription,
-      legacy.selectedGenerationId,
-    );
-  } finally {
-    setTranscriptMutationInFlight(false);
-  }
-}
-
-async function reapplySpeakerAddDraft(button) {
-  const meeting = nav().meeting;
-  const originGenerationId = button.dataset.generationId;
-  const draft = transcriptDraft(originGenerationId, "speakerAddName", "speaker-add-name");
-  const generation = meeting && meeting.transcription && meeting.transcription.generation;
-  const status = $("#speaker-add-status");
-  if (!meeting || !speakerAddRecoveryReady(generation, draft)) return;
-  const requestedName = draft.value;
-  draft.baseSourceVersion = Number(generation.source_version) || 0;
-  draft.conflictCode = null;
-  status.classList.remove("is-error");
-  setTranscriptMutationInFlight(true, button);
-  try {
-    const result = await requestJson(
-      `/api/meetings/${encodeURIComponent(meeting.id)}/transcript-generations/${encodeURIComponent(generation.id)}/speakers`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          expected_source_version: generation.source_version,
-          display_name: requestedName,
-        }),
-      },
-    );
-    const speaker = {
-      speaker_id: result.speaker_id,
-      display_name: result.display_name,
-      first_seen_seconds: result.first_seen_seconds,
-      last_seen_seconds: result.last_seen_seconds,
-    };
-    const currentMeeting = nav().meeting;
-    const currentGeneration = currentMeeting && currentMeeting.id === meeting.id
-      && currentMeeting.transcription && currentMeeting.transcription.generation;
-    if (currentGeneration && currentGeneration.id === generation.id) {
-      const currentVersion = Number(currentGeneration.source_version) || 0;
-      const resultVersion = Number(result.source_version) || 0;
-      if (resultVersion > currentVersion) {
-        const existing = currentGeneration.speakers.find(
-          (item) => item.speaker_id === speaker.speaker_id,
-        );
-        if (existing) Object.assign(existing, speaker);
-        else currentGeneration.speakers.push(speaker);
-        currentGeneration.source_version = resultVersion;
-        reportMeeting();
-        if (nav().view === "meeting" && legacy.selectedGenerationId === currentGeneration.id) {
-          renderTranscriptGeneration(currentGeneration, true);
-          const chip = speakerItem(speaker.speaker_id)?.querySelector(".speaker-chip");
-          if (chip) legacy.transcriptMutationFocusAfter = chip;
-        }
-      }
-    }
-    clearSpeakerAddDraft(originGenerationId);
-    const addNameInput = $("#speaker-add-name");
-    if (addNameInput.value === requestedName) addNameInput.value = "";
-    renderTranscriptDraftRecovery(
-      nav().meeting && nav().meeting.transcription,
-      legacy.selectedGenerationId,
-    );
-    reportTranscriptMutation(
-      legacy.transcriptMutationStatusDescriptor,
-      status,
-      t("Đã thêm người nói."),
-    );
-  } catch (error) {
-    const feedbackStatus = reportTranscriptMutation(
-      legacy.transcriptMutationStatusDescriptor,
-      status,
-      transcriptMutationMessage(error, t("Không thể thêm người nói.")),
-      true,
-    );
-    const code = transcriptConflictCode(error);
-    if (draft && code) draft.conflictCode = code;
-    if (code && feedbackStatus) appendReloadLatestButton(feedbackStatus.parentElement, generation.id);
-    renderTranscriptDraftRecovery(
-      nav().meeting && nav().meeting.transcription,
-      legacy.selectedGenerationId,
-    );
-  } finally {
-    setTranscriptMutationInFlight(false);
-  }
-}
-
-async function saveSpeakerAssignment(select, { reviewed = false } = {}) {
-  const meeting = nav().meeting;
-  const generation = meeting && meeting.transcription && meeting.transcription.generation;
-  const segmentId = select.dataset.segmentId;
-  const segment = generation && generation.segments.find((item) => item.id === segmentId);
-  if (
-    !meeting
-    || sourceMutationUnavailable()
-    || !generation
-    || generation.id !== select.dataset.generationId
-    || !segment
-    || legacy.transcriptMutationInFlight
-  ) return;
-  const requestedSpeaker = select.value;
-  const draft = rememberTranscriptDraft(
-    generation.id,
-    "speakerAssignment",
-    segmentId,
-    requestedSpeaker,
-    { reviewed },
-  );
-  if (draft && draft.conflictCode && !reviewed) {
-    const review = select.closest(".transcript-segment")
-      .querySelector(".transcript-assignment-draft-review");
-    if (review) {
-      const status = review.querySelector(".transcript-assignment-draft-status");
-      if (status) status.textContent = t("Tải bản mới nhất để xem lựa chọn rồi áp dụng lại.");
-    }
-    return;
-  }
-  if ((segment.speaker_id || "") === requestedSpeaker) {
-    renderTranscriptDraftRecovery(meeting.transcription, legacy.selectedGenerationId);
-    return;
-  }
-  setTranscriptMutationInFlight(true, select);
-  try {
-    const result = await requestJson(
-      `/api/meetings/${encodeURIComponent(meeting.id)}/transcript-segments/${encodeURIComponent(segmentId)}/speaker`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({
-          expected_generation_id: generation.id,
-          expected_source_version: generation.source_version,
-          expected_assignment_version: Number(select.dataset.assignmentVersion),
-          speaker_id: requestedSpeaker || null,
-        }),
-      },
-    );
-    const generationId = select.dataset.generationId;
-    const applied = applyTranscriptMutationResult(
-      meeting.id,
-      meeting,
-      generationId,
-      "speakerAssignment",
-      segmentId,
-      requestedSpeaker,
-      {
-        speaker_id: result.speaker_id,
-        assignment_version: result.assignment_version,
-      },
-      result.source_version,
-    );
-    const segment = applied.generation
-      && applied.generation.segments.find((item) => item.id === segmentId);
-    if (!segment || !applied.meeting || applied.meeting.id !== meeting.id) return;
-    const currentSelect = [...document.querySelectorAll(".segment-speaker-select")].find(
-      (item) => item.dataset.generationId === generationId && item.dataset.segmentId === segmentId,
-    );
-    if (currentSelect) {
-      currentSelect.value = segment.speaker_id || "";
-      currentSelect.dataset.currentSpeaker = segment.speaker_id || "";
-      currentSelect.dataset.assignmentVersion = String(segment.assignment_version || 1);
-      const review = currentSelect.closest(".transcript-segment")
-        .querySelector(".transcript-assignment-draft-review");
-      if (review) review.remove();
-    }
-    if (nav().view === "meeting" && legacy.selectedGenerationId === generationId) {
-      updateTranscriptRenderKey(applied.generation);
-      clearTranscriptMutationError(generationId);
-    }
-    reportTranscriptMutation(
-      legacy.transcriptMutationStatusDescriptor,
-      null,
-      t("Đã lưu lựa chọn người nói."),
-    );
-  } catch (error) {
-    const message = transcriptMutationMessage(error, t("Không thể lưu người nói."));
-    const code = error && error.payload && error.payload.detail && error.payload.detail.code;
-    const isConflict = Boolean(
-      transcriptConflictCode(error)
-      || code === "assignment_version_changed",
-    );
-    const currentGeneration = nav().meeting && nav().meeting.id === meeting.id
-      && nav().meeting.transcription && nav().meeting.transcription.generation;
-    const currentSegment = currentGeneration
-      && currentGeneration.id === generation.id
-      && currentGeneration.segments.find((item) => item.id === segmentId);
-    const latestSelect = [...document.querySelectorAll(".segment-speaker-select")].find(
-      (item) => item.dataset.generationId === generation.id
-        && item.dataset.segmentId === segmentId,
-    );
-    if (isConflict) {
-      const assignmentDraft = transcriptDraft(generation.id, "speakerAssignment", segmentId);
-      if (assignmentDraft) assignmentDraft.conflictCode = code;
-      if (latestSelect) latestSelect.value = requestedSpeaker;
-    } else {
-      const bucket = transcriptDraftBucket(generation.id);
-      if (bucket) {
-        bucket.speakerAssignment.delete(segmentId);
-        if (transcriptDraftBucketIsEmpty(bucket)) legacy.transcriptDrafts.delete(generation.id);
-      }
-      if (latestSelect) {
-        latestSelect.value = currentSegment && currentSegment.speaker_id || "";
-        const review = latestSelect.closest(".transcript-segment")
-          .querySelector(".transcript-assignment-draft-review");
-        if (review) review.remove();
-      }
-    }
-    setTranscriptMutationError(
-      meeting.id,
-      generation.id,
-      message,
-      isConflict,
-    );
-    reportTranscriptMutation(
-      legacy.transcriptMutationStatusDescriptor,
-      null,
-      message,
-      true,
-    );
-    if (
-      isConflict
-      && currentGeneration
-      && currentGeneration.id === generation.id
-      && legacy.selectedGenerationId === generation.id
-    ) {
-      delete $("#transcript-generation").dataset.renderKey;
-      renderTranscriptGeneration(currentGeneration, true);
-    }
-    renderTranscriptDraftRecovery(
-      nav().meeting && nav().meeting.transcription,
-      legacy.selectedGenerationId,
-    );
-  } finally {
-    setTranscriptMutationInFlight(false);
-  }
 }
 
 function renderRuntimeProfile(runtime) {
@@ -3195,11 +2334,7 @@ function renderTranscription(transcription) {
   status.dataset.workerState = task && task.worker_state ? task.worker_state : "";
   status.classList.toggle("is-checking-worker", workerChecking);
   renderMeetingProcessingStatus(task, generation);
-  const selected = renderGenerationNavigation(transcription);
-  renderTabCounts(selected && selected.generation);
-  renderTranscriptGeneration(selected && selected.generation, Boolean(selected && selected.editable));
-  renderTranscriptDraftRecovery(transcription, selected && selected.generation.id);
-  renderTranscriptMutationError();
+  if (transcriptSynced(store.getState())) paintTranscriptTail(transcription);
   notifyMeetingContext();
 }
 
@@ -3261,7 +2396,7 @@ window.ASRMeetingHistory = Object.freeze({
     };
   },
   hasUnsavedTranscriptDrafts() {
-    return [...legacy.transcriptDrafts.values()].some((bucket) => !transcriptDraftBucketIsEmpty(bucket));
+    return hasUnsavedDrafts(tstate());
   },
   setNotesSourceLock(meetingId, locked, known = true) {
     dispatch({ type: "history/notes-source-lock-reported", meetingId, locked, known });
@@ -3378,74 +2513,99 @@ $("#start-transcription").addEventListener("click", () => dispatch({ type: "task
 $("#cancel-transcription").addEventListener("click", () => dispatch({ type: "task/cancel-clicked" }));
 $("#task-diagnostic-copy").addEventListener("click", () => dispatch({ type: "task/copy-clicked" }));
 $("#generation-selector").addEventListener("change", (event) => {
-  const transcription = nav().meeting && nav().meeting.transcription;
-  const current = transcription && transcription.generation;
-  const previousSelectedGenerationId = legacy.selectedGenerationId;
-  legacy.selectedGenerationId = event.currentTarget.value;
-  if (previousSelectedGenerationId !== legacy.selectedGenerationId) clearSpeakerAddName();
-  const generation = generationsFor(transcription).find(
-    (item) => item.id === legacy.selectedGenerationId,
-  );
-  const editable = Boolean(
-    generation && current && generation.id === current.id && generation.status === "complete",
-  );
-  renderTabCounts(generation);
-  renderTranscriptGeneration(generation, editable);
-  renderTranscriptDraftRecovery(transcription, generation && generation.id);
-  renderTranscriptMutationError();
+  dispatch({ type: "transcript/generation-chosen", id: event.currentTarget.value });
+});
+$("#speaker-add-name").addEventListener("input", (event) => {
+  dispatch({ type: "transcript/add-name-typed", value: event.currentTarget.value });
 });
 $("#transcript-generation").addEventListener("submit", (event) => {
   const form = event.target;
   if (form.matches("form[data-segment-text]")) {
     event.preventDefault();
-    void saveSegmentText(form);
+    dispatch({
+      type: "transcript/segment-saved",
+      generationId: form.dataset.generationId,
+      segmentId: form.dataset.segmentId,
+      text: form.querySelector(".segment-text-editor").value,
+      ...mutationFacts(form),
+    });
   } else if (form.matches("#speaker-add-form")) {
     event.preventDefault();
-    void addSpeaker(form);
+    dispatch({ type: "transcript/speaker-add-submitted", name: form.querySelector("#speaker-add-name").value, ...mutationFacts(form) });
   } else if (form.matches("form[data-speaker-name]")) {
     event.preventDefault();
-    void saveSpeakerName(form);
+    dispatch({
+      type: "transcript/speaker-name-saved",
+      generationId: form.dataset.generationId,
+      speakerId: form.dataset.speakerId,
+      name: form.querySelector("input").value,
+      reviewed: false,
+      ...mutationFacts(form),
+    });
   }
 });
+// A speaker choice, from the select of an open row or from "Áp dụng lại lựa chọn" under a draft.
+function dispatchAssignment(select, reviewed) {
+  dispatch({
+    type: "transcript/assignment-chosen",
+    generationId: select.dataset.generationId,
+    segmentId: select.dataset.segmentId,
+    value: select.value,
+    assignmentVersion: select.dataset.assignmentVersion,
+    reviewed,
+    ...mutationFacts(select),
+  });
+}
 $("#transcript-generation").addEventListener("click", (event) => {
   const reapplyAssignment = event.target.closest("button[data-reapply-assignment-draft]");
   if (reapplyAssignment) {
-    const select = [...document.querySelectorAll(".segment-speaker-select")].find(
-      (item) => item.dataset.generationId === reapplyAssignment.dataset.generationId
-        && item.dataset.segmentId === reapplyAssignment.dataset.segmentId,
-    );
-    if (select) void saveSpeakerAssignment(select, { reviewed: true });
+    const select = assignmentSelect(reapplyAssignment.dataset.generationId, reapplyAssignment.dataset.segmentId);
+    if (select) dispatchAssignment(select, true);
     return;
   }
   const reload = event.target.closest("button[data-reload-latest]");
   if (reload) {
-    void reloadLatestTranscript(reload);
+    dispatch({ type: "transcript/reload-clicked", anchor: describeTranscriptMutationFocus(reload) });
     return;
   }
   const copyDraft = event.target.closest("button[data-copy-transcript-draft]");
   if (copyDraft) {
-    void copyTranscriptDraft(copyDraft);
+    dispatch({
+      type: "transcript/copy-clicked",
+      generationId: copyDraft.dataset.generationId,
+      field: copyDraft.dataset.draftField,
+      itemId: copyDraft.dataset.draftItemId,
+    });
     return;
   }
   const chip = event.target.closest("button[data-speaker-chip]");
   if (chip) {
-    openSpeakerRename(chip.dataset.speakerId);
+    dispatch({ type: "transcript/speaker-rename-opened", speakerId: chip.dataset.speakerId });
     return;
   }
   const cancelRename = event.target.closest("button[data-speaker-cancel]");
   if (cancelRename) {
-    cancelSpeakerRename(cancelRename.closest("form").dataset.speakerId);
+    dispatch({ type: "transcript/speaker-rename-cancelled", speakerId: cancelRename.closest("form").dataset.speakerId });
     return;
   }
   const clear = event.target.closest("button[data-clear-speaker-name]");
   if (!clear) return;
   const form = clear.closest("li").querySelector("form[data-speaker-name]");
-  if (form) void saveSpeakerName(form, "", { reviewed: true });
+  if (form) {
+    dispatch({
+      type: "transcript/speaker-name-saved",
+      generationId: form.dataset.generationId,
+      speakerId: form.dataset.speakerId,
+      name: "",
+      reviewed: true,
+      ...mutationFacts(form),
+    });
+  }
 });
 $("#transcript-draft-recovery").addEventListener("click", (event) => {
   const reapplySpeakerAdd = event.target.closest("[data-reapply-speaker-add-draft]");
   if (reapplySpeakerAdd) {
-    void reapplySpeakerAddDraft(reapplySpeakerAdd);
+    dispatch({ type: "transcript/speaker-add-reapplied", generationId: reapplySpeakerAdd.dataset.generationId, ...mutationFacts(reapplySpeakerAdd) });
     return;
   }
   const openDraft = event.target.closest("[data-open-transcript-draft]");
@@ -3458,32 +2618,32 @@ $("#transcript-draft-recovery").addEventListener("click", (event) => {
 });
 function onReloadLatestClick(event) {
   const reload = event.target.closest("button[data-reload-latest]");
-  if (reload) void reloadLatestTranscript(reload);
+  if (reload) dispatch({ type: "transcript/reload-clicked", anchor: describeTranscriptMutationFocus(reload) });
 }
 $("#transcription-error").addEventListener("click", onReloadLatestClick);
 $("#transcript-mutation-error").addEventListener("click", onReloadLatestClick);
 $("#transcript-generation").addEventListener("input", (event) => {
   const editor = event.target.closest(".segment-text-editor");
   if (editor) {
-    rememberTranscriptDraft(
-      editor.closest("form").dataset.generationId,
-      "segmentText",
-      editor.closest("form").dataset.segmentId,
-      editor.value,
-      { reviewed: true },
-    );
+    dispatch({
+      type: "transcript/draft-typed",
+      generationId: editor.closest("form").dataset.generationId,
+      field: "segmentText",
+      itemId: editor.closest("form").dataset.segmentId,
+      value: editor.value,
+    });
     return;
   }
   const speakerInput = event.target.closest(".speaker-name-form input");
   if (speakerInput) {
     const form = speakerInput.closest("form");
-    rememberTranscriptDraft(
-      form.dataset.generationId,
-      "speakerName",
-      form.dataset.speakerId,
-      speakerInput.value,
-      { reviewed: true },
-    );
+    dispatch({
+      type: "transcript/draft-typed",
+      generationId: form.dataset.generationId,
+      field: "speakerName",
+      itemId: form.dataset.speakerId,
+      value: speakerInput.value,
+    });
   }
 });
 // Esc cancels and Ctrl/⌘+Enter saves, but never mid-composition: a Vietnamese IME uses both keys.
@@ -3493,8 +2653,8 @@ $("#transcript-generation").addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     const row = event.target.closest(".transcript-segment.is-editing");
     const renaming = event.target.closest(".speaker-name-form");
-    if (row) cancelSegmentEditor(row.dataset.segmentId);
-    else if (renaming) cancelSpeakerRename(renaming.dataset.speakerId);
+    if (row) dispatch({ type: "transcript/segment-edit-cancelled", segmentId: row.dataset.segmentId });
+    else if (renaming) dispatch({ type: "transcript/speaker-rename-cancelled", speakerId: renaming.dataset.speakerId });
     else return;
     event.preventDefault();
   } else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
@@ -3508,12 +2668,12 @@ $("#transcript-generation").addEventListener("keydown", (event) => {
 $("#transcript-segments").addEventListener("click", (event) => {
   const edit = event.target.closest("button[data-edit-segment]");
   if (edit) {
-    openSegmentEditor(edit.closest(".transcript-segment").dataset.segmentId);
+    dispatch({ type: "transcript/segment-edit-opened", segmentId: edit.closest(".transcript-segment").dataset.segmentId });
     return;
   }
   const cancelEdit = event.target.closest("button[data-segment-cancel]");
   if (cancelEdit) {
-    cancelSegmentEditor(cancelEdit.closest(".transcript-segment").dataset.segmentId);
+    dispatch({ type: "transcript/segment-edit-cancelled", segmentId: cancelEdit.closest(".transcript-segment").dataset.segmentId });
     return;
   }
   const timestamp = event.target.closest("button[data-seek-seconds]");
@@ -3528,7 +2688,7 @@ $("#transcript-segments").addEventListener("click", (event) => {
 });
 $("#transcript-segments").addEventListener("change", (event) => {
   const select = event.target.closest("select[data-speaker-assignment]");
-  if (select) void saveSpeakerAssignment(select);
+  if (select) dispatchAssignment(select, false);
 });
 for (const eventName of ["timeupdate", "seeked", "loadedmetadata", "play"]) {
   $("#meeting-audio").addEventListener(eventName, updateActiveTranscriptIntervals);

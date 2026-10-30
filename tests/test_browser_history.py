@@ -5441,3 +5441,27 @@ def test_rename_label_is_at_least_12px_and_a_long_speaker_id_fits_360px(live, si
     assert label.evaluate("el => parseFloat(getComputedStyle(el).fontSize)") >= 12
     assert label.evaluate("el => el.scrollWidth - el.clientWidth") <= 0
     assert page.evaluate(OVERFLOW_JS) == {"page": 0, "wide": []}
+
+
+def test_failed_speaker_add_reapply_keeps_focus_on_its_button(live, browser_context):
+    _context, page = browser_context
+    meeting_id = seed_meeting(live.settings.data_dir, "Reapply focus", duration_seconds=30)
+    _publish_browser_generation(live, meeting_id)
+    page.route(
+        re.compile(r"/api/meetings/[^/]+/transcript-generations/[^/]+/speakers$"),
+        lambda route: route.fulfill(
+            status=500, content_type="application/json", body=json.dumps({"detail": "boom"})
+        ),
+    )
+    page.goto(f"{live.url}/meetings/{meeting_id}#transcript", wait_until="domcontentloaded")
+    add_name = page.locator("#speaker-add-name")
+    add_name.fill("Zed")
+    add_name.press("Enter")
+    expect(page.locator("#speaker-add-status")).not_to_have_text("")
+    reapply = page.get_by_role("button", name="Thêm vào transcript hiện tại")
+    expect(reapply).to_be_enabled()
+    reapply.click()
+    status = page.locator("#transcript-mutation-status")
+    expect(status).not_to_have_text("Đang lưu thay đổi transcript.")
+    expect(reapply).to_be_enabled()
+    expect(reapply).to_be_focused()

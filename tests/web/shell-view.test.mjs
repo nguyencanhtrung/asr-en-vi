@@ -13,7 +13,7 @@ const noStrings = (source) => source
 const absent = (source, pattern, label) => assert.equal(source.match(pattern)?.[0], undefined, label);
 
 const VIEWS = ["shell.js", "connections.js", "antigravity.js", "notes.js"]; // add each migrated view file here
-const CORES = ["shell-core.js", "provider-core.js", "notes-core.js", "history-core.js", "task-core.js"];
+const CORES = ["shell-core.js", "provider-core.js", "notes-core.js", "history-core.js", "task-core.js", "transcript-core.js"];
 // Modules whose view is only partly migrated: loaded as a module, but not gated until the last phase moves.
 const PARTIAL = ["history.js"];
 
