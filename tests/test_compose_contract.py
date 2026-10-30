@@ -53,6 +53,10 @@ def test_compose_separates_services_volumes_and_loopback_publish():
     assert gpu_override["services"]["worker"]["gpus"] == "all"
     assert any(mount.endswith(":/models:ro") for mount in app["volumes"])
     assert any(mount.endswith(":/models:ro") for mount in worker["volumes"])
+    # Compose keeps the service's :ro mount over `run -v`; only an override file widens it.
+    prepare = yaml.safe_load((ROOT / "compose.model-prepare.yaml").read_text(encoding="utf-8"))
+    model_mount = next(m for m in worker["volumes"] if m.endswith(":/models:ro"))
+    assert prepare["services"]["worker"]["volumes"] == [model_mount.removesuffix(":ro") + ":rw"]
     assert app["healthcheck"]
     assert worker["healthcheck"]
 

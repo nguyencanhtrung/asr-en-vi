@@ -291,6 +291,8 @@ def test_startup_checks_complete_community_model_then_preflights_before_services
     assert "--network none" in commands[image_version]
     assert "HF_HUB_OFFLINE=0" in commands[model_prepare]
     assert "TRANSFORMERS_OFFLINE=0" in commands[model_prepare]
+    assert "-f compose.model-prepare.yaml run " in commands[model_prepare]
+    assert ":/models:rw" not in commands[model_prepare]
     assert all("--pull never" in line for line in commands if "compose" in line and "run " in line)
 
 
