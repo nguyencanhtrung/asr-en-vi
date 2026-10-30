@@ -311,7 +311,8 @@ Mỗi pha thêm vào tài liệu này bảng state và chuyển trạng thái c�
 | 3 | `notes.js` + `notes-core.js` (xong, #126): chế độ xem/soạn, chọn provider/model, task notes, lưu revision, nguồn trích dẫn, xem 11.7 |
 | 4a | `history.js` + `history-core.js` (xong, #128): danh sách và tìm kiếm cuộc họp, lịch, view, tải cuộc họp, tab, tóm tắt và khóa nguồn notes, sửa metadata, xóa cuộc họp, xem 11.8 |
 | 4b | `task-core.js` (xong, #130): task phiên âm: bắt đầu, hủy, poll, request id chờ, ngôn ngữ, tự chạy, lỗi task, chẩn đoán, xem 11.9 |
-| 4c | transcript: generation, bản nháp, sửa đoạn và người nói, theo dõi phát, đánh dấu nguồn notes |
+| 4c | `transcript-core.js` (xong, #132): generation đang xem, trình sửa đoạn và đổi tên người nói, bản nháp, bốn lần ghi (chữ, tên, gán người nói, thêm người nói), xung đột, tải lại bản mới nhất, dòng trạng thái và focus, xem 11.10 |
+| 4d | theo dõi phát, cuộn tay, đánh dấu và tua nguồn notes; `history.js` vào VIEWS |
 | 5 | bỏ global và `CustomEvent` còn sót, xóa code chết, cập nhật tài liệu |
 
 ### 11.5. Shell: dialog tạo cuộc họp
@@ -539,7 +540,7 @@ Core `notes-core.js` (`initialState`, `reduce`, `selectView`, `selectSummary`, `
 
 ### 11.8. Lịch sử: điều hướng và thư viện cuộc họp
 
-Core `history-core.js` (`initialState`, `reduce`, các selector `selectHeading`, `selectSidebar`, `selectCalendar`, `selectLockStatus`, `selectEditor`, `selectDeletion` và các hàm thuần chuyển từ `history.js`: số học ngày, `monthGrid`, `formatRecordingDuration`, `generationsFor`, `mergeTranscription`). View `history.js` là `<script type="module">` đứng đúng vị trí cũ (sau `shell.js`, trước `notes.js`), tạo **một** store của trang bằng `combine({ history: reduce, task: reduceTask })` (4b thêm lát `task`, 4c sẽ thêm `transcript`). Phần transcript chưa chuyển vẫn chạy bằng lệnh trực tiếp trong `history.js` trên một object `legacy` (ghi chú "until 4c"): nó đọc cuộc họp hiện tại bằng `nav()`, không gán state điều hướng, và báo cuộc họp đổi bằng `history/meeting-updated` (sửa tại chỗ `transcription` của cuộc họp đang xem) hoặc `history/meeting-fetched` (bản mới hơn lấy từ máy chủ, được trộn như khi tải). `history.js` chưa vào danh sách `VIEWS` của gate (pha 4c làm); `history-core.js` đã vào `CORES`.
+Core `history-core.js` (`initialState`, `reduce`, các selector `selectHeading`, `selectSidebar`, `selectCalendar`, `selectLockStatus`, `selectEditor`, `selectDeletion` và các hàm thuần chuyển từ `history.js`: số học ngày, `monthGrid`, `formatRecordingDuration`, `generationsFor`, `mergeTranscription`). View `history.js` là `<script type="module">` đứng đúng vị trí cũ (sau `shell.js`, trước `notes.js`), tạo **một** store của trang bằng `combine({ history: reduce, task: reduceTask, transcript: reduceTranscript })` (4b thêm lát `task`, 4c lát `transcript`). Phần phát lại (theo dõi đoạn đang phát, cuộn tay, đánh dấu và tua nguồn notes) chưa chuyển vẫn chạy bằng lệnh trực tiếp trong `history.js` trên một object `legacy` (ghi chú "until 4d"): nó đọc cuộc họp hiện tại bằng `nav()` và không gán state điều hướng. Cuộc họp đổi qua `history/meeting-fetched` (bản mới hơn lấy từ máy chủ, được trộn như khi tải) và các action dùng chung với lát khác (`task/*`, `transcript/mutation-succeeded`, `transcript/reload-loaded`); `history/meeting-updated` (sửa tại chỗ) đã bỏ ở 4c. `history.js` chưa vào danh sách `VIEWS` của gate (pha 4d làm); `history-core.js` và `transcript-core.js` đã vào `CORES`.
 
 Địa chỉ trang và đồng hồ vào core bằng dữ liệu: view đóng dấu mọi action (cả kết quả `fetch` do runner gửi) bằng `at` = `{pathname, search, hash, tab}` (`tab` là tab mà entry lịch sử hiện tại nhớ), action `booted` mang `today`, các action lịch mang ngày chúng nói tới. Core không đọc `location`, `history` hay `Date`; số học ngày dùng công thức ngày dân sự thuần.
 
@@ -703,3 +704,86 @@ Core `task-core.js` (`initialState`, `reduce`, các selector `selectTask`, `sele
 **Lỗi task và chẩn đoán** (`selectTask`): khối lỗi hiện khi task `failed`/`interrupted` hoặc có `error` của cuộc họp này. Lời: lỗi của yêu cầu, không thì câu theo mã lỗi đã biết (`diarization_*`, `publication_failed`), `error_message` của server, "Tác vụ chưa hoàn tất.". Chi tiết chẩn đoán và lệnh `docker compose exec -T app python -m asr_en_vi.cli task diagnose <id>` chỉ hiện khi không có lỗi yêu cầu, mã lỗi đã biết và id task đúng 32 ký tự hex. `copy-clicked` có lệnh thì `call clipboard.write`; `copy-succeeded` → "Đã sao chép lệnh."; `copy-failed` → `call clipboard.select` (chọn lệnh và `execCommand`) → `copy-selected {value}` → "Đã sao chép lệnh." hoặc "Lệnh đã được chọn…". Kết quả chỉ hiện cho task của nó và xóa khi có câu trả lời task mới, khi cuộc họp tải lại hoặc khi rời cuộc họp.
 
 **Khác bản trước pha 4b** (đầy đủ trong mục #130 của `architecture-changes-v1.md`): chỉ một lần đọc poll chạy cho mỗi task (bản cũ: `visibilitychange` hoặc tải lại cuộc họp giữa lúc đọc đặt thêm timer, hai lần đọc có thể chồng nhau); nút Hủy giữ tắt tới khi yêu cầu hủy xong (bản cũ: lượt poll kế tiếp bật lại, bấm được lần hai); câu trả lời bắt đầu/hủy tới sau khi một cuộc họp khác đã tải xong không đổi cuộc họp đang hiện và không dựng poll (ở trang chủ hoặc khi cuộc họp khác đang tải, như bản cũ, câu trả lời áp vào cuộc họp mà history còn giữ và poll chạy tới khi task kết thúc) (bản cũ sửa object cuộc họp cũ, đặt poll cho cuộc họp không còn hiện, hoặc ghi dòng trạng thái lên cuộc họp khác); lỗi yêu cầu gắn với cuộc họp của nó (bản cũ: một biến chung, hiện ở cuộc họp nào đang mở); ngôn ngữ ô chọn nhớ lựa chọn của người dùng, không nhớ giá trị mới vẽ ra (bản cũ ghi lại mỗi lần vẽ); request chờ đọc từ sessionStorage một lần khi cuộc họp tải xong (bản cũ: mỗi lần vẽ, khi bộ nhớ chưa có); các dòng "mất kết nối", "không tải được transcript mới" và kết quả sao chép giữ tới sự kiện task kế tiếp hoặc khi lần tải lại cuộc họp xong (bản cũ: tới lần vẽ transcript kế tiếp, nên mở lại cùng cuộc họp xóa ngay lúc bấm); body 2xx không phải object là lỗi rõ ràng (bản cũ: bắt đầu hiện chữ lỗi `TypeError`; hủy gỡ task khỏi cuộc họp, không báo lỗi; poll vẽ task rỗng rồi dòng "mất kết nối"); khóa tự chạy xóa không được thì vẫn chạy một lần (bản cũ: không chạy); request poll bị hủy khi rời cuộc họp; chuỗi `asr:meeting-context` cho `notes.js` khác số lần (giá trị cuối giống; mỗi lần thêm là một lần đọc notes): bắt đầu `{true, task trước đó}` rồi `{false, task nhận}`, poll tới `succeeded` 3 lần (cũ 4; `canceled` như cũ), tải khôi phục request chờ +1, mở lại cuộc họp đang có dòng thông báo hoặc kết quả sao chép +1, hủy +1 đến 2, sao chép +1, poll hoặc đọc lại thất bại cũng phát (máy chủ mất kết nối thì tab Notes hiện lỗi đọc tới lượt poll tốt kế tiếp).
+
+### 11.10. Transcript
+
+Core `transcript-core.js` (`initialState`, `reduce`, các selector và hàm thuần `navigation`, `displayed`, `draftOf`, `fieldValue`, `hasUnsavedDrafts`, `speakerAddReady`, `awaitsLatestReload`). View là `history.js`: lát `transcript` đứng cạnh `history` và `task` trong cùng store; view dựng DOM (hàng đoạn, chip người nói, bản duyệt nháp) từ state rồi dispatch. `window.ASRMeetingHistory.defaultSpeakerNames` và `hasUnsavedTranscriptDrafts` giữ giá trị trả về cũ cho `notes.js` và `beforeunload`.
+
+**Transcript nằm trong cuộc họp** (`meeting.transcription` của `history-core`). Một lần ghi server nhận là **một** action, `transcript/mutation-succeeded`, do cả hai lát xử lý: `history-core` đặt giá trị đã lưu vào cuộc họp mới tạo (`applyFieldAnswer`, `applySpeakerAdded`; không sửa tại chỗ, giữ khóa nguồn notes như `takeTask`), lát `transcript` tính cùng kết quả từ `shown.meeting` để đối chiếu bản nháp. `transcript/reload-loaded` cũng vậy (cài bản mới như `history/meeting-fetched`, thanh bên vẽ lại theo từ khóa). Action `transcript/mutation-failed` và `reload-failed` chỉ lát transcript xử lý. View đóng dấu mọi action bằng `shown` (thêm `meeting`, `view`, `installRev` cho 4c); `history/meeting-updated` bỏ vì không còn code sửa cuộc họp tại chỗ.
+
+**State** (`state.transcript`): `selected`, `lastCurrent` (generation đang xem, và generation hiện tại lúc trang nhìn lần cuối; generation hiện tại mới chiếm lựa chọn nếu trang đang theo generation cũ); `installed` (`installRev` mà bản nháp đã đối chiếu); `editing` {`generationId`, `segmentId`} hoặc `null` và `renaming` {`generationId`, `speakerId`} hoặc `null` (mỗi lúc một trình sửa đoạn và một lần đổi tên); `drafts` (object thường `generationId → {segmentText, speakerName, speakerAssignment, speakerAddName} → itemId → {value, baseValue, baseSourceVersion, conflictCode}`, không sửa tại chỗ, bucket rỗng bị bỏ); `addName` (chữ trong ô thêm người nói); `mutation` {`id`, `kind`, `meetingId`, `generationId`, `field`, `itemId`, `draftValue`, `requested` (giá trị chọn hoặc tên gửi đi, dùng cho lựa chọn người nói và thêm người nói), `meeting` (cuộc họp lúc gửi), `focus`, `status`, `after`} hoặc `null` (một lần ghi đang bay); `reload` {`id`, `meetingId`, `installRev`} hoặc `null`; `error` {`meetingId`, `generationId`, `message`, `reloadLatest`} (khối lỗi phía trên transcript); `notice` (chữ của dòng trạng thái chung `#transcript-mutation-status`) và `noticeRev` (tăng mỗi lần một kết quả được báo: view ghi lại dòng đó kể cả khi chữ giống lần trước để vùng aria-live đọc lại; ngoài ra dòng chỉ được ghi khi chữ đổi); `focus` {`rev`, `mode`: `now` | `settle`, `target`, `from`, `sameMeeting`, `caret`: `end` | `select` khi mở trình sửa hoặc ô đổi tên}; `ops` và `opSeq`; `ids` (đếm id ghi và tải lại); `rev` (nửa transcript của trang cần vẽ lại).
+
+**Vì sao có `ops`**: reducer không chạm DOM nhưng bản cũ làm nhiều bước DOM theo thứ tự cố định (thay một hàng, thay một chip, cập nhật nhãn người nói, cập nhật khóa vẽ, ghi dòng trạng thái cạnh nút, bỏ nút tải lại, đặt lại ô chọn). Các bước đó là dữ liệu `{n, op, …}` trong `state.ops`; view chạy theo thứ tự rồi báo `transcript/painted {through}` để core bỏ chúng. Hàng đợi (không phải một giá trị đè) vì store có thể gom nhiều action trước một lần vẽ. Lệnh: `error`, `recovery`, `row`, `chip`, `labels`, `key`, `generation {force?, editable?}`, `status`, `clear-reload`, `reload-button`, `clear-reload-all`, `reload-note`, `review`, `assignment-note`, `assignment-synced`, `assignment-failed`, `copy-status`. View chỉ chạy `ops` khi lát đã đồng bộ với cuộc họp cài (`installed` bằng `installRev`, lựa chọn khớp `navigation`); nếu chưa, nó dispatch `transcript/meeting-installed` hoặc `transcript/transcription-shown` và vẽ ở lượt sau, nên bản nháp luôn được đối chiếu trước khi vẽ như bản cũ.
+
+**Điều DOM biết mà core không biết vào bằng action**: chữ gõ trong trình sửa, giá trị ô chọn, và hai descriptor của điều khiển đang dùng (`focus`: điều khiển có focus lúc bắt đầu ghi, `status`: điều khiển có dòng trạng thái báo kết quả). Descriptor là dữ liệu `{kind: segment-text | speaker-name | speaker-assignment | speaker-add, …}`; core thêm `meetingId`.
+
+**Key effect và id chống response cũ**: `transcript/mutation` (`fetch`, meta `id`, `kind`, `meetingId`, `generationId`, `field`, `itemId`, `draftValue`), `transcript/reload` (`fetch`, meta `id`, `meetingId`, `installRev`, `anchor`), `transcript/copy` (`call` `transcript.copy`). Câu trả lời có `meta.id` khác `mutation.id` (hoặc `reload.id`) bị bỏ.
+
+**Chọn generation**
+
+| Từ | Sự kiện | Tới |
+| --- | --- | --- |
+| bất kỳ action có `shown` | cuộc họp có generation hiện tại mới | `lastCurrent` đổi; nếu chưa chọn gì hoặc đang chọn generation hiện tại cũ thì chọn generation mới; ngược lại giữ lựa chọn |
+| bất kỳ action có `shown` | generation đang chọn không còn | chọn generation hiện tại, không có thì generation cuối |
+| bất kỳ | lựa chọn đổi | `addName` xóa, vẽ lại phần dưới trạng thái task |
+| bất kỳ | cuộc họp không có generation | `selected = lastCurrent = null` |
+| bất kỳ | `generation-chosen {id}` | `selected = id` (và xóa `addName` nếu đổi), vẽ lại |
+| bất kỳ | `meeting-switched` (cuộc họp khác) | `selected`, `lastCurrent`, `error`, `editing`, `renaming`, `addName` về rỗng, `ops` bỏ; bản nháp, `mutation`, `reload`, `notice` giữ |
+| bất kỳ | `meeting-installed` (cuộc họp từ server) | `installed = installRev`; đối chiếu bản nháp (bảng dưới); vẽ lại |
+
+**Trình sửa đoạn và đổi tên** (chỉ mở được khi generation đang xem là hiện tại và `complete`, nguồn notes không khóa, không có ghi đang bay)
+
+| Từ | Sự kiện | Tới | Lệnh vẽ |
+| --- | --- | --- | --- |
+| đang sửa đoạn A | `segment-edit-opened B` | `editing = B`; bản nháp của A giữ | `row A`, `row B`; focus vào ô sửa, con trỏ cuối chữ |
+| đang sửa A | `segment-edit-cancelled A` | `editing = null`; chữ gõ bỏ (xóa bản nháp) trừ bản nháp có `conflictCode` | `review`, `row A`; focus vào nút Sửa, hoặc mốc thời gian nếu nút bị tắt |
+| đang sửa A, ghi đang bay | `segment-edit-cancelled`, `*-opened` | không đổi | |
+| đang đổi tên người nói | `speaker-rename-opened`, `speaker-rename-cancelled` | như trên với chip; focus vào ô tên (chọn hết chữ) hoặc vào chip | `chip` |
+| đóng hàng hoặc chip có bản nháp xung đột và nút tải lại chờ | đóng trình sửa | `error` hiện ở khối lỗi (nút tải lại chuyển ra đó) | `error` |
+| mở lại hàng hoặc chip đó | mở trình sửa | `error` của generation đó xóa (nút tải lại về cạnh nút của trình sửa) | `error` |
+
+**Bản nháp**
+
+| Từ | Sự kiện | Tới |
+| --- | --- | --- |
+| bất kỳ | `draft-typed` (người dùng gõ; coi là đã xem lại) | chữ bằng giá trị đã lưu: xóa bản nháp; khác: `{value, baseValue, baseSourceVersion, conflictCode}`. `baseValue` và `baseSourceVersion` giữ của bản nháp cũ; bản nháp có `source_version_changed` mà trang đã thấy giá trị hoặc phiên bản mới hơn thì lấy giá trị mới làm nền và bỏ dấu xung đột |
+| bất kỳ | `meeting-installed` | bản nháp bằng giá trị mới của cuộc họp: xóa; giá trị mới khác `baseValue`: `conflictCode = source_version_changed`; không còn khác và đang `source_version_changed`: bỏ dấu. Lựa chọn người nói: dấu `current_generation_changed` ở lại; dấu khác và phiên bản nguồn đã tăng: bỏ dấu. Tên thêm người nói: dấu `source_version_changed` hoặc `current_generation_changed` bỏ khi generation hiện tại đã đổi hoặc phiên bản đã tăng |
+| bất kỳ | ghi thành công | bản nháp vừa lưu xóa; các bản nháp khác đối chiếu như trên |
+| bất kỳ | `copy-clicked` có bản nháp | effect `call transcript.copy`; câu trả lời `copy-finished {copied | selected}` thành lệnh `copy-status` |
+
+**Ghi (chữ đoạn, tên người nói, lựa chọn người nói, thêm người nói)**: `segment-saved`, `speaker-name-saved {reviewed}`, `assignment-chosen {reviewed}`, `speaker-add-submitted`, `speaker-add-reapplied`. Điều kiện chung: có cuộc họp, nguồn notes không khóa, đối tượng thuộc generation hiện tại, không có ghi nào đang bay (bấm lưu lặp bị bỏ, không đổi gì).
+
+| Từ | Sự kiện | Tới | Effect |
+| --- | --- | --- | --- |
+| rảnh | lưu chữ đoạn đã bằng chữ đã lưu | đóng trình sửa; `notice` = "Không có thay đổi."; focus vào nút Sửa | |
+| rảnh | lưu chữ đoạn hoặc tên khi bản nháp mang `source_version_changed` | không gửi; dòng cạnh nút báo lỗi: chữ đoạn "Transcript đã thay đổi. Xem bản mới nhất rồi chỉnh bản nháp trước khi lưu." (còn đặt `notice`), tên người nói "Tên người nói đã thay đổi. Xem tên mới nhất rồi chỉnh bản nháp trước khi lưu." (không đặt `notice`) | |
+| rảnh | lưu lựa chọn người nói khi bản nháp có dấu xung đột và chưa xem lại | không gửi; dòng dưới bản nháp báo "Tải bản mới nhất…" | |
+| rảnh | lưu lựa chọn người nói bằng người đang gán | không gửi; vẽ lại phần bản nháp | |
+| rảnh | thêm người nói khi `speakerAddReady` sai (nguồn khóa, generation chưa `complete`, bản nháp xung đột, ghi hoặc tải lại đang bay) | không gửi | |
+| rảnh | ghi hợp lệ | `mutation` đặt, bản nháp ghi lại, `notice` = "Đang lưu thay đổi transcript."; mọi điều khiển tắt | `fetch PATCH`/`POST` (key `transcript/mutation`) |
+| `mutation` | `mutation-succeeded` đúng id | `history-core` đặt giá trị vào cuộc họp; bản nháp vừa lưu xóa và các bản khác đối chiếu; trình sửa/rename của mục vừa lưu đóng; `notice` = lời kết quả ("Đã lưu.", "Đã lưu tên người nói.", "Đã lưu lựa chọn người nói.", "Đã thêm người nói."); `mutation = null`; `focus {mode: settle, target: nút Sửa, chip người nói mới hoặc vừa đổi tên, `from`: điều khiển lúc bắt đầu}` | `recovery`, `clear-reload`, `key`, `row`/`chip`, `status` |
+| `mutation` | `mutation-succeeded` khi trang đã thay cuộc họp (`shown.meeting` khác lúc gửi, hoặc đã thấy phiên bản mới hơn) | giá trị chỉ áp nếu phiên bản server không cũ hơn trang; đã đổi sang cuộc họp khác hoặc cuộc họp đã bị xóa: không áp, bản nháp vừa lưu vẫn xóa (`hasUnsavedTranscriptDrafts()` sai); `notice` = lời kết quả nếu cùng cuộc họp, ngược lại "Thay đổi transcript đã hoàn tất."; `sameMeeting` sai thì focus không trả | `labels`/`key`/`generation` khi cuộc họp được thay |
+| `mutation` | `mutation-succeeded` có thân không phải object (chuỗi, `null`, mảng) | như `mutation-failed` không có mã: cả hai lát bỏ qua thân; `history-core` không đổi cuộc họp, lát transcript báo lỗi mặc định của loại ghi ("Không thể lưu đoạn transcript.", "Không thể lưu tên người nói.", "Không thể lưu người nói.", "Không thể thêm người nói."), giữ bản nháp và trình sửa (lựa chọn người nói: bỏ bản nháp) | |
+| `mutation` | `mutation-succeeded` của lựa chọn người nói khi hàng không còn | `mutation = null`, `notice` "đã hoàn tất", không báo | |
+| `mutation` | `mutation-failed` mạng/5xx/4xx thường | bản nháp giữ (lựa chọn người nói: bỏ bản nháp, ô chọn về giá trị cũ, `error` = lời lỗi với `reloadLatest` sai, bản khôi phục vẽ lại); `notice` và dòng cạnh nút = lời lỗi (lựa chọn người nói chỉ ghi `notice`, không có dòng cạnh nút); trình sửa mở giữ | `status` |
+| `mutation` | `mutation-failed` 409 `source_version_changed` / `current_generation_changed` | bản nháp mang dấu; dòng cạnh nút mở: nút tải lại cạnh dòng; không mở: `error` hiện nút tải lại | `reload-button` hoặc `error` |
+| `mutation` | `mutation-failed` lựa chọn người nói, 409 hoặc `assignment_version_changed` | bản nháp mang dấu, ô chọn giữ giá trị chọn; `error` có nút tải lại; `notice` = lời lỗi và giữ tới hết lượt (bản cũ: "Thay đổi transcript đã hoàn tất.", do lần dựng lại bắt buộc viết "Đang lưu…" đè lên) | `assignment-failed`, `error`, `generation {force}` |
+| `mutation` | thêm người nói lỗi 409 | bản nháp thêm người mang dấu; nút tải lại cạnh dòng thêm người | `reload-button` |
+| `mutation` | `mutation-succeeded`/`failed` có `meta.id` khác | không đổi (response cũ) | |
+| `mutation` | kết thúc bất kỳ | `notice` "Đang lưu…" thành "Thay đổi transcript đã hoàn tất." nếu chưa có lời khác; `focus.rev` tăng | |
+
+**Tải lại bản mới nhất**
+
+| Từ | Sự kiện | Tới | Effect |
+| --- | --- | --- | --- |
+| rảnh, có cuộc họp | `reload-clicked {anchor}` | `reload` đặt; nút tải lại tắt | `fetch GET /api/meetings/<id>` (key `transcript/reload`) |
+| `reload` hoặc `mutation` | `reload-clicked` | không đổi | |
+| `reload` | `reload-loaded`, cuộc họp hợp lệ (cùng id, có `transcription`) | `reload = null`, `error = null`; `history-core` cài bản mới; bản nháp đối chiếu ở `meeting-installed`; vẽ lại | `clear-reload-all`, `generation {force}` |
+| `reload` | `reload-loaded`, đã có bản khác được cài trong lúc chờ (`installRev` khác) | `reload = null`, bỏ kết quả | |
+| `reload` | `reload-loaded` với cuộc họp sai (id khác, không có `transcription`) | `reload = null`; cạnh nút: "Không tải được trạng thái transcript mới nhất." | `reload-note` |
+| `reload` | `reload-failed` | `reload = null`; cạnh nút: lời lỗi, mặc định "Không thể tải transcript mới nhất." | `reload-note` |
+| không có `reload` | `reload-loaded`/`failed` | không đổi (response cũ) | |
+
+**Focus**: `mode: now` (mở/đóng trình sửa, không thay đổi): view focus điều khiển `target` ngay sau khi vẽ. `mode: settle` (ghi kết thúc): view tìm điều khiển `target` (nếu cùng cuộc họp), không thấy thì điều khiển `from`, và chỉ focus nếu focus đang ở `body`, ở điều khiển `from` hoặc ở chính đích (người dùng đã chuyển đi chỗ khác thì giữ). Điều khiển được bật lại (hết `disabled`) trước khi focus.
+
+Các điều kiện chỉ tồn tại ở DOM: view bỏ qua một lệnh vẽ khi phần tử đích không còn (dòng trạng thái, ô chọn, chỗ đặt nút tải lại), và focus khi lần ghi xong phụ thuộc `document.activeElement` (xem đoạn Focus); mọi quyết định khác về dòng trạng thái đang mở, hàng đang sửa và nút tải lại do core tính từ `editing`, `renaming`, generation đang xem.
