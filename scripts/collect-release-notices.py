@@ -500,6 +500,7 @@ def collect(
             "python": len(inventory.get("python_packages", [])),
             "system": len(inventory.get("system_packages", [])),
             "fonts": len(inventory.get("fonts", [])),
+            "web_vendor": len(inventory.get("web_vendor", [])),
         },
         "declared_vs_reviewed": declared_review,
         "notices": records,

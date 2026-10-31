@@ -722,6 +722,69 @@ Mục tùy chọn trong comment của #118: pha 5 xử lý `LATEST_MISMATCH` và
 
 Còn mở sau #118 (không đổi hành vi nên không làm trong pha 5): trình duyệt tự đóng dialog tạo cuộc họp giữa lúc lưu rồi mở lại (pha 1); cuộn tới mục Google trước khi view Google vẽ xong, và trả lời `POST …/input` của Google chưa kiểm thế hệ đăng nhập (pha 2); `readId` dùng chung giữa các cuộc họp (pha 3); khóa `history/save` latest-wins theo cuộc họp, poll cũ hơn câu trả lời hủy, `shownOf` thuần cho harness task (4a đến 4c); khóa `transcript/copy` latest-wins và chi phí mỗi phím gõ trong trình sửa (4c); hơn mười cờ descriptor provider còn là switch theo provider; live region không ghi lại khi chữ không đổi (chỉ sửa nếu kiểm bằng trình đọc màn hình thấy cần).
 
+### #117 / PR (chưa mở) — tách audio khỏi video ngay trên trình duyệt trước khi upload
+
+#### Vấn đề
+
+Truy cập từ xa qua Cloudflare Tunnel bị chặn request body trên khoảng 100 MB ở edge, trong khi `uploadWithProgress` gửi cả file trong một PUT. Video họp khoảng 1 giờ thường lớn hơn 100 MB nên không tải lên được, dù giới hạn của app là 4 GiB. Server chỉ giữ audio (`recordings/{id}.m4a`, AAC 160k), nên phần hình chỉ tốn băng thông.
+
+#### Nguyên nhân đo được
+
+Mẫu thử: video 1 giờ 640x360, H.264 khoảng 1 Mbit/s, AAC 160 kbit/s, `moov` ở cuối file (kiểu ghi của nhiều công cụ họp). File gốc 517.496.558 byte; phần audio 67.177.975 byte (khoảng 13 %), dưới 100 MB.
+
+Nguồn: lệnh tạo mẫu bên dưới; Cloudflare 413 sau khoảng 3 MB với PUT 150 MB, 5 MB qua được (quan sát trong issue #117).
+
+#### Thay đổi thiết kế
+
+- `audio-extract.js` (mới, nạp bằng `import()` khi gặp video đầu tiên) dùng Mediabunny 1.61.6 để đọc file theo luồng và copy gói AAC (`mp4`/`mov` → `.m4a`) hoặc Opus (`webm` → `.webm`), không giải mã hay mã hóa lại (`copy: {mode: "forced"}`, video bị bỏ). Codec khác, không có audio, thiếu API hoặc lỗi đọc: ném lỗi có `kind`.
+- Thư viện vendor nguyên bản (MPL-2.0, mức file) ở `web/vendor/mediabunny/` cùng `LICENSE` và `PROVENANCE.md` (tarball npm, tích hợp sha512, sha256 của file); `release-inventory.py` ghi mục `web_vendor` như `fonts`, `collect-release-notices.py` đếm nó. CSP không đổi: không CDN, không WASM, không `wasm-unsafe-eval`; lý do loại ffmpeg.wasm nêu trong issue.
+- `store.js` thêm effect `extract` (`deps.extract(file, {signal, onProgress})`, cùng quy tắc latest-wins/cancel như `upload`); thiếu `deps.extract` thì trả lỗi `unsupported`.
+- `shell-core.js` thêm `phase` `extracting`, `sendFile`, `notice`. Sau khi dọn upload cũ, file video đi qua `extracting`; kết quả (audio hoặc file gốc khi lỗi) quyết định tên và `size_bytes` gửi ở `POST /api/uploads` và nội dung PUT. Hủy được cả ở bước tách (không có slot nên không DELETE). Khi sửa này `cancelUpload` giữ các effect `cancel` ngay cả khi chưa có `uploadId`.
+- API server không đổi; server vẫn chuyển mọi đầu vào thành M4A/AAC. Bảng chuyển trạng thái ở `frontend-design-v1.md` 11.5.
+
+#### Số đo trước và sau
+
+Điều kiện: Chromium headless (Playwright) trên máy 32 luồng, giao diện thật; thời gian từ lúc bấm **Tạo cuộc họp** tới lúc nhãn thành **Đang tải lên** (gồm nạp thư viện, đọc file 517 MB từ đĩa, ghi bộ nhớ); PUT bị giữ nên không tính thời gian truyền. Ba lần chạy liên tiếp. Tạo mẫu:
+
+```sh
+ffmpeg -f lavfi -i testsrc2=size=640x360:rate=10 -f lavfi -i "sine=frequency=440:sample_rate=48000" \
+  -t 3600 -c:v libx264 -preset veryfast -b:v 1000k -maxrate 1200k -bufsize 2M -pix_fmt yuv420p \
+  -c:a aac -b:a 160k hour.mp4
+```
+
+| | Trước | Sau |
+| --- | --- | --- |
+| Byte gửi lên (1 giờ) | 517.496.558 | 67.177.975 |
+| Thời gian chuẩn bị trước khi gửi | 0 s | 6,43 s; 6,33 s; 6,35 s |
+
+Nguồn: lần đo cục bộ cho #117 (script đo nằm ngoài repo). Máy chậm hơn, đĩa chậm hoặc file lớn hơn cho thời gian dài hơn; thời gian chủ yếu là đọc file.
+
+#### Đánh đổi và phương án đã loại
+
+- Mediabunny: thư viện JS thuần, không WASM, đọc Blob theo luồng; đổi lại thêm một file vendor lớn (bản `min.mjs` khoảng 0,7 MB) và nghĩa vụ MPL-2.0 mức file (giữ nguyên file, kèm license và nguồn). Issue ghi MIT là sai; giấy phép đúng là MPL-2.0.
+- Audio tách ra giữ trong bộ nhớ (BufferTarget) trước khi gửi: khoảng 72 MB cho 1 giờ ở 160 kbit/s; audio dài hơn nhiều giờ dùng nhiều bộ nhớ hơn tương ứng.
+- Chỉ AAC (mp4/mov) và Opus (webm) được copy; các codec khác gửi nguyên file (không mã hóa lại ở trình duyệt).
+- ffmpeg.wasm bị loại: khoảng 30 MB WASM, cần nới CSP `wasm-unsafe-eval`, nạp cả file vào RAM, thêm LGPL vào inventory.
+
+#### Follow-up
+
+- Upload chia phần cho file audio vẫn trên khoảng 100 MB (audio dài hơn 3 giờ hoặc file gửi nguyên): ngoài phạm vi, cần issue riêng.
+- Tệp `docs/release/runtime-inventory-amd64.json` và `third_party/NOTICE-MANIFEST.json` là bằng chứng sinh từ image; phải sinh lại ở lần build release kế tiếp để có mục `web_vendor`.
+
+#### Liên kết issue/PR
+
+Issue #117.
+
+#### Tag
+
+Hiệu năng; Kiến trúc; Quyền riêng tư
+
+#### Tài liệu đích
+
+- `docs/release/performance-v0.1.0.md` — số đo.
+- `docs/release/runtime-v0.1.0.md` — luồng upload và thư viện vendor.
+- `docs/release/privacy-v0.1.0.md` — file video không rời trình duyệt khi tách được; không có kết nối mới.
+
 ## 4. Mốc AC-13 (#16 → #99 → #104)
 
 Đã chuyển bảng mốc và điều kiện đo vào [báo cáo nghiệm thu](acceptance-report-v1.md).

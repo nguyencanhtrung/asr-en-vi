@@ -147,7 +147,8 @@ def main() -> None:
     distributions = sorted(importlib.metadata.distributions(), key=lambda d: d.name.lower())
     omp = Path("/usr/local/bin/omp")
     notices = Path("/usr/local/share/licenses/omp")
-    fonts = Path(importlib.metadata.distribution("asr-en-vi").locate_file("asr_en_vi/web/fonts"))
+    web = Path(importlib.metadata.distribution("asr-en-vi").locate_file("asr_en_vi/web"))
+    fonts = web / "fonts"
     report = {
         "schema": 1,
         "scope": "Installed runtime only; no models, credentials or user data inspected",
@@ -162,6 +163,12 @@ def main() -> None:
         },
         "fonts": [
             file_record(p, f"asr_en_vi/web/fonts/{p.name}") for p in sorted(fonts.glob("LICENSE*"))
+        ],
+        # Unmodified vendored browser code (MPL-2.0): the file, its license and its source pointer.
+        "web_vendor": [
+            file_record(p, f"asr_en_vi/web/vendor/{p.relative_to(web / 'vendor')}")
+            for p in sorted((web / "vendor").glob("*/*"))
+            if p.is_file()
         ],
     }
     print(json.dumps(report, indent=2, ensure_ascii=False))

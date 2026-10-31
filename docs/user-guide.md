@@ -250,6 +250,14 @@ Supported formats: `wav`, `mp3`, `m4a`, `mp4`, `mov`, `webm`, `ogg`, `opus`, `fl
 checks codec and duration with FFmpeg and stores an app-managed M4A/AAC copy. You do not need the
 source file after the upload.
 
+For `mp4`, `mov` and `webm` videos, the browser first cuts the audio track out of the file (a
+stream copy, no re-encoding) and uploads only that audio. A one-hour meeting video then uploads as
+about 65 MiB of audio instead of the whole video, which keeps it under the roughly 100 MB request
+limit of tunnels such as Cloudflare. The step shows as **Extracting audio**, and **Cancel** works in
+it. If the browser cannot do it (an unsupported audio codec, no audio track, an old browser), the
+workspace uploads the original file and says so below the status line. The meeting is the same
+either way. Only AAC audio in `mp4`/`mov` and Opus audio in `webm` are copied.
+
 In **New meeting**, **Create meeting** uploads the file and creates the meeting. The name comes
 from the file name until you type one. The language hint is only metadata. The runner always
 uses `transcribe` and detects the language per segment.

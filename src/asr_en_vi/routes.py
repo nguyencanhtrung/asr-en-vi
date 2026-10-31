@@ -229,6 +229,14 @@ def install_routes(
             return Response(status_code=404)
         return FileResponse(asset_path, media_type="text/javascript")
 
+    @app.get("/assets/audio-extract.js", include_in_schema=False)
+    async def audio_extract_js() -> FileResponse:
+        return _asset_response("audio-extract.js", "text/javascript")
+
+    @app.get("/assets/vendor/mediabunny/mediabunny.min.mjs", include_in_schema=False)
+    async def mediabunny_js() -> FileResponse:
+        return _asset_response("vendor/mediabunny/mediabunny.min.mjs", "text/javascript")
+
     @app.get("/assets/shell-core.js", include_in_schema=False)
     async def shell_core_js() -> FileResponse:
         return _asset_response("shell-core.js", "text/javascript")

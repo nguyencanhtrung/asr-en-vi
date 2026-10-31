@@ -188,7 +188,7 @@ Các thao tác sửa metadata/gán speaker là hành vi bổ sung sau prototype,
 | Chưa có cuộc họp | Trạng thái trống có hành động tạo cuộc họp; lịch không có dấu ngày giả |
 | Cuộc họp mới | Hộp thoại có vùng kéo thả/chọn audio hoặc video, tên cuộc họp, ngôn ngữ chính **Tiếng Việt/English**, ngày họp tùy chọn, ô **Chép lời ngay sau khi tạo** và một nút chính **Tạo cuộc họp**; luồng chọn/kết nối provider notes bổ sung theo mục 7.1. Chọn file thì tên được điền sẵn từ tên file (bỏ phần mở rộng, tối đa 200 ký tự) cho tới khi người dùng tự gõ; ngôn ngữ mặc định là lựa chọn lần trước nếu có; ô chép lời bật sẵn và nhớ lựa chọn cuối trong trình duyệt |
 | Chọn nơi tạo notes | Có **ChatGPT** và **Google Antigravity qua OMP**; chọn bên nào thì kết nối bên đó, không bắt buộc cả hai |
-| Đang upload | Bấm **Tạo cuộc họp** chạy liền tải lên → kiểm tra → tạo theo máy trạng thái hiện có, không có bước tải lên riêng; nếu file đã được kiểm tra thì chỉ tạo. Tiến độ upload riêng; nhãn trạng thái bằng tiếng Việt (**Đang tải lên**, **Đang kiểm tra**, **Sẵn sàng tạo**, …), không hiện mã kỹ thuật như `IDLE`. **Hủy tải lên** dừng lượt đang chạy; upload bị ngắt báo chưa hoàn tất và cho **Tải lại từ đầu** (chạy lại cả luồng với file đã chọn) hoặc chọn file khác. Khi lỗi, form giữ nguyên dữ liệu; lỗi tạo cho **Thử tạo lại**, còn khi chưa biết cuộc họp đã được tạo hay chưa thì nút chính thành **Xác minh và thử lại** để gửi lại đúng yêu cầu |
+| Đang upload | Bấm **Tạo cuộc họp** chạy liền tải lên → kiểm tra → tạo theo máy trạng thái hiện có, không có bước tải lên riêng; nếu file đã được kiểm tra thì chỉ tạo. Với video, bước **Đang tách audio** (tiến độ riêng, hủy được) chạy trước bước tải lên; tiến độ về 0 khi bắt đầu tải lên. Tiến độ upload riêng; nhãn trạng thái bằng tiếng Việt (**Đang tải lên**, **Đang kiểm tra**, **Sẵn sàng tạo**, …), không hiện mã kỹ thuật như `IDLE`. **Hủy tải lên** dừng lượt đang chạy; upload bị ngắt báo chưa hoàn tất và cho **Tải lại từ đầu** (chạy lại cả luồng với file đã chọn) hoặc chọn file khác. Khi lỗi, form giữ nguyên dữ liệu; lỗi tạo cho **Thử tạo lại**, còn khi chưa biết cuộc họp đã được tạo hay chưa thì nút chính thành **Xác minh và thử lại** để gửi lại đúng yêu cầu |
 | Tạo xong, tự chép lời | Khi ô **Chép lời ngay sau khi tạo** đang bật, trang cuộc họp vừa mở gửi yêu cầu chép lời đúng một lần; tải lại trang hoặc Back không gửi lại. Khi tắt, người dùng tự bấm **Bắt đầu chép lời** |
 | Đang chép lời | Thanh tiến độ (`<progress>`, tên truy cập là nhãn giai đoạn tiếng Việt) kèm phần trăm bằng mốc transcript chia cho thời lượng bản ghi; không vượt 100 % và không hiện 100 % trước khi chép hết. Thiếu thời lượng thì thanh không xác định (viền đứt, nhấp nháy nhẹ, tắt khi giảm chuyển động) và không có phần trăm. Nút hủy ghi **Hủy chép lời**, đổi thành **Đang dừng…** khi đã gửi yêu cầu; khi đã có transcript, **Chạy lại bản ghi** là nút phụ. Compute backend và model tự chọn nằm trong phần **Chi tiết xử lý** (`<details>`, mặc định đóng); giai đoạn, thời gian đã chạy, số đoạn và mốc transcript vẫn ở bảng số đo. Không có ETA, và tiến độ không thêm request ngoài lần poll tác vụ |
 | Đang tạo/tạo lại notes | Danh sách bước có thứ tự **Nhận yêu cầu**, **Khởi chạy**, **Tạo notes**, **Lưu notes**, mỗi bước có chữ **Đã xong**, **Đang chạy** hoặc **Chưa tới** (không chỉ dùng màu), kèm thời gian đã chạy và một dòng phụ nhà cung cấp · model · mức suy nghĩ. Bước làm tác vụ thất bại, bị hủy hoặc gián đoạn ghi **Thất bại**, **Đã hủy** hoặc **Bị gián đoạn**. Backend ghi đè giai đoạn khi tác vụ kết thúc nên trang nhớ bước cuối đã thấy trong phiên; mở trang sau khi tác vụ đã kết thúc thì không bước nào được ghi là đã xong, chỉ có một dòng nêu cách tác vụ kết thúc. Nút hủy ghi **Hủy tạo notes**, đổi thành **Đang dừng…**; chỉ một tác vụ tại một thời điểm |
@@ -334,6 +334,7 @@ Core `shell-core.js` (`initialState`, `reduce`, `selectView`), view `shell.js`. 
 | --- | --- | --- | --- |
 | `idle` | chưa chọn file, chính sách đã tải | `policy-loaded` | chọn file được |
 | `selected` | file hợp lệ đã chọn, hoặc đang chuẩn bị slot upload | `file-selected`, bắt đầu lượt mới | tạo được nếu form hợp lệ |
+| `extracting` | trình duyệt tách audio khỏi video `.mp4`/`.mov`/`.webm`, có tiến độ; chưa có slot upload | `submit-requested` (sau khi dọn upload cũ) | khóa form; hiện nút hủy |
 | `uploading` | đang truyền byte, có tiến độ | `upload-created` | khóa form; hiện nút hủy |
 | `checking` | server kiểm tra file | `upload-sent` | khóa form; hiện nút hủy |
 | `ready` | server xác nhận `ready`, chưa lưu | `upload-completed`, `form-edited` sau lỗi tạo | tạo được |
@@ -342,7 +343,7 @@ Core `shell-core.js` (`initialState`, `reduce`, `selectView`), view `shell.js`. 
 | `error` | lỗi (chính sách, file, upload, tạo) | các action lỗi | tùy cờ bên dưới |
 | `aborted` | người dùng hủy upload | `shell/upload-cancel-requested` | thử lại được |
 
-Cờ bổ sung: `starting` (đang dọn upload cũ và tạo slot; khóa form), `cancelling` (đã hủy, chờ dọn), `failure` (lỗi upload chờ dọn xong để báo), `serverReady`, `retryable`, `fileRefused` (server từ chối nội dung file: không thử lại cùng file), `createAttemptFailed`, `createUncertain` + `createRetryPayload` (tạo không rõ kết quả: gửi lại đúng payload để server khử trùng), `pendingCleanup` (upload dở chưa xóa được, thử lại ở lần chọn file hoặc lượt sau).
+Cờ bổ sung: `sendFile` (file mà upload gửi: chính file đã chọn, hoặc audio đã tách) và `notice` (kết quả bước tách, hiện ở `#upload-notice`), `starting` (đang dọn upload cũ và tạo slot; khóa form), `cancelling` (đã hủy, chờ dọn), `failure` (lỗi upload chờ dọn xong để báo), `serverReady`, `retryable`, `fileRefused` (server từ chối nội dung file: không thử lại cùng file), `createAttemptFailed`, `createUncertain` + `createRetryPayload` (tạo không rõ kết quả: gửi lại đúng payload để server khử trùng), `pendingCleanup` (upload dở chưa xóa được, thử lại ở lần chọn file hoặc lượt sau).
 
 **Chuyển trạng thái** (`shell/` bỏ tiền tố trong cột sự kiện):
 
@@ -356,14 +357,20 @@ Cờ bổ sung: `starting` (đang dọn upload cũ và tạo slot; khóa form), 
 | không bận | `file-selected` sai đuôi, quá lớn, chưa có chính sách | `error` | như trên |
 | đang bận hoặc tạo không rõ | `file-selected` | không đổi | |
 | có thể tạo | `submit-requested` khi chưa `serverReady` | `selected`, `starting` | DELETE upload cũ, rồi `fetch shell/upload-create` |
-| `starting` | `upload-created` | `uploading` | `upload shell/upload` |
+| `starting`, file không phải video | (sau khi dọn) | `selected` | `fetch shell/upload-create` với tên và dung lượng của file |
+| `starting`, file video | (sau khi dọn) | `extracting` | `extract shell/extract` |
+| `extracting` | `extract-progressed` | `extracting` | |
+| `extracting` | `extract-done` | `selected`, `starting`, `sendFile` = audio, `notice` = đã tách | `fetch shell/upload-create` với tên và dung lượng của file audio |
+| `extracting` | `extract-failed` (mọi lý do) | `selected`, `starting`, `sendFile` = file gốc, `notice` = không tách được | `fetch shell/upload-create` với file gốc |
+| `extracting` | `upload-cancel-requested` hoặc đóng dialog | `aborted` ngay (chưa có slot, không DELETE) | `cancel shell/extract` |
+| `starting` | `upload-created` | `uploading`, tiến độ về 0 | `upload shell/upload` gửi `sendFile` |
 | `starting` | `upload-create-failed` hoặc thiếu mã | `error` | |
 | `uploading` | `upload-progressed` | `uploading` | |
 | `uploading` | `upload-sent` | `checking` | `fetch shell/upload-complete` |
 | `uploading` | `upload-failed` (mạng, hết giờ, HTTP) | `uploading` rồi `error` sau khi dọn | DELETE upload |
 | `checking` | `upload-completed` ready | `ready` rồi `creating` ngay | `fetch shell/create` |
 | `checking` | `upload-completed` khác ready, `upload-completion-failed` | `error` sau khi dọn | DELETE upload |
-| `uploading`, `checking` | `upload-cancel-requested` hoặc đóng dialog | `aborted` sau khi dọn | `cancel shell/upload`, `cancel shell/upload-complete`, DELETE upload (id vào `pendingCleanup` ngay, xóa khi DELETE được xác nhận) |
+| `uploading`, `checking` | `upload-cancel-requested` hoặc đóng dialog | `aborted` sau khi dọn | `cancel shell/extract`, `cancel shell/upload`, `cancel shell/upload-complete`, DELETE upload (id vào `pendingCleanup` ngay, xóa khi DELETE được xác nhận) |
 | `uploading`, `checking` đang chờ DELETE của lỗi upload | `upload-cancel-requested` hoặc đóng dialog | `aborted` ngay; bỏ `failure`, kết quả hủy giữ nguyên khi DELETE cũ trả lời | |
 | `aborted` đang chờ DELETE (`cancelling`) | `upload-cancel-requested` | không đổi | |
 | `cancelling` | `dialog-close-requested` | đóng, state về ban đầu; DELETE đang chờ để id ở `pendingCleanup` | |
@@ -381,6 +388,15 @@ Cờ bổ sung: `starting` (đang dọn upload cũ và tạo slot; khóa form), 
 | `creating`, `starting` | `dialog-close-requested` | không đổi | |
 | khác | `dialog-close-requested` | đóng, state về ban đầu | DELETE upload (trừ khi tạo không rõ) |
 | bất kỳ | `auto-transcribe-toggled` | không đổi phase | `storage` cờ chép lời |
+
+**Tách audio khỏi video (#117).** Với `.mp4`, `.mov`, `.webm`, trước khi tạo slot upload, `audio-extract.js` đọc file theo luồng và copy gói audio sang file audio-only, không giải mã hay mã hóa lại; mỗi tên file audio giữ phần tên và đổi đuôi. Thư viện là Mediabunny 1.61.6 (MPL-2.0), vendor nguyên bản ở `web/vendor/mediabunny/`, nạp bằng `import()` cùng origin khi gặp video đầu tiên; CSP không đổi (`script-src 'self'`, không `wasm-unsafe-eval`). Hiệu ứng `extract` chạy qua `deps.extract(file, {signal, onProgress})` của runner (core vẫn thuần, test bằng bản giả). Quyết định theo container:
+
+| Nguồn | Audio copy được | File gửi lên | Khác |
+| --- | --- | --- | --- |
+| `.mp4`, `.mov` | AAC | `.m4a` (audio-only) | codec khác (ví dụ MP3 trong MP4): gửi nguyên file |
+| `.webm` | Opus | `.webm` (audio-only) | codec khác (Vorbis): gửi nguyên file. Quyết định: **tách**, vì Mediabunny ghi được WebM audio-only bằng copy gói Opus và server vẫn chuyển mọi đầu vào thành M4A/AAC như trước |
+
+Mọi lỗi tách (thiếu API, không có luồng audio, codec không copy được, lỗi đọc file) đều dẫn tới gửi nguyên file gốc kèm thông báo ở `#upload-notice`; không lỗi nào dừng cuộc tạo. Nếu file gốc không có audio, server từ chối như trước. API upload của server không đổi. Giới hạn: file audio vẫn gửi trong một PUT, nên audio dài trên khoảng 100 MB (hơn 3 giờ ở 160 kbit/s) hoặc file gửi nguyên vẫn bị chặn ở edge Cloudflare; upload chia phần ngoài phạm vi.
 
 Thay đổi nhỏ so với bản trước pha 1: đóng dialog gửi DELETE upload dở rồi đóng ngay, không chờ DELETE trả lời; DELETE lỗi vẫn vào `pendingCleanup`. DELETE treo không khóa dialog: Hủy rồi Đóng/Esc vẫn đóng được.
 

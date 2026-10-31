@@ -61,6 +61,9 @@ export function combine(features) {
 // {type: error, error: {message, status?, body?}, meta}; an aborted request dispatches nothing.
 // upload: same ok/error/meta/latest-wins semantics over XHR; also {type: progress, loaded, total,
 // lengthComputable, meta} while sending; a failed transfer is error {message, kind: network|timeout}.
+// extract {key, file, ok, error, progress?, meta}: deps.extract(file, {signal, onProgress}) -> a promise of the value (the audio File
+// cut out of a video); ok {value, meta}, error {message, kind?, meta} (kind comes from the thrown error; a missing deps.extract is
+// kind "unsupported"), progress {ratio 0..1, meta}. Same latest-wins/cancel rules; cancel aborts signal and dispatches nothing.
 // storage: area local|session, op write|remove; a storage that throws means the value is not remembered.
 // navigate: calls deps.navigate(url).
 // open-window {key, op, ...}: op reserve {title, text, ok, error, meta} opens a blank window through deps.open and
@@ -71,7 +74,7 @@ export function combine(features) {
 // With ok and/or error the result (a value or a promise) answers {type: ok, value, meta} or {type: error, error: {message}, meta}
 // with the same latest-wins/cancel rules as fetch; a call whose name is unknown throws.
 // deps.now (optional): stamps `now` on the actions it dispatches for fetch, schedule, open-window and call results (not upload), so reducers get the clock as data.
-export function createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, storage, navigate, open, calls, now }) {
+export function createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, storage, navigate, open, calls, now, extract }) {
   const active = new Map(); // key -> { stop }
   const windows = new Map(); // key -> reserved window handle
   const stamp = (action) => (now ? { ...action, now: now() } : action);
@@ -148,6 +151,24 @@ export function createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, 
       xhr.onerror = fail("network");
       xhr.ontimeout = fail("timeout");
       xhr.send(effect.body); // no onabort: an abort is always the reducer's own cancel
+    } else if (type === "extract") {
+      const controller = new AbortController();
+      const entry = start(key, () => controller.abort());
+      const finish = (action) => {
+        if (!alive(key, entry)) return; // cancelled or replaced: drop the late result
+        active.delete(key);
+        dispatch({ ...action, meta: effect.meta });
+      };
+      const onProgress = (ratio) => {
+        if (effect.progress && alive(key, entry)) dispatch({ type: effect.progress, ratio, meta: effect.meta });
+      };
+      (typeof extract === "function"
+        ? Promise.resolve().then(() => extract(effect.file, { signal: controller.signal, onProgress }))
+        : Promise.reject(Object.assign(new Error("extract is not available"), { kind: "unsupported" }))
+      ).then(
+        (value) => finish({ type: effect.ok, value }),
+        (error) => finish({ type: effect.error, error: { message: String(error?.message ?? error), kind: error?.kind } }),
+      );
     } else if (type === "storage") {
       try {
         const area = storage[effect.area]();
