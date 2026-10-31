@@ -396,7 +396,7 @@ Cờ bổ sung: `sendFile` (file mà upload gửi: chính file đã chọn, ho�
 | `.mp4`, `.mov` | AAC | `.m4a` (audio-only) | codec khác (ví dụ MP3 trong MP4): gửi nguyên file |
 | `.webm` | Opus | `.webm` (audio-only) | codec khác (Vorbis): gửi nguyên file. Quyết định: **tách**, vì Mediabunny ghi được WebM audio-only bằng copy gói Opus và server vẫn chuyển mọi đầu vào thành M4A/AAC như trước |
 
-Mọi lỗi tách (thiếu API, không có luồng audio, codec không copy được, lỗi đọc file) đều dẫn tới gửi nguyên file gốc kèm thông báo ở `#upload-notice`; không lỗi nào dừng cuộc tạo. Nếu file gốc không có audio, server từ chối như trước. API upload của server không đổi. Giới hạn: file audio vẫn gửi trong một PUT, nên audio dài trên khoảng 100 MB (hơn 3 giờ ở 160 kbit/s) hoặc file gửi nguyên vẫn bị chặn ở edge Cloudflare; upload chia phần ngoài phạm vi.
+Mọi lỗi tách (thiếu API, không có luồng audio, codec không copy được, audio bắt đầu muộn hơn 0,1 giây so với hình vì file audio tách ra luôn bắt đầu ở 0 và sẽ lệch thời gian, lỗi đọc file) đều dẫn tới gửi nguyên file gốc kèm thông báo ở `#upload-notice`; không lỗi nào dừng cuộc tạo. Nếu file gốc không có audio, server từ chối như trước. API upload của server không đổi. Giới hạn: file audio vẫn gửi trong một PUT, nên audio dài trên khoảng 100 MB (khoảng 1,4 giờ ở 160 kbit/s; audio bitrate cao hơn vượt sớm hơn) hoặc file gửi nguyên vẫn bị chặn ở edge Cloudflare; upload chia phần ngoài phạm vi.
 
 Thay đổi nhỏ so với bản trước pha 1: đóng dialog gửi DELETE upload dở rồi đóng ngay, không chờ DELETE trả lời; DELETE lỗi vẫn vào `pendingCleanup`. DELETE treo không khóa dialog: Hủy rồi Đóng/Esc vẫn đóng được.
 

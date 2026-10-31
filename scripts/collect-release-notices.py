@@ -503,6 +503,7 @@ def collect(
             "web_vendor": len(inventory.get("web_vendor", [])),
         },
         "declared_vs_reviewed": declared_review,
+        "web_vendor_packages": inventory.get("web_vendor_packages", []),
         "notices": records,
         "package_artifacts": package_records,
         "installed_notices": installed_notice_records,

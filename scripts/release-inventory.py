@@ -35,6 +35,30 @@ def file_record(path: Path, name: str) -> dict[str, str]:
     return {"path": name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
+def web_vendor_packages(vendor: Path) -> list[dict]:
+    """Name, version, license and source pointer of each vendored package (from PROVENANCE.md)."""
+
+    packages = []
+    for provenance in sorted(vendor.glob("*/PROVENANCE.md")):
+        text = provenance.read_text(encoding="utf-8")
+        title = re.match(r"# (\S+) (\S+)", text)
+        license_id = re.search(r"^- License: ([\w.-]+)", text, re.M)
+        tarball = re.search(r"^- Source tarball: (\S+)", text, re.M)
+        integrity = re.search(r"^- Integrity: `(sha512-[^`]+)`", text, re.M)
+        if not (title and license_id and tarball and integrity):
+            raise SystemExit(f"{provenance}: missing name, license, tarball or integrity")
+        packages.append(
+            {
+                "name": title[1],
+                "version": title[2],
+                "license": license_id[1],
+                "source_tarball": tarball[1],
+                "source_integrity": integrity[1],
+            }
+        )
+    return packages
+
+
 def distribution_record(distribution) -> dict:
     metadata = distribution.metadata
     notices = []
@@ -170,6 +194,7 @@ def main() -> None:
             for p in sorted((web / "vendor").glob("*/*"))
             if p.is_file()
         ],
+        "web_vendor_packages": web_vendor_packages(web / "vendor"),
     }
     print(json.dumps(report, indent=2, ensure_ascii=False))
 

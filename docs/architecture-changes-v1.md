@@ -762,13 +762,14 @@ Nguồn: lần đo cục bộ cho #117 (script đo nằm ngoài repo). Máy ch�
 #### Đánh đổi và phương án đã loại
 
 - Mediabunny: thư viện JS thuần, không WASM, đọc Blob theo luồng; đổi lại thêm một file vendor lớn (bản `min.mjs` khoảng 0,7 MB) và nghĩa vụ MPL-2.0 mức file (giữ nguyên file, kèm license và nguồn). Issue ghi MIT là sai; giấy phép đúng là MPL-2.0.
-- Audio tách ra giữ trong bộ nhớ (BufferTarget) trước khi gửi: khoảng 72 MB cho 1 giờ ở 160 kbit/s; audio dài hơn nhiều giờ dùng nhiều bộ nhớ hơn tương ứng.
+- Audio tách ra giữ trong bộ nhớ (BufferTarget) trước khi gửi: khoảng 72 MB cho 1 giờ ở 160 kbit/s là kích thước đầu ra, không phải đỉnh bộ nhớ: đỉnh gồm BufferTarget, bản copy và `File` tạo ra nên có thể gấp vài lần; audio dài hơn nhiều giờ dùng nhiều bộ nhớ hơn tương ứng.
+- Track audio bắt đầu muộn hơn hình: file tách ra và bản server chuyển mã từ video gốc đều bắt đầu ở 0, nên hai bên khớp nhau (kiểm bằng so sánh PCM trong `tests/test_browser_audio_extract.py`); lệch so với hình có sẵn từ trước #117.
 - Chỉ AAC (mp4/mov) và Opus (webm) được copy; các codec khác gửi nguyên file (không mã hóa lại ở trình duyệt).
 - ffmpeg.wasm bị loại: khoảng 30 MB WASM, cần nới CSP `wasm-unsafe-eval`, nạp cả file vào RAM, thêm LGPL vào inventory.
 
 #### Follow-up
 
-- Upload chia phần cho file audio vẫn trên khoảng 100 MB (audio dài hơn 3 giờ hoặc file gửi nguyên): ngoài phạm vi, cần issue riêng.
+- Upload chia phần cho file audio vẫn trên khoảng 100 MB (audio dài hơn khoảng 1,4 giờ ở 160 kbit/s, hoặc file gửi nguyên): ngoài phạm vi, cần issue riêng.
 - Tệp `docs/release/runtime-inventory-amd64.json` và `third_party/NOTICE-MANIFEST.json` là bằng chứng sinh từ image; phải sinh lại ở lần build release kế tiếp để có mục `web_vendor`.
 
 #### Liên kết issue/PR

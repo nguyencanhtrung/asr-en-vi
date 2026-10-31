@@ -16,6 +16,8 @@ from test_browser_create_flow import _meeting_id, _open_dialog
 from test_browser_history import live as live
 from test_browser_history import signed_in as signed_in
 
+from asr_en_vi.media import normalize_media
+
 pytestmark = pytest.mark.browser
 
 SECONDS = 6
@@ -33,10 +35,18 @@ def _ffmpeg(*args: str) -> None:
     )
 
 
-def make_video(path: Path, *, audio: str | None = "aac") -> Path:
+def make_video(path: Path, *, audio: str | None = "aac", audio_delay: float = 0) -> Path:
     """A small generated video: moving test pattern plus a tone in the named audio codec."""
     video = ["-f", "lavfi", "-i", f"testsrc=size=160x120:rate=10:duration={SECONDS}"]
-    tone = ["-f", "lavfi", "-i", f"sine=frequency=440:duration={SECONDS}"]
+    # -itsoffset shifts where the audio starts on the timeline (a delayed-start track).
+    tone = [
+        "-itsoffset",
+        str(audio_delay),
+        "-f",
+        "lavfi",
+        "-i",
+        f"sine=frequency=440:duration={SECONDS}",
+    ]
     codec = {
         "aac": ["-c:a", "aac", "-b:a", "96k"],
         "mp3": ["-c:a", "libmp3lame", "-b:a", "96k"],
@@ -69,6 +79,33 @@ def audio_duration(path: Path) -> float:
     info = probe(path)
     stream = next(s for s in info["streams"] if s["codec_type"] == "audio")
     return float(stream.get("duration") or info["format"]["duration"])
+
+
+def pcm_landmarks(path: Path) -> tuple[float, float]:
+    """(first loud sample, total length) in seconds of the decoded audio of `path`."""
+    raw = subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-i",
+            str(path),
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "8000",
+            "-f",
+            "s16le",
+            "-",
+        ],
+        check=True,
+        capture_output=True,
+        timeout=60,
+    ).stdout
+    samples = memoryview(raw).cast("h")
+    onset = next(i for i, v in enumerate(samples) if abs(v) > 2000)
+    return onset / 8000, len(samples) / 8000
 
 
 def _create(page, video: Path, *, title="Họp video"):
@@ -107,7 +144,11 @@ def _create(page, video: Path, *, title="Họp video"):
 
 @pytest.mark.parametrize(
     ("audio", "container", "expected_codec", "suffix"),
-    [("aac", "mp4", "aac", ".m4a"), ("opus", "webm", "opus", ".webm")],
+    [
+        ("aac", "mp4", "aac", ".m4a"),
+        ("aac", "mov", "aac", ".m4a"),
+        ("opus", "webm", "opus", ".webm"),
+    ],
 )
 def test_video_is_sent_as_audio_only_and_the_meeting_is_created(
     live, signed_in, tmp_path, audio, container, expected_codec, suffix
@@ -132,20 +173,25 @@ def test_video_is_sent_as_audio_only_and_the_meeting_is_created(
     assert meeting.status == 200
 
 
-def test_timestamps_match_after_server_normalization(live, signed_in, tmp_path):
-    video = make_video(tmp_path / "clip.mp4")
+@pytest.mark.parametrize("delay", [0, 1])
+def test_timestamps_match_after_server_normalization(live, signed_in, tmp_path, delay):
+    video = make_video(tmp_path / "clip.mp4", audio_delay=delay)
     context, page = signed_in()
     seen = _create(page, video)
     meeting_id = _meeting_id(page)
     assert seen["put"]
-
     stored = tmp_path / "stored.m4a"
     response = context.request.get(f"{live.url}/api/meetings/{meeting_id}/audio")
     assert response.status == 200
     stored.write_bytes(response.body())
-    # The server stores its own transcode of what it received; its length must still be the video's.
-    assert abs(audio_duration(stored) - audio_duration(video)) < TOLERANCE_SECONDS
-    assert abs(audio_duration(stored) - SECONDS) < TOLERANCE_SECONDS
+    # What the server would have stored had the whole video been uploaded: the extracted audio must
+    # land on the same timeline (same PCM landmarks), delayed-start track included.
+    reference = tmp_path / "reference.m4a"
+    normalize_media(video, reference, max_duration_seconds=3600)
+    want_onset, want_length = pcm_landmarks(reference)
+    got_onset, got_length = pcm_landmarks(stored)
+    assert abs(got_onset - want_onset) < TOLERANCE_SECONDS
+    assert abs(got_length - want_length) < TOLERANCE_SECONDS
 
 
 def test_uncopyable_codec_sends_the_original_file(live, signed_in, tmp_path):
