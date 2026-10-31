@@ -263,6 +263,12 @@ In **New meeting**, **Create meeting** uploads the file and creates the meeting.
 from the file name until you type one. The language hint is only metadata. The runner always
 uses `transcribe` and detects the language per segment.
 
+Known limitation: in Chrome on Ubuntu 20.04 (GTK 3.24), a double-click or Enter on a file in
+the file picker closes the picker without passing the file to the page, so no file is selected.
+This happens on any web page, not only in this workspace. Select the file and click **Open**,
+or drag the file onto the upload area. Closing the picker without a file leaves **New meeting**
+open.
+
 **Transcribe after create** is on by default. The browser remembers your last choice. When it is
 on, the meeting page sends one transcription request. Reload or Back does not send it again. If
 the machine is busy or the worker is not ready, the page shows the reason and a
