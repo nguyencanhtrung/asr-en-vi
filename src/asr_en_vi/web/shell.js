@@ -195,6 +195,8 @@ dateInput.addEventListener("change", editForm);
 for (const input of languageInputs) input.addEventListener("change", editForm);
 
 dialog.addEventListener("cancel", (event) => {
+  // The file input's cancel (picker closed without a new file) bubbles up here; it is not an Escape.
+  if (event.target !== dialog) return;
   event.preventDefault();
   requestClose();
 });

@@ -181,6 +181,21 @@ def test_title_is_prefilled_from_the_file_name_until_the_user_types(live, signed
     assert len(title.input_value()) == 200
 
 
+def test_a_closed_file_picker_does_not_close_the_dialog(live, signed_in):
+    _context, page = signed_in()
+    dialog = _open_dialog(page)
+    page.locator("#recording-file").set_input_files(_recording("Weekly sync.wav"))
+    # Closing the OS picker without a new file fires a bubbling cancel at the input (not Escape).
+    page.locator("#recording-file").evaluate(
+        "el => el.dispatchEvent(new Event('cancel', { bubbles: true }))"
+    )
+    expect(dialog).to_be_visible()
+    expect(page.locator("#meeting-name")).to_have_value("Weekly sync")
+
+    page.keyboard.press("Escape")  # Escape still closes it
+    expect(dialog).to_be_hidden()
+
+
 def test_title_prefill_trims_padding_around_the_file_name(live, signed_in):
     _context, page = signed_in()
     _open_dialog(page)
