@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "task": "issue17-license-bundle",
-  "application_version": "0.1.1",
+  "application_version": "0.1.2",
   "artifact_root_layout": {
     "downloads": "downloads",
     "source_manifests": "source-manifests",
@@ -142,7 +142,7 @@
     {
       "id": "polyform-noncommercial",
       "package": "asr-en-vi",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "declared_license": "PolyForm Noncommercial 1.0.0",
       "reviewed_license": "English authoritative; Vietnamese reference",
       "url": "https://polyformproject.org/licenses/noncommercial/1.0.0",
