@@ -168,6 +168,15 @@ if [ "$current_branch" != "$base_branch" ]; then
 fi
 git merge --ff-only "refs/remotes/origin/$base_branch"
 
+# A merged PR does not make the base green; report failures so "done" is not claimed over a red base.
+failed_runs=$(gh run list --repo "$repository_name" --branch "$base_branch" --limit 10 \
+    --json conclusion,workflowName,headSha,url \
+    --jq '.[] | select(.conclusion == "failure") | "\(.workflowName) \(.headSha[0:7]) \(.url)"' 2>/dev/null || true)
+if [ -n "$failed_runs" ]; then
+    echo "WARNING: recent failed workflow runs on $base_branch:" >&2
+    printf '%s\n' "$failed_runs" >&2
+fi
+
 if [ "$source_branch_exists" = true ]; then
     if ! git branch -d "$source_branch"; then
         echo "Git refused to delete local source branch $source_branch; it remains in place." >&2

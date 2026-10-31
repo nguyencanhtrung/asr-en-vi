@@ -17,9 +17,10 @@ a recent Go toolchain:
 go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.11
 ```
 
-`check-workflows.sh` checks Actions syntax, expressions and matrix references.
-Optional shellcheck and pyflakes integrations are disabled so installed host
-packages do not change the gate. The repository's shell syntax gate runs
+`check-workflows.sh` checks Actions syntax, expressions, matrix references and the
+shell in each `run:` block. It uses the shellcheck pinned in the uv dev group
+(`.venv/bin/shellcheck`), so run it after `uv sync --all-groups --locked`. The
+pyflakes integration stays disabled. The repository's shell syntax gate runs
 separately. `./scripts/check.sh` and the quality CI job run this workflow check.
 
 ## Environment preflight
@@ -90,8 +91,33 @@ The CI-equivalent full suite is
 `ASR_RUN_BROWSER_TESTS=1 ASR_REQUIRE_MEDIA_TOOLS=1 .venv/bin/python -m pytest -q`;
 read-only review runs add `PYTHONDONTWRITEBYTECODE=1` and `-p no:cacheprovider`.
 
+## Delegated checks
+
+- A Codex worker runs pytest and browser tests with escalation from the start, under a
+  hard `timeout`. A silent hang in the sandbox is an environment blocker, not a test
+  result.
+- A coder makes each new guard or branch fail once (revert it, rerun its test) before
+  handoff, so a test that passes with the bug present is caught before review.
+- Frontend parity scenarios assert `document.activeElement` and the status line after
+  each failed request as well as after success.
+- Counts quoted in `docs/architecture-changes-v1.md` (lines, occurrences) come from a
+  command run on the final candidate; put the command next to the figure.
+
+## Git hooks
+
+Enable the repository hooks once per clone with `git config core.hooksPath .githooks`.
+`pre-push` refuses a push to `main` and runs the ruff gates.
+
+## CI and merge
+
+Wait for PR checks with `./scripts/wait-ci.sh <PR_NUMBER> [MINUTES]` (exit 0 pass,
+1 fail, 124 still pending), not a hand-written polling loop. Resolve acceptance
+criteria with `./scripts/tick-criteria.py <ISSUE> --list`, then name every open
+criterion in `--tick N...` or `--not-done N "reason"`.
+
 ## Pull request cleanup
 
 After GitHub reports a PR as merged, run `./scripts/finish-pr.sh <PR_NUMBER>`.
 The script verifies remote merge and head-branch cleanup, updates the local base,
-and deletes the local source branch only when safe. It does not merge a PR.
+and deletes the local source branch only when safe. It does not merge a PR. It warns
+about recent failed runs on the base branch; report them before claiming completion.

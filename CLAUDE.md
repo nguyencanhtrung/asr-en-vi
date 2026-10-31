@@ -15,7 +15,7 @@ These tracker and triage conventions apply only to this repository and override 
 
 ## Acceptance criteria before merge
 
-Do not merge a pull request until every acceptance-criteria checkbox in each linked issue has been resolved. Edit the issue body with `gh issue edit` before you merge:
+Do not merge a pull request until every acceptance-criteria checkbox in each linked issue has been resolved. Resolve them with `./scripts/tick-criteria.py <ISSUE>` before you merge:
 
 - Tick each criterion that the PR satisfies (`- [x]`) and verify it first.
 - Leave each criterion that is not met unticked (`- [ ]`). On that line, append `— Not done: <reason>` with the specific blocker, and add the follow-up issue number when one exists.
