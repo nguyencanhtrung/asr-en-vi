@@ -18,6 +18,7 @@ export const decimal = (value) => ({ fmt: "decimal", value });
 export const STATE_LABELS = {
   idle: t("Chưa chọn file"),
   selected: t("Đã chọn file"),
+  extracting: t("Đang tách audio"),
   uploading: t("Đang tải lên"),
   checking: t("Đang kiểm tra"),
   ready: t("Sẵn sàng tạo"),
@@ -104,7 +105,10 @@ function formValuesAreValid(form) {
 }
 
 const NO_PROGRESS = { visible: false, percent: 0, text: "0%" };
-const BUSY_PHASES = ["uploading", "checking", "creating"];
+const BUSY_PHASES = ["extracting", "uploading", "checking", "creating"];
+const CANCELLABLE_PHASES = ["extracting", "uploading", "checking"];
+// Video containers whose audio track the browser copies out before the upload.
+const VIDEO_EXTENSIONS = [".mp4", ".mov", ".webm"];
 
 export const initialState = {
   open: false,
@@ -119,6 +123,8 @@ export const initialState = {
   form: { title: "", date: "", language: "", autoTranscribe: true },
   autoTitle: "",
   uploadId: null,
+  sendFile: null, // what the upload sends: the file itself, or the audio the browser extracted from it
+  notice: null, // result of the extraction step, shown beside the validation line
   runId: 0, // id of the latest upload run; replies of other runs are stale
   starting: false, // cleaning old uploads and creating the new upload slot
   cancelling: false,
@@ -183,7 +189,7 @@ export function selectView(state) {
     fieldsDisabled: locked,
     retryHidden: !state.retryable || !state.file || active,
     retryDisabled: !submit,
-    cancelHidden: !["uploading", "checking"].includes(state.phase),
+    cancelHidden: !CANCELLABLE_PHASES.includes(state.phase),
     createDisabled: !submit,
     createLabel: retryingUncertain(state)
       ? t("Xác minh và thử lại")
@@ -268,22 +274,58 @@ function startUpload(state) {
     formError: null,
     progress: NO_PROGRESS,
     validation: null,
+    notice: null,
+    sendFile: null,
     workflow: t("Đang tạo lượt upload. Chưa truyền byte nào."),
     uploadId: null,
     cleanupWait: stale,
   };
-  if (stale.length === 0) return createUploadSlot(next);
+  if (stale.length === 0) return proceed(next);
   return { state: next, effects: stale.map((uploadId) => cleanupEffect(uploadId, "start")) };
 }
 
+// After the old uploads are gone: a video goes through the extraction step first.
+function proceed(state) {
+  if (VIDEO_EXTENSIONS.includes(fileExtension(state.file.name))) return startExtract(state);
+  return createUploadSlot({ ...state, sendFile: state.file });
+}
+
+function startExtract(state) {
+  return {
+    state: {
+      ...state,
+      starting: false,
+      phase: "extracting",
+      workflow: t("Đang tách audio khỏi video ngay trên trình duyệt (copy luồng, không mã hóa lại). Chưa truyền byte nào."),
+      progress: { visible: true, percent: 0, text: "0%" },
+    },
+    effects: [{
+      type: "extract",
+      key: "shell/extract",
+      file: state.file,
+      ok: "shell/extract-done",
+      error: "shell/extract-failed",
+      progress: "shell/extract-progressed",
+      meta: { runId: state.runId },
+    }],
+  };
+}
+
+const EXTRACT_REASONS = {
+  unsupported: t("trình duyệt này chưa hỗ trợ"),
+  "no-audio": t("video không có luồng audio"),
+  codec: t("codec audio không copy được sang file audio"),
+};
+
 function createUploadSlot(state) {
+  const sent = state.sendFile;
   return {
     state: { ...state, phase: "selected", workflow: t("File đã chọn. Đang chuẩn bị lượt upload mới từ byte đầu tiên.") },
     effects: [{
       type: "fetch",
       key: "shell/upload-create",
       url: "/api/uploads",
-      init: jsonRequest("POST", { filename: state.file.name, size_bytes: state.file.size }),
+      init: jsonRequest("POST", { filename: sent.name, size_bytes: sent.size }),
       ok: "shell/upload-created",
       error: "shell/upload-create-failed",
       meta: { runId: state.runId },
@@ -329,7 +371,7 @@ function finishFailure(state, cleaned) {
 }
 
 function cancelUpload(state) {
-  if (!["uploading", "checking"].includes(state.phase) || state.cancelling) return same(state);
+  if (!CANCELLABLE_PHASES.includes(state.phase) || state.cancelling) return same(state);
   // The id stays pending until its DELETE is confirmed, so closing while that hangs does not lose it.
   // A failure still waiting for its own DELETE is dropped: the cancel result stands.
   const base = {
@@ -342,8 +384,8 @@ function cancelUpload(state) {
     failure: null,
     pendingCleanup: state.uploadId ? withItem(state.pendingCleanup, state.uploadId) : state.pendingCleanup,
   };
-  const effects = [{ type: "cancel", key: "shell/upload" }, { type: "cancel", key: "shell/upload-complete" }];
-  if (!state.uploadId) return finishCancel(base, true);
+  const effects = ["extract", "upload", "upload-complete"].map((name) => ({ type: "cancel", key: `shell/${name}` }));
+  if (!state.uploadId) return { ...finishCancel(base, true), effects }; // an extraction in flight has no upload id
   return { state: base, effects: [...effects, cleanupEffect(state.uploadId, "cancel")] };
 }
 
@@ -377,7 +419,7 @@ function cleanupSettled(state, uploadId, purpose, cleaned) {
   if (purpose === "failure" && next.failure) return finishFailure(next, cleaned);
   if (purpose === "cancel" && next.cancelling) return finishCancel(next, cleaned);
   // Only the reply that empties the wait list creates the slot; a repeat for the same id cannot.
-  if (waited && next.starting && next.cleanupWait.length === 0) return createUploadSlot(next);
+  if (waited && next.starting && next.cleanupWait.length === 0) return proceed(next);
   return same(next);
 }
 
@@ -471,6 +513,8 @@ function selectFile(state, file) {
     createUncertain: false,
     createRetryPayload: null,
     uploadId: null,
+    sendFile: null,
+    notice: null,
   };
   const refuse = (fileError, workflow) => ({ state: { ...base, fileError, phase: "error", workflow }, effects });
   if (!state.policy) {
@@ -501,7 +545,7 @@ function selectFile(state, file) {
 function closeDialog(state) {
   if (!state.open || state.phase === "creating" || state.starting) return same(state);
   // A cancel still waiting for its DELETE does not hold the dialog: close leaves that id pending.
-  if (!state.cancelling && ["uploading", "checking"].includes(state.phase)) return cancelUpload(state);
+  if (!state.cancelling && CANCELLABLE_PHASES.includes(state.phase)) return cancelUpload(state);
   const effects = [{ type: "cancel", key: "shell/policy" }];
   if (!state.createUncertain && state.uploadId) effects.push(cleanupEffect(state.uploadId, "close"));
   return { state: fresh(state, { open: false }), effects };
@@ -512,7 +556,7 @@ function dialogClosed(state) {
   if (!state.open) return same(state);
   // A save in flight finishes and navigates; only the open flag follows the dialog.
   if (state.phase === "creating") return set(state, { open: false });
-  const effects = ["policy", "upload-create", "upload", "upload-complete"].map((name) => ({ type: "cancel", key: `shell/${name}` }));
+  const effects = ["policy", "extract", "upload-create", "upload", "upload-complete"].map((name) => ({ type: "cancel", key: `shell/${name}` }));
   const leftover = state.createUncertain ? null : state.uploadId;
   if (leftover) effects.push(cleanupEffect(leftover, "close"));
   const pendingCleanup = leftover ? withItem(state.pendingCleanup, leftover) : state.pendingCleanup;
@@ -590,6 +634,31 @@ export function reduce(state, action) {
       return state.serverReady ? startCreate(state) : startUpload(state);
     case "shell/upload-cancel-requested":
       return cancelUpload(state);
+    case "shell/extract-progressed": {
+      if (!live(state, action.meta) || state.phase !== "extracting") return same(state);
+      const percent = Math.min(100, Math.max(0, Math.round(action.ratio * 100)));
+      return set(state, { progress: { visible: true, percent, text: `${percent}%` } });
+    }
+    case "shell/extract-done": {
+      if (!live(state, action.meta) || state.phase !== "extracting") return same(state);
+      const audio = action.value;
+      return createUploadSlot({
+        ...state,
+        starting: true,
+        sendFile: audio,
+        notice: t("Đã tách audio khỏi video: gửi {after} thay vì {before}.", { after: bytes(audio.size), before: bytes(state.file.size) }),
+      });
+    }
+    case "shell/extract-failed": {
+      if (!live(state, action.meta) || state.phase !== "extracting") return same(state);
+      const reason = EXTRACT_REASONS[action.error.kind] ?? t("lỗi khi đọc file video");
+      return createUploadSlot({
+        ...state,
+        starting: true,
+        sendFile: state.file,
+        notice: t("Không tách được audio trên trình duyệt ({reason}); gửi nguyên file video, có thể lâu hơn.", { reason }),
+      });
+    }
     case "shell/upload-created": {
       if (!live(state, action.meta) || !state.starting) return same(state);
       const id = action.response.body && action.response.body.id;
@@ -601,14 +670,14 @@ export function reduce(state, action) {
           starting: false,
           phase: "uploading",
           workflow: t("Đang tải file lên bằng byte progress thực tế."),
-          progress: { ...state.progress, visible: true },
+          progress: { visible: true, percent: 0, text: "0%" },
         },
         effects: [{
           type: "upload",
           key: "shell/upload",
           url: `/api/uploads/${encodeURIComponent(id)}/content`,
           headers: { "Content-Type": "application/octet-stream" },
-          body: state.file,
+          body: state.sendFile,
           ok: "shell/upload-sent",
           error: "shell/upload-failed",
           progress: "shell/upload-progressed",

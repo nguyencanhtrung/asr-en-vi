@@ -12,7 +12,7 @@ import {
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const reply = (status, body) => ({ ok: status < 400, status, text: async () => JSON.stringify(body) });
-const POLICY = { supported_extensions: ["wav", ".mp3"], max_bytes: 1000, max_duration_seconds: 7200 };
+const POLICY = { supported_extensions: ["wav", ".mp3", "mp4"], max_bytes: 1000, max_duration_seconds: 7200 };
 const FILE = { name: "Weekly sync.wav", size: 500 };
 
 // Real store and runner over fakes: requests wait in `calls` until a test answers them.
@@ -41,7 +41,14 @@ function setup() {
   }
   const written = [];
   const navigated = [];
+  // extract: calls wait here until a test finishes them; `signal` shows whether the runner aborted one.
+  const extracts = [];
+  const extract = (file, options) =>
+    new Promise((resolve, reject) => {
+      extracts.push({ file, options, resolve, reject });
+    });
   const run = createRunner({
+    extract,
     fetch,
     setTimeout: () => 0,
     clearTimeout: () => {},
@@ -59,7 +66,7 @@ function setup() {
   };
   const is = (method, path) => (c) => c.method === method && c.url.includes(path);
   const form = { title: "Weekly sync", date: "", language: "en" };
-  return { store, calls, xhrs, written, navigated, answer, is, form, state: () => store.getState() };
+  return { store, calls, xhrs, extracts, written, navigated, answer, is, form, state: () => store.getState() };
 }
 
 async function opened(env, stored = {}) {
@@ -101,7 +108,7 @@ test("opening loads the policy; a reply for a closed or reopened dialog is stale
   env.store.dispatch({ type: "shell/policy-loaded", meta: { id: id - 1 }, response: { body: POLICY } });
   assert.equal(env.state().policy, null);
   await env.answer(env.is("GET", "/policy"), 200, POLICY);
-  assert.deepEqual(env.state().policy, { extensions: [".wav", ".mp3"], maxBytes: 1000, maxDurationSeconds: 7200 });
+  assert.deepEqual(env.state().policy, { extensions: [".wav", ".mp3", ".mp4"], maxBytes: 1000, maxDurationSeconds: 7200 });
 });
 
 test("remembered choices fill the form; unknown language is ignored", () => {
@@ -664,4 +671,147 @@ test("auto-transcribe off: a completed create writes no handoff key", async () =
     ["local", "asr-en-vi:last-language-hint", "en"],
   ]);
   assert.deepEqual(env.navigated, ["/meetings/m1"]);
+});
+
+// Video upload: the browser cuts the audio out first (effect "extract"), then the usual upload sends that audio.
+const VIDEO = { name: "Weekly sync.mp4", size: 900 };
+const AUDIO = { name: "Weekly sync.m4a", size: 60 };
+
+async function extracting(env) {
+  await selected(env, VIDEO);
+  env.store.dispatch({ type: "shell/submit-requested" });
+  await tick(); // the runner starts the extractor on a microtask
+}
+
+test("a video is extracted first; the upload slot and the PUT carry the audio file", async () => {
+  const env = setup();
+  await extracting(env);
+  assert.equal(env.state().phase, "extracting");
+  assert.equal(env.state().progress.visible, true);
+  assert.equal(env.extracts[0].file, VIDEO);
+  assert.equal(env.calls.some((c) => c.url === "/api/uploads" && c.method === "POST"), false); // no slot before the audio exists
+  env.extracts[0].options.onProgress(0.4);
+  assert.equal(env.state().progress.percent, 40);
+  assert.equal(selectView(env.state()).cancelHidden, false);
+  env.extracts[0].resolve(AUDIO);
+  await tick();
+  const slot = env.calls.find((c) => c.url === "/api/uploads" && c.method === "POST");
+  assert.deepEqual(JSON.parse(slot.init.body), { filename: "Weekly sync.m4a", size_bytes: 60 });
+  await env.answer(env.is("POST", "/api/uploads"), 200, { id: "u1" });
+  assert.equal(env.state().phase, "uploading");
+  assert.equal(env.state().progress.percent, 0); // the upload step starts from zero again
+  assert.equal(env.xhrs[0].body, AUDIO);
+  assert.equal(env.state().notice.text, "Đã tách audio khỏi video: gửi {after} thay vì {before}.");
+  assert.deepEqual(env.state().notice.params, { after: { fmt: "bytes", value: 60 }, before: { fmt: "bytes", value: 900 } });
+});
+
+test("a non-video file skips extraction", async () => {
+  const env = setup();
+  await uploading(env);
+  assert.equal(env.extracts.length, 0);
+  assert.equal(env.state().notice, null);
+});
+
+test("extraction failure uploads the original file and shows a notice", async () => {
+  const env = setup();
+  await extracting(env);
+  env.extracts[0].reject(Object.assign(new Error("x"), { kind: "codec" }));
+  await tick();
+  const slot = env.calls.find((c) => c.url === "/api/uploads" && c.method === "POST");
+  assert.deepEqual(JSON.parse(slot.init.body), { filename: "Weekly sync.mp4", size_bytes: 900 });
+  await env.answer(env.is("POST", "/api/uploads"), 200, { id: "u1" });
+  assert.equal(env.xhrs[0].body, VIDEO);
+  assert.equal(env.state().phase, "uploading");
+  assert.equal(env.state().notice.text.startsWith("Không tách được audio"), true);
+  assert.equal(env.state().notice.params.reason.text, "codec audio không copy được sang file audio");
+});
+
+test("a runner without an extractor falls back to the original file", async () => {
+  const calls = [];
+  const run = createRunner({ fetch: (url, init) => new Promise((resolve) => calls.push({ url, init, resolve })), XMLHttpRequest: class {}, setTimeout: () => 0, clearTimeout: () => {}, storage: {}, navigate: () => {} });
+  const seen = [];
+  run({ type: "extract", key: "k", file: VIDEO, ok: "ok", error: "bad", meta: 1 }, (a) => seen.push(a));
+  await tick();
+  assert.deepEqual(seen, [{ type: "bad", error: { message: "extract is not available", kind: "unsupported" }, meta: 1 }]);
+});
+
+test("cancel during extraction aborts it, leaks no upload slot and ignores the late result", async () => {
+  const env = setup();
+  await extracting(env);
+  const { signal } = env.extracts[0].options;
+  env.store.dispatch({ type: "shell/upload-cancel-requested" });
+  assert.equal(signal.aborted, true);
+  assert.equal(env.state().phase, "aborted");
+  assert.equal(env.state().cancelling, false);
+  assert.equal(env.state().retryable, true);
+  env.extracts[0].resolve(AUDIO); // a result that arrives after the cancel
+  env.extracts[0].options.onProgress(0.9);
+  await tick();
+  assert.equal(env.calls.some((c) => c.url === "/api/uploads" && c.method === "POST"), false);
+  assert.equal(env.calls.some((c) => c.method === "DELETE"), false);
+  assert.equal(env.state().phase, "aborted");
+  assert.equal(env.state().progress.percent, 0);
+  // a new run after the cancel extracts again and uploads normally
+  env.store.dispatch({ type: "shell/submit-requested" });
+  await tick();
+  assert.equal(env.extracts.length, 2);
+  env.extracts[1].resolve(AUDIO);
+  await tick();
+  await env.answer(env.is("POST", "/api/uploads"), 200, { id: "u2" });
+  assert.equal(env.xhrs[0].body, AUDIO);
+});
+
+test("closing the dialog during extraction cancels it; the browser closing it aborts it", async () => {
+  const env = setup();
+  await extracting(env);
+  env.store.dispatch({ type: "shell/dialog-close-requested" });
+  assert.equal(env.extracts[0].options.signal.aborted, true);
+  assert.equal(env.state().phase, "aborted");
+  const second = setup();
+  await extracting(second);
+  second.store.dispatch({ type: "shell/dialog-closed" });
+  assert.equal(second.extracts[0].options.signal.aborted, true);
+  assert.equal(second.state().open, false);
+});
+
+test("a cancel during upload after extraction still deletes the slot", async () => {
+  const env = setup();
+  await extracting(env);
+  env.extracts[0].resolve(AUDIO);
+  await tick();
+  await env.answer(env.is("POST", "/api/uploads"), 200, { id: "u1" });
+  env.store.dispatch({ type: "shell/upload-cancel-requested" });
+  assert.equal(env.xhrs[0].aborted, true);
+  await env.answer(env.is("DELETE", "/api/uploads/u1"), 204, {});
+  assert.equal(env.state().phase, "aborted");
+});
+
+test("extract replies of an older run or another phase are ignored", async () => {
+  const env = setup();
+  await extracting(env);
+  const before = env.state();
+  const stale = { runId: before.runId - 1 };
+  for (const type of ["shell/extract-done", "shell/extract-failed", "shell/extract-progressed"]) {
+    const result = reduce(before, { type, meta: stale, value: AUDIO, error: { kind: "codec" }, ratio: 0.5 });
+    assert.equal(result.state, before, type);
+  }
+  env.extracts[0].resolve(AUDIO);
+  await tick();
+  const uploadingState = env.state();
+  const late = reduce(uploadingState, { type: "shell/extract-failed", meta: { runId: uploadingState.runId }, error: { kind: "codec" } });
+  assert.equal(late.state, uploadingState);
+});
+
+test("selecting another file clears the previous extraction notice and file", async () => {
+  const env = setup();
+  await extracting(env);
+  env.extracts[0].reject(Object.assign(new Error("x"), { kind: "no-audio" }));
+  await tick();
+  await env.answer(env.is("POST", "/api/uploads"), 200, { id: "u1" });
+  env.xhrs[0].onerror();
+  await env.answer(env.is("DELETE", "/api/uploads/u1"), 204, {});
+  assert.notEqual(env.state().notice, null);
+  env.store.dispatch({ type: "shell/file-selected", file: FILE });
+  assert.equal(env.state().notice, null);
+  assert.equal(env.state().sendFile, null);
 });

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from email.message import Message
 from pathlib import Path
 from types import SimpleNamespace
@@ -74,3 +75,57 @@ def test_system_inventory_includes_held_installed_packages(monkeypatch):
     assert packages[0]["dpkg_status"] == "hold ok installed"
     assert packages[0]["source_package"] == "example-source"
     assert packages[0]["source_version"] == "2"
+
+
+WEB = ROOT / "src/asr_en_vi/web"
+VENDORED = WEB / "vendor/mediabunny"
+
+
+def test_inventory_lists_the_vendored_browser_library_with_license_and_source(monkeypatch, capsys):
+    real_record = inventory.file_record
+    monkeypatch.setattr(
+        inventory,
+        "file_record",
+        lambda path, name: real_record(path, name) if path.exists() else {"path": name},
+    )
+    monkeypatch.setattr(inventory.importlib.metadata, "distributions", lambda: [])
+    monkeypatch.setattr(inventory, "system_packages", lambda: [])
+    monkeypatch.setattr(
+        inventory.importlib.metadata,
+        "distribution",
+        lambda name: SimpleNamespace(locate_file=lambda relative: ROOT / "src" / relative),
+    )
+    inventory.main()
+    report = json.loads(capsys.readouterr().out)
+    assert sorted(item["path"] for item in report["web_vendor"]) == [
+        "asr_en_vi/web/vendor/mediabunny/LICENSE",
+        "asr_en_vi/web/vendor/mediabunny/PROVENANCE.md",
+        "asr_en_vi/web/vendor/mediabunny/mediabunny.min.mjs",
+    ]
+    assert all(len(item["sha256"]) == 64 for item in report["web_vendor"])
+    (package,) = report["web_vendor_packages"]
+    assert package["name"] == "Mediabunny" and package["version"] == "1.61.6"
+    assert package["license"] == "MPL-2.0"
+    assert package["source_tarball"].endswith("/mediabunny-1.61.6.tgz")
+    assert package["source_integrity"].startswith("sha512-")
+
+
+def test_notice_manifest_and_bundle_carry_the_vendored_library_evidence():
+    # collect() needs network-shaped specs, so check the wiring in the sources.
+    collector = (ROOT / "scripts/collect-release-notices.py").read_text(encoding="utf-8")
+    assert '"web_vendor_packages": inventory.get("web_vendor_packages"' in collector
+    bundle = (ROOT / "scripts/prepare-release-bundle.py").read_text(encoding="utf-8")
+    assert 'archive.add("src/asr_en_vi/web/vendor", arcname="web-vendor")' in bundle
+
+
+def test_vendored_library_is_the_unmodified_upstream_file_with_its_license():
+    import hashlib
+
+    provenance = (VENDORED / "PROVENANCE.md").read_text(encoding="utf-8")
+    digest = hashlib.sha256((VENDORED / "mediabunny.min.mjs").read_bytes()).hexdigest()
+    assert f"`{digest}`" in provenance  # any edit of the vendored file changes this hash
+    assert "mediabunny-1.61.6.tgz" in provenance and "sha512-" in provenance
+    assert "Mozilla Public License Version 2.0" in (VENDORED / "LICENSE").read_text(
+        encoding="utf-8"
+    )
+    assert "web/vendor/mediabunny/*" in (ROOT / "pyproject.toml").read_text(encoding="utf-8")

@@ -424,7 +424,7 @@ test("navigate effect calls the injected navigate", () => {
 
 test("upload, storage and navigate effects need a key", () => {
   const run = createRunner({ fetch: fakeFetch(), ...fakeTimers() });
-  for (const type of ["upload", "storage", "navigate", "open-window", "call"]) assert.throws(() => run({ type }, () => {}), /needs a key/);
+  for (const type of ["upload", "extract", "storage", "navigate", "open-window", "call"]) assert.throws(() => run({ type }, () => {}), /needs a key/);
 });
 
 function fakeWindow() {
@@ -546,4 +546,36 @@ test("deps.now stamps call results, ok and error", async () => {
   run({ type: "call", key: "b", name: "boom", error: "err" }, (a) => actions.push(a));
   await tick();
   assert.deepEqual(actions.map((a) => [a.type, a.now]), [["ok", 7], ["err", 7]]);
+});
+
+test("extract effect: progress, value, error kind, and replace/cancel abort it and silence it", async () => {
+  const tick = () => new Promise((resolve) => setImmediate(resolve));
+  const jobs = [];
+  const extract = (file, options) => new Promise((resolve, reject) => jobs.push({ file, options, resolve, reject }));
+  const run = createRunner({ fetch: fakeFetch(), ...fakeTimers(), extract });
+  const seen = [];
+  const dispatch = (a) => seen.push(a);
+  run({ type: "extract", key: "e", file: "F", ok: "ok", error: "bad", progress: "prog", meta: 1 }, dispatch);
+  await tick();
+  jobs[0].options.onProgress(0.5);
+  jobs[0].resolve("AUDIO");
+  await tick();
+  run({ type: "extract", key: "e", file: "G", ok: "ok", error: "bad", meta: 2 }, dispatch);
+  await tick();
+  jobs[1].reject(Object.assign(new Error("boom"), { kind: "codec" }));
+  await tick();
+  assert.deepEqual(seen, [
+    { type: "prog", ratio: 0.5, meta: 1 },
+    { type: "ok", value: "AUDIO", meta: 1 },
+    { type: "bad", error: { message: "boom", kind: "codec" }, meta: 2 },
+  ]);
+  seen.length = 0;
+  run({ type: "extract", key: "e", file: "H", ok: "ok", error: "bad", progress: "prog", meta: 3 }, dispatch);
+  await tick();
+  run({ type: "cancel", key: "e" }, dispatch);
+  assert.equal(jobs[2].options.signal.aborted, true);
+  jobs[2].options.onProgress(0.9);
+  jobs[2].resolve("LATE");
+  await tick();
+  assert.deepEqual(seen, []);
 });

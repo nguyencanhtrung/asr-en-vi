@@ -236,6 +236,8 @@ assert ctranslate2.get_supported_compute_types('cpu')
         archive.add(inventory, arcname="runtime-inventory.json")
         archive.add(coverage_path, arcname="platform-coverage.json")
         archive.add("third_party/notices", arcname="notices")
+        # MPL-2.0 vendored browser code: unmodified file, LICENSE and source pointer.
+        archive.add("src/asr_en_vi/web/vendor", arcname="web-vendor")
         archive.add("third_party/platform-coverage.json", arcname="build/platform-coverage.json")
         archive.add("Dockerfile", arcname="build/Dockerfile")
         archive.add("scripts/build-lgpl-media.sh", arcname="build/build-lgpl-media.sh")

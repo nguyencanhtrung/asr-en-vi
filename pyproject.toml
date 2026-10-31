@@ -41,6 +41,7 @@ include = [
     "src/asr_en_vi/web/*.css",
     "src/asr_en_vi/web/*.js",
     "src/asr_en_vi/web/fonts/*",
+    "src/asr_en_vi/web/vendor/mediabunny/*",
 ]
 
 [tool.hatch.build.targets.sdist]

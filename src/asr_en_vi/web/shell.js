@@ -33,6 +33,7 @@ const closeDialogButton = document.querySelector("#close-dialog");
 const workflowState = document.querySelector("#workflow-state");
 const stateLabel = document.querySelector("#state-label");
 const validationState = document.querySelector("#validation-state");
+const uploadNotice = document.querySelector("#upload-notice");
 const createGuidance = document.querySelector("#create-guidance");
 const formError = document.querySelector("#form-error");
 const transferProgress = document.querySelector("#transfer-progress");
@@ -72,6 +73,7 @@ function render(state) {
   setProp(stateLabel, "textContent", tr(STATE_LABELS[state.phase]));
   setProp(workflowState, "textContent", tr(state.workflow));
   setProp(validationState, "textContent", tr(state.validation));
+  setProp(uploadNotice, "textContent", tr(state.notice));
   setProp(createGuidance, "textContent", tr(view.guidance));
   setProp(fileLimits, "textContent", tr(view.limits));
   setProp(fileInput, "accept", view.accept);
@@ -119,6 +121,8 @@ const run = createRunner({
   XMLHttpRequest,
   storage: { local: () => window.localStorage, session: () => window.sessionStorage },
   navigate: (url) => window.location.assign(url),
+  // The extractor (and the vendored library behind it) loads on the first video, not with the page.
+  extract: async (file, options) => (await import("./audio-extract.js")).extractAudio(file, options),
 });
 const store = createStore({ reduce, initialState, run });
 const { dispatch } = store;

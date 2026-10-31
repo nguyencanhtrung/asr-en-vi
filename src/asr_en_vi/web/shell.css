@@ -1324,6 +1324,7 @@ textarea:focus-visible {
   background: var(--ink-3);
 }
 
+.meeting-dialog[data-state="extracting"] .upload-state-icon > span,
 .meeting-dialog[data-state="uploading"] .upload-state-icon > span,
 .meeting-dialog[data-state="checking"] .upload-state-icon > span {
   background: var(--amber);
