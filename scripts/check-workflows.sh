@@ -6,5 +6,10 @@ if ! command -v actionlint >/dev/null 2>&1; then
     exit 1
 fi
 
-# Keep optional external linters independent of the host's installed packages.
-exec actionlint -shellcheck= -pyflakes= "$@"
+# The pinned copy from the uv dev group keeps the host shellcheck out of the gate.
+shellcheck="$(cd "${0%/*}/.." && pwd)/.venv/bin/shellcheck"
+if [ ! -x "$shellcheck" ]; then
+    echo 'shellcheck is required. Run uv sync --all-groups --locked.' >&2
+    exit 1
+fi
+exec actionlint -shellcheck="$shellcheck" -pyflakes= "$@"

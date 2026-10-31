@@ -303,6 +303,8 @@ jobs:
         env:
           IMAGE_TAGS_JSON: ${{ steps.metadata.outputs.json }}
         run: |
+          # Word splitting turns the tag list and digests into separate arguments.
+          # shellcheck disable=SC2046
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "${IMAGE_TAGS_JSON}") \
             --metadata-file "${RUNNER_TEMP}/manifest.json" \

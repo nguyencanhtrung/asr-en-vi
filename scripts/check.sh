@@ -3,10 +3,10 @@
 set -eu
 
 ./scripts/check-shell-syntax.sh
-./scripts/check-workflows.sh
 python3 scripts/check-environment.py --cache-only
 
 uv sync --all-groups --locked
+./scripts/check-workflows.sh
 uv run --no-sync python scripts/check-environment.py
 uv run --no-sync ruff check src tests scripts
 uv run --no-sync ruff format --check src tests scripts
