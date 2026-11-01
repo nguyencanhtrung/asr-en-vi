@@ -1,97 +1,39 @@
-# Kiến trúc runtime — hồ sơ thay đổi v0.1.0
+# Historical runtime evidence
 
-Các mục lịch sử được chuyển từ tài liệu thay đổi chung khi chuẩn bị #17.
-Số đo giữ revision và điều kiện gốc; không phải phép đo lại artifact 0.1.0.
+These records describe the v0.1.0 preparation work.
+The [original report](archive/v0.1.0/runtime-v0.1.0.md) retains the implementation details.
+Use [third-party notices](../../third_party/README.md) for current bundle instructions.
+Use the [user guide](../user-guide.md) for current operating instructions.
 
-### #17 / PR #112 — Nhật ký runtime và startup mặc định an toàn
+## Logs and diagnostics: #17 and PR #112
 
-#### Vấn đề
+Default logs used fixed event, stage, and error codes.
+The worker drained child stderr through pipes and suppressed its content.
+Interactive startup could display access details.
+Non-interactive startup did not call `access show`.
 
-Log mặc định của worker và startup có thể chứa traceback, stderr nguyên dạng từ tiến trình con,
-đường dẫn model/recording và mã task/meeting. Startup không tương tác còn gọi `access show`, nên
-token localhost và QR có thể đi vào pipe hoặc log CI.
+The historical report recorded 134 passing focused tests.
+This count does not describe the current test suite.
+Explicit diagnostic commands can display private installation data.
 
-#### Nguyên nhân đo được
+## Native media runtime
 
-- Runner, diarization runner và worker từng in traceback trực tiếp ra stderr.
-- Worker kế thừa stderr của tiến trình con; thư viện có thể làm đầy pipe hoặc ghi nội dung riêng tư
-  trực tiếp vào log container.
-- CLI và shell startup từng ghép path hoặc exception vào thông báo chuẩn bị model/runtime.
+The image built PyAV from source against FFmpeg 8.1.2 without external GPL codecs.
+The system FFmpeg CLI remained a separate program for media normalization.
+Media checks decoded samples with TorchCodec and PyAV.
+They checked loaded library paths through `/proc/self/maps`.
 
-#### Thay đổi thiết kế
+TorchCodec 0.11.1 used the PyPI wheel on amd64.
+The arm64 build used the official `0.11.1+cu128` wheel.
+Torch and Torchaudio used CUDA 12.8.
+These versions identify the historical configuration.
 
-- Thêm `safe_logging.emit_safe_log`, chỉ cho phép bộ cố định `event`/`stage`/`code`; exception,
-  path, task ID, meeting ID và child output không được nội suy vào log mặc định.
-- Worker đọc đồng thời stdout và stderr của child qua pipe, tiếp tục drain stderr để child không bị
-  block, rồi chỉ ghi một event `child_stderr_suppressed` an toàn.
-- Startup chỉ chạy `access show` trên terminal tương tác. Pipe/redirect/CI không nhận token hoặc QR,
-  và nhận lệnh explicit để operator tự gọi khi cần. Access show và task diagnose vẫn là lệnh chủ ý
-  in dữ liệu cục bộ.
+The build replaced embedded GNU runtime libraries with Ubuntu runtime libraries.
+It checked exported symbols before replacement.
+The image retained hashes and package sources in `openmp-runtime.json`.
+Platform checks covered native objects, notices, and the Tokenizers Rust manifest.
+Corresponding source and build recipes accompanied the release bundle.
 
-#### Số đo trước và sau
-
-Trước: 8 điểm traceback trong ba tiến trình và một điểm kế thừa child stderr trong phạm vi log;
-startup luôn gọi access show kể cả khi stdout không phải TTY. Sau: 134/134 focused regression tests
-đạt; sentinel exception/child-output không xuất hiện ở stderr mặc định, và test startup non-TTY xác
-nhận access show không được gọi.
-
-#### Đánh đổi và phương án đã loại
-
-- Log mặc định mất chi tiết vendor để bảo vệ dữ liệu; operator dùng mã/stage cố định, `runtime check
-  --verbose`, `access show` hoặc `task diagnose` theo chủ ý.
-- Chọn pipe + drain thay vì `DEVNULL` để giữ tín hiệu có child stderr mà không làm nghẽn lifecycle;
-  không lưu nội dung stderr.
-- Không xây subsystem debug mới và không thay đổi schema lỗi public hoặc semantics hủy task.
-
-#### Follow-up
-
-- Khi phát hành, kiểm tra lại log mặc định và lệnh chẩn đoán explicit.
-- Khi phát hành, giữ hướng dẫn access-show explicit trong tài liệu vận hành.
-
-#### Liên kết issue/PR
-
-Issue #17; PR #112.
-
-#### Tag
-
-Quyền riêng tư; Kiến trúc
-
-#### Tài liệu đích
-
-- `docs/user-guide.md` mục Run locally.
-- Release notes (#17) cho giới hạn log mặc định và lệnh chẩn đoán explicit.
-
-
-### #17 — Build media LGPL và nguồn runtime GNU
-
-PyAV 18.1.0 upstream nhúng FFmpeg báo LGPL nhưng đi cùng x264/x265 GPL;
-nhãn license của FFmpeg không đổi license codec. Container build PyAV từ source
-với FFmpeg 8.1.2 nguyên bản, `--disable-gpl --disable-nonfree --disable-autodetect`.
-Không dùng patch đổi nhóm license của codec. FFmpeg CLI hệ thống vẫn là chương
-trình riêng dùng cho chuẩn hóa media; nguồn Ubuntu của nó đi cùng release.
-
-Runtime prepend `/opt/asr-media/lib` vào `LD_LIBRARY_PATH` và giữ phần còn lại của
-đường dẫn NVIDIA kế thừa. Gate decode thực tế bằng cả TorchCodec và PyAV, sau đó đọc
-`/proc/self/maps` để xác nhận `libavcodec` đến từ `/opt/asr-media/lib` và không có
-`libx264`/`libx265` hoặc `libavcodec` hệ thống. TorchCodec `0.11.1` giữ PyPI trên
-amd64; Linux aarch64 dùng wheel `0.11.1+cu128` từ index PyTorch chính thức, cùng
-Torch/Torchaudio `2.11.0+cu128`; không thêm CUDA 13.
-
-Manifest native theo platform đối chiếu phiên bản đã cài và hash từng object của
-CTranslate2, tokenizers, Torch, Torchaudio và TorchCodec. ARM64 giữ notice OpenBLAS
-`0.3.26` và ruy theo recipe chính thức; gate còn đối chiếu 127 component PURL của
-SBOM tokenizers ARM64 với manifest Rust và toàn bộ notice component tương ứng.
-
-Các bản GNU OpenMP, Fortran và quadmath nhúng trong wheel được thay bằng runtime
-Ubuntu. Bước build so sánh toàn bộ symbol export có version, dừng nếu thiếu,
-và giữ nguyên filename mà wheel tham chiếu. Hash trước/sau và package nguồn
-nằm trong `openmp-runtime.json`. Kiểm tra publication đối chiếu actual bytes.
-
-FFmpeg/PyAV source, recipe build và copyright đi cùng bundle; thư viện FFmpeg
-ở `/opt/asr-media/lib` có thể thay/rebuild độc lập theo LGPL. Binary runtime không
-mang compiler/header của build stage. Đánh đổi: build lâu hơn và bỏ các codec
-external khỏi PyAV; không khẳng định hiệu năng bằng các số đo lịch sử.
-Quá trình chuẩn hóa input vẫn dùng FFmpeg hệ thống; cần smoke audio/container
-và kiểm tra numerical runtime trên chính image trước công bố.
-
-Tag: Kiến trúc; Quyền riêng tư. Hồ sơ phát hành #17; phạm vi image `0.1.0`.
+Historical timings do not establish performance for a changed native runtime.
+Each new image needs the artifact checks in the [release process](process.md).
+The [checked-in inventory](runtime-inventory-amd64.json) identifies its original local artifact only.

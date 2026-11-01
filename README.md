@@ -100,12 +100,12 @@ After setup, `--offline` starts without network access. See
 
 ## Documentation
 
-The project documentation is written in Vietnamese.
+Release process documents use English. Most design and historical documents use Vietnamese.
 
 | Topic | Document |
 | --- | --- |
 | Operations: configuration, models, notes providers, tokens, CI/CD | [User guide](docs/user-guide.md) |
-| Public release: component inventory, remaining gates, draft notes | [Release dossier](docs/release/README.md) · [Release notes](docs/release/notes-v1.md) |
+| Releases: process, checks, notes, and evidence | [Release guide](docs/release/README.md) · [Published releases](https://github.com/nguyencanhtrung/asr-en-vi/releases) |
 | Product context and vocabulary | [PRODUCT.md](PRODUCT.md) · [CONTEXT.md](CONTEXT.md) |
 | Specification | [Specification v1](docs/specification-v1.md) |
 | Design | [Design system](DESIGN.md) · [Frontend](docs/frontend-design-v1.md) · [Backend](docs/backend-design-v1.md) · [Backend contract](docs/backend-contract-v1.md) |
