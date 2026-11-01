@@ -9,7 +9,7 @@ import time
 import pytest
 from media_tools import require_media_tools
 
-from asr_en_vi import media
+from asr_studio import media
 
 
 def _probe_result(

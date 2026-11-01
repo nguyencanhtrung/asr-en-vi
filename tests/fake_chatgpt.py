@@ -4,7 +4,7 @@ import threading
 from collections import deque
 from typing import Any
 
-from asr_en_vi.chatgpt import ChatGPTError, VerifiedIdentity
+from asr_studio.chatgpt import ChatGPTError, VerifiedIdentity
 
 
 class FakeChatGPTAdapter:

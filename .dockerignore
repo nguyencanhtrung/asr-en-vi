@@ -5,8 +5,8 @@
 !LICENSE.vi
 !uv.lock
 !src/
-!src/asr_en_vi/
-!src/asr_en_vi/**
+!src/asr_studio/
+!src/asr_studio/**
 !third_party/
 !third_party/notices/
 !third_party/notices/**

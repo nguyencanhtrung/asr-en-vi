@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
-from asr_en_vi.antigravity import AntigravityError, AntigravityProvider
-from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
-from asr_en_vi.notes_document import (
+from asr_studio.antigravity import AntigravityError, AntigravityProvider
+from asr_studio.chatgpt import ChatGPTError, ChatGPTProvider
+from asr_studio.notes_document import (
     MAX_OUTPUT_BYTES,
     MAX_SOURCE_REFS_PER_ITEM,
     PROMPT_VERSION,
@@ -24,8 +24,8 @@ from asr_en_vi.notes_document import (
     NotesDocumentError,
     plan_source,
 )
-from asr_en_vi.storage import database_path
-from asr_en_vi.tasks import TaskError, _request_id, _task_summary
+from asr_studio.storage import database_path
+from asr_studio.tasks import TaskError, _request_id, _task_summary
 
 _MAX_MARKDOWN_BYTES = MAX_OUTPUT_BYTES * 4
 _MAX_COVERAGE_BYTES = 65_536

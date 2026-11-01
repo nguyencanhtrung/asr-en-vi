@@ -3,8 +3,9 @@
 set -eu
 version=8.1.2
 sha=464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c
-curl --fail --location --proto '=https' --tlsv1.2 \
-  "https://ffmpeg.org/releases/ffmpeg-${version}.tar.xz" -o /tmp/ffmpeg-source.tar.xz
+# Debian mirrors the byte-identical upstream release; verify the pinned hash below.
+curl --fail --location --connect-timeout 20 --max-time 180 --proto '=https' --tlsv1.2 \
+  "https://deb.debian.org/debian/pool/main/f/ffmpeg/ffmpeg_${version}.orig.tar.xz" -o /tmp/ffmpeg-source.tar.xz
 printf '%s  %s\n' "$sha" /tmp/ffmpeg-source.tar.xz | sha256sum --check --strict
 mkdir -p /tmp/ffmpeg-build /opt/asr-media/share/licenses
 tar -xJf /tmp/ffmpeg-source.tar.xz -C /tmp/ffmpeg-build --strip-components=1

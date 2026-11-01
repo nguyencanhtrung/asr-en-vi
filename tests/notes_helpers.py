@@ -8,10 +8,10 @@ from pathlib import Path
 
 from seeding import seed_meeting
 
-from asr_en_vi.notes import accept_notes_task, get_notes_source, publish_notes_revision
-from asr_en_vi.notes_document import build_citations, render_markdown
-from asr_en_vi.storage import database_path, initialize
-from asr_en_vi.tasks import claim_next_task
+from asr_studio.notes import accept_notes_task, get_notes_source, publish_notes_revision
+from asr_studio.notes_document import build_citations, render_markdown
+from asr_studio.storage import database_path, initialize
+from asr_studio.tasks import claim_next_task
 
 
 class StubNotesProviderStore:

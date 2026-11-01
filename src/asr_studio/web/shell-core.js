@@ -6,10 +6,10 @@
 // translates it with the real t(). The name matches the call sites in the other scripts so the i18n
 // test finds every string. A param is a primitive, a t() result, a bytes()/decimal() marker, or an array of those.
 
-export const LAST_LANGUAGE_KEY = "asr-en-vi:last-language-hint";
-export const AUTO_TRANSCRIBE_KEY = "asr-en-vi:auto-transcribe";
+export const LAST_LANGUAGE_KEY = "asr-studio:last-language-hint";
+export const AUTO_TRANSCRIBE_KEY = "asr-studio:auto-transcribe";
 // history.js removes this one-shot key before it sends the transcription request.
-export const AUTO_TRANSCRIBE_HANDOFF_PREFIX = "asr-en-vi:auto-transcribe:";
+export const AUTO_TRANSCRIBE_HANDOFF_PREFIX = "asr-studio:auto-transcribe:";
 
 const t = (text, params) => (params ? { text, params } : { text });
 export const bytes = (value) => ({ fmt: "bytes", value });

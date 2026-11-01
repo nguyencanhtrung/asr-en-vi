@@ -982,14 +982,14 @@ export function reduce(state, action) {
 export function selectHeading(state) {
   switch (state.heading) {
     case "home":
-      return { title: t("Cuộc họp"), documentTitle: "Workspace · ASR EN VI" };
+      return { title: t("Cuộc họp"), documentTitle: "Workspace · ASR Studio" };
     case "calendar":
-      return { title: t("Lịch cuộc họp"), documentTitle: t("Lịch cuộc họp · ASR EN VI") };
+      return { title: t("Lịch cuộc họp"), documentTitle: t("Lịch cuộc họp · ASR Studio") };
     case "loading":
-      return { title: t("Cuộc họp"), documentTitle: t("Cuộc họp · ASR EN VI") };
+      return { title: t("Cuộc họp"), documentTitle: t("Cuộc họp · ASR Studio") };
     case "meeting":
       // The name shows once, in the meeting title; the page heading above it stays generic.
-      return { title: t("Cuộc họp"), documentTitle: `${state.meeting.title} · ASR EN VI` };
+      return { title: t("Cuộc họp"), documentTitle: `${state.meeting.title} · ASR Studio` };
     default:
       return null;
   }

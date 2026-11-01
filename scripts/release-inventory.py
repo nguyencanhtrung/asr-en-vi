@@ -171,7 +171,7 @@ def main() -> None:
     distributions = sorted(importlib.metadata.distributions(), key=lambda d: d.name.lower())
     omp = Path("/usr/local/bin/omp")
     notices = Path("/usr/local/share/licenses/omp")
-    web = Path(importlib.metadata.distribution("asr-en-vi").locate_file("asr_en_vi/web"))
+    web = Path(importlib.metadata.distribution("asr-studio").locate_file("asr_studio/web"))
     fonts = web / "fonts"
     report = {
         "schema": 1,
@@ -186,11 +186,11 @@ def main() -> None:
             "notices": [file_record(p, str(p)) for p in sorted(notices.glob("*")) if p.is_file()],
         },
         "fonts": [
-            file_record(p, f"asr_en_vi/web/fonts/{p.name}") for p in sorted(fonts.glob("LICENSE*"))
+            file_record(p, f"asr_studio/web/fonts/{p.name}") for p in sorted(fonts.glob("LICENSE*"))
         ],
         # Unmodified vendored browser code (MPL-2.0): the file, its license and its source pointer.
         "web_vendor": [
-            file_record(p, f"asr_en_vi/web/vendor/{p.relative_to(web / 'vendor')}")
+            file_record(p, f"asr_studio/web/vendor/{p.relative_to(web / 'vendor')}")
             for p in sorted((web / "vendor").glob("*/*"))
             if p.is_file()
         ],

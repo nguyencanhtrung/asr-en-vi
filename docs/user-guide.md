@@ -43,14 +43,14 @@ After these checks pass, an interactive terminal shows the access link and a QR 
 CI or redirect, the script hides the token. To show it:
 
 ```sh
-docker compose exec -T app python -m asr_en_vi.cli access show
+docker compose exec -T app python -m asr_studio.cli access show
 ```
 
 To check a running installation:
 
 ```sh
-docker compose exec -T app python -m asr_en_vi.cli installation check
-docker compose exec -T app python -m asr_en_vi.cli version --json
+docker compose exec -T app python -m asr_studio.cli installation check
+docker compose exec -T app python -m asr_studio.cli version --json
 ```
 
 Use `./scripts/start.sh` for a new installation. A plain `docker run` app container does not
@@ -70,8 +70,13 @@ error. It does not fall back to the CPU.
 
 ### Install a release
 
-The commands below use tag `v0.1.3` as a syntax example. For a real installation, use the tag,
+The commands below install the ASR Studio release `v0.2.0`. For a real installation, use the tag,
 commit or digest from the release notes. Do not overwrite old tags.
+
+`v0.1.3` predates the rename: its published image remains under `asr-en-vi` and
+its Python module is `asr_en_vi`. Use the Compose file and CLI instructions from
+that tag. The current checkout uses `asr_studio` and must be rebuilt with
+`./scripts/start.sh --source` and `ASR_IMAGE=asr-studio:local`.
 
 Keep `COMPOSE_PROJECT_NAME` and `ASR_MODEL_HOST_PATH` the same on each run, so that Compose
 uses the same volumes and model directory. Prepare the ASR model while online. Download
@@ -81,11 +86,11 @@ Community-1 only after you accept its conditions (see
 Build from source:
 
 ```sh
-git clone --branch v0.1.3 --depth 1 https://github.com/nguyencanhtrung/asr-en-vi.git
-cd asr-en-vi
+git clone --branch v0.2.0 --depth 1 https://github.com/nguyencanhtrung/asr-studio.git
+cd asr-studio
 export COMPOSE_PROJECT_NAME=asr-source-v1
 export ASR_MODEL_HOST_PATH="$PWD/models"
-export ASR_IMAGE=asr-en-vi:v0.1.3
+export ASR_IMAGE=asr-studio:v0.2.0
 ./scripts/start.sh --source
 ```
 
@@ -95,14 +100,14 @@ Pull the public image (same checkout):
 export COMPOSE_PROJECT_NAME=asr-pull-v1
 export ASR_PORT=8766
 export ASR_MODEL_HOST_PATH="$PWD/models"
-export ASR_IMAGE=ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.3
+export ASR_IMAGE=ghcr.io/nguyencanhtrung/asr-studio:v0.2.0
 ./scripts/start.sh --pull
 ```
 
 A different project name gives separate data, token and provider volumes. Port 8766 prevents a
-conflict with the source installation. The local tag `asr-en-vi:v0.1.3` shows that the image
+conflict with the source installation. The local tag `asr-studio:v0.2.0` shows that the image
 comes from source, not from GHCR. To fix an exact artifact, set `ASR_IMAGE` to the published
-digest (`ghcr.io/nguyencanhtrung/asr-en-vi@sha256:...`).
+digest (`ghcr.io/nguyencanhtrung/asr-studio@sha256:...`).
 
 On a different machine, clone the same tag, install Docker and prepare Community-1. Do not copy
 `.env` or the `auth` and `provider` volumes from an old installation.
@@ -175,7 +180,7 @@ Restart and recreate keep the volumes. A new Compose project makes a new token.
 The link contains the token in the URL fragment (after `#`). The access page deletes the
 fragment and sends the token in a JSON body to get a browser session.
 
-- Show the current link and QR: `docker compose exec -T app python -m asr_en_vi.cli access show`
+- Show the current link and QR: `docker compose exec -T app python -m asr_studio.cli access show`
 - Replace the token and revoke old links and sessions: `./scripts/rotate-token.sh`
 
 Token rotation changes only the auth state. `docker compose down` keeps the volumes.

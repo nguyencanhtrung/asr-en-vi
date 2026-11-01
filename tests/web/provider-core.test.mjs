@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createRunner, createStore } from "../../src/asr_en_vi/web/store.js";
-import { ANTIGRAVITY, CHATGPT, initialState, reduce, selectLauncher, selectView } from "../../src/asr_en_vi/web/provider-core.js";
+import { createRunner, createStore } from "../../src/asr_studio/web/store.js";
+import { ANTIGRAVITY, CHATGPT, initialState, reduce, selectLauncher, selectView } from "../../src/asr_studio/web/provider-core.js";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const reply = (status, body) => ({ ok: status < 400, status, text: async () => JSON.stringify(body) });

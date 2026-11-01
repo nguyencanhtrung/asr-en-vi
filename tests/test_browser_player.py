@@ -16,8 +16,8 @@ from test_browser_history import FIXED_NOW
 from test_browser_history import live as live
 from test_browser_history import signed_in as signed_in
 
-from asr_en_vi.media import normalize_media
-from asr_en_vi.storage import database_path
+from asr_studio.media import normalize_media
+from asr_studio.storage import database_path
 
 pytestmark = pytest.mark.browser
 

@@ -42,8 +42,8 @@ def _checkout_copy(destination: Path) -> Path:
     """Copy the files start.sh reads from a checkout, without git metadata."""
     for relative_path in (
         "scripts/start.sh",
-        "src/asr_en_vi/__init__.py",
-        "src/asr_en_vi/storage.py",
+        "src/asr_studio/__init__.py",
+        "src/asr_studio/storage.py",
     ):
         target = destination / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -133,13 +133,13 @@ def _run_start(
         '  pull*) [ "$PULL_OK" = 1 ] || exit 1 ;;\n'
         '  *"version --json --expect-version"*) [ "$VERSION_MATCH" = 1 ] || exit 1 ;;\n'
         '  *"--gpus all"*) [ "$GPU_CHECK_OK" = 1 ] || exit 1 ;;\n'
-        '  *"asr_en_vi.cli model check"*) [ "$MODEL_CHECK_OK" = 1 ] || exit 1 ;;\n'
-        '  *"asr_en_vi.cli installation check"*) [ "$FAIL_INSTALL_CHECK" = 0 ] || exit 1 ;;\n'
+        '  *"asr_studio.cli model check"*) [ "$MODEL_CHECK_OK" = 1 ] || exit 1 ;;\n'
+        '  *"asr_studio.cli installation check"*) [ "$FAIL_INSTALL_CHECK" = 0 ] || exit 1 ;;\n'
         "esac\n",
     )
     environment = _environment_without_git()
     environment.pop("ASR_IMAGE", None)
-    resolved_image = image or "asr-en-vi:local"
+    resolved_image = image or "asr-studio:local"
     if image is not None:
         environment["ASR_IMAGE"] = image
     environment["PATH"] = f"{stub_directory}:{environment['PATH']}"
@@ -279,15 +279,15 @@ def test_startup_checks_complete_community_model_then_preflights_before_services
         return next(i for i, line in enumerate(commands) if marker in line)
 
     build = command_index("compose -f compose.yaml build")
-    image_version = command_index("version --json --expect-version 0.1.3")
-    model_prepare = command_index("asr_en_vi.cli model prepare")
-    runtime_check = command_index("asr_en_vi.cli runtime check")
+    image_version = command_index("version --json --expect-version 0.2.0")
+    model_prepare = command_index("asr_studio.cli model prepare")
+    runtime_check = command_index("asr_studio.cli runtime check")
     services = command_index("compose -f compose.yaml up --pull never --no-build")
-    install_check = command_index("asr_en_vi.cli installation check")
+    install_check = command_index("asr_studio.cli installation check")
     assert build < image_version < model_prepare < runtime_check < services < install_check
-    assert "asr_en_vi.cli access show" not in commands
+    assert "asr_studio.cli access show" not in commands
     assert "access details are withheld from non-interactive output" in result.stdout
-    assert "docker compose exec -T app python -m asr_en_vi.cli access show" in result.stdout
+    assert "docker compose exec -T app python -m asr_studio.cli access show" in result.stdout
     assert "--network none" in commands[image_version]
     assert "HF_HUB_OFFLINE=0" in commands[model_prepare]
     assert "TRANSFORMERS_OFFLINE=0" in commands[model_prepare]
@@ -300,8 +300,8 @@ def test_startup_does_not_print_access_link_when_app_cannot_see_worker_or_models
     result = _run_start(tmp_path, COMMUNITY_1_FILES, fail_install_check=True)
 
     assert result.returncode != 0
-    assert "python -m asr_en_vi.cli installation check" in result.docker_log
-    assert "python -m asr_en_vi.cli access show" not in result.docker_log
+    assert "python -m asr_studio.cli installation check" in result.docker_log
+    assert "python -m asr_studio.cli access show" not in result.docker_log
 
 
 def test_startup_rejects_git_lfs_pointer_before_image_build(tmp_path):
@@ -325,7 +325,7 @@ def test_startup_rejects_git_lfs_pointer_before_image_build(tmp_path):
 
 
 def test_pull_mode_pulls_the_resolved_versioned_image_without_building(tmp_path):
-    image = "ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1"
+    image = "ghcr.io/nguyencanhtrung/asr-studio:v0.1.0-rc.1"
     result = _run_start(tmp_path, COMMUNITY_1_FILES, args=("--pull",), image=image)
 
     assert result.returncode == 0, result.stdout + result.stderr
@@ -343,7 +343,7 @@ def test_pull_mode_pulls_the_resolved_versioned_image_without_building(tmp_path)
 
 
 def test_pull_mode_accepts_an_immutable_digest_reference(tmp_path):
-    image = f"ghcr.io/nguyencanhtrung/asr-en-vi@sha256:{'a' * 64}"
+    image = f"ghcr.io/nguyencanhtrung/asr-studio@sha256:{'a' * 64}"
     result = _run_start(tmp_path, COMMUNITY_1_FILES, args=("--pull",), image=image)
 
     assert result.returncode == 0, result.stdout + result.stderr
@@ -355,10 +355,10 @@ def test_pull_mode_accepts_an_immutable_digest_reference(tmp_path):
 @pytest.mark.parametrize(
     "image",
     [
-        "asr-en-vi:local",
-        "ghcr.io/nguyencanhtrung/asr-en-vi:latest",
-        "ghcr.io/nguyencanhtrung/asr-en-vi:edge",
-        "ghcr.io/nguyencanhtrung/asr-en-vi:nightly",
+        "asr-studio:local",
+        "ghcr.io/nguyencanhtrung/asr-studio:latest",
+        "ghcr.io/nguyencanhtrung/asr-studio:edge",
+        "ghcr.io/nguyencanhtrung/asr-studio:nightly",
     ],
 )
 def test_pull_mode_rejects_non_versioned_image_references(tmp_path, image):
@@ -371,7 +371,7 @@ def test_pull_mode_rejects_non_versioned_image_references(tmp_path, image):
 
 
 def test_pull_version_mismatch_stops_before_any_service_volume_is_mounted(tmp_path):
-    image = "ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1"
+    image = "ghcr.io/nguyencanhtrung/asr-studio:v0.1.0-rc.1"
     result = _run_start(
         tmp_path,
         COMMUNITY_1_FILES,
@@ -381,7 +381,7 @@ def test_pull_version_mismatch_stops_before_any_service_volume_is_mounted(tmp_pa
     )
 
     assert result.returncode != 0
-    assert "does not match source version 0.1.3 and schema 14" in result.stderr
+    assert "does not match source version 0.2.0 and schema 14" in result.stderr
     commands = result.docker_log.splitlines()
     assert f"pull {image}" in commands
     assert any("version --json --expect-version" in line for line in commands)
@@ -390,7 +390,7 @@ def test_pull_version_mismatch_stops_before_any_service_volume_is_mounted(tmp_pa
         and any(command in line for command in (" build", " run ", " up "))
         for line in commands
     )
-    assert not any("asr_en_vi.cli model prepare" in line for line in commands)
+    assert not any("asr_studio.cli model prepare" in line for line in commands)
 
 
 @pytest.mark.parametrize(
@@ -399,7 +399,7 @@ def test_pull_version_mismatch_stops_before_any_service_volume_is_mounted(tmp_pa
     ids=["default-source", "source", "pull", "offline"],
 )
 def test_image_revision_must_match_the_checkout_in_every_mode(tmp_path, args):
-    image = "ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1" if args == ("--pull",) else None
+    image = "ghcr.io/nguyencanhtrung/asr-studio:v0.1.0-rc.1" if args == ("--pull",) else None
     result = _run_start(
         tmp_path,
         COMMUNITY_1_FILES,
@@ -414,7 +414,7 @@ def test_image_revision_must_match_the_checkout_in_every_mode(tmp_path, args):
         result.stderr
     )
     assert "Check out the matching tag" in result.stderr
-    assert "asr_en_vi.cli model" not in result.docker_log
+    assert "asr_studio.cli model" not in result.docker_log
     assert " up " not in result.docker_log
 
 
@@ -447,7 +447,7 @@ def test_unknown_revision_warns_with_guidance_and_continues(
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "Cannot verify that asr-en-vi:local was built from this checkout" in result.stderr
+    assert "Cannot verify that asr-studio:local was built from this checkout" in result.stderr
     assert f"Checkout revision: {source_revision}" in result.stderr
     assert "release tag" in result.stderr
     assert " up --pull never --no-build " in result.docker_log
@@ -479,7 +479,7 @@ def test_checkout_revision_comes_from_git_when_this_directory_is_the_repository_
 
 def test_checkout_inside_another_repository_does_not_borrow_its_revision(tmp_path):
     outer_head = _commit_in_new_repository(tmp_path / "outer")
-    checkout = _checkout_copy(tmp_path / "outer" / "asr-en-vi-archive")
+    checkout = _checkout_copy(tmp_path / "outer" / "asr-studio-archive")
 
     result = _run_start(
         tmp_path / "run",
@@ -506,13 +506,13 @@ def test_offline_mode_uses_existing_image_and_models_without_preparation(tmp_pat
 
     assert result.returncode == 0, result.stdout + result.stderr
     commands = result.docker_log.splitlines()
-    assert "image inspect asr-en-vi:local" in commands
+    assert "image inspect asr-studio:local" in commands
     assert any("version --json --expect-version" in line for line in commands)
-    assert any("asr_en_vi.cli model check" in line for line in commands)
-    assert any("asr_en_vi.cli runtime check" in line for line in commands)
+    assert any("asr_studio.cli model check" in line for line in commands)
+    assert any("asr_studio.cli runtime check" in line for line in commands)
     assert not any(line.startswith("pull ") for line in commands)
     assert not any(" compose " in f" {line} " and " build" in line for line in commands)
-    assert not any("asr_en_vi.cli model prepare" in line for line in commands)
+    assert not any("asr_studio.cli model prepare" in line for line in commands)
     assert any(" up --pull never --no-build " in f" {line} " for line in commands)
     assert all(
         "--pull never" in line
@@ -530,7 +530,7 @@ def test_offline_mode_fails_for_missing_image_or_unprepared_asr_without_fetching
     )
     assert missing_image.returncode != 0
     assert "requires the image already present locally" in missing_image.stderr
-    assert "image inspect asr-en-vi:local" in missing_image.docker_log
+    assert "image inspect asr-studio:local" in missing_image.docker_log
     assert " version --json " not in missing_image.docker_log
     assert not any(
         " compose " in f" {line} "
@@ -545,9 +545,9 @@ def test_offline_mode_fails_for_missing_image_or_unprepared_asr_without_fetching
         model_check_ok=False,
     )
     assert missing_model.returncode != 0
-    assert "asr_en_vi.cli model check" in missing_model.docker_log
-    assert "asr_en_vi.cli model prepare" not in missing_model.docker_log
-    assert "asr_en_vi.cli runtime check" not in missing_model.docker_log
+    assert "asr_studio.cli model check" in missing_model.docker_log
+    assert "asr_studio.cli model prepare" not in missing_model.docker_log
+    assert "asr_studio.cli runtime check" not in missing_model.docker_log
     assert " up " not in missing_model.docker_log
 
 
@@ -564,7 +564,7 @@ def test_offline_mode_does_not_create_a_missing_model_directory(tmp_path):
 
 
 def test_nvidia_preflight_uses_selected_image_and_reports_actionable_failure(tmp_path):
-    image = "ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1"
+    image = "ghcr.io/nguyencanhtrung/asr-studio:v0.1.0-rc.1"
     result = _run_start(
         tmp_path,
         COMMUNITY_1_FILES,
@@ -582,7 +582,7 @@ def test_nvidia_preflight_uses_selected_image_and_reports_actionable_failure(tmp
         )
         for line in result.docker_log.splitlines()
     )
-    assert "asr_en_vi.cli model prepare" not in result.docker_log
+    assert "asr_studio.cli model prepare" not in result.docker_log
     assert " up " not in result.docker_log
 
 
@@ -590,8 +590,8 @@ def test_compose_image_resolution_must_be_shared_by_app_and_worker(tmp_path):
     result = _run_start(
         tmp_path,
         args=("--pull",),
-        image="ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1",
-        second_image="ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0",
+        image="ghcr.io/nguyencanhtrung/asr-studio:v0.1.0-rc.1",
+        second_image="ghcr.io/nguyencanhtrung/asr-studio:v0.1.0",
     )
 
     assert result.returncode != 0

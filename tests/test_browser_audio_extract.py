@@ -16,7 +16,7 @@ from test_browser_create_flow import _meeting_id, _open_dialog
 from test_browser_history import live as live
 from test_browser_history import signed_in as signed_in
 
-from asr_en_vi.media import normalize_media
+from asr_studio.media import normalize_media
 
 pytestmark = pytest.mark.browser
 

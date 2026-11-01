@@ -10,7 +10,7 @@ import tempfile
 import wave
 from pathlib import Path
 
-from asr_en_vi.media import normalize_media
+from asr_studio.media import normalize_media
 from torchcodec.decoders import AudioDecoder
 
 with tempfile.TemporaryDirectory() as directory:

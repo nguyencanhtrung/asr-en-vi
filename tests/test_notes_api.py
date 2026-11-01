@@ -7,13 +7,13 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from notes_helpers import StubNotesProvider, seed_cited_notes, seed_completed_transcript
 
-from asr_en_vi.app import create_app
-from asr_en_vi.auth import AuthStore
-from asr_en_vi.chatgpt import DIRECT_SCOPE
-from asr_en_vi.config import Settings
-from asr_en_vi.notes import accept_notes_task, publish_notes_revision
-from asr_en_vi.storage import database_path
-from asr_en_vi.tasks import add_current_generation_speaker, claim_next_task, finish_canceled_task
+from asr_studio.app import create_app
+from asr_studio.auth import AuthStore
+from asr_studio.chatgpt import DIRECT_SCOPE
+from asr_studio.config import Settings
+from asr_studio.notes import accept_notes_task, publish_notes_revision
+from asr_studio.storage import database_path
+from asr_studio.tasks import add_current_generation_speaker, claim_next_task, finish_canceled_task
 
 pytestmark = pytest.mark.anyio
 
@@ -29,7 +29,7 @@ async def test_notes_routes_enforce_auth_and_preserve_saved_revision_contract(
     app = create_app(settings)
     async with app.router.lifespan_context(app):
         meeting_id, generation_id, segment_ids = seed_completed_transcript(settings.data_dir)
-        monkeypatch.setattr("asr_en_vi.notes_routes.worker_is_healthy", lambda _path: True)
+        monkeypatch.setattr("asr_studio.notes_routes.worker_is_healthy", lambda _path: True)
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url=settings.public_url
         ) as client:

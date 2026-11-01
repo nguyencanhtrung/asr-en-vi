@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { initialState as historyInitial, reduce as reduceHistory } from "../../src/asr_en_vi/web/history-core.js";
-import { combine, createRunner, createStore } from "../../src/asr_en_vi/web/store.js";
+import { initialState as historyInitial, reduce as reduceHistory } from "../../src/asr_studio/web/history-core.js";
+import { combine, createRunner, createStore } from "../../src/asr_studio/web/store.js";
 import {
   SAVED,
   SAVING,
@@ -12,7 +12,7 @@ import {
   initialState,
   navigation,
   reduce,
-} from "../../src/asr_en_vi/web/transcript-core.js";
+} from "../../src/asr_studio/web/transcript-core.js";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const reply = (status, body) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body) });

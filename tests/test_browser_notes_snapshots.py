@@ -18,9 +18,9 @@ from test_browser_notes import _seed_saved_notes
 from test_browser_notes_citations import CHIP, DESKTOP, NARROW, OVERFLOW, open_notes
 from test_browser_task_progress import CONTRAST_JS, record_requests, running_notes
 
-from asr_en_vi.notes import update_note
-from asr_en_vi.recordings import update_meeting
-from asr_en_vi.tasks import finish_canceled_task, update_current_generation_speaker_name
+from asr_studio.notes import update_note
+from asr_studio.recordings import update_meeting
+from asr_studio.tasks import finish_canceled_task, update_current_generation_speaker_name
 
 pytestmark = pytest.mark.browser
 

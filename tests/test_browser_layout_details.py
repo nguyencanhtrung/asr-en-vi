@@ -186,14 +186,14 @@ def test_layout_matrix_and_keyboard_order(live, signed_in, tmp_path):
             try:
                 page.goto(f"{live.url}/", wait_until="networkidle")
                 expect(page.locator("#recent-list a")).to_have_count(3)
-                expect(page.locator(".brand-wordmark")).to_have_text("ASR EN VI")
-                expect(page.locator(".brand")).to_have_accessible_name("ASR EN VI — về workspace")
+                expect(page.locator(".brand-wordmark")).to_have_text("ASR Studio")
+                expect(page.locator(".brand")).to_have_accessible_name("ASR Studio — về workspace")
                 expect(page.locator("#form-error")).to_have_attribute("tabindex", "-1")
 
                 metrics = _layout_rectangles(page)
                 assert metrics["theme"] == theme
                 assert metrics["domOrder"]
-                assert metrics["wordmark"] == "ASR EN VI"
+                assert metrics["wordmark"] == "ASR Studio"
                 assert metrics["formErrorTabIndex"] == "-1"
                 assert metrics["positiveTabIndexCount"] == 0
                 if width == 360:

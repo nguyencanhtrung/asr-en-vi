@@ -7,15 +7,15 @@ import sys
 import huggingface_hub
 import pytest
 
-from asr_en_vi import __version__, cli
-from asr_en_vi.cli import main
-from asr_en_vi.diarization_runner import (
+from asr_studio import __version__, cli
+from asr_studio.cli import main
+from asr_studio.diarization_runner import (
     DIARIZATION_ERROR_MESSAGES,
     DiarizationConfigurationError,
 )
-from asr_en_vi.runtime import RuntimeProfile
-from asr_en_vi.storage import SCHEMA_VERSION
-from asr_en_vi.tasks import TASK_ERROR_MESSAGES
+from asr_studio.runtime import RuntimeProfile
+from asr_studio.storage import SCHEMA_VERSION
+from asr_studio.tasks import TASK_ERROR_MESSAGES
 
 
 def test_version_json_reports_application_version_and_supported_schema(capsys):
@@ -68,7 +68,7 @@ def test_legacy_version_flag_keeps_its_output(capsys):
         main(["--version"])
 
     assert exit_info.value.code == 0
-    assert f"asr-en-vi {__version__}" in capsys.readouterr().out
+    assert f"asr-studio {__version__}" in capsys.readouterr().out
 
 
 def _prepared_model(path):
@@ -294,7 +294,7 @@ def test_diarization_preflight_isolated_process_accepts_only_safe_child_errors(
         "diarization_failed",
         DIARIZATION_ERROR_MESSAGES["diarization_failed"],
     )
-    assert observed["command"][:3] == [sys.executable, "-m", "asr_en_vi.diarization_runner"]
+    assert observed["command"][:3] == [sys.executable, "-m", "asr_studio.diarization_runner"]
     assert "--check-runtime" in observed["command"]
     assert "--verbose" not in observed["command"]
     assert observed["kwargs"]["stderr"] is subprocess.DEVNULL

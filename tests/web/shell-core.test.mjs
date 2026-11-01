@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createRunner, createStore } from "../../src/asr_en_vi/web/store.js";
+import { createRunner, createStore } from "../../src/asr_studio/web/store.js";
 import {
   AUTO_TRANSCRIBE_HANDOFF_PREFIX,
   canSubmit,
@@ -10,7 +10,7 @@ import {
   reduce,
   responseMessage,
   selectView,
-} from "../../src/asr_en_vi/web/shell-core.js";
+} from "../../src/asr_studio/web/shell-core.js";
 
 test("workspace authentication failure is exact and does not classify provider 401 details", () => {
   assert.equal(isWorkspaceAuthenticationFailure(401, { detail: "Authentication required" }), true);
@@ -263,7 +263,7 @@ test("one button: cleans, creates the upload, uploads with progress, checks, the
   await env.answer(env.is("POST", "/api/meetings"), 201, { meeting: { id: "m 1" } });
   assert.equal(env.state().phase, "saved");
   assert.deepEqual(env.written, [
-    ["local", "asr-en-vi:last-language-hint", "en"],
+    ["local", "asr-studio:last-language-hint", "en"],
     ["session", `${AUTO_TRANSCRIBE_HANDOFF_PREFIX}m 1`, "1"],
   ]);
   assert.deepEqual(env.navigated, ["/meetings/m%201"]);
@@ -322,7 +322,7 @@ test("auto-transcribe off writes no handoff; toggling stores the choice", async 
   const env = setup();
   await ready(env);
   env.store.dispatch({ type: "shell/auto-transcribe-toggled", value: false });
-  assert.deepEqual(env.written, [["local", "asr-en-vi:auto-transcribe", "0"]]);
+  assert.deepEqual(env.written, [["local", "asr-studio:auto-transcribe", "0"]]);
 });
 
 test("a repeated create or upload while busy does nothing", async () => {
@@ -995,8 +995,8 @@ test("auto-transcribe off: a completed create writes no handoff key", async () =
   await env.answer(env.is("POST", "/complete"), 200, { status: "ready" });
   await env.answer(env.is("POST", "/api/meetings"), 201, { meeting: { id: "m1" } });
   assert.deepEqual(env.written, [
-    ["local", "asr-en-vi:auto-transcribe", "0"],
-    ["local", "asr-en-vi:last-language-hint", "en"],
+    ["local", "asr-studio:auto-transcribe", "0"],
+    ["local", "asr-studio:last-language-hint", "en"],
   ]);
   assert.deepEqual(env.navigated, ["/meetings/m1"]);
 });

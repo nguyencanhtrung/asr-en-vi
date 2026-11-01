@@ -94,16 +94,16 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: false
           load: true
-          tags: asr-en-vi:ci
+          tags: asr-studio:ci
           build-args: |
             VCS_REF=${{ github.sha }}
           cache-from: type=gha,scope=container
       - name: Check native platform coverage
         run: |
           docker run --pull=never --rm --network none -i --entrypoint python \
-            asr-en-vi:ci - < scripts/check-platform-coverage.py
+            asr-studio:ci - < scripts/check-platform-coverage.py
       - name: Smoke-test container runtime
-        run: ./scripts/container-smoke.sh asr-en-vi:ci
+        run: ./scripts/container-smoke.sh asr-studio:ci
 
   release-record:
     name: Prepare public source download location
@@ -235,10 +235,10 @@ jobs:
             <<< "${CANDIDATE_METADATA}")"
           test "${published_config_digest}" = "${candidate_config_digest}"
           expected_version="${GITHUB_REF_NAME#v}"
-          expected_schema="$(sed -n 's/^SCHEMA_VERSION = \([0-9][0-9]*\)$/\1/p' src/asr_en_vi/storage.py)"
+          expected_schema="$(sed -n 's/^SCHEMA_VERSION = \([0-9][0-9]*\)$/\1/p' src/asr_studio/storage.py)"
           test -n "${expected_schema}"
           docker run --pull=never --rm --network none --entrypoint python \
-            "${PUBLISHED_IMAGE}" -m asr_en_vi.cli version --json \
+            "${PUBLISHED_IMAGE}" -m asr_studio.cli version --json \
             --expect-version "${expected_version}" --expect-schema "${expected_schema}"
           revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${PUBLISHED_IMAGE}")"
           test "${revision}" = "${GITHUB_SHA}"

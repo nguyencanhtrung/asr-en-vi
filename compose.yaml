@@ -1,6 +1,9 @@
+# Stable deployment identity preserves existing containers and volumes after the rename.
+name: asr-en-vi
+
 services:
   app:
-    image: ${ASR_IMAGE:-asr-en-vi:local}
+    image: ${ASR_IMAGE:-asr-studio:local}
     build:
       context: .
       dockerfile: Dockerfile
@@ -8,7 +11,7 @@ services:
         VCS_REF: ${ASR_SOURCE_REVISION:-unknown}
     command:
       - uvicorn
-      - asr_en_vi.app:app
+      - asr_studio.app:app
       - --host
       - 0.0.0.0
       - --port
@@ -28,9 +31,9 @@ services:
     ports:
       - "127.0.0.1:${ASR_PORT:-8765}:8765"
     environment:
-      ASR_DATA_DIR: /var/lib/asr-en-vi/data
-      ASR_AUTH_DIR: /var/lib/asr-en-vi/auth
-      ASR_PROVIDER_DIR: /var/lib/asr-en-vi/provider
+      ASR_DATA_DIR: /var/lib/asr-studio/data
+      ASR_AUTH_DIR: /var/lib/asr-studio/auth
+      ASR_PROVIDER_DIR: /var/lib/asr-studio/provider
       ASR_PUBLIC_URL: ${ASR_PUBLIC_URL:-http://127.0.0.1:${ASR_PORT:-8765}}
       ASR_CHATGPT_CALLBACK_URL: ${ASR_CHATGPT_CALLBACK_URL:-}
       ASR_COOKIE_SECURE: ${ASR_COOKIE_SECURE:-false}
@@ -45,12 +48,12 @@ services:
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
     volumes:
-      - data:/var/lib/asr-en-vi/data
-      - auth:/var/lib/asr-en-vi/auth
-      - provider:/var/lib/asr-en-vi/provider
+      - data:/var/lib/asr-studio/data
+      - auth:/var/lib/asr-studio/auth
+      - provider:/var/lib/asr-studio/provider
       - "${ASR_MODEL_HOST_PATH:-./models}:/models:ro"
     healthcheck:
-      test: ["CMD", "python", "-m", "asr_en_vi.cli", "health"]
+      test: ["CMD", "python", "-m", "asr_studio.cli", "health"]
       interval: 10s
       timeout: 3s
       start_period: 10s
@@ -58,8 +61,8 @@ services:
     stop_grace_period: 15s
 
   worker:
-    image: ${ASR_IMAGE:-asr-en-vi:local}
-    command: ["python", "-m", "asr_en_vi.worker"]
+    image: ${ASR_IMAGE:-asr-studio:local}
+    command: ["python", "-m", "asr_studio.worker"]
     init: true
     restart: unless-stopped
     read_only: true
@@ -70,8 +73,8 @@ services:
     cap_drop:
       - ALL
     environment:
-      ASR_DATA_DIR: /var/lib/asr-en-vi/data
-      ASR_PROVIDER_DIR: /var/lib/asr-en-vi/provider
+      ASR_DATA_DIR: /var/lib/asr-studio/data
+      ASR_PROVIDER_DIR: /var/lib/asr-studio/provider
       ASR_DEVICE: ${ASR_DEVICE:-auto}
       ASR_MODEL_PATH: ${ASR_MODEL_PATH:-}
       ASR_COMPUTE_TYPE: ${ASR_COMPUTE_TYPE:-}
@@ -87,14 +90,14 @@ services:
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
     volumes:
-      - data:/var/lib/asr-en-vi/data
-      - provider:/var/lib/asr-en-vi/provider
+      - data:/var/lib/asr-studio/data
+      - provider:/var/lib/asr-studio/provider
       - "${ASR_MODEL_HOST_PATH:-./models}:/models:ro"
     depends_on:
       app:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-m", "asr_en_vi.worker", "--health-check"]
+      test: ["CMD", "python", "-m", "asr_studio.worker", "--health-check"]
       interval: 10s
       timeout: 3s
       start_period: 10s

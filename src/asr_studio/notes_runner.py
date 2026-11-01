@@ -10,10 +10,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from asr_en_vi.antigravity import AntigravityError, AntigravityProvider
-from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
-from asr_en_vi.notes import load_notes_task_input
-from asr_en_vi.notes_document import (
+from asr_studio.antigravity import AntigravityError, AntigravityProvider
+from asr_studio.chatgpt import ChatGPTError, ChatGPTProvider
+from asr_studio.notes import load_notes_task_input
+from asr_studio.notes_document import (
     LEGACY_ENGLISH_PROMPT_VERSION,
     PROMPT_VERSION,
     SCHEMA_VERSION,
@@ -21,8 +21,8 @@ from asr_en_vi.notes_document import (
     build_citations,
     render_markdown,
 )
-from asr_en_vi.safe_logging import emit_safe_log
-from asr_en_vi.tasks import TaskError
+from asr_studio.safe_logging import emit_safe_log
+from asr_studio.tasks import TaskError
 
 _PROVIDER_LABELS = {"chatgpt": "ChatGPT", "antigravity": "Google Antigravity"}
 
@@ -169,7 +169,7 @@ def main() -> int:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
         stream=sys.stderr,
     )
-    parser = argparse.ArgumentParser(prog="asr-en-vi-notes-runner")
+    parser = argparse.ArgumentParser(prog="asr-studio-notes-runner")
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--owner-id", required=True)

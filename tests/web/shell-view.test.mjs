@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 
 // Migrated files keep their rules by construction; these scans keep them from drifting back.
-const web = (name) => readFileSync(new URL(`../../src/asr_en_vi/web/${name}`, import.meta.url), "utf8");
+const web = (name) => readFileSync(new URL(`../../src/asr_studio/web/${name}`, import.meta.url), "utf8");
 const code = (name) => web(name).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
 // Text in quotes goes; the code inside a template literal's ${…} stays, so it is scanned too.
 const noStrings = (source) => source
@@ -12,7 +12,7 @@ const noStrings = (source) => source
 // assert.doesNotMatch prints the whole file on failure; say only what matched.
 const absent = (source, pattern, label) => assert.equal(source.match(pattern)?.[0], undefined, label);
 
-// Every file in src/asr_en_vi/web/*.js is in exactly one of these lists (docs/adr/0010-frontend-reducer-core.md).
+// Every file in src/asr_studio/web/*.js is in exactly one of these lists (docs/adr/0010-frontend-reducer-core.md).
 const VIEWS = ["shell.js", "connections.js", "antigravity.js", "notes.js", "history.js", "access.js"];
 const CORES = ["shell-core.js", "provider-core.js", "notes-core.js", "history-core.js", "task-core.js", "transcript-core.js", "playback-core.js", "channel.js"];
 // Not a view and not a pure core. `top` is every name the file may declare at its top level; `classic` marks the
@@ -116,7 +116,7 @@ test("views touch storage only to read the remembered choices for the boot and o
 
 // ---- the whole directory: classification, globals, custom events, scripts ----
 
-const webFiles = (extension) => readdirSync(new URL("../../src/asr_en_vi/web/", import.meta.url)).filter((name) => name.endsWith(extension)).sort();
+const webFiles = (extension) => readdirSync(new URL("../../src/asr_studio/web/", import.meta.url)).filter((name) => name.endsWith(extension)).sort();
 
 // What is wrong with the way `names` are sorted into the lists: an unlisted file, a file listed twice or a ghost entry.
 const classify = (names, lists) => {

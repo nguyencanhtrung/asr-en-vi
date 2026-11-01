@@ -1,7 +1,7 @@
 # Releases
 
 Use this directory for the release process and evidence summaries.
-Published versions and assets appear on [GitHub Releases](https://github.com/nguyencanhtrung/asr-en-vi/releases).
+Published versions and assets appear on [GitHub Releases](https://github.com/nguyencanhtrung/asr-studio/releases).
 The former v0.1.0 draft does not describe the current release status.
 
 ## Prepare a release

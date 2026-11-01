@@ -1,4 +1,4 @@
-# Backend design v1 — ASR EN VI
+# Backend design v1 — ASR Studio
 
 Trạng thái: **đã thống nhất các quyết định thiết kế Q1–Q27**, ngày 2026-10-16. Không còn câu hỏi sản phẩm đang chờ trong phiên thiết kế này; các việc còn lại ở mục 5 là triển khai và kiểm chứng. Tài liệu này cụ thể hóa [specification v1](specification-v1.md) và [frontend design v1](frontend-design-v1.md), chưa xác nhận backend hoặc model đã được triển khai, chạy thử hay nghiệm thu.
 

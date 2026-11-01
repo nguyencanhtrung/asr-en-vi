@@ -46,7 +46,7 @@ refresh token khi hết hạn và ngắt/thu hồi từ xa chưa được quan s
 | --- | --- |
 | Thời điểm UTC | 2026-10-19 00:19:17 (lần kiểm chứng tổng hợp thành công) |
 | Commit / trạng thái mã nguồn | Nội dung preview được ghi thành commit `40a5d5d`; không có thay đổi tracked khi đối chiếu |
-| Image / cấu hình cổng Docker | `asr-en-vi:issue7-effort-preview` (`sha256:05edb06fbdcb…`), `127.0.0.1:18765` |
+| Image / cấu hình cổng Docker | `asr-studio:issue7-effort-preview` (`sha256:05edb06fbdcb…`), `127.0.0.1:18765` |
 | Loại gói và quyền dùng gói đã cấp | Người vận hành xác nhận đăng nhập và dùng được Luna; không ghi loại gói |
 | Callback qua Docker | Người vận hành hoàn tất đăng nhập qua bản preview; không lưu URL callback |
 | Model ID và effort đã chọn | `gpt-5.6-luna`, `max` |

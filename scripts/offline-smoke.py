@@ -42,7 +42,7 @@ COMPOSE_FILE = ROOT / "compose.yaml"
 GPU_COMPOSE_FILE = ROOT / "compose.gpu.yaml"
 COMPOSE_FILES = (COMPOSE_FILE, GPU_COMPOSE_FILE)
 DEFAULT_PROJECT_PREFIX = "asr-offline-smoke"
-PUBLIC_IMAGE = "ghcr.io/nguyencanhtrung/asr-en-vi"
+PUBLIC_IMAGE = "ghcr.io/nguyencanhtrung/asr-studio"
 MAX_AUDIO_BYTES = 25 * 1024 * 1024
 MAX_STDERR_DIAGNOSTIC_CHARS = 1200
 OFFLINE_NOTES_STATUS_TEXT = "tạm thời không khả dụng"
@@ -70,8 +70,8 @@ SAFE_PROJECT_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,34}\Z")
 
 # One bootstrap for every container script that opens the provider store without network access.
 _PROVIDER_PRELUDE = r"""import json, time
-from asr_en_vi.chatgpt import ChatGPTProvider, DIRECT_SCOPE
-from asr_en_vi.config import Settings
+from asr_studio.chatgpt import ChatGPTProvider, DIRECT_SCOPE
+from asr_studio.config import Settings
 
 class FailOnNetworkAdapter:
     def __getattr__(self, name):
@@ -313,7 +313,7 @@ def validate_pull_image(image: str) -> None:
     if not _is_public_pull_image(image):
         raise SmokeFailure(
             "Pull mode accepts only a versioned or sha256-pinned public "
-            "ghcr.io/nguyencanhtrung/asr-en-vi image."
+            "ghcr.io/nguyencanhtrung/asr-studio image."
         )
 
 
@@ -593,7 +593,7 @@ class SmokeHarness:
         self.redactor.add(str(options.models.expanduser()))
         self.redactor.add(str(options.audio.expanduser()))
         self.evidence: dict[str, Any] = {
-            "tool": "asr-en-vi offline smoke",
+            "tool": "asr-studio offline smoke",
             "status": "running",
             "project": self.project,
             "mode": options.mode,
@@ -840,7 +840,7 @@ class SmokeHarness:
                 "python",
                 self.options.image,
                 "-m",
-                "asr_en_vi.cli",
+                "asr_studio.cli",
                 "version",
                 "--json",
             ]
@@ -852,7 +852,7 @@ class SmokeHarness:
                 "app",
                 "python",
                 "-m",
-                "asr_en_vi.cli",
+                "asr_studio.cli",
                 "version",
                 "--json",
                 label="running image version/schema",
@@ -959,7 +959,7 @@ class SmokeHarness:
             "app",
             "python",
             "-m",
-            "asr_en_vi.cli",
+            "asr_studio.cli",
             "access",
             "show",
             label="read test-project access material",
@@ -998,7 +998,7 @@ class SmokeHarness:
                         "app",
                         "python",
                         "-m",
-                        "asr_en_vi.cli",
+                        "asr_studio.cli",
                         "installation",
                         "check",
                         config_path=config_path,
@@ -1194,11 +1194,11 @@ print(json.dumps({"seeded": True, "client_id_valid": True,
 
     def _seed_saved_notes(self, meeting_id: str) -> dict[str, Any]:
         script = r"""import contextlib, hashlib, json, sqlite3, uuid
-from asr_en_vi.config import Settings
-from asr_en_vi.notes import accept_notes_task, get_notes_source, publish_notes_revision
-from asr_en_vi.notes_document import build_citations, render_markdown
-from asr_en_vi.storage import database_path
-from asr_en_vi.tasks import claim_next_task
+from asr_studio.config import Settings
+from asr_studio.notes import accept_notes_task, get_notes_source, publish_notes_revision
+from asr_studio.notes_document import build_citations, render_markdown
+from asr_studio.storage import database_path
+from asr_studio.tasks import claim_next_task
 
 class FixtureStore:
     @contextlib.contextmanager
@@ -1339,9 +1339,9 @@ print(json.dumps({
         env = {"SMOKE_MEETING_ID": meeting_id}
         script = r"""import hashlib, json, sqlite3
 from pathlib import Path
-from asr_en_vi.config import Settings
-from asr_en_vi.recordings import recording_path
-from asr_en_vi.storage import database_path
+from asr_studio.config import Settings
+from asr_studio.recordings import recording_path
+from asr_studio.storage import database_path
 
 settings = Settings.from_env()
 meeting_id = __import__("os").environ["SMOKE_MEETING_ID"]

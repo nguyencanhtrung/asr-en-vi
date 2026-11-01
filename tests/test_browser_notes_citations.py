@@ -18,7 +18,7 @@ from test_browser_history import live as live
 from test_browser_history import signed_in as signed_in
 from test_browser_notes import _write_test_recording
 
-from asr_en_vi.tasks import update_current_generation_segment_text
+from asr_studio.tasks import update_current_generation_segment_text
 
 pytestmark = pytest.mark.browser
 

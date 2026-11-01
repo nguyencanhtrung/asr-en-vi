@@ -131,12 +131,12 @@ def test_isolated_compose_removes_ports_build_and_pull_policy_without_changing_v
                 "build": {"context": "."},
                 "pull_policy": "never",
                 "ports": ["127.0.0.1:8765:8765"],
-                "volumes": ["project_data:/var/lib/asr-en-vi/data"],
+                "volumes": ["project_data:/var/lib/asr-studio/data"],
             },
             "worker": {
                 "image": "example.invalid/asr:test",
                 "build": {"context": "."},
-                "volumes": ["project_data:/var/lib/asr-en-vi/data"],
+                "volumes": ["project_data:/var/lib/asr-studio/data"],
             },
         },
         "volumes": {"data": {"name": "project_data"}},
@@ -159,7 +159,7 @@ def test_resolved_compose_uses_gpu_overlay_and_offline_config_keeps_device_reque
     monkeypatch, tmp_path
 ):
     options = offline_smoke.SmokeOptions(
-        image="asr-en-vi:local",
+        image="asr-studio:local",
         models=tmp_path / "models",
         audio=tmp_path / "synthetic.wav",
         output=tmp_path / "output",
@@ -177,13 +177,13 @@ def test_resolved_compose_uses_gpu_overlay_and_offline_config_keeps_device_reque
                 "build": {"context": "."},
                 "pull_policy": "never",
                 "ports": ["127.0.0.1:8765:8765"],
-                "volumes": ["auth:/var/lib/asr-en-vi/auth"],
+                "volumes": ["auth:/var/lib/asr-studio/auth"],
                 "environment": {"ASR_PUBLIC_URL": harness.base_url},
             },
             "worker": {
                 "image": options.image,
                 "build": {"context": "."},
-                "volumes": ["data:/var/lib/asr-en-vi/data"],
+                "volumes": ["data:/var/lib/asr-studio/data"],
                 "environment": {"ASR_DEVICE": "cuda"},
                 "gpus": [device_request],
             },
@@ -242,7 +242,7 @@ def test_cleanup_ownership_requires_exact_project_labels():
     project = "asr-offline-smoke-a1b2c3d4"
     container = {"Config": {"Labels": {"com.docker.compose.project": project}}}
     network = {"Labels": {"com.docker.compose.project": project}}
-    foreign = {"Labels": {"com.docker.compose.project": "asr-en-vi"}}
+    foreign = {"Labels": {"com.docker.compose.project": "asr-studio"}}
 
     assert offline_smoke.owned_compose_resources(project, [container], [network]) is True
     assert offline_smoke.owned_compose_resources(project, [container, foreign], [network]) is False
@@ -250,7 +250,7 @@ def test_cleanup_ownership_requires_exact_project_labels():
 
 def test_project_collision_preflight_uses_read_only_command_doubles(monkeypatch, tmp_path):
     options = offline_smoke.SmokeOptions(
-        image="asr-en-vi:local",
+        image="asr-studio:local",
         models=tmp_path / "models",
         audio=tmp_path / "synthetic.wav",
         output=tmp_path / "output",
@@ -281,7 +281,7 @@ def test_project_collision_preflight_uses_read_only_command_doubles(monkeypatch,
 
 def test_project_collision_preflight_stops_before_any_mutation(monkeypatch, tmp_path):
     options = offline_smoke.SmokeOptions(
-        image="asr-en-vi:local",
+        image="asr-studio:local",
         models=tmp_path / "models",
         audio=tmp_path / "synthetic.wav",
         output=tmp_path / "output",
@@ -308,7 +308,7 @@ def test_project_collision_preflight_stops_before_any_mutation(monkeypatch, tmp_
 
 def test_source_or_pull_refuses_to_update_an_image_used_by_a_container(monkeypatch, tmp_path):
     options = offline_smoke.SmokeOptions(
-        image="ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1",
+        image="ghcr.io/nguyencanhtrung/asr-studio:v0.1.0-rc.1",
         models=tmp_path / "models",
         audio=tmp_path / "synthetic.wav",
         output=tmp_path / "output",
@@ -330,7 +330,7 @@ def test_source_or_pull_refuses_to_update_an_image_used_by_a_container(monkeypat
 
     assert len(commands) == 1
     assert commands[0][1:3] == ["ps", "--all"]
-    assert "ancestor=ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1" in commands[0]
+    assert "ancestor=ghcr.io/nguyencanhtrung/asr-studio:v0.1.0-rc.1" in commands[0]
 
 
 def _embedded_container_scripts():
@@ -392,7 +392,7 @@ def test_failed_non_sensitive_command_logs_bounded_redacted_stderr_without_stdou
     monkeypatch, tmp_path
 ):
     options = offline_smoke.SmokeOptions(
-        image="asr-en-vi:local",
+        image="asr-studio:local",
         models=tmp_path / "models",
         audio=tmp_path / "synthetic.wav",
         output=tmp_path / "output",
@@ -430,7 +430,7 @@ def test_failed_non_sensitive_command_logs_bounded_redacted_stderr_without_stdou
 
 def test_failed_sensitive_command_keeps_output_suppressed(monkeypatch, tmp_path):
     options = offline_smoke.SmokeOptions(
-        image="asr-en-vi:local",
+        image="asr-studio:local",
         models=tmp_path / "models",
         audio=tmp_path / "synthetic.wav",
         output=tmp_path / "output",
@@ -511,7 +511,7 @@ def test_seed_provider_fixture_executes_seed_and_reopen_scripts_locally(monkeypa
         directory.mkdir()
 
     options = offline_smoke.SmokeOptions(
-        image="asr-en-vi:local",
+        image="asr-studio:local",
         models=tmp_path / "models",
         audio=tmp_path / "synthetic.wav",
         output=tmp_path / "output",
@@ -618,7 +618,7 @@ def test_input_validation_requires_prepared_models_and_short_local_wav(tmp_path)
     audio = tmp_path / "synthetic.wav"
     _write_short_wav(audio)
     options = offline_smoke.SmokeOptions(
-        image="asr-en-vi:local",
+        image="asr-studio:local",
         models=models,
         audio=audio,
         output=tmp_path / "output",
@@ -641,7 +641,7 @@ def test_input_validation_requires_prepared_models_and_short_local_wav(tmp_path)
 
 def test_pull_mode_rejects_nonpublic_registry_reference(tmp_path):
     options = offline_smoke.SmokeOptions(
-        image="registry.example.invalid/asr-en-vi:v0.1.0-rc.1",
+        image="registry.example.invalid/asr-studio:v0.1.0-rc.1",
         models=tmp_path / "models",
         audio=tmp_path / "synthetic.wav",
         output=tmp_path / "output",
@@ -658,9 +658,9 @@ def test_pull_mode_rejects_nonpublic_registry_reference(tmp_path):
 @pytest.mark.parametrize(
     "image",
     [
-        "ghcr.io/nguyencanhtrung/asr-en-vifoobar:v0.1.0-rc.1",
-        "ghcr.io/nguyencanhtrung/asr-en-vi:latest",
-        "ghcr.io/nguyencanhtrung/asr-en-vi@sha256:abcd",
+        "ghcr.io/nguyencanhtrung/asr-studiofoobar:v0.1.0-rc.1",
+        "ghcr.io/nguyencanhtrung/asr-studio:latest",
+        "ghcr.io/nguyencanhtrung/asr-studio@sha256:abcd",
     ],
 )
 def test_pull_mode_rejects_noncanonical_public_refs(image):
@@ -669,11 +669,11 @@ def test_pull_mode_rejects_noncanonical_public_refs(image):
 
 
 def test_pull_mode_accepts_versioned_public_tag_and_sha256_digest():
-    offline_smoke.validate_pull_image("ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1")
-    offline_smoke.validate_pull_image("ghcr.io/nguyencanhtrung/asr-en-vi@sha256:" + "a" * 64)
+    offline_smoke.validate_pull_image("ghcr.io/nguyencanhtrung/asr-studio:v0.1.0-rc.1")
+    offline_smoke.validate_pull_image("ghcr.io/nguyencanhtrung/asr-studio@sha256:" + "a" * 64)
 
 
-def _smoke_options(tmp_path, mode="offline", image="asr-en-vi:local"):
+def _smoke_options(tmp_path, mode="offline", image="asr-studio:local"):
     return offline_smoke.SmokeOptions(
         image=image,
         models=tmp_path / "models",
@@ -707,7 +707,7 @@ def test_shipped_smoke_uses_stable_tool_names_not_pipeline_task_names(tmp_path):
     harness.run_dir.mkdir()
     harness.write_runtime_report()
 
-    assert harness.evidence["tool"] == "asr-en-vi offline smoke"
+    assert harness.evidence["tool"] == "asr-studio offline smoke"
     assert "task" not in harness.evidence
     assert (harness.run_dir / "smoke-report.md").is_file()
     assert not (harness.run_dir / "report-smoke-harness.md").exists()
@@ -753,7 +753,7 @@ CONTEXT_ENDPOINT = "unix:///run/user/1000/docker.sock"
 def test_pull_mode_pulls_anonymously_with_an_empty_docker_config_before_the_installer(
     monkeypatch, tmp_path
 ):
-    image = "ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1"
+    image = "ghcr.io/nguyencanhtrung/asr-studio:v0.1.0-rc.1"
     ambient = tmp_path / "ambient-docker-config"
     monkeypatch.setenv("DOCKER_CONFIG", str(ambient))
     monkeypatch.delenv("DOCKER_HOST", raising=False)
@@ -812,7 +812,7 @@ def test_pull_mode_pulls_anonymously_with_an_empty_docker_config_before_the_inst
 def test_anonymous_pull_sets_docker_host_only_from_a_readable_context_endpoint(
     monkeypatch, tmp_path, explicit_host, inspect_result, expected_host, reads_context
 ):
-    image = "ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1"
+    image = "ghcr.io/nguyencanhtrung/asr-studio:v0.1.0-rc.1"
     if explicit_host is None:
         monkeypatch.delenv("DOCKER_HOST", raising=False)
     else:
@@ -838,7 +838,7 @@ def test_anonymous_pull_sets_docker_host_only_from_a_readable_context_endpoint(
 def test_anonymous_pull_failure_names_docker_host_logs_redacted_stderr_and_stops(
     monkeypatch, tmp_path
 ):
-    image = "ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.0-rc.1"
+    image = "ghcr.io/nguyencanhtrung/asr-studio:v0.1.0-rc.1"
     harness = offline_smoke.SmokeHarness(_smoke_options(tmp_path, "pull", image))
     harness.log_handle = io.StringIO()
     secret = "synthetic-daemon-credential"

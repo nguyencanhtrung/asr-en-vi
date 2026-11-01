@@ -26,7 +26,7 @@ from urllib.parse import urlencode, urlsplit
 import httpx
 import jwt
 
-from asr_en_vi.notes_document import (
+from asr_studio.notes_document import (
     MAX_OUTPUT_BYTES,
     MAX_PROMPT_BYTES,
     MAX_PROVIDER_CALLS,
@@ -41,10 +41,10 @@ from asr_en_vi.notes_document import (
     notes_budget,
     notes_provider_input_bytes,
 )
-from asr_en_vi.notes_pipeline import (
+from asr_studio.notes_pipeline import (
     generate_notes_document as generate_notes_pipeline,
 )
-from asr_en_vi.notes_pipeline import (
+from asr_studio.notes_pipeline import (
     log_notes_provider_call,
     log_notes_validation_failure,
 )
@@ -991,7 +991,7 @@ class ChatGPTHTTPAdapter:
         max_unit_size: int = 1,
     ) -> str:
         """Request one strict JSON notes document within its per-stage output budget."""
-        from asr_en_vi.notes_document import (
+        from asr_studio.notes_document import (
             MAX_OUTPUT_BYTES,
             MAX_PROMPT_BYTES,
             NOTES_CONTEXT_HEADROOM_TOKENS,
@@ -1596,7 +1596,7 @@ class ChatGPTProvider:
                 "code_challenge": challenge,
             }
             if registration is None:
-                parameters["agent_name_hint"] = "ASR EN VI"
+                parameters["agent_name_hint"] = "ASR Studio"
             elif registration.get("email"):
                 parameters["login_hint"] = registration["email"]
             if state.get("last_provider_error") in {

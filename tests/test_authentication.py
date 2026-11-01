@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from asr_en_vi.auth import AuthStore
-from asr_en_vi.routes import FONT_FILES, WEB_DIR
+from asr_studio.auth import AuthStore
+from asr_studio.routes import FONT_FILES, WEB_DIR
 
 pytestmark = pytest.mark.anyio
 
@@ -14,7 +14,7 @@ async def test_access_page_is_minimal_and_security_headers_are_set(client):
     response = await client.get("/access")
 
     assert response.status_code == 200
-    assert "ASR EN VI" in response.text
+    assert "ASR Studio" in response.text
     assert "demo-local" not in response.text
     assert "Cache-Control" in response.headers
     assert response.headers["Cache-Control"] == "no-store"
@@ -35,7 +35,7 @@ async def test_shared_design_assets_and_fonts_are_public_and_local(client):
     assert "https://" not in design_css.text
     assert "http://" not in design_css.text
     assert theme_js.status_code == 200
-    assert "asr-en-vi:theme" in theme_js.text
+    assert "asr-studio:theme" in theme_js.text
 
     for filename in FONT_FILES:
         response = await client.get(f"/assets/fonts/{filename}")
@@ -162,7 +162,7 @@ async def test_protected_by_default_paths_deny_missing_and_invalid_auth(client):
         assert response.status_code in {401, 303}, (path, response.status_code)
         assert "meeting" not in response.text.lower()
 
-    client.cookies.set("asr_en_vi_session", "not-a-session")
+    client.cookies.set("asr_studio_session", "not-a-session")
     bad_cookie = await client.get("/api/meetings")
     assert bad_cookie.status_code == 401
     assert "meeting" not in bad_cookie.text.lower()

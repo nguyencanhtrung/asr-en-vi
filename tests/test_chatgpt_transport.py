@@ -9,7 +9,7 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from asr_en_vi.chatgpt import (
+from asr_studio.chatgpt import (
     API_BASE_URL,
     AUTHORIZATION_URL,
     DISCOVERY_URL,
@@ -20,7 +20,7 @@ from asr_en_vi.chatgpt import (
     ChatGPTError,
     ChatGPTHTTPAdapter,
 )
-from asr_en_vi.notes_document import (
+from asr_studio.notes_document import (
     MAX_PROMPT_BYTES,
     MAX_REPAIR_OUTPUT_BYTES,
     build_chunk_prompt,
@@ -341,7 +341,7 @@ def test_notes_completed_output_over_cap_reports_observed_text_bytes():
 def test_notes_reasoning_stream_with_heartbeats_outlives_control_call_deadline(monkeypatch):
     clock = [0.0]
     requests = []
-    monkeypatch.setattr("asr_en_vi.chatgpt.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr("asr_studio.chatgpt.time.monotonic", lambda: clock[0])
 
     class ReasoningStream(httpx.SyncByteStream):
         def __iter__(self):
@@ -382,8 +382,8 @@ def test_notes_total_deadline_closes_the_stream_without_resending(monkeypatch):
     clock = [0.0]
     calls = []
     closed = []
-    monkeypatch.setattr("asr_en_vi.chatgpt.time.monotonic", lambda: clock[0])
-    monkeypatch.setattr("asr_en_vi.chatgpt.NOTES_HTTP_TOTAL_TIMEOUT_SECONDS", 1.0, raising=False)
+    monkeypatch.setattr("asr_studio.chatgpt.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr("asr_studio.chatgpt.NOTES_HTTP_TOTAL_TIMEOUT_SECONDS", 1.0, raising=False)
 
     class ExpiredStream(httpx.SyncByteStream):
         def __iter__(self):
@@ -487,7 +487,7 @@ def test_notes_completed_event_can_exceed_the_short_verification_line_budget():
 def test_notes_wire_budgets_remain_bounded_for_complete_single_chunk_lines(
     monkeypatch, budget, error_code
 ):
-    monkeypatch.setattr("asr_en_vi.chatgpt." + budget, 128, raising=False)
+    monkeypatch.setattr("asr_studio.chatgpt." + budget, 128, raising=False)
     calls = []
 
     def handler(request):
@@ -896,9 +896,9 @@ def test_json_body_has_a_monotonic_total_deadline(monkeypatch):
     total_timeout = 0.05
     read_timeout = 0.04
     monkeypatch.setattr(
-        "asr_en_vi.chatgpt.HTTP_TOTAL_TIMEOUT_SECONDS", total_timeout, raising=False
+        "asr_studio.chatgpt.HTTP_TOTAL_TIMEOUT_SECONDS", total_timeout, raising=False
     )
-    monkeypatch.setattr("asr_en_vi.chatgpt.HTTP_READ_TIMEOUT_SECONDS", read_timeout, raising=False)
+    monkeypatch.setattr("asr_studio.chatgpt.HTTP_READ_TIMEOUT_SECONDS", read_timeout, raising=False)
     slow_stream = SlowByteStream([b" "] * 8, delay=read_timeout)
     adapter = ChatGPTHTTPAdapter(
         transport=httpx.MockTransport(lambda request: httpx.Response(200, stream=slow_stream))
@@ -917,9 +917,9 @@ def test_verification_sse_has_a_monotonic_total_deadline(monkeypatch):
     total_timeout = 0.05
     read_timeout = 0.04
     monkeypatch.setattr(
-        "asr_en_vi.chatgpt.HTTP_TOTAL_TIMEOUT_SECONDS", total_timeout, raising=False
+        "asr_studio.chatgpt.HTTP_TOTAL_TIMEOUT_SECONDS", total_timeout, raising=False
     )
-    monkeypatch.setattr("asr_en_vi.chatgpt.HTTP_READ_TIMEOUT_SECONDS", read_timeout, raising=False)
+    monkeypatch.setattr("asr_studio.chatgpt.HTTP_READ_TIMEOUT_SECONDS", read_timeout, raising=False)
     slow_stream = SlowByteStream([b": keep-alive\n\n"] * 8, delay=read_timeout)
     adapter = ChatGPTHTTPAdapter(
         transport=httpx.MockTransport(

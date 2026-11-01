@@ -16,9 +16,9 @@ from pathlib import Path
 import uvicorn
 from playwright.sync_api import expect, sync_playwright
 
-from asr_en_vi.app import create_app
-from asr_en_vi.auth import AuthStore
-from asr_en_vi.config import Settings
+from asr_studio.app import create_app
+from asr_studio.auth import AuthStore
+from asr_studio.config import Settings
 
 
 def _free_port() -> int:

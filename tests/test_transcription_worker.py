@@ -12,12 +12,12 @@ from pathlib import Path
 import pytest
 from seeding import prepare_diarization_model, seed_meeting
 
-from asr_en_vi import worker
-from asr_en_vi.config import Settings
-from asr_en_vi.diarization_runner import DIARIZATION_ERROR_MESSAGES
-from asr_en_vi.runtime import RuntimeProfile
-from asr_en_vi.storage import database_path, initialize
-from asr_en_vi.tasks import (
+from asr_studio import worker
+from asr_studio.config import Settings
+from asr_studio.diarization_runner import DIARIZATION_ERROR_MESSAGES
+from asr_studio.runtime import RuntimeProfile
+from asr_studio.storage import database_path, initialize
+from asr_studio.tasks import (
     TASK_ERROR_MESSAGES,
     TaskError,
     accept_transcription_task,
@@ -25,7 +25,7 @@ from asr_en_vi.tasks import (
     claim_next_task,
     transcription_state,
 )
-from asr_en_vi.worker import (
+from asr_studio.worker import (
     acquire_worker_lock,
     is_healthy,
     terminate_and_reap_process_group,
@@ -101,7 +101,7 @@ def _install_runner_shim(
     tmp_path: Path, monkeypatch, source: str, diarization_source: str | None = None
 ) -> None:
     shim_root = tmp_path / "runner-shim"
-    package = shim_root / "asr_en_vi"
+    package = shim_root / "asr_studio"
     package.mkdir(parents=True)
     (package / "__init__.py").write_text("", encoding="utf-8")
     (package / "runner.py").write_text(source, encoding="utf-8")
@@ -678,7 +678,7 @@ def test_worker_runner_command_never_forces_the_language_hint(tmp_path):
     assert command == [
         sys.executable,
         "-m",
-        "asr_en_vi.runner",
+        "asr_studio.runner",
         "--model",
         str(tmp_path / "model"),
         "--audio",
@@ -831,7 +831,7 @@ def test_worker_subprocess_recovers_old_task_and_shuts_down_cleanly(tmp_path):
         item for item in (source_root, environment.get("PYTHONPATH", "")) if item
     )
     process = subprocess.Popen(
-        [sys.executable, "-m", "asr_en_vi.worker"],
+        [sys.executable, "-m", "asr_studio.worker"],
         env=environment,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,

@@ -14,8 +14,8 @@ from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-DEFAULT_MANIFEST = Path("/usr/local/share/licenses/asr-en-vi/platform-coverage.json")
-DEFAULT_LICENSE_ROOT = Path("/usr/local/share/licenses/asr-en-vi")
+DEFAULT_MANIFEST = Path("/usr/local/share/licenses/asr-studio/platform-coverage.json")
+DEFAULT_LICENSE_ROOT = Path("/usr/local/share/licenses/asr-studio")
 REQUIRED_DISTRIBUTIONS = frozenset(
     {"ctranslate2", "tokenizers", "torch", "torchaudio", "torchcodec"}
 )

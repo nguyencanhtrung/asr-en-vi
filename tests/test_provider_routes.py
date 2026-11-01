@@ -6,7 +6,7 @@ import pytest
 from fake_chatgpt import FakeChatGPTAdapter
 from httpx import ASGITransport, AsyncClient
 
-from asr_en_vi.app import create_app
+from asr_studio.app import create_app
 
 pytestmark = pytest.mark.anyio
 
@@ -288,7 +288,7 @@ async def test_provider_401_errors_are_not_confused_with_local_auth(provider_htt
         },
     )
     assert callback.status_code == 200
-    adapter.models_error = __import__("asr_en_vi.chatgpt", fromlist=["ChatGPTError"]).ChatGPTError(
+    adapter.models_error = __import__("asr_studio.chatgpt", fromlist=["ChatGPTError"]).ChatGPTError(
         401, "subscription_sharing_invalid_user", "provider message"
     )
 
@@ -300,7 +300,7 @@ async def test_provider_401_errors_are_not_confused_with_local_auth(provider_htt
 
 
 async def test_unconfigured_https_callback_rejects_untrusted_host(tmp_path):
-    from asr_en_vi.config import Settings
+    from asr_studio.config import Settings
 
     settings = Settings(
         data_dir=tmp_path / "data", auth_dir=tmp_path / "auth", public_url="https://localhost:8765"

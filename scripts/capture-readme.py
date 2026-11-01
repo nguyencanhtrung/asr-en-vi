@@ -34,10 +34,10 @@ sys.path.insert(0, str(TESTS))
 from notes_helpers import seed_cited_notes, seed_completed_transcript  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 
-from asr_en_vi.app import create_app  # noqa: E402
-from asr_en_vi.auth import AuthStore  # noqa: E402
-from asr_en_vi.config import Settings  # noqa: E402
-from asr_en_vi.storage import database_path  # noqa: E402
+from asr_studio.app import create_app  # noqa: E402
+from asr_studio.auth import AuthStore  # noqa: E402
+from asr_studio.config import Settings  # noqa: E402
+from asr_studio.storage import database_path  # noqa: E402
 
 VIEWPORT = {"width": 1440, "height": 1000}
 FIXED_NOW = "2026-10-21T10:00:00+00:00"

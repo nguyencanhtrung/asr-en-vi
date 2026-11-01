@@ -90,7 +90,7 @@ def request_for(url: str) -> urllib.request.Request:
     return urllib.request.Request(
         url,
         headers={
-            "User-Agent": "asr-en-vi-source-collector/0.1",
+            "User-Agent": "asr-studio-source-collector/0.1",
             "Accept": "*/*",
         },
     )

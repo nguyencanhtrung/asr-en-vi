@@ -14,13 +14,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from asr_en_vi.alignment import ALIGNMENT_POLICY, ASR_UNCERTAINTY_POLICY
-from asr_en_vi.diarization_runner import (
+from asr_studio.alignment import ALIGNMENT_POLICY, ASR_UNCERTAINTY_POLICY
+from asr_studio.diarization_runner import (
     DiarizationConfigurationError,
     prepared_diarization_directory,
 )
-from asr_en_vi.runner import ModelConfigurationError, prepared_model_directory
-from asr_en_vi.storage import database_path
+from asr_studio.runner import ModelConfigurationError, prepared_model_directory
+from asr_studio.storage import database_path
 
 UNCERTAINTY_POLICY = ASR_UNCERTAINTY_POLICY
 DIARIZATION_MODEL_NAME = "Community-1"

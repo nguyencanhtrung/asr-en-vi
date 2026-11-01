@@ -11,8 +11,8 @@ import pytest
 import torch
 from seeding import prepare_diarization_model
 
-from asr_en_vi import diarization_runner
-from asr_en_vi.diarization_runner import (
+from asr_studio import diarization_runner
+from asr_studio.diarization_runner import (
     DIARIZATION_ERROR_MESSAGES,
     DiarizationConfigurationError,
     DiarizationPhaseError,
@@ -234,7 +234,7 @@ def test_runner_maps_audio_decoder_import_failure_to_a_stable_safe_error(monkeyp
     monkeypatch.setattr(builtins, "__import__", no_torchcodec)
 
     with pytest.raises(DiarizationPhaseError) as raised:
-        from asr_en_vi.diarization_runner import load_audio_decoder
+        from asr_studio.diarization_runner import load_audio_decoder
 
         load_audio_decoder()
 
@@ -452,7 +452,7 @@ def test_runner_default_safe_stderr_and_explicit_verbose_traceback(tmp_path, mon
     def fail(**_kwargs):
         raise DiarizationPhaseError("diarization_input_decode_failed", "decoding_input")
 
-    monkeypatch.setattr("asr_en_vi.diarization_runner.diarize_file", fail)
+    monkeypatch.setattr("asr_studio.diarization_runner.diarize_file", fail)
     diagnostic_id = "a" * 32
     meeting_id = "b" * 32
     assert (
@@ -492,7 +492,7 @@ def test_runner_default_safe_stderr_and_explicit_verbose_traceback(tmp_path, mon
     def fail_with_vendor_detail(**_kwargs):
         raise RuntimeError("verbose diagnostic sentinel token=secret /private/model")
 
-    monkeypatch.setattr("asr_en_vi.diarization_runner.diarize_file", fail_with_vendor_detail)
+    monkeypatch.setattr("asr_studio.diarization_runner.diarize_file", fail_with_vendor_detail)
     assert (
         main(
             [

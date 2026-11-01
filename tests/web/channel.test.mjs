@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { meetingChanges, meetingContext, providerChoice } from "../../src/asr_en_vi/web/channel.js";
-import { reduce as reduceNotes, initialState as notesInitial } from "../../src/asr_en_vi/web/notes-core.js";
-import { initialState as providerInitial, reduce as reduceProvider } from "../../src/asr_en_vi/web/provider-core.js";
-import { createRunner, createStore } from "../../src/asr_en_vi/web/store.js";
+import { meetingChanges, meetingContext, providerChoice } from "../../src/asr_studio/web/channel.js";
+import { reduce as reduceNotes, initialState as notesInitial } from "../../src/asr_studio/web/notes-core.js";
+import { initialState as providerInitial, reduce as reduceProvider } from "../../src/asr_studio/web/provider-core.js";
+import { createRunner, createStore } from "../../src/asr_studio/web/store.js";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const reply = (status, body) => ({ ok: status < 400, status, text: async () => JSON.stringify(body) });
@@ -100,7 +100,7 @@ test("meeting changes carry the mutation meeting and local provenance as data", 
 });
 
 test("before the first publish there is no context and no change was counted", async () => {
-  const fresh = await import("../../src/asr_en_vi/web/channel.js?fresh"); // a new module instance, not the singleton the other tests used
+  const fresh = await import("../../src/asr_studio/web/channel.js?fresh"); // a new module instance, not the singleton the other tests used
   assert.equal(fresh.meetingContext.getState(), null);
   assert.equal(fresh.providerChoice.getState(), 0);
   assert.equal(fresh.meetingChanges.getState(), null);

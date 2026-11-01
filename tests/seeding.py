@@ -6,8 +6,8 @@ import sqlite3
 import uuid
 from pathlib import Path
 
-from asr_en_vi.diarization_runner import COMMUNITY_1_REQUIRED_FILES
-from asr_en_vi.storage import database_path
+from asr_studio.diarization_runner import COMMUNITY_1_REQUIRED_FILES
+from asr_studio.storage import database_path
 
 
 def prepare_diarization_model(path: Path) -> Path:

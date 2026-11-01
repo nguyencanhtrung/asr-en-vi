@@ -12,18 +12,18 @@ from httpx import ASGITransport, AsyncClient
 from notes_helpers import StubNotesProvider, rerun_transcript, seed_completed_transcript
 from seeding import prepare_diarization_model, seed_meeting
 
-from asr_en_vi.app import create_app
-from asr_en_vi.auth import AuthStore
-from asr_en_vi.config import Settings
-from asr_en_vi.meeting_deletion import (
+from asr_studio.app import create_app
+from asr_studio.auth import AuthStore
+from asr_studio.config import Settings
+from asr_studio.meeting_deletion import (
     MeetingDeletionError,
     delete_meeting,
     recover_pending_meeting_deletions,
 )
-from asr_en_vi.notes import accept_notes_task, publish_notes_revision
-from asr_en_vi.recordings import get_meeting
-from asr_en_vi.storage import database_path, initialize
-from asr_en_vi.tasks import (
+from asr_studio.notes import accept_notes_task, publish_notes_revision
+from asr_studio.recordings import get_meeting
+from asr_studio.storage import database_path, initialize
+from asr_studio.tasks import (
     TaskError,
     accept_transcription_task,
     cancel_task,
@@ -376,7 +376,7 @@ def test_delete_tolerates_temp_file_removed_by_competing_cleanup(tmp_path, monke
     initialize(data_dir)
     meeting_id = seed_meeting(data_dir, "Competing temp cleanup")
     owned = _audio_artifacts(data_dir, meeting_id)
-    from asr_en_vi import meeting_deletion
+    from asr_studio import meeting_deletion
 
     real_unlink = os.unlink
     competitor_unlinked = False
@@ -404,7 +404,7 @@ async def test_restart_resumes_cleanup_after_partial_file_removal(tmp_path, monk
     initialize(settings.data_dir)
     meeting_id = seed_meeting(settings.data_dir, "Restart while deleting")
     owned = _audio_artifacts(settings.data_dir, meeting_id)
-    from asr_en_vi import meeting_deletion
+    from asr_studio import meeting_deletion
 
     real_unlink = os.unlink
 
@@ -453,7 +453,7 @@ async def test_startup_recovers_interrupted_cleanup_through_symlinked_data_ances
     initialize(real_data_dir)
     meeting_id = seed_meeting(real_data_dir, "Symlinked root restart recovery")
     owned = _audio_artifacts(real_data_dir, meeting_id)
-    from asr_en_vi import meeting_deletion
+    from asr_studio import meeting_deletion
 
     real_unlink = os.unlink
 
@@ -499,7 +499,7 @@ def test_recovery_defers_real_sqlite_write_lock_then_succeeds(tmp_path, caplog):
     try:
         blocker.execute("BEGIN IMMEDIATE")
         with (
-            caplog.at_level("WARNING", logger="asr_en_vi.meeting_deletion"),
+            caplog.at_level("WARNING", logger="asr_studio.meeting_deletion"),
             ThreadPoolExecutor(max_workers=1) as executor,
         ):
             recovery = executor.submit(recover_pending_meeting_deletions, data_dir)
@@ -527,7 +527,7 @@ def test_recovery_does_not_suppress_unrelated_errors(tmp_path, monkeypatch, erro
             "UPDATE meetings SET deletion_requested_at = CURRENT_TIMESTAMP WHERE id = ?",
             (meeting_id,),
         )
-    from asr_en_vi import meeting_deletion
+    from asr_studio import meeting_deletion
 
     def raise_unrelated_error(_data_dir, _meeting_id):
         raise error_type("injected unrelated failure")
@@ -548,7 +548,7 @@ async def test_restart_finishes_after_files_are_removed_before_final_database_co
     initialize(settings.data_dir)
     meeting_id = seed_meeting(settings.data_dir, "Restart before final commit")
     owned = _audio_artifacts(settings.data_dir, meeting_id)
-    from asr_en_vi import meeting_deletion
+    from asr_studio import meeting_deletion
 
     def fail_finalize(_data_dir, _meeting_id):
         raise OSError("simulated stop before the final database commit")

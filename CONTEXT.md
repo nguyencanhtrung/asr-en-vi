@@ -1,4 +1,4 @@
-# ASR EN VI Meeting Notes
+# ASR Studio Meeting Notes
 
 Từ vựng dùng để mô tả việc chuyển bản ghi cuộc họp thành transcript và meeting notes có thể đối chiếu với nội dung nguồn.
 

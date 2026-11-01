@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from asr_en_vi.config import Settings
+from asr_studio.config import Settings
 
 
 def test_settings_read_local_model_device_and_compute_type(monkeypatch, tmp_path):

@@ -14,11 +14,11 @@ import pytest
 import uvicorn
 from playwright.sync_api import expect, sync_playwright
 
-from asr_en_vi.app import create_app
-from asr_en_vi.auth import AuthStore
-from asr_en_vi.config import Settings
+from asr_studio.app import create_app
+from asr_studio.auth import AuthStore
+from asr_studio.config import Settings
 
-WEB_DIR = Path(__file__).resolve().parents[1] / "src" / "asr_en_vi" / "web"
+WEB_DIR = Path(__file__).resolve().parents[1] / "src" / "asr_studio" / "web"
 VIETNAMESE = re.compile(r"[À-ỹ]")
 PLACEHOLDER = re.compile(r"\{\w+\}")
 TRANSLATED_ATTRIBUTES = {"aria-label", "title", "placeholder", "content"}

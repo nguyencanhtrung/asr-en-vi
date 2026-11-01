@@ -13,8 +13,8 @@ from pathlib import Path
 
 import ctranslate2
 
-from asr_en_vi.config import Settings
-from asr_en_vi.runner import ModelConfigurationError, prepared_model_directory
+from asr_studio.config import Settings
+from asr_studio.runner import ModelConfigurationError, prepared_model_directory
 
 CUDA_LIBRARIES = ("libcublas.so.12", "libcudnn.so.9")
 RUNTIME_PROFILE_NAME = "worker.runtime.json"

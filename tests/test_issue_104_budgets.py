@@ -14,19 +14,19 @@ import httpx
 import pytest
 from notes_helpers import StubNotesProvider, get_notes_source, seed_completed_transcript
 
-from asr_en_vi import antigravity as antigravity_module
-from asr_en_vi import chatgpt as chatgpt_module
-from asr_en_vi import notes as notes_module
-from asr_en_vi import notes_document as nd
-from asr_en_vi.antigravity import AntigravityError, AntigravityProvider, OmpRpcAdapter
-from asr_en_vi.chatgpt import (
+from asr_studio import antigravity as antigravity_module
+from asr_studio import chatgpt as chatgpt_module
+from asr_studio import notes as notes_module
+from asr_studio import notes_document as nd
+from asr_studio.antigravity import AntigravityError, AntigravityProvider, OmpRpcAdapter
+from asr_studio.chatgpt import (
     DIRECT_SCOPE,
     ChatGPTError,
     ChatGPTHTTPAdapter,
     ChatGPTProvider,
 )
-from asr_en_vi.notes_pipeline import generate_notes_document
-from asr_en_vi.storage import database_path
+from asr_studio.notes_pipeline import generate_notes_document
+from asr_studio.storage import database_path
 
 
 def _snapshot(text_bytes: int) -> dict:
@@ -710,7 +710,7 @@ def test_chatgpt_owner_transport_uses_large_output_and_body_budgets():
 
 
 def test_owner_and_conservative_sse_and_diagnostic_limits_are_distinct():
-    from asr_en_vi.chatgpt import _notes_sse_body_limit, _safe_notes_call_diagnostics
+    from asr_studio.chatgpt import _notes_sse_body_limit, _safe_notes_call_diagnostics
 
     owner = nd.notes_budget("chatgpt", "gpt-5.6-sol")
     conservative = nd.conservative_notes_budget("chatgpt")
@@ -905,7 +905,7 @@ def test_antigravity_invalid_output_logs_bounded_codes_without_text(caplog, tmp_
             ]
             return json.dumps(invalid)
 
-    caplog.set_level(logging.WARNING, logger="asr_en_vi.notes_pipeline")
+    caplog.set_level(logging.WARNING, logger="asr_studio.notes_pipeline")
     snapshot = _snapshot(0)
     snapshot["segments"][0]["text"] = "SECRET_PROMPT_TEXT"
     adapter = InvalidAdapter()
@@ -950,7 +950,7 @@ def test_chatgpt_invalid_output_logs_bounded_codes_without_text(caplog, tmp_path
             ]
             return json.dumps(invalid)
 
-    caplog.set_level(logging.WARNING, logger="asr_en_vi.notes_pipeline")
+    caplog.set_level(logging.WARNING, logger="asr_studio.notes_pipeline")
     snapshot = _snapshot(0)
     snapshot["segments"][0]["text"] = "SECRET_PROMPT_TEXT"
     provider = _connected_chatgpt_provider(tmp_path, InvalidAdapter())
@@ -1242,9 +1242,9 @@ def test_antigravity_usage_is_read_from_message_end_message():
 
 
 def test_notes_call_log_has_counts_only(caplog):
-    from asr_en_vi.notes_pipeline import log_notes_provider_call
+    from asr_studio.notes_pipeline import log_notes_provider_call
 
-    caplog.set_level(logging.INFO, logger="asr_en_vi.notes_pipeline")
+    caplog.set_level(logging.INFO, logger="asr_studio.notes_pipeline")
     log_notes_provider_call(
         provider="chatgpt",
         model="gpt-5.6-sol",
@@ -1822,11 +1822,11 @@ def test_notes_runner_info_logging_reaches_stderr():
 import logging
 import sys
 
-from asr_en_vi import notes_runner
+from asr_studio import notes_runner
 
 
 def fake_run(*args, **kwargs):
-    logging.getLogger("asr_en_vi.notes_pipeline").info("notes-provider-info-sentinel")
+    logging.getLogger("asr_studio.notes_pipeline").info("notes-provider-info-sentinel")
     return 0
 
 
@@ -1856,4 +1856,4 @@ raise SystemExit(notes_runner.main())
 
     assert result.returncode == 0
     assert result.stdout == ""
-    assert "INFO asr_en_vi.notes_pipeline notes-provider-info-sentinel" in result.stderr
+    assert "INFO asr_studio.notes_pipeline notes-provider-info-sentinel" in result.stderr

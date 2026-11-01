@@ -64,7 +64,7 @@ import {
 } from "./transcript-core.js";
 
 const $ = (selector) => document.querySelector(selector);
-const MEETING_CHANGE_CHANNEL = "asr-en-vi:meeting-changes";
+const MEETING_CHANGE_CHANNEL = "asr-studio:meeting-changes";
 const meetingChangeTransport = typeof window.BroadcastChannel === "function"
   ? new window.BroadcastChannel(MEETING_CHANGE_CHANNEL)
   : null;

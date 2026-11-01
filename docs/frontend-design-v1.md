@@ -1,4 +1,4 @@
-# Frontend design v1 — ASR EN VI
+# Frontend design v1 — ASR Studio
 
 > **Cập nhật ngày 18/10/2026.** Tài liệu này tiếp tục là chuẩn cho kiến trúc thông tin và hành vi vận hành của phương án **A — Bàn biên tập**. Ngôn ngữ thị giác dark/teal cũ đã được thay thế bởi hệ editorial-engineering light/dark trong [`DESIGN.md`](../DESIGN.md); khi có xung đột về màu, font, bề mặt, radius, theme hoặc responsive, `DESIGN.md` là nguồn chuẩn.
 
@@ -52,7 +52,7 @@ Kích thước trên là mốc tham chiếu khi triển khai; ưu tiên giữ th
 
 ### 3.1. Màu sắc
 
-Màu sắc dùng semantic tokens trong [`design-system.css`](../src/asr_en_vi/web/design-system.css) và được mô tả để tái sử dụng trong [`DESIGN.md`](../DESIGN.md). Light theme dùng nền giấy ấm và oxblood; dark theme dùng nền charcoal và dusty rose tương ứng. Success, warning và danger độc lập với màu nhận diện. Mỗi trạng thái cần có nhãn hoặc biểu tượng đi kèm; màu không phải dấu hiệu duy nhất.
+Màu sắc dùng semantic tokens trong [`design-system.css`](../src/asr_studio/web/design-system.css) và được mô tả để tái sử dụng trong [`DESIGN.md`](../DESIGN.md). Light theme dùng nền giấy ấm và oxblood; dark theme dùng nền charcoal và dusty rose tương ứng. Success, warning và danger độc lập với màu nhận diện. Mỗi trạng thái cần có nhãn hoặc biểu tượng đi kèm; màu không phải dấu hiệu duy nhất.
 
 ### 3.2. Chữ, biểu tượng và bề mặt
 
@@ -67,7 +67,7 @@ Màu sắc dùng semantic tokens trong [`design-system.css`](../src/asr_en_vi/we
 
 Thứ tự từ trên xuống được chốt như sau:
 
-1. Logo sóng âm và tên **ASR EN VI**, đồng thời là đường về workspace; nút chuyển light/dark nằm cùng hàng.
+1. Logo sóng âm và tên **ASR Studio**, đồng thời là đường về workspace; nút chuyển light/dark nằm cùng hàng.
 2. Ô **Tìm cuộc họp…**.
 3. **Cuộc họp gần đây**: danh sách ngắn, mặc định tối đa ba cuộc họp có ngày, mới nhất trước. Mỗi mục có tên, ngày và thời lượng; mục đang mở có nền/viền lựa chọn.
 4. Lịch tháng nhỏ nằm ngay dưới danh sách gần đây.
@@ -84,7 +84,7 @@ dành chỗ cho chiều cao footer, padding đáy và khoảng hở vòng focus;
 Điều hướng bàn phím tới hàng ngày cuối tháng phải giữ trọn vòng focus phía trên footer. Trên mobile,
 sidebar tĩnh không dành khoảng cuộn này.
 
-Footer căn giữa theo chiều dọc: **chỉ biểu tượng GitHub**, phía dưới là **Version &lt;phiên bản&gt;**, ví dụ `Version 1.0`. Không có dòng “Mã nguồn …”. Icon dẫn tới [repository](https://github.com/nguyencanhtrung/asr-en-vi); dòng version dẫn tới [releases](https://github.com/nguyencanhtrung/asr-en-vi/releases). Cả hai chỉ mở trang bên ngoài khi người dùng chọn.
+Footer căn giữa theo chiều dọc: **chỉ biểu tượng GitHub**, phía dưới là **Version &lt;phiên bản&gt;**, ví dụ `Version 1.0`. Không có dòng “Mã nguồn …”. Icon dẫn tới [repository](https://github.com/nguyencanhtrung/asr-studio); dòng version dẫn tới [releases](https://github.com/nguyencanhtrung/asr-studio/releases). Cả hai chỉ mở trang bên ngoài khi người dùng chọn.
 
 Icon GitHub phải có tên truy cập và tooltip dù không có text hiển thị. Version phản ánh bản ứng dụng thực tế; dùng **Version dev** khi chưa có version phát hành. `1.0` là ví dụ định dạng, không phải số release đã được công bố. Tên sản phẩm, URL repository và version lấy từ metadata dùng chung.
 
@@ -252,7 +252,7 @@ Prototype hiện có không chứng minh các trạng thái backend trong mục 
 | Mã | Điều kiện đạt |
 | --- | --- |
 | FE-01 | Bố cục A và hệ editorial-engineering light/dark thống nhất, có sidebar, trang cuộc họp hai tab (Meeting notes, Transcript & bản ghi) và trình phát; đối chiếu AC-29 |
-| FE-02 | Brand là ASR EN VI; footer chỉ có icon GitHub và dòng Version ngắn, đúng metadata bản chạy |
+| FE-02 | Brand là ASR Studio; footer chỉ có icon GitHub và dòng Version ngắn, đúng metadata bản chạy |
 | FE-03 | Danh sách gần đây gọn, tìm kiếm toàn lịch sử, lịch nhỏ ngay dưới danh sách và mở được lịch lớn |
 | FE-04 | Lịch nhỏ/lớn đồng bộ; xử lý tháng/năm cũ, tháng 12 sang tháng 1, năm nhuận, tháng trống, nhiều cuộc họp cùng ngày và thiếu ngày; đối chiếu AC-30 |
 | FE-05 | Mở đúng cuộc họp từ lịch, dấu ngày cập nhật sau nhập/xóa; điều hướng giữ nguyên metadata và chỉnh sửa đã lưu |
@@ -274,7 +274,7 @@ Việc chốt tài liệu này xác nhận hướng thiết kế. Các tiêu ch�
 
 ## 11. Kiến trúc mã frontend: reducer, effect và store
 
-Quyết định và lý do nằm ở [ADR 0010](adr/0010-frontend-reducer-core.md). Mục này là quy ước cho code; từ pha 1 `shell.js`, từ pha 2 `connections.js` và `antigravity.js`, từ pha 3 `notes.js`, từ pha 4a điều hướng và thư viện cuộc họp, từ pha 4b task phiên âm của `history.js`, từ pha 4c sửa transcript, từ pha 4d phát lại và từ pha 5 (kênh giữa các store, `access.js`, gate quét mọi file) toàn bộ `src/asr_en_vi/web/` theo kiến trúc này hoặc là ngoại lệ ADR 0010 ghi lý do (`i18n.js`, `theme.js`, `store.js`, `access.js`); pha 5 là pha cuối (11.4). Hành vi người dùng thấy không đổi.
+Quyết định và lý do nằm ở [ADR 0010](adr/0010-frontend-reducer-core.md). Mục này là quy ước cho code; từ pha 1 `shell.js`, từ pha 2 `connections.js` và `antigravity.js`, từ pha 3 `notes.js`, từ pha 4a điều hướng và thư viện cuộc họp, từ pha 4b task phiên âm của `history.js`, từ pha 4c sửa transcript, từ pha 4d phát lại và từ pha 5 (kênh giữa các store, `access.js`, gate quét mọi file) toàn bộ `src/asr_studio/web/` theo kiến trúc này hoặc là ngoại lệ ADR 0010 ghi lý do (`i18n.js`, `theme.js`, `store.js`, `access.js`); pha 5 là pha cuối (11.4). Hành vi người dùng thấy không đổi.
 
 ### 11.1. Các lớp
 
@@ -284,7 +284,7 @@ Quyết định và lý do nằm ở [ADR 0010](adr/0010-frontend-reducer-core.m
 | Effect | object `{type, ...}`: `fetch`, `schedule`, `cancel`, `upload`, `storage`, `navigate`, `open-window`, `call` (tám loại) | chứa hàm hoặc logic |
 | Runner | `createRunner({ fetch, setTimeout, clearTimeout, XMLHttpRequest, storage, navigate, open, calls, now })` chạy effect, dispatch kết quả | quyết định nghiệp vụ |
 | View | đọc state, render DOM, handler chỉ dispatch action | giữ state riêng ngoài focus/scroll |
-| Store | `createStore`, `combine`, `subscribe` (`src/asr_en_vi/web/store.js`) | biết về tính năng cụ thể |
+| Store | `createStore`, `combine`, `subscribe` (`src/asr_studio/web/store.js`) | biết về tính năng cụ thể |
 
 ### 11.2. Quy ước action và effect
 
@@ -302,7 +302,7 @@ Quyết định và lý do nằm ở [ADR 0010](adr/0010-frontend-reducer-core.m
 ### 11.3. Quy tắc response cũ và quy tắc gán state
 
 - Reducer lưu id yêu cầu mới nhất trong state, đặt id vào `meta` của effect `fetch`; action kết quả mang lại `meta` và reducer bỏ action có id không khớp.
-- Chỉ reducer tạo state mới. Từ pha 1, `tests/web/shell-view.test.mjs` quét code trong `check.sh`/CI; từ pha 5 nó quét **mọi** file `src/asr_en_vi/web/*.js` và `*.html`, không chỉ file đã chuyển:
+- Chỉ reducer tạo state mới. Từ pha 1, `tests/web/shell-view.test.mjs` quét code trong `check.sh`/CI; từ pha 5 nó quét **mọi** file `src/asr_studio/web/*.js` và `*.html`, không chỉ file đã chuyển:
   - Mỗi file `*.js` nằm đúng một trong ba danh sách: `VIEWS`, `CORES`, `EXCEPTIONS` (file → lý do và danh sách tên được khai báo ở cấp cao nhất); file chưa xếp, xếp hai nơi hoặc xếp mà không còn làm test fail. Khi thêm file mới, xếp nó vào danh sách.
   - `VIEWS`: không gán vào state, không có `let`/`var` cấp module, chỉ đọc storage trong `readStored`. Quét này là grep heuristic (có bắt thêm bí danh `const s = state` hoặc `store.getState()`, destructure, `Object.assign(state, …)`, `delete state.x`, lệnh đổi như `state.list.push(…)` và object/collection cấp module, kể cả `export const`, bị gán hoặc đổi; cấm tên kiểu `*Seq`, `*InFlight`, `*Timer` ngoài chuỗi), không thay review: cách viết lạ vẫn lọt (bí danh của một lát cắt như `const s = state.x; s.y = 1` đã bị bắt từ pha 3; phần trong `${…}` của template literal được quét như mã; còn mù với một dấu backtick nằm trong regex literal, làm lệch chỗ bắt đầu/kết thúc template phía sau, và với `}` lồng trong `${…}` (quét dừng ở `}` đầu tiên)).
   - `CORES`: không chạm DOM, mạng, timer, storage, đồng hồ hay ngẫu nhiên.
@@ -694,7 +694,7 @@ Core `task-core.js` (`initialState`, `reduce`, các selector `selectTask`, `sele
 
 **State** (`state.task`): `hidden`; `poll` {`meetingId`, `taskId`, `phase`: `waiting` hoặc `fetching`} hoặc `null`; `pending` {`meetingId`, `requestId`, `languageHint`} (request gửi chưa rõ kết quả, cũng ghi ở sessionStorage); `language` {`meetingId`, `selection`} (lựa chọn của người dùng); `start` {`meetingId`, `requestId`, `auto`, `refreshing`} hoặc `null` (một yêu cầu bắt đầu đang bay; dùng chung cho mọi cuộc họp như cờ cũ); `cancelling` (id task có yêu cầu hủy đang bay); `error` {`meetingId`, `message`}; `notice` {`meetingId`, `kind`: `poll-lost`, `refresh-lost`, `session-ended`}; `copy` {`taskId`, `how`}; `autoDone` (cuộc họp đã nhận khóa tự chạy); `rev` (phần task cần vẽ lại). `notes.js` vẫn nhận `transcriptionRequestInFlight` trong tin `channel/meeting-context` và `currentContext()`, đọc từ `selectRequestBusy` (`start !== null`).
 
-**Key effect và id chống response cũ**: `task/poll-timer` (`schedule`), `task/poll` (`fetch`, meta `meetingId`, `taskId`), `task/start` (meta `meetingId`, `requestId`), `task/cancel/<taskId>`, `task/refresh/poll` và `task/refresh/start` (meta `meetingId`, `origin`), `task/copy`, `task/copy-fallback`; `storage` dùng khóa sessionStorage `asr-en-vi:transcription-request:<meetingId>` (JSON `{requestId, languageHint}`) và `asr-en-vi:auto-transcribe:<meetingId>` (khóa chuyển giao). Yêu cầu bắt đầu, hủy và đọc lại cuộc họp **không** bị hủy khi rời cuộc họp (server đã nhận): chỉ poll và timer của nó bị hủy. Câu trả lời tới sau được đối chiếu bằng meta với `poll`, `start`, `cancelling` và `shown.id`.
+**Key effect và id chống response cũ**: `task/poll-timer` (`schedule`), `task/poll` (`fetch`, meta `meetingId`, `taskId`), `task/start` (meta `meetingId`, `requestId`), `task/cancel/<taskId>`, `task/refresh/poll` và `task/refresh/start` (meta `meetingId`, `origin`), `task/copy`, `task/copy-fallback`; `storage` dùng khóa sessionStorage `asr-studio:transcription-request:<meetingId>` (JSON `{requestId, languageHint}`) và `asr-studio:auto-transcribe:<meetingId>` (khóa chuyển giao). Yêu cầu bắt đầu, hủy và đọc lại cuộc họp **không** bị hủy khi rời cuộc họp (server đã nhận): chỉ poll và timer của nó bị hủy. Câu trả lời tới sau được đối chiếu bằng meta với `poll`, `start`, `cancelling` và `shown.id`.
 
 **Poll**
 
@@ -749,7 +749,7 @@ Core `task-core.js` (`initialState`, `reduce`, các selector `selectTask`, `sele
 
 **Ngôn ngữ**: ô hiện, theo thứ tự: ngôn ngữ của request chờ; ngôn ngữ của task đang chạy; lựa chọn của người dùng cho cuộc họp này (`language-chosen`); ngôn ngữ của task cuối; ngôn ngữ của transcript hiện tại; ngôn ngữ của cuộc họp; `en`. Ô khóa khi có task đang chạy hoặc request chờ. Ngôn ngữ ngoài danh sách không nhận.
 
-**Lỗi task và chẩn đoán** (`selectTask`): khối lỗi hiện khi task `failed`/`interrupted` hoặc có `error` của cuộc họp này. Lời: lỗi của yêu cầu, không thì câu theo mã lỗi đã biết (`diarization_*`, `publication_failed`), câu dùng chung theo mã lỗi (#82), cuối cùng "Tác vụ chưa hoàn tất."; không hiển thị nguyên văn `error_message` của server. Chi tiết chẩn đoán và lệnh `docker compose exec -T app python -m asr_en_vi.cli task diagnose <id>` chỉ hiện khi không có lỗi yêu cầu, mã lỗi đã biết và id task đúng 32 ký tự hex. `copy-clicked` có lệnh thì `call clipboard.write`; `copy-succeeded` → "Đã sao chép lệnh."; `copy-failed` → `call clipboard.select` (chọn lệnh và `execCommand`) → `copy-selected {value}` → "Đã sao chép lệnh." hoặc "Lệnh đã được chọn…". Kết quả chỉ hiện cho task của nó và xóa khi có câu trả lời task mới, khi cuộc họp tải lại hoặc khi rời cuộc họp.
+**Lỗi task và chẩn đoán** (`selectTask`): khối lỗi hiện khi task `failed`/`interrupted` hoặc có `error` của cuộc họp này. Lời: lỗi của yêu cầu, không thì câu theo mã lỗi đã biết (`diarization_*`, `publication_failed`), câu dùng chung theo mã lỗi (#82), cuối cùng "Tác vụ chưa hoàn tất."; không hiển thị nguyên văn `error_message` của server. Chi tiết chẩn đoán và lệnh `docker compose exec -T app python -m asr_studio.cli task diagnose <id>` chỉ hiện khi không có lỗi yêu cầu, mã lỗi đã biết và id task đúng 32 ký tự hex. `copy-clicked` có lệnh thì `call clipboard.write`; `copy-succeeded` → "Đã sao chép lệnh."; `copy-failed` → `call clipboard.select` (chọn lệnh và `execCommand`) → `copy-selected {value}` → "Đã sao chép lệnh." hoặc "Lệnh đã được chọn…". Kết quả chỉ hiện cho task của nó và xóa khi có câu trả lời task mới, khi cuộc họp tải lại hoặc khi rời cuộc họp.
 
 **Khác bản trước pha 4b** (đầy đủ trong mục #130 của `architecture-changes-v1.md`): chỉ một lần đọc poll chạy cho mỗi task (bản cũ: `visibilitychange` hoặc tải lại cuộc họp giữa lúc đọc đặt thêm timer, hai lần đọc có thể chồng nhau); nút Hủy giữ tắt tới khi yêu cầu hủy xong (bản cũ: lượt poll kế tiếp bật lại, bấm được lần hai); câu trả lời bắt đầu/hủy tới sau khi một cuộc họp khác đã tải xong không đổi cuộc họp đang hiện và không dựng poll (ở trang chủ hoặc khi cuộc họp khác đang tải, như bản cũ, câu trả lời áp vào cuộc họp mà history còn giữ và poll chạy tới khi task kết thúc) (bản cũ sửa object cuộc họp cũ, đặt poll cho cuộc họp không còn hiện, hoặc ghi dòng trạng thái lên cuộc họp khác); lỗi yêu cầu gắn với cuộc họp của nó (bản cũ: một biến chung, hiện ở cuộc họp nào đang mở); ngôn ngữ ô chọn nhớ lựa chọn của người dùng, không nhớ giá trị mới vẽ ra (bản cũ ghi lại mỗi lần vẽ); request chờ đọc từ sessionStorage một lần khi cuộc họp tải xong (bản cũ: mỗi lần vẽ, khi bộ nhớ chưa có); các dòng "mất kết nối", "không tải được transcript mới" và kết quả sao chép giữ tới sự kiện task kế tiếp hoặc khi lần tải lại cuộc họp xong (bản cũ: tới lần vẽ transcript kế tiếp, nên mở lại cùng cuộc họp xóa ngay lúc bấm); body 2xx không phải object là lỗi rõ ràng (bản cũ: bắt đầu hiện chữ lỗi `TypeError`; hủy gỡ task khỏi cuộc họp, không báo lỗi; poll vẽ task rỗng rồi dòng "mất kết nối"); khóa tự chạy xóa không được thì vẫn chạy một lần (bản cũ: không chạy); request poll bị hủy khi rời cuộc họp; chuỗi tin context cho `notes.js` (khi đó là `asr:meeting-context`) khác số lần (giá trị cuối giống; mỗi lần thêm là một lần đọc notes): bắt đầu `{true, task trước đó}` rồi `{false, task nhận}`, poll tới `succeeded` 3 lần (cũ 4; `canceled` như cũ), tải khôi phục request chờ +1, mở lại cuộc họp đang có dòng thông báo hoặc kết quả sao chép +1, hủy +1 đến 2, sao chép +1, poll hoặc đọc lại thất bại cũng phát (máy chủ mất kết nối thì tab Notes hiện lỗi đọc tới lượt poll tốt kế tiếp).
 

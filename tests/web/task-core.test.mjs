@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { initialState as historyInitial, reduce as reduceHistory } from "../../src/asr_en_vi/web/history-core.js";
-import { combine, createRunner, createStore } from "../../src/asr_en_vi/web/store.js";
+import { initialState as historyInitial, reduce as reduceHistory } from "../../src/asr_studio/web/history-core.js";
+import { combine, createRunner, createStore } from "../../src/asr_studio/web/store.js";
 import {
   POLL_HIDDEN_MS,
   POLL_RETRY_MS,
@@ -15,7 +15,7 @@ import {
   selectRequestBusy,
   selectRuntime,
   selectTask,
-} from "../../src/asr_en_vi/web/task-core.js";
+} from "../../src/asr_studio/web/task-core.js";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const reply = (status, body) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body) });
@@ -195,7 +195,7 @@ test("a task that failed is not polled and its error and diagnostic command are 
   const { error } = env.view();
   assert.equal(error.visible, true);
   assert.match(text(error.message), /Không thể lưu transcript hoàn chỉnh/);
-  assert.equal(error.diagnostic.command, `docker compose exec -T app python -m asr_en_vi.cli task diagnose ${id}`);
+  assert.equal(error.diagnostic.command, `docker compose exec -T app python -m asr_studio.cli task diagnose ${id}`);
   assert.equal(error.diagnostic.id, id);
 });
 
@@ -808,7 +808,7 @@ test("copying the diagnostic command reports success, or falls back to selecting
   const id = "e".repeat(32);
   const env = await opened(meeting("m1", {}, { task: task(id, "failed", { error_code: "diarization_failed" }) }));
   env.send("task/copy-clicked");
-  assert.deepEqual(env.calls[0], ["clipboard.write", `docker compose exec -T app python -m asr_en_vi.cli task diagnose ${id}`]);
+  assert.deepEqual(env.calls[0], ["clipboard.write", `docker compose exec -T app python -m asr_studio.cli task diagnose ${id}`]);
   env.send("task/copy-succeeded", { meta: { taskId: id } });
   assert.equal(env.view().copy, "copied");
 
@@ -1020,7 +1020,7 @@ test("the numbers and the storage key the page depends on are fixed", async () =
   assert.equal(POLL_VISIBLE_MS, 1000);
   assert.equal(POLL_HIDDEN_MS, 3000);
   assert.equal(POLL_RETRY_MS, 3000);
-  assert.equal(requestStorageKey("m1"), "asr-en-vi:transcription-request:m1");
+  assert.equal(requestStorageKey("m1"), "asr-studio:transcription-request:m1");
   const env = await opened(meeting("m1", {}, { task: task("t1", "running") }));
   assert.deepEqual(env.live(), [1000]);
   env.fire(1000);

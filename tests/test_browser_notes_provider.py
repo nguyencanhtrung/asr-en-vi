@@ -11,10 +11,10 @@ from playwright.sync_api import expect
 from test_browser_history import live as live
 from test_browser_history import signed_in as signed_in
 
-from asr_en_vi import notes_routes
-from asr_en_vi.notes import accept_notes_task, get_note, publish_notes_revision, update_note
-from asr_en_vi.storage import database_path
-from asr_en_vi.tasks import claim_next_task, fail_task
+from asr_studio import notes_routes
+from asr_studio.notes import accept_notes_task, get_note, publish_notes_revision, update_note
+from asr_studio.storage import database_path
+from asr_studio.tasks import claim_next_task, fail_task
 
 pytestmark = pytest.mark.browser
 
@@ -505,7 +505,7 @@ def test_stored_pending_request_without_provider_means_chatgpt(live, signed_in):
     }
     page.evaluate(
         "([key, value]) => localStorage.setItem(key, value)",
-        [f"asr-en-vi:notes-request-v2:{meeting_id}", json.dumps(stored)],
+        [f"asr-studio:notes-request-v2:{meeting_id}", json.dumps(stored)],
     )
     page.reload()
     expect(page.locator("#notes-start")).to_have_text("Xác minh yêu cầu notes")
@@ -737,7 +737,7 @@ def test_incomplete_pending_request_waits_for_choice_loading_before_completion(
     page.route(f"{live.url}/api/meetings/{meeting_id}/notes-runs", notes_request)
     stored = {"request_id": "old-incomplete-request-2", "output_language": "en"}
     # Written before the page script runs, so the first notes load always sees the stored request.
-    key = json.dumps(f"asr-en-vi:notes-request-v2:{meeting_id}")
+    key = json.dumps(f"asr-studio:notes-request-v2:{meeting_id}")
     page.add_init_script(f"localStorage.setItem({key}, {json.dumps(json.dumps(stored))})")
     page.goto(f"{live.url}/meetings/{meeting_id}#notes")
 

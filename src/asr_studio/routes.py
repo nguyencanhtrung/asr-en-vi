@@ -14,16 +14,16 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
-from asr_en_vi import __version__
-from asr_en_vi.antigravity import AntigravityError, AntigravityProvider
-from asr_en_vi.auth import AuthStateError, create_session_cookie, token_matches
-from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
-from asr_en_vi.config import Settings
-from asr_en_vi.media import ALLOWED_EXTENSIONS, OUTPUT_BITRATE, OUTPUT_CODEC
-from asr_en_vi.meeting_deletion import MeetingDeletionError, delete_meeting
-from asr_en_vi.notes import has_active_notes_task
-from asr_en_vi.notes_routes import install_notes_routes
-from asr_en_vi.recordings import (
+from asr_studio import __version__
+from asr_studio.antigravity import AntigravityError, AntigravityProvider
+from asr_studio.auth import AuthStateError, create_session_cookie, token_matches
+from asr_studio.chatgpt import ChatGPTError, ChatGPTProvider
+from asr_studio.config import Settings
+from asr_studio.media import ALLOWED_EXTENSIONS, OUTPUT_BITRATE, OUTPUT_CODEC
+from asr_studio.meeting_deletion import MeetingDeletionError, delete_meeting
+from asr_studio.notes import has_active_notes_task
+from asr_studio.notes_routes import install_notes_routes
+from asr_studio.recordings import (
     RecordingError,
     begin_upload,
     complete_upload,
@@ -41,8 +41,8 @@ from asr_en_vi.recordings import (
     release_upload,
     update_meeting,
 )
-from asr_en_vi.runtime import read_runtime_profile
-from asr_en_vi.tasks import (
+from asr_studio.runtime import read_runtime_profile
+from asr_studio.tasks import (
     TaskError,
     accept_transcription_task,
     add_current_generation_speaker,
@@ -52,9 +52,9 @@ from asr_en_vi.tasks import (
     update_current_generation_segment_text,
     update_current_generation_speaker_name,
 )
-from asr_en_vi.worker import is_healthy as worker_is_healthy
+from asr_studio.worker import is_healthy as worker_is_healthy
 
-SESSION_COOKIE = "asr_en_vi_session"
+SESSION_COOKIE = "asr_studio_session"
 WEB_DIR = Path(__file__).parent / "web"
 FONT_FILES = frozenset(
     {
@@ -128,7 +128,7 @@ async def _begin_upload_owned(data_dir: Path, upload_id: str, offset: int) -> tu
 def _asset_response(filename: str, media_type: str) -> Response:
     if filename == "shell.html":
         content = (WEB_DIR / filename).read_text(encoding="utf-8")
-        content = content.replace("{{ASR_EN_VI_VERSION}}", escape_html(__version__))
+        content = content.replace("{{ASR_STUDIO_VERSION}}", escape_html(__version__))
         return HTMLResponse(content, media_type=media_type)
     return FileResponse(WEB_DIR / filename, media_type=media_type)
 
@@ -497,9 +497,9 @@ def install_routes(
                 '<!doctype html><html lang="vi"><meta charset="utf-8">'
                 '<meta name="viewport" content="width=device-width,initial-scale=1">'
                 "<title>ChatGPT sign-in</title><p>Không thể hoàn tất đăng nhập ChatGPT. "
-                "Trở về ASR EN VI để xem chi tiết.</p>"
+                "Trở về ASR Studio để xem chi tiết.</p>"
                 '<p lang="en">Could not complete the ChatGPT sign-in. '
-                "Return to ASR EN VI for details.</p></html>"
+                "Return to ASR Studio for details.</p></html>"
             )
             return HTMLResponse(page, status_code=error.status_code)
         return HTMLResponse(

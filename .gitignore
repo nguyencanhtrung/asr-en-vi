@@ -5,6 +5,7 @@
 .ruff_cache/
 __pycache__/
 *.py[cod]
+.asr-studio/
 .asr-en-vi/
 .coverage
 htmlcov/
@@ -13,3 +14,4 @@ build/
 /models/
 prototype/
 .impeccable/
+reports/

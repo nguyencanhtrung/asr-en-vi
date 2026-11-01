@@ -29,9 +29,9 @@ def test_published_image_gate_uses_anonymous_digest_and_stops_on_mismatch(tmp_pa
     assert "PUBLISHED_METADATA" not in gate["env"]
     assert "PUBLISHED_METADATA" not in gate["run"]
     assert "scripts/resolve-image-config.py" in gate["run"]
-    source = tmp_path / "src/asr_en_vi"
+    source = tmp_path / "src/asr_studio"
     source.mkdir(parents=True)
-    shutil.copyfile(ROOT / "src/asr_en_vi/storage.py", source / "storage.py")
+    shutil.copyfile(ROOT / "src/asr_studio/storage.py", source / "storage.py")
     trace = tmp_path / "trace.jsonl"
     runner_temp = tmp_path / "runner-temp"
     runner_temp.mkdir()
@@ -70,9 +70,9 @@ def test_published_image_gate_uses_anonymous_digest_and_stops_on_mismatch(tmp_pa
         "    sys.exit(1 if failure == 'pull' else 0)\n"
         "elif args[0] == 'run':\n"
         "    assert '--pull=never' in args and '--expect-version' in args\n"
-        "    assert args[args.index('--expect-version') + 1] == '0.1.3'\n"
+        "    assert args[args.index('--expect-version') + 1] == '0.2.0'\n"
         "    if failure == 'version': sys.exit(1)\n"
-        "    from asr_en_vi.cli import main\n"
+        "    from asr_studio.cli import main\n"
         "    sys.exit(main(args[args.index('-m') + 2:]))\n"
         "elif args[:2] == ['image', 'inspect']:\n"
         "    print('wrong' if failure == 'revision' else os.environ['GITHUB_SHA'])\n"
@@ -99,7 +99,7 @@ def test_published_image_gate_uses_anonymous_digest_and_stops_on_mismatch(tmp_pa
             "PUBLISHED_DIGEST": IMAGE.split("@", 1)[1],
             "GITHUB_REPOSITORY": "example/asr",
             "RELEASE_PLATFORM": "amd64",
-            "GITHUB_REF_NAME": "v0.1.3",
+            "GITHUB_REF_NAME": "v0.2.0",
             "GITHUB_SHA": "b" * 40,
             "TRACE": str(trace),
             "RUNNER_TEMP": str(runner_temp),

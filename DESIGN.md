@@ -1,5 +1,5 @@
 ---
-name: ASR EN VI
+name: ASR Studio
 description: An editorial-engineering workbench for local, source-verifiable meeting transcription.
 colors:
   light-background: "#faf9f7"
@@ -204,13 +204,13 @@ components:
     padding: "20px"
 ---
 
-# Design System: ASR EN VI
+# Design System: ASR Studio
 
 ## Overview
 
 **Creative North Star: "The Editorial Engineering Ledger"**
 
-ASR EN VI feels like a precise working ledger: calm enough for long review sessions, editorial enough to belong to the bibo product family, and technical enough to expose provenance, runtime state, and recoverable errors without ceremony. Warm paper and charcoal fields carry the visual world; burgundy signal lines, fine rules, and disciplined typography establish hierarchy.
+ASR Studio feels like a precise working ledger: calm enough for long review sessions, editorial enough to belong to the bibo product family, and technical enough to expose provenance, runtime state, and recoverable errors without ceremony. Warm paper and charcoal fields carry the visual world; burgundy signal lines, fine rules, and disciplined typography establish hierarchy.
 
 The brand foundation is portable: palette roles, the Newsreader–Inter–JetBrains Mono relationship, hairlines, compact radii, accessible focus, and restrained motion. The sidebar, calendars, transcript generations, runtime panels, speaker tools, and one-step create-meeting dialog are ASR-specific operational components. Future products may reuse the foundation without copying this application's information architecture.
 
@@ -400,6 +400,8 @@ Without a complete transcript the Meeting notes tab holds one heading, **Cần t
 - **Narrow:** The action's long name wraps inside the button. At 520px and below the button takes the full row and **Đổi…** sits below it; nothing scrolls sideways down to 320px.
 
 ### Navigation
+
+The ASR Studio identity pairs a monoline speech waveform with a studio fader; the app mastheads, favicon and README logo share this mark. The wordmark reads “ASR Studio”.
 
 Navigation is a quiet ledger rail: mono wordmark, uppercase technical section labels, compact rows, and an accent-soft current state. A compact sun/moon toggle sits beside the wordmark and exposes a dynamic accessible name for the opposite theme. The language switch borrows the portfolio's pattern: a mono button in the same square box that names the other language (**EN** in Vietnamese, **VI** in English), stores the choice and reloads the page. The rail has no room for it beside the theme toggle, so in the workspace it leads the header actions; on the access page it sits left of the theme toggle. Vietnamese stays the default. On mobile the rail becomes a top bar containing the brand, theme toggle, and icon-only create action.
 

@@ -1,6 +1,6 @@
 # Issue tracker: GitHub
 
-Specifications and implementation tickets for `nguyencanhtrung/asr-en-vi` live in GitHub Issues.
+Specifications and implementation tickets for `nguyencanhtrung/asr-studio` live in GitHub Issues.
 
 ## Publishing
 

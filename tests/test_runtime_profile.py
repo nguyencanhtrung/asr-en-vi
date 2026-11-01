@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from asr_en_vi.config import Settings
-from asr_en_vi.runtime import (
+from asr_studio.config import Settings
+from asr_studio.runtime import (
     RuntimeConfigurationError,
     RuntimeProfile,
     read_runtime_profile,

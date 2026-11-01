@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createRunner, createStore } from "../../src/asr_en_vi/web/store.js";
+import { createRunner, createStore } from "../../src/asr_studio/web/store.js";
 import {
   hasUnsavedDraft,
   failureMessage,
@@ -14,7 +14,7 @@ import {
   sourceFromHref,
   sourceHref,
   sourceReference,
-} from "../../src/asr_en_vi/web/notes-core.js";
+} from "../../src/asr_studio/web/notes-core.js";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const reply = (status, body) => ({ ok: status < 400, status, text: async () => JSON.stringify(body) });
@@ -566,7 +566,7 @@ test("the view mode is remembered through a storage effect", () => {
   const env = setup();
   env.dispatch("mode-chosen", { mode: "write" });
   assert.equal(env.state().mode, "write");
-  assert.deepEqual(env.written.at(-1), ["local", "write", "asr-en-vi:notes-view-mode", "write"]);
+  assert.deepEqual(env.written.at(-1), ["local", "write", "asr-studio:notes-view-mode", "write"]);
   env.dispatch("mode-chosen", { mode: "write" });
   assert.equal(env.written.length, 1);
 });
@@ -629,7 +629,7 @@ test("the language is remembered per meeting and cannot change while a request i
   await opened(env);
   env.dispatch("language-chosen", { language: "vi" });
   assert.equal(env.state().outputLanguages.m1, "vi");
-  assert.equal(env.written.filter(([, , key]) => key === "asr-en-vi:notes-output-language:m1").length, 2);
+  assert.equal(env.written.filter(([, , key]) => key === "asr-studio:notes-output-language:m1").length, 2);
   env.dispatch("start-clicked", { requestId: "req-aaaa-0001" });
   env.dispatch("language-chosen", { language: "en" });
   assert.equal(env.state().outputLanguages.m1, "vi");

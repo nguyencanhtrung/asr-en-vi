@@ -15,16 +15,16 @@ def test_compose_separates_services_volumes_and_loopback_publish():
 
     assert app["ports"] == ["127.0.0.1:${ASR_PORT:-8765}:8765"]
     assert "ports" not in worker
-    assert "data:/var/lib/asr-en-vi/data" in app["volumes"]
-    assert "data:/var/lib/asr-en-vi/data" in worker["volumes"]
-    assert "auth:/var/lib/asr-en-vi/auth" in app["volumes"]
+    assert "data:/var/lib/asr-studio/data" in app["volumes"]
+    assert "data:/var/lib/asr-studio/data" in worker["volumes"]
+    assert "auth:/var/lib/asr-studio/auth" in app["volumes"]
     assert all("auth:" not in mount for mount in worker["volumes"])
-    assert "provider:/var/lib/asr-en-vi/provider" in app["volumes"]
-    assert "provider:/var/lib/asr-en-vi/provider" in worker["volumes"]
-    assert app["environment"]["ASR_PROVIDER_DIR"] == "/var/lib/asr-en-vi/provider"
-    assert worker["environment"]["ASR_PROVIDER_DIR"] == "/var/lib/asr-en-vi/provider"
+    assert "provider:/var/lib/asr-studio/provider" in app["volumes"]
+    assert "provider:/var/lib/asr-studio/provider" in worker["volumes"]
+    assert app["environment"]["ASR_PROVIDER_DIR"] == "/var/lib/asr-studio/provider"
+    assert worker["environment"]["ASR_PROVIDER_DIR"] == "/var/lib/asr-studio/provider"
     assert "--no-access-log" in app["command"]
-    assert app["image"] == "${ASR_IMAGE:-asr-en-vi:local}"
+    assert app["image"] == "${ASR_IMAGE:-asr-studio:local}"
     assert app["image"] == worker["image"]
     assert app["build"]["args"]["VCS_REF"] == "${ASR_SOURCE_REVISION:-unknown}"
     assert app["environment"]["ASR_MAX_UPLOAD_BYTES"] == "${ASR_MAX_UPLOAD_BYTES:-4294967296}"
@@ -64,9 +64,9 @@ def test_compose_separates_services_volumes_and_loopback_publish():
 
 def test_provider_volume_is_created_for_runtime_uid_and_default_server_suppresses_access_logs():
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-    assert "/var/lib/asr-en-vi/provider" in dockerfile
+    assert "/var/lib/asr-studio/provider" in dockerfile
     assert (
-        "chmod 0700 /var/lib/asr-en-vi/data /var/lib/asr-en-vi/auth /var/lib/asr-en-vi/provider"
+        "chmod 0700 /var/lib/asr-studio/data /var/lib/asr-studio/auth /var/lib/asr-studio/provider"
         in dockerfile
     )
     assert '"--no-access-log"]' in dockerfile
@@ -92,11 +92,11 @@ def test_image_build_context_is_allowlisted_and_excludes_user_owned_files():
     assert "!pyproject.toml" in dockerignore
     assert "!README.md" in dockerignore
     assert "!uv.lock" in dockerignore
-    assert "!src/asr_en_vi/**" in dockerignore
+    assert "!src/asr_studio/**" in dockerignore
     assert "COPY ." not in dockerfile
     assert "COPY pyproject.toml README.md LICENSE LICENSE.vi uv.lock ./" in dockerfile
     assert {"!LICENSE", "!LICENSE.vi"} <= set(dockerignore)
-    assert "COPY LICENSE LICENSE.vi /usr/local/share/licenses/asr-en-vi/" in dockerfile
+    assert "COPY LICENSE LICENSE.vi /usr/local/share/licenses/asr-studio/" in dockerfile
     assert 'org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"' in dockerfile
     assert "uv sync --locked --no-dev --no-editable" in dockerfile
     assert "nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04" in dockerfile
@@ -171,9 +171,9 @@ def test_example_environment_selects_hardware_profiles_automatically():
 
 
 def test_status_strip_item_sizes_only_its_dot_and_runtime_details_have_ui_targets():
-    stylesheet = (ROOT / "src/asr_en_vi/web/shell.css").read_text(encoding="utf-8")
-    markup = (ROOT / "src/asr_en_vi/web/shell.html").read_text(encoding="utf-8")
-    script = (ROOT / "src/asr_en_vi/web/history.js").read_text(encoding="utf-8")
+    stylesheet = (ROOT / "src/asr_studio/web/shell.css").read_text(encoding="utf-8")
+    markup = (ROOT / "src/asr_studio/web/shell.html").read_text(encoding="utf-8")
+    script = (ROOT / "src/asr_studio/web/history.js").read_text(encoding="utf-8")
 
     assert ".meeting-status-item > span:first-child" in stylesheet
     assert ".meeting-status-item > span," not in stylesheet
@@ -184,8 +184,8 @@ def test_status_strip_item_sizes_only_its_dot_and_runtime_details_have_ui_target
 
 
 def test_language_choice_is_presented_as_a_hint_not_an_output_constraint():
-    markup = (ROOT / "src/asr_en_vi/web/shell.html").read_text(encoding="utf-8")
-    script = (ROOT / "src/asr_en_vi/web/history.js").read_text(encoding="utf-8")
+    markup = (ROOT / "src/asr_studio/web/shell.html").read_text(encoding="utf-8")
+    script = (ROOT / "src/asr_studio/web/history.js").read_text(encoding="utf-8")
 
     assert markup.count("Gợi ý ngôn ngữ") >= 3
     assert "Ngôn ngữ chính" not in markup
@@ -193,7 +193,7 @@ def test_language_choice_is_presented_as_a_hint_not_an_output_constraint():
 
 
 def test_worker_grace_period_exceeds_runner_worst_case_stop_time():
-    from asr_en_vi import worker as worker_module
+    from asr_studio import worker as worker_module
 
     compose = yaml.safe_load((ROOT / "compose.yaml").read_text(encoding="utf-8"))
     grace = compose["services"]["worker"]["stop_grace_period"]
@@ -215,7 +215,7 @@ def test_start_preflight_maps_the_configured_container_diarization_path_to_the_h
 
 
 def test_claimed_task_starting_stage_has_a_vietnamese_label():
-    script = (ROOT / "src/asr_en_vi/web/history.js").read_text(encoding="utf-8")
+    script = (ROOT / "src/asr_studio/web/history.js").read_text(encoding="utf-8")
     labels = script.split("const TASK_STAGES = {", 1)[1].split("};", 1)[0]
 
     assert '  starting: t("Đang bắt đầu"),' in labels

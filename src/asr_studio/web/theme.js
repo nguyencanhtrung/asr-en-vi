@@ -1,7 +1,7 @@
 "use strict";
 
 (() => {
-  const storageKey = "asr-en-vi:theme";
+  const storageKey = "asr-studio:theme";
   const root = document.documentElement;
   const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
   const validPreferences = new Set(["system", "light", "dark"]);

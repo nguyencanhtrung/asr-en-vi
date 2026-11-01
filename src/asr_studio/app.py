@@ -10,20 +10,20 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response
 
-from asr_en_vi import __version__
-from asr_en_vi.antigravity import (
+from asr_studio import __version__
+from asr_studio.antigravity import (
     AntigravityAdapter,
     AntigravityProvider,
     OmpRpcAdapter,
 )
-from asr_en_vi.auth import AuthStateError, AuthStore, session_is_valid
-from asr_en_vi.chatgpt import ChatGPTAdapter, ChatGPTHTTPAdapter, ChatGPTProvider
-from asr_en_vi.config import CHATGPT_CALLBACK_PATH, Settings
-from asr_en_vi.meeting_deletion import recover_pending_meeting_deletions
-from asr_en_vi.notes import assert_provider_mutation_allowed
-from asr_en_vi.recordings import recover_recordings
-from asr_en_vi.routes import SESSION_COOKIE, install_routes
-from asr_en_vi.storage import initialize
+from asr_studio.auth import AuthStateError, AuthStore, session_is_valid
+from asr_studio.chatgpt import ChatGPTAdapter, ChatGPTHTTPAdapter, ChatGPTProvider
+from asr_studio.config import CHATGPT_CALLBACK_PATH, Settings
+from asr_studio.meeting_deletion import recover_pending_meeting_deletions
+from asr_studio.notes import assert_provider_mutation_allowed
+from asr_studio.recordings import recover_recordings
+from asr_studio.routes import SESSION_COOKIE, install_routes
+from asr_studio.storage import initialize
 
 PUBLIC_ROUTES = frozenset(
     {
@@ -155,7 +155,7 @@ def create_app(
             os.umask(previous_umask)
 
     app = FastAPI(
-        title="ASR EN VI",
+        title="ASR Studio",
         version=__version__,
         docs_url=None,
         redoc_url=None,

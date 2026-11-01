@@ -13,18 +13,18 @@ from pathlib import Path
 import pytest
 from notes_helpers import StubNotesProvider, seed_completed_transcript
 
-from asr_en_vi import worker
-from asr_en_vi.config import Settings
-from asr_en_vi.notes import accept_notes_task, notes_state
-from asr_en_vi.notes_document import LEGACY_ENGLISH_PROMPT_VERSION, PROMPT_VERSION
-from asr_en_vi.storage import database_path
-from asr_en_vi.tasks import (
+from asr_studio import worker
+from asr_studio.config import Settings
+from asr_studio.notes import accept_notes_task, notes_state
+from asr_studio.notes_document import LEGACY_ENGLISH_PROMPT_VERSION, PROMPT_VERSION
+from asr_studio.storage import database_path
+from asr_studio.tasks import (
     TaskError,
     cancel_task,
     claim_next_task,
     update_current_generation_segment_text,
 )
-from asr_en_vi.worker import acquire_worker_lock, heartbeat_path
+from asr_studio.worker import acquire_worker_lock, heartbeat_path
 
 _COVERAGE = {
     "version": 1,
@@ -70,7 +70,7 @@ def _accept(
 def test_notes_runner_uses_the_durable_language_pin_for_provider_and_render(
     tmp_path, monkeypatch, capsys
 ):
-    from asr_en_vi import notes_runner
+    from asr_studio import notes_runner
 
     data_dir = tmp_path / "data"
     meeting_id, generation_id, _ = seed_completed_transcript(data_dir)
@@ -134,7 +134,7 @@ def test_notes_runner_uses_the_durable_language_pin_for_provider_and_render(
 def test_notes_runner_emits_the_citations_of_the_document_it_rendered(
     tmp_path, monkeypatch, capsys
 ):
-    from asr_en_vi import notes_runner
+    from asr_studio import notes_runner
 
     data_dir = tmp_path / "data"
     meeting_id, generation_id, segment_ids = seed_completed_transcript(data_dir)
@@ -517,7 +517,7 @@ def test_notes_worker_publishes_no_revision_for_citations_its_source_does_not_ba
 def test_notes_runner_runs_only_the_current_prompt_and_the_legacy_english_contract(
     tmp_path, monkeypatch, capsys, prompt_version, language, runs
 ):
-    from asr_en_vi import notes_runner
+    from asr_studio import notes_runner
 
     data_dir = tmp_path / "data"
     meeting_id, generation_id, _ = seed_completed_transcript(data_dir)

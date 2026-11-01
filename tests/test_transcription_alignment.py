@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from asr_en_vi.alignment import align_segments_to_speakers
+from asr_studio.alignment import align_segments_to_speakers
 
 FIXTURE = Path(__file__).parent / "fixtures" / "en-vi-code-switch.json"
 

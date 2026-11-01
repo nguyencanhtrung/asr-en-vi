@@ -5,8 +5,8 @@ import sqlite3
 
 import pytest
 
-from asr_en_vi.notes import get_note, notes_state
-from asr_en_vi.storage import (
+from asr_studio.notes import get_note, notes_state
+from asr_studio.storage import (
     _migrate_v2,
     _migrate_v3,
     _migrate_v4,
