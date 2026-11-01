@@ -366,6 +366,8 @@ test("a 409 whose editor is gone shows the notice in the panel", async () => {
   assert.equal(env.t().mutation, null);
   assert.equal(env.t().editing, null);
   assert.equal(text(env.t().error.message), "Transcript đã thay đổi. Bản nháp vẫn được giữ để xem lại.");
+  assert.match(env.notice(), /Transcript đã thay đổi/);
+  assert.notEqual(env.notice(), "Thay đổi transcript đã hoàn tất.");
 });
 
 // ---- the stale answer ----
@@ -398,6 +400,7 @@ test("an answer after the user left for another meeting settles the write withou
   assert.equal(env.notice(), "Thay đổi transcript đã hoàn tất.", "the shared line does not carry the old meeting's words");
   assert.equal(env.t().focus.sameMeeting, false);
   assert.equal(hasUnsavedDrafts(env.t()), false, "the saved text is not kept as a draft");
+  assert.ok(env.calls.some(([name, meetingId, reason]) => name === "meeting.change" && meetingId === "m1" && reason === "transcript"));
 });
 
 test("the same answer reaches the fresher copy of the meeting a poll or a refresh installed meanwhile", async () => {

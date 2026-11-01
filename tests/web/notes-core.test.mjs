@@ -182,6 +182,18 @@ test("a failed read says so and a poll read tries again in three seconds", async
   assert.deepEqual(env.live(), []); // the task ended: no more polling
 });
 
+test("a received meeting change reads authoritative notes without echoing or duplicating the active poll", async () => {
+  const env = setup();
+  await opened(env, { task: TASK });
+  const beforeReads = env.waiting(env.is("GET", "/api/meetings/m1/notes")).length;
+  env.dispatch("meeting-change-received", { meetingId: "m1" });
+  assert.equal(env.waiting(env.is("GET", "/api/meetings/m1/notes")).length, beforeReads + 1);
+  assert.equal(env.live().filter((delay) => delay === 1000).length, 1);
+  await env.answer(env.is("GET", "/api/meetings/m1/notes"), 200, notesBody([revision({ edit_version: 2 })], TASK, true));
+  assert.equal(env.hostCalls.some(([name]) => name === "meeting.change"), false);
+  assert.equal(env.live().filter((delay) => delay === 1000).length, 1);
+});
+
 test("a poll that was due before the meeting changed does nothing", async () => {
   const env = setup();
   await opened(env, { task: TASK });

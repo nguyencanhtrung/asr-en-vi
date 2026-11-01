@@ -7,7 +7,7 @@
 // Contract: docs/adr/0010-frontend-reducer-core.md; state tables: docs/frontend-design-v1.md §11.8 to §11.11.
 // Announces the open meeting on the channel (channel.js) and offers notes.js its commands (meetingHistory).
 import { combine, createRunner, createStore } from "./store.js";
-import { meetingContext } from "./channel.js";
+import { meetingChanges, meetingContext } from "./channel.js";
 import { formatMeetingDate, meetingIdFromPath, sameOriginAudioSource, setProp, tr } from "./shell.js";
 import {
   ACTIVE_TASK_STATES,
@@ -64,6 +64,10 @@ import {
 } from "./transcript-core.js";
 
 const $ = (selector) => document.querySelector(selector);
+const MEETING_CHANGE_CHANNEL = "asr-en-vi:meeting-changes";
+const meetingChangeTransport = typeof window.BroadcastChannel === "function"
+  ? new window.BroadcastChannel(MEETING_CHANGE_CHANNEL)
+  : null;
 const WEEKDAYS = [t("T2"), t("T3"), t("T4"), t("T5"), t("T6"), t("T7"), t("CN")];
 const MONTHS = [
   t("Tháng 1"), t("Tháng 2"), t("Tháng 3"), t("Tháng 4"), t("Tháng 5"), t("Tháng 6"),
@@ -100,6 +104,19 @@ const isRenamingSpeaker = (generationId, speakerId) => isRenaming(tstate(), gene
 const hasSegmentDraft = (generationId, segmentId) => coreHasSegmentDraft(tstate(), generationId, segmentId);
 const speakerAddRecoveryReady = (generation, draft) => speakerAddReady(tstate(), generation, draft, sourceMutationUnavailable());
 const sourceMutationUnavailable = () => coreSourceMutationUnavailable(nav());
+
+function publishMeetingChange(meetingId, reason, local = false) {
+  if (typeof meetingId !== "string" || !meetingId) return;
+  const detail = { meetingId, reason: typeof reason === "string" ? reason : "meeting", local };
+  if (local) meetingChanges.dispatch({ type: "channel/meeting-changed", detail });
+  if (!meetingChangeTransport) return;
+  try {
+    // `local` only guards this tab's subscriber; never send that guard over the wire or receivers would ignore it.
+    meetingChangeTransport.postMessage({ meetingId: detail.meetingId, reason: detail.reason });
+  } catch {
+    // A closing tab can close its channel between the reducer effect and postMessage.
+  }
+}
 
 // The page address enters the core as data: every action carries where the address pointed when it was made.
 function addressNow() {
@@ -156,9 +173,11 @@ const run = createRunner({
   fetch: (url, init) => fetch(url, init),
   setTimeout: (callback, delay) => window.setTimeout(callback, delay),
   clearTimeout: (id) => window.clearTimeout(id),
+  navigate: (url) => window.location.assign(url),
   storage: { session: () => window.sessionStorage },
   calls: {
     "address.push": pushAddress,
+    "meeting.change": (meetingId, reason) => publishMeetingChange(meetingId, reason, true),
     "clipboard.write": writeClipboard,
     "clipboard.select": selectDiagnosticCommand,
     "transcript.copy": copyTranscriptDraft,
@@ -169,6 +188,18 @@ const store = createStore({
   reduce: combine({ history: reduce, task: reduceTask, transcript: reduceTranscript, playback: reducePlayback }),
   initialState: { history: initialState, task: taskInitialState, transcript: transcriptInitialState, playback: playbackInitialState },
   run: (effect, send) => run(effect, (action) => send(stamp(action))),
+});
+
+function receiveMeetingChange(detail) {
+  if (!detail || typeof detail.meetingId !== "string" || !detail.meetingId) return;
+  meetingChanges.dispatch({ type: "channel/meeting-changed", detail });
+}
+
+meetingChangeTransport?.addEventListener("message", (event) => receiveMeetingChange(event.data));
+meetingChanges.subscribe((detail) => {
+  const state = nav();
+  if (!detail || detail.local || state.view !== "meeting" || !state.meeting || state.meeting.id !== detail.meetingId) return;
+  dispatch({ type: "history/meeting-change-received", meetingId: detail.meetingId });
 });
 
 // ---- painting ----
@@ -403,6 +434,8 @@ function meetingLink(meeting, className) {
   link.className = className;
   link.href = `/meetings/${encodeURIComponent(meeting.id)}`;
   link.dataset.meetingLink = meeting.id;
+  link.title = meeting.title;
+  link.setAttribute("aria-label", meeting.title);
   const title = document.createElement("span");
   title.className = "link-title";
   title.textContent = meeting.title;
@@ -503,6 +536,8 @@ function renderCalendar(root, large, view) {
         chip.href = `/meetings/${encodeURIComponent(meeting.id)}`;
         chip.dataset.meetingLink = meeting.id;
         chip.textContent = meeting.title;
+        chip.title = meeting.title;
+        chip.setAttribute("aria-label", meeting.title);
         cell.append(chip);
       }
       if (meetings.length > 2) {
@@ -695,6 +730,7 @@ function renderEditor(s) {
   setProp($("#meeting-edit"), "hidden", !editor.open);
   setProp($("#edit-meeting"), "hidden", editor.open);
   if (!editor.open) {
+    $("#edit-date").removeAttribute("aria-describedby");
     setProp($("#edit-conflict"), "hidden", true);
     setProp($("#edit-error"), "textContent", "");
     setProp($("#edit-error"), "hidden", true);
@@ -703,6 +739,10 @@ function renderEditor(s) {
   setProp($("#edit-title"), "value", editor.title);
   setProp($("#edit-date"), "value", editor.date);
   setProp($("#edit-title"), "disabled", editor.titleDisabled);
+  const dateIsLocked = editor.dateDisabled && !s.editor.busy && coreSourceMutationUnavailable(s)
+    && (s.editor.date || null) === s.editor.original.meeting_date;
+  if (dateIsLocked) $("#edit-date").setAttribute("aria-describedby", "edit-status");
+  else $("#edit-date").removeAttribute("aria-describedby");
   setProp($("#edit-date"), "disabled", editor.dateDisabled);
   setProp($("#edit-clear-date"), "disabled", editor.clearDisabled);
   setProp($("#edit-save"), "disabled", editor.saveDisabled);
@@ -763,6 +803,7 @@ const TASK_STAGES = {
 const NOTICE_TEXT = {
   "poll-lost": t("Tạm mất kết nối khi đọc tiến độ. Tác vụ vẫn thuộc worker; đang thử đọc lại."),
   "refresh-lost": t("Tác vụ đã hoàn tất; không tải được transcript mới. Mở lại cuộc họp để thử lại."),
+  "session-ended": t("Phiên làm việc đã hết. Đang chuyển đến trang đăng nhập."),
 };
 
 function formatElapsedSeconds(value) {
@@ -2291,9 +2332,11 @@ function renderTranscription(transcription) {
       accepted: t("Tác vụ đã được nhận. Worker sẽ bắt đầu xử lý."),
       running: t("Đang chép lời bằng model local. Tác vụ tiếp tục nếu bạn đóng tab."),
       stopping: t("Đang dừng và thu hồi runner. Slot chỉ được nhường sau khi runner đã kết thúc."),
-      succeeded: t("Transcript đã được lưu hoàn chỉnh. Kết quả của lần chép lời là transcript_only."),
+      succeeded: t("Transcript đã được lưu hoàn chỉnh."),
       failed: view.error.message || t("Tác vụ thất bại. Transcript hoàn chỉnh trước đó vẫn được giữ."),
-      canceled: t("Đã hủy sau khi runner dừng. Transcript hoàn chỉnh trước đó vẫn được giữ."),
+      canceled: generation
+        ? t("Đã hủy sau khi runner dừng. Transcript hoàn chỉnh trước đó vẫn được giữ.")
+        : t("Đã hủy sau khi runner dừng. Chưa có transcript hoàn chỉnh được lưu."),
       interrupted: t("Worker đã dừng giữa tác vụ. Không tự chạy lại; hãy bấm để thử lại."),
     };
     $("#transcription-status").textContent = workerChecking
@@ -2383,6 +2426,9 @@ export const meetingHistory = Object.freeze({
     const { meeting } = nav();
     if (!meeting || meeting.id !== meetingId) return Promise.resolve(false);
     return loadMeeting(meetingId);
+  },
+  publishMeetingChange(meetingId, reason) {
+    publishMeetingChange(meetingId, reason);
   },
 });
 

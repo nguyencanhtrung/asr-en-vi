@@ -115,6 +115,13 @@ export function responseCode(status, payload) {
   return typeof detail?.code === "string" && detail.code ? detail.code : `HTTP_${status}`;
 }
 
+// The workspace middleware has one unambiguous session-expiry response. Provider APIs may also
+// answer 401, but their structured detail belongs to the provider and must not redirect the page.
+export function isWorkspaceAuthenticationFailure(status, payload) {
+  return status === 401 && payload && typeof payload === "object" && !Array.isArray(payload)
+    && payload.detail === "Authentication required";
+}
+
 export function errorMessageForCode(code, status, provider, payload) {
   if (code === "duration_limit") {
     const maxDuration = Number(detailOf(payload)?.max_duration_seconds);

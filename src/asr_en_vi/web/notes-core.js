@@ -849,9 +849,9 @@ const patchDraft = (state, revisionId, patch) => ({
 
 // ---- polling and reading ----
 
-function readNotes(state, meetingId, poll = null) {
+function readNotes(state, meetingId, poll = null, broadcast = false) {
   const id = state.readId + 1;
-  return out({ ...state, readId: id }, [request(`notes/read/${id}`, notesEndpoint(meetingId), "GET", undefined, "read", { id, meetingId, poll })]);
+  return out({ ...state, readId: id }, [request(`notes/read/${id}`, notesEndpoint(meetingId), "GET", undefined, "read", { id, meetingId, poll, broadcast })]);
 }
 
 function stopPolling(state) {
@@ -881,8 +881,27 @@ function savePending(state, meetingId, pending) {
 }
 
 const lockEffect = (meetingId, locked, known) => call("history.setNotesSourceLock", [meetingId, locked, known]);
+const meetingChangeEffect = (meetingId, reason) => call("meeting.change", [meetingId, reason]);
 
-function installNotes(state, meetingId, parsed) {
+function revisionsChanged(before, parsed) {
+  if (before.revisions.length !== parsed.revisions.length) return true;
+  return before.revisions.some((revision, index) => {
+    const next = parsed.revisions[index];
+    return !next
+      || revision.id !== next.id
+      || revision.edit_version !== next.edit_version
+      || revision.markdown !== next.markdown
+      || revision.source_state !== next.source_state;
+  });
+}
+
+function notesChanged(before, parsed) {
+  return before.sourceLockKnown !== true
+    || before.sourceLocked !== parsed.sourceLocked
+    || revisionsChanged(before, parsed);
+}
+
+function installNotes(state, meetingId, parsed, broadcast = false) {
   const before = entryOf(state, meetingId);
   const wasActive = activeTask(before);
   let result = out(patchNotes(state, meetingId, { revisions: parsed.revisions, task: parsed.task }));
@@ -907,6 +926,7 @@ function installNotes(state, meetingId, parsed) {
     result = then(result, (s) => clearPending(s, meetingId));
   }
   result.effects.push(lockEffect(meetingId, parsed.sourceLocked, true));
+  if (broadcast && notesChanged(before, parsed)) result.effects.push(meetingChangeEffect(meetingId, "notes"));
   return then(result, (s) => startPolling(s, meetingId, entryOf(s, meetingId).task));
 }
 
@@ -1131,6 +1151,7 @@ function startAccepted(state, action) {
     starting: false,
   })));
   result.effects.push(lockEffect(meetingId, locked, true));
+  result.effects.push(meetingChangeEffect(meetingId, "notes"));
   return then(result, (s) => (locked ? startPolling(s, meetingId, task) : readNotes(s, meetingId)));
 }
 
@@ -1168,7 +1189,9 @@ function cancelAnswered(state, action) {
   if (parsed.error) return cancelFailed(state, action.meta, { message: parsed.error });
   const { task } = parsed;
   const next = patchNotes(state, meetingId, { task, runError: "", canceling: false });
-  return isActiveStatus(task.status) ? startPolling(next, meetingId, task) : readNotes(next, meetingId);
+  const result = isActiveStatus(task.status) ? startPolling(next, meetingId, task) : readNotes(next, meetingId);
+  result.effects.push(meetingChangeEffect(meetingId, "notes"));
+  return result;
 }
 
 function cancelFailed(state, meta, error) {
@@ -1210,7 +1233,7 @@ function saveAnswered(state, action) {
   const data = entryOf(state, meetingId);
   let next = patchNotes(state, meetingId, { revisions: replaceRevision(data, saved) });
   next = patchDraft(next, revisionId, { value: saved.markdown, baselineMarkdown: saved.markdown, expectedEditVersion: saved.edit_version, conflict: null });
-  return out(doneSaving(next, meetingId, revisionId, { runError: "", actionMessage: t("Markdown đã được lưu.") }));
+  return out(doneSaving(next, meetingId, revisionId, { runError: "", actionMessage: t("Markdown đã được lưu.") }), [meetingChangeEffect(meetingId, "notes")]);
 }
 
 function saveFailed(state, action) {
@@ -1500,7 +1523,7 @@ function response(state, action) {
       if (meta.id !== state.readId || meta.meetingId !== state.meetingId || (meta.poll !== null && meta.poll !== state.poll.token)) return out(state);
       const parsed = parseNotes(meta.meetingId, object(action.response.body));
       return parsed
-        ? installNotes(state, meta.meetingId, parsed)
+        ? installNotes(state, meta.meetingId, parsed, Boolean(meta.broadcast))
         : readFailed(state, meta.meetingId, meta.poll, t("Máy chủ không trả về trạng thái notes theo API đã công bố."));
     }
     case "choice-providers":
@@ -1578,8 +1601,10 @@ function transition(state, action) {
     case "notes/poll-due": {
       const next = { ...state, poll: { ...state.poll, scheduled: false } };
       if (action.token !== next.poll.token || action.meetingId !== next.meetingId || !activeTask(entryOf(next, action.meetingId))) return out(next);
-      return readNotes(next, action.meetingId, action.token);
+      return readNotes(next, action.meetingId, action.token, true);
     }
+    case "notes/meeting-change-received":
+      return action.meetingId === state.meetingId ? readNotes(state, state.meetingId) : out(state);
     case "notes/start-clicked":
       return startNotes(state, action.requestId);
     case "notes/cancel-clicked":

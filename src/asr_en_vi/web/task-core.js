@@ -13,7 +13,7 @@
 // User-visible text is data: t(text, params) here only keeps the Vietnamese source string, and the view translates it.
 
 import { ACTIVE_TASK_STATES, LANGUAGES, failureOf } from "./history-core.js";
-import { AUTO_TRANSCRIBE_HANDOFF_PREFIX, errorMessageForCode } from "./shell-core.js";
+import { AUTO_TRANSCRIBE_HANDOFF_PREFIX, errorMessageForCode, isWorkspaceAuthenticationFailure } from "./shell-core.js";
 
 const t = (text, params) => (params ? { text, params } : { text });
 
@@ -65,7 +65,7 @@ export const initialState = {
   start: null, // { meetingId, requestId, auto, refreshing }: a start request on the wire (global, as the old flag was)
   cancelling: [], // ids of tasks with a cancel request on the wire
   error: null, // { meetingId, message }: the last start or cancel refusal
-  notice: null, // { meetingId, kind: poll-lost | refresh-lost }: a line for the status text
+  notice: null, // { meetingId, kind: poll-lost | refresh-lost | session-ended }: a line for the status text
   copy: null, // { taskId, how: copied | selected }: the answer to the copy button
   autoDone: null, // the meeting whose automatic start was taken
   rev: 0, // the task half of the page is due a repaint
@@ -170,6 +170,20 @@ function stopPolling(state) {
   return out({ ...state, poll: null }, [{ type: "cancel", key: KEY.pollTimer }, { type: "cancel", key: KEY.poll }]);
 }
 
+function sessionEnded(state, meetingId) {
+  const stopped = stopPolling({
+    ...state,
+    start: null,
+    error: null,
+    notice: { meetingId, kind: "session-ended" },
+    copy: null,
+  });
+  return out(
+    repaint(stopped.state),
+    [...stopped.effects, { type: "navigate", key: "task/session-ended", url: "/access" }],
+  );
+}
+
 // Follow a running task; a task that has ended is not polled. One chain per task: a second call for the task
 // already followed changes nothing.
 function startPolling(state, meetingId, task) {
@@ -207,8 +221,9 @@ function pollDue(state, action) {
 
 const followed = (state, meta) => Boolean(state.poll && state.poll.meetingId === meta.meetingId && state.poll.taskId === meta.taskId && state.poll.phase === "fetching");
 
-function pollFailed(state, meta) {
+function pollFailed(state, meta, error) {
   if (!followed(state, meta)) return out(state);
+  if (isWorkspaceAuthenticationFailure(error?.status, error?.body)) return sessionEnded(state, meta.meetingId);
   const notice = { meetingId: meta.meetingId, kind: "poll-lost" };
   return then(schedulePoll({ ...state, notice }, meta.meetingId, meta.taskId, POLL_RETRY_MS), (s) => out(repaint(s)));
 }
@@ -257,6 +272,7 @@ function startRequest(state, shown, requestId, auto) {
 
 function startFailed(state, error, auto) {
   const { meetingId } = state.start;
+  if (isWorkspaceAuthenticationFailure(error?.status, error?.body)) return sessionEnded(state, meetingId);
   const failure = failureOf(error, t("Không thể xác nhận yêu cầu."));
   const definitive = Boolean(failure.api && Number.isInteger(failure.status) && failure.status >= 400 && failure.status < 500);
   const guidance = definitive
@@ -316,6 +332,7 @@ function cancelClicked(state, action) {
 
 function cancelFailed(state, meta, error) {
   const cancelling = state.cancelling.filter((id) => id !== meta.taskId);
+  if (isWorkspaceAuthenticationFailure(error?.status, error?.body)) return sessionEnded({ ...state, cancelling }, meta.meetingId);
   const failure = failureOf(error, t("Không thể gửi yêu cầu hủy. Trạng thái tác vụ chưa được thay đổi trên giao diện."));
   return out(repaint({ ...state, cancelling, error: { meetingId: meta.meetingId, message: failure.message } }));
 }
@@ -346,6 +363,7 @@ function refreshLoaded(state, action) {
 function refreshFailedLoading(state, action) {
   const { meta } = action;
   if (meta.origin === "start") return state.start ? startFailed(state, action.error, state.start.auto) : out(state);
+  if (isWorkspaceAuthenticationFailure(action.error?.status, action.error?.body)) return sessionEnded(state, meta.meetingId);
   return out(repaint({ ...state, notice: { meetingId: meta.meetingId, kind: "refresh-lost" } }));
 }
 
@@ -427,7 +445,7 @@ export function reduce(state, action) {
     case "task/poll-loaded":
       return pollLoaded(state, action);
     case "task/poll-failed":
-      return pollFailed(state, action.meta);
+      return pollFailed(state, action.meta, action.error);
 
     case "task/refresh-loaded":
       return refreshLoaded(state, action);

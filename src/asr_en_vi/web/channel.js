@@ -14,3 +14,10 @@ export const providerChoice = createStore({
   initialState: 0,
   reduce: (state, action) => (action.type === "channel/provider-choice-changed" ? { state: state + 1 } : { state }),
 });
+
+// state = the last cross-tab meeting change delivered to this page. The browser transport stays in the
+// view boundary; this store keeps the reducer-to-reducer handoff data-only and testable.
+export const meetingChanges = createStore({
+  initialState: null,
+  reduce: (state, action) => (action.type === "channel/meeting-changed" ? { state: action.detail } : { state }),
+});

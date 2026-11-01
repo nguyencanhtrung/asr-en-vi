@@ -83,8 +83,19 @@ function render(state) {
 
   setProp(fileError, "textContent", tr(state.fileError));
   const message = tr(state.formError);
+  const previousMessage = formError.textContent;
+  const wasVisible = !formError.hidden;
   setProp(formError, "textContent", message);
   setProp(formError, "hidden", !message);
+  if (message) {
+    formError.setAttribute("tabindex", "-1");
+    if (!wasVisible || previousMessage !== message) {
+      formError.focus({ preventScroll: true });
+      if (typeof formError.scrollIntoView === "function") formError.scrollIntoView({ block: "nearest" });
+    }
+  } else {
+    formError.removeAttribute("tabindex");
+  }
   setProp(transferProgress, "hidden", !state.progress.visible);
   if (state.progress.indeterminate) uploadProgress.removeAttribute("value");
   else setProp(uploadProgress, "value", state.progress.percent);

@@ -1860,6 +1860,65 @@ def test_slow_save_never_repaints_after_navigating_elsewhere(live, browser_conte
     expect(page.locator("#meeting-edit")).to_be_hidden()
 
 
+def test_delayed_transcript_save_notifies_other_tab_after_origin_navigation_and_keeps_draft(
+    live, browser_context
+):
+    context, page_a = browser_context
+    other_id = seed_meeting(live.settings.data_dir, "Other tab destination", "2026-10-13")
+    meeting_id, _generation_id = open_reading_meeting(live, page_a, title="Shared transcript")
+    page_b = open_page(context, live, f"/meetings/{meeting_id}")
+    expect(page_b.locator(".segment-edit-button").first).to_be_enabled()
+
+    # Tab B has a dirty draft that must survive the authoritative refresh caused by A.
+    row_b = page_b.locator(".transcript-segment").first
+    editor_b = edit_segment(page_b)
+    editor_b.fill("Draft kept in B")
+
+    observed = page_b.context.new_page()
+    observed.goto(f"{live.url}/", wait_until="domcontentloaded")
+    observed.evaluate(
+        """() => {
+          window.__meetingChangeMessages = [];
+          const channel = new BroadcastChannel('asr-en-vi:meeting-changes');
+          channel.addEventListener('message', event =>
+            window.__meetingChangeMessages.push(event.data));
+        }"""
+    )
+
+    # Tab A confirms the write only after the user has moved to another meeting.
+    held = hold_first(
+        page_a,
+        rf"/api/meetings/{meeting_id}/transcript-segments/[^/]+/text$",
+        "PATCH",
+    )
+    row_a = page_a.locator(".transcript-segment").first
+    edit_segment(page_a)
+    row_a.locator(".segment-text-editor").fill("Saved from A")
+    row_a.get_by_role("button", name="Lưu đoạn").click()
+    deadline = time.monotonic() + 10
+    while not held and time.monotonic() < deadline:
+        page_a.wait_for_timeout(25)
+    assert held, "the transcript save did not reach the hold point"
+
+    page_a.locator("#recent-list a").filter(has_text="Other tab destination").click()
+    page_a.wait_for_url(f"{live.url}/meetings/{other_id}")
+    expect(page_a.locator("#meeting-title")).to_have_text("Other tab destination")
+    held[0].continue_()
+
+    expect(row_b.locator(".segment-text-editor")).to_have_value("Draft kept in B", timeout=10_000)
+    expect(row_b.locator(".transcript-draft-review")).to_contain_text(
+        "Bản mới nhất đã lưu: Saved from A", timeout=10_000
+    )
+    row_b.get_by_role("button", name="Hủy").click()
+    expect(row_b.locator(".segment-draft-mark")).to_have_text("Bản nháp chưa lưu")
+
+    messages = observed.evaluate("window.__meetingChangeMessages")
+    assert len(messages) == 1, "the receiver's authoritative read must not echo-broadcast"
+    assert messages[0]["meetingId"] == meeting_id
+    observed.close()
+    page_b.close()
+
+
 def test_slow_conflict_lookup_never_repaints_after_navigating_elsewhere(live, browser_context):
     context, page = browser_context
     a = seed_meeting(live.settings.data_dir, "Conflict A", "2026-10-14")

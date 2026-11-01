@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { meetingContext, providerChoice } from "../../src/asr_en_vi/web/channel.js";
+import { meetingChanges, meetingContext, providerChoice } from "../../src/asr_en_vi/web/channel.js";
 import { reduce as reduceNotes, initialState as notesInitial } from "../../src/asr_en_vi/web/notes-core.js";
 import { initialState as providerInitial, reduce as reduceProvider } from "../../src/asr_en_vi/web/provider-core.js";
 import { createRunner, createStore } from "../../src/asr_en_vi/web/store.js";
@@ -89,10 +89,21 @@ test("every provider-choice change is delivered, one per publish, and counted", 
   assert.equal(log.length, 2, "after stop nothing arrives");
 });
 
+test("meeting changes carry the mutation meeting and local provenance as data", () => {
+  const { log, stop } = listen(meetingChanges);
+  const detail = { meetingId: "m1", reason: "transcript", local: true };
+  meetingChanges.dispatch({ type: "channel/meeting-changed", detail });
+  meetingChanges.dispatch({ type: "channel/meeting-changed", detail });
+  stop();
+  assert.deepEqual(log, [detail]);
+  assert.equal(meetingChanges.getState(), detail);
+});
+
 test("before the first publish there is no context and no change was counted", async () => {
   const fresh = await import("../../src/asr_en_vi/web/channel.js?fresh"); // a new module instance, not the singleton the other tests used
   assert.equal(fresh.meetingContext.getState(), null);
   assert.equal(fresh.providerChoice.getState(), 0);
+  assert.equal(fresh.meetingChanges.getState(), null);
 });
 
 // ---- the channel wired the way notes.js wires it ----

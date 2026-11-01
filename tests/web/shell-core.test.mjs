@@ -6,10 +6,18 @@ import {
   AUTO_TRANSCRIBE_HANDOFF_PREFIX,
   canSubmit,
   initialState,
+  isWorkspaceAuthenticationFailure,
   reduce,
   responseMessage,
   selectView,
 } from "../../src/asr_en_vi/web/shell-core.js";
+
+test("workspace authentication failure is exact and does not classify provider 401 details", () => {
+  assert.equal(isWorkspaceAuthenticationFailure(401, { detail: "Authentication required" }), true);
+  assert.equal(isWorkspaceAuthenticationFailure(401, { detail: { code: "reconnect_required" } }), false);
+  assert.equal(isWorkspaceAuthenticationFailure(401, { detail: "authentication required" }), false);
+  assert.equal(isWorkspaceAuthenticationFailure(403, { detail: "Authentication required" }), false);
+});
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const reply = (status, body) => ({ ok: status < 400, status, text: async () => JSON.stringify(body) });

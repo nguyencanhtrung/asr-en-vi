@@ -38,6 +38,7 @@ const KEY = {
   conflict: "history/conflict",
   remove: "history/delete",
   address: "history/address",
+  meetingChange: "history/meeting-change",
 };
 
 // ---- date-only helpers: pure year/month/day arithmetic, never local time ----
@@ -326,7 +327,8 @@ function request(key, url, method, body, ok, error, meta) {
   return { type: "fetch", key, url, init, ok: `history/${ok}`, error: `history/${error}`, meta };
 }
 
-const call = (name, args) => ({ type: "call", key: KEY.address, name, args });
+const call = (name, args, key = KEY.address) => ({ type: "call", key, name, args });
+const meetingChange = (meetingId, reason) => call("meeting.change", [meetingId, reason], KEY.meetingChange);
 
 // ---- list and search ----
 
@@ -544,7 +546,9 @@ function saveSucceeded(state, action) {
     next = { ...closeEditor(next), editStatus: t("Đã lưu tên và ngày họp.") };
     if (next.view === "meeting") next = focusOn(bump(next, "paintRev"), "meeting-actions");
   }
-  return refreshList(settleBusy(next, meta));
+  const result = refreshList(settleBusy(next, meta));
+  result.effects.push(meetingChange(updated.id, "metadata"));
+  return result;
 }
 
 function saveFailed(state, action) {
@@ -640,12 +644,12 @@ function takeTask(state, meetingId, task) {
 // The transcript slice reduces the same answer: the meeting on screen takes the saved field (or speaker) as its own.
 // notes.js is told of a saved field, not of an added speaker, as before.
 function takeTranscriptAnswer(state, action) {
-  if (!isRecord(action.response.body)) return state; // the transcript slice reports it as a failed write
+  if (!isRecord(action.response.body)) return { state, changed: false }; // the transcript slice reports it as a failed write
   const answer = answerOf(action.meta, action.response.body);
   const result = answer.speaker ? applySpeakerAdded(state.meeting, answer) : applyFieldAnswer(state.meeting, answer);
   const lock = state.notes.lockKnown && typeof state.meeting?.notes_source_locked === "boolean" ? { notes_source_locked: state.notes.locked } : {};
   const next = result.applied ? { ...state, meeting: { ...result.meeting, ...lock } } : state;
-  return answer.speaker ? next : bump(next, "contextRev");
+  return { state: answer.speaker ? next : bump(next, "contextRev"), changed: result.applied };
 }
 
 // The meeting read again after a run succeeded: a newer copy from the server, with the sidebar following the query.
@@ -863,6 +867,9 @@ export function reduce(state, action) {
 
     case "history/meeting-requested":
       return requestMeeting(state, action.meetingId, at);
+    case "history/meeting-change-received":
+      if (state.view !== "meeting" || !state.meeting || state.meeting.id !== action.meetingId) return out(state);
+      return requestMeeting(state, action.meetingId, at);
     case "history/meeting-link-clicked": {
       const path = meetingPath(action.meetingId);
       const moved = at.pathname !== path ? { ...at, pathname: path, search: "", hash: "", tab: null } : at; // the address once pushed
@@ -921,8 +928,12 @@ export function reduce(state, action) {
     case "task/refresh-loaded":
       return out(refreshedMeeting(state, action));
 
-    case "transcript/mutation-succeeded":
-      return out(takeTranscriptAnswer(state, action));
+    case "transcript/mutation-succeeded": {
+      const result = takeTranscriptAnswer(state, action);
+      // A valid server answer is a confirmed mutation even when navigation made the current-view merge
+      // inapplicable. The mutation's meeting id is authoritative for the cross-tab refresh hint.
+      return out(result.state, result.changed || isRecord(action.response.body) ? [meetingChange(action.meta.meetingId, "transcript")] : []);
+    }
     case "transcript/reload-loaded": {
       // The same meeting, still the one installed when the read began, comes back as a newer copy.
       const body = action.response.body;
@@ -1046,9 +1057,10 @@ export function selectEditor(state) {
   if (!editor) return { open: false, status: state.editStatus };
   const locked = sourceMutationUnavailable(state);
   const dateChanged = (editor.date || null) !== editor.original.meeting_date;
+  const dateLocked = !editor.busy && locked && !dateChanged;
   return {
     open: true,
-    status: state.editStatus,
+    status: dateLocked ? selectLockStatus(state).text : state.editStatus,
     title: editor.title,
     date: editor.date,
     error: editor.error,

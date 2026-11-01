@@ -47,6 +47,7 @@ function setup(path = "/meetings/m1") {
   const requests = [];
   const timers = [];
   const calls = [];
+  const navigated = [];
   const stored = new Map();
   const address = { pathname: path, search: "", hash: "", tab: null };
   let nextId = 0;
@@ -59,6 +60,7 @@ function setup(path = "/meetings/m1") {
     clearTimeout: (id) => {
       timers[id].live = false;
     },
+    navigate: (url) => navigated.push(url),
     storage: { session: () => ({ setItem: (key, value) => stored.set(key, value), removeItem: (key) => stored.delete(key), getItem: (key) => stored.get(key) ?? null }) },
     calls: new Proxy({}, { get: (_, name) => (...args) => calls.push([name, ...args]) }),
   });
@@ -131,6 +133,7 @@ function setup(path = "/meetings/m1") {
     fire,
     stored,
     calls,
+    navigated,
     is,
     waiting: (match) => requests.filter(open(match)),
     live: () => timers.filter((item) => item.live && ![120, 4000].includes(item.delay)).map((item) => item.delay), // the task timers; not history's search and tab timers
@@ -296,6 +299,24 @@ test("a failed poll read keeps the task, shows the lost-connection line and retr
   await env.answer(GET_TASK("t1"), 200, task("t1", "running"));
   assert.equal(env.view().notice, null);
   assert.deepEqual(env.live(), [POLL_VISIBLE_MS]);
+});
+
+test("the exact workspace 401 ends the session, while a structured provider 401 stays a poll loss", async () => {
+  const workspace = await opened(meeting("m1", {}, { task: task("t1", "running") }));
+  workspace.fire(POLL_VISIBLE_MS);
+  await workspace.answer(GET_TASK("t1"), 401, { detail: "Authentication required" });
+  assert.equal(workspace.view().notice, "session-ended");
+  assert.equal(workspace.task().notice.kind, "session-ended");
+  assert.equal(workspace.task().poll, null);
+  assert.deepEqual(workspace.live(), []);
+  assert.deepEqual(workspace.navigated, ["/access"]);
+
+  const provider = await opened(meeting("m1", {}, { task: task("t1", "running") }));
+  provider.fire(POLL_VISIBLE_MS);
+  await provider.answer(GET_TASK("t1"), 401, { detail: { code: "provider_auth_error" } });
+  assert.equal(provider.view().notice, "poll-lost");
+  assert.deepEqual(provider.live(), [POLL_RETRY_MS]);
+  assert.deepEqual(provider.navigated, []);
 });
 
 test("a failed poll read after the poll was stopped changes nothing", async () => {

@@ -2,7 +2,7 @@
 // All state and rules live in notes-core.js (contract: docs/adr/0010-frontend-reducer-core.md).
 // Commands to history.js leave as `call` effects (the registry below); what it announces (the channel's
 // meeting context, the provider choice, popstate, ...) comes in as actions.
-import { meetingContext as meetingChannel, providerChoice } from "./channel.js";
+import { meetingChanges, meetingContext as meetingChannel, providerChoice } from "./channel.js";
 import { meetingHistory } from "./history.js";
 import { setAttr, setProp, tr } from "./shell.js";
 import { createRunner, createStore } from "./store.js";
@@ -381,6 +381,7 @@ const run = createRunner({
     "history.refreshMeeting": meetingHistory.refreshMeeting,
     "history.seekNotesSource": async (source) => meetingHistory.seekNotesSource(source),
     "history.playRecording": async () => meetingHistory.playRecording(),
+    "meeting.change": meetingHistory.publishMeetingChange,
     replaceUrl: (url) => window.history.replaceState(window.history.state, "", url),
     copy: (text) => navigator.clipboard.writeText(text),
     download: (filename, text) => {
@@ -444,6 +445,11 @@ els.openTranscript.addEventListener("click", () => dispatch({ type: "notes/open-
 els.reload.addEventListener("click", () => dispatch({ type: "notes/choice-reload-clicked" }));
 // Connections saved a model or changed a provider status: reload before a new run can start.
 providerChoice.subscribe(() => dispatch({ type: "notes/provider-choice-changed" }));
+meetingChanges.subscribe((detail) => {
+  if (detail && typeof detail.meetingId === "string" && detail.meetingId) {
+    dispatch({ type: "notes/meeting-change-received", meetingId: detail.meetingId });
+  }
+});
 els.language.addEventListener("change", (event) => dispatch({ type: "notes/language-chosen", language: event.currentTarget.value }));
 els.provider.addEventListener("change", (event) => dispatch({ type: "notes/provider-picked", provider: event.currentTarget.value }));
 els.model.addEventListener("change", (event) => dispatch({ type: "notes/model-picked", model: event.currentTarget.value }));

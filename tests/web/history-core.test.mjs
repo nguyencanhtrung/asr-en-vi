@@ -677,6 +677,7 @@ test("the lock disables the date and the save only while the date differs from t
   env.dispatch("notes-source-lock-reported", { meetingId: "m1", locked: true, known: true });
   let editor = selectEditor(env.state());
   assert.equal(editor.dateDisabled, true);
+  assert.match(text(editor.status), /Nguồn đang được dùng để tạo notes/);
   assert.equal(editor.clearDisabled, true);
   assert.equal(editor.saveDisabled, false);
   env.dispatch("editor-edited", { date: "" });
@@ -757,6 +758,7 @@ test("opening another meeting while a save is in flight orphans it", async () =>
   await env.answer(PATCH("m1"), 200, meeting("m1", { title: "A", metadata_version: 4 }));
   assert.equal(env.state().meeting.title, "Meeting m1");
   assert.equal(env.state().view, "loading");
+  assert.ok(env.calls.some(([name, meetingId, reason]) => name === "meeting.change" && meetingId === "m1" && reason === "metadata"));
 });
 
 test("a calendar detour keeps the editor, and the save result still lands", async () => {
