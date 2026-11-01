@@ -1172,3 +1172,19 @@ Kiến trúc
 #### Tài liệu đích
 
 - `docs/architecture-changes-v1.md` — mục này.
+
+### #86 — Đồng bộ dữ liệu cuộc họp và phản hồi theo trạng thái
+
+#### Vấn đề và thiết kế
+
+Tab khác không biết revision hoặc khóa nguồn mới cho tới khi tải lại. Các mutation đã được server xác nhận nay phát thông báo gồm ID cuộc họp và loại thay đổi qua `BroadcastChannel`; store `meetingChanges` chuyển dữ liệu này thành effect đọc lại trạng thái chính thức. Receiver không phát lại thông báo. ID cuộc họp của mutation vẫn được dùng nếu tab phát đã điều hướng sang cuộc họp khác, vì kết quả lưu thuộc cuộc họp nguồn.
+
+Reducer tiếp tục giữ bản nháp, selection và conflict khi cài dữ liệu mới. Notes chỉ phát khi revision hoặc khóa nguồn đổi, không phát theo mỗi tick tiến độ. Cách này tránh echo và giữ nhịp poll hiện có; thông báo giữa các tab chỉ là gợi ý đọc lại, server vẫn quyết định quyền ghi. Trình duyệt không có BroadcastChannel tiếp tục dùng cơ chế đọc và kiểm tra version hiện có.
+
+HTTP 401 với payload middleware `{detail: "Authentication required"}` dừng poll và chuyển tới `/access`, thay vì báo mất mạng rồi thử lại vô hạn. Lỗi 401 có code của provider vẫn đi theo luồng khôi phục kết nối provider. Thông báo thành công/hủy dựa trên transcript thực đã lưu; mutation bị từ chối không báo thành công ở live region. Trường ngày bị khóa có lý do và `aria-describedby`; lỗi upload mới được đưa vào vùng nhìn thấy một lần; các liên kết lịch có tiêu đề đầy đủ.
+
+#### Kiểm chứng và đánh đổi
+
+Kiểm thử hai tab giữ bản nháp của tab nhận khi tab phát lưu rồi chuyển cuộc họp; một thông báo được phát, không echo. Các regression reducer kiểm tra workspace/provider 401, mutation bị từ chối và lý do khóa. `docs/frontend-design-v1.md` ghi đúng rail 236 px/208 px. BroadcastChannel không thay thế kiểm tra version ở server và không cung cấp đồng bộ giữa thiết bị.
+
+Nguồn: Issue #86; `tests/test_browser_history.py`, `tests/web/channel.test.mjs`, `tests/web/history-core.test.mjs`, `tests/web/notes-core.test.mjs`, `tests/web/task-core.test.mjs`, `tests/web/transcript-core.test.mjs`.

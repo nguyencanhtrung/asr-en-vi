@@ -93,8 +93,6 @@ function render(state) {
       formError.focus({ preventScroll: true });
       if (typeof formError.scrollIntoView === "function") formError.scrollIntoView({ block: "nearest" });
     }
-  } else {
-    formError.removeAttribute("tabindex");
   }
   setProp(transferProgress, "hidden", !state.progress.visible);
   if (state.progress.indeterminate) uploadProgress.removeAttribute("value");

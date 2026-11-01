@@ -809,7 +809,7 @@ def test_a_refused_file_cannot_be_resubmitted_until_another_is_chosen(live, sign
     create.click()
 
     expect(dialog).to_have_attribute("data-state", "error", timeout=10_000)
-    expect(page.locator("#form-error")).to_contain_text("Không đọc được file")
+    expect(page.locator("#form-error")).to_contain_text("File không đạt yêu cầu")
     expect(create).to_be_disabled()  # the same file would be refused again
     expect(dialog.get_by_role("button", name="Tải lại từ đầu")).to_be_hidden()
     expect(page.locator("#meeting-name")).to_have_value("Broken")  # the form keeps its data
