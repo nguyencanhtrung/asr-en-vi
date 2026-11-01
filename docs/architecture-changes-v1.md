@@ -1122,3 +1122,53 @@ Issue #<n>, PR #<n>; liên quan #<n>.
 
 - <tệp và mục sẽ nhận nội dung khi release>
 ````
+
+### #86 — Chi tiết giao diện nhỏ: thứ tự điều khiển, rail và focus
+
+#### Vấn đề
+
+Ở viewport 360 px, thứ tự vẽ của header khác thứ tự Tab; ba cuộc họp gần đây đẩy Version khỏi vùng nhìn thấy ở desktop ngắn; vòng focus của transcript có thể nằm dưới player dính; wordmark hiển thị dấu `/` dù tên sản phẩm là ASR EN VI.
+
+#### Nguyên nhân đo được
+
+Header dùng thứ tự DOM khác với hàng provider được xếp lại bằng CSS; rail không giữ footer trong vùng nhìn khi nội dung cần cuộn; `scroll-padding-top` bằng đúng 64 px của player, không chừa khoảng cho outline; wordmark chứa separator không thuộc tên hiển thị.
+
+Nguồn: Issue #86 và kiểm thử layout browser của sản phẩm.
+
+#### Thay đổi thiết kế
+
+Header đặt nhóm hành động trước nhóm trạng thái provider trong DOM và giữ cùng thứ tự ở desktop/mobile. Footer rail sticky trên nền rail, vẫn cho phép cuộn nội bộ danh sách và lịch. Vùng transcript dùng `scroll-padding-top` bằng chiều cao player cộng 8 px; `#form-error` có `tabindex="-1"` để luồng lỗi có thể focus mà vẫn giữ nguyên ID/alert. Wordmark workspace hiển thị đúng `ASR EN VI`; accessible name của liên kết brand không đổi. Chiều rộng rail giữ 236 px desktop và 208 px ở breakpoint hẹp.
+
+#### Số đo trước và sau
+
+Kiểm thử trên Chromium và Firefox, light/dark, viewport 360×844, 1024×768 và 1280×800; transcript focus dùng 24 đoạn đã lưu.
+
+| Chỉ số | Trước | Sau |
+| --- | --- | --- |
+| Thứ tự DOM/visual của header ở 360 px | lệch | trùng; EN → Lịch → tạo → OpenAI → Google |
+| Version với 3 cuộc họp ở 1024×768 và 1280×800 | có thể dưới mép nhìn | nhìn thấy; rail vẫn cuộn nội bộ |
+| Scroll padding của transcript | 64 px | 72 px (64 + 8 px clearance) |
+| Wordmark nhìn thấy | `ASR / EN VI` | `ASR EN VI` |
+
+Nguồn: `tests/test_browser_layout_details.py`, Issue #86.
+
+#### Đánh đổi và phương án đã loại
+
+- Sticky footer giữ Version trong vùng thao tác mà không ẩn recent/calendar; phần còn lại của rail vẫn cuộn nội bộ.
+- Đổi thứ tự markup thay vì dùng tabindex dương hoặc chỉ xếp lại bằng CSS, để thứ tự keyboard và thứ tự vẽ có cùng nguồn.
+
+#### Follow-up
+
+- Không có thay đổi sản phẩm ngoài phạm vi layout của Issue #86.
+
+#### Liên kết issue/PR
+
+Issue #86.
+
+#### Tag
+
+Kiến trúc
+
+#### Tài liệu đích
+
+- `docs/architecture-changes-v1.md` — mục này.
