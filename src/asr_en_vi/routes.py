@@ -34,8 +34,10 @@ from asr_en_vi.recordings import (
     get_audio_recording,
     get_meeting,
     get_upload,
+    get_upload_received_bytes,
     list_meetings,
     open_audio,
+    release_upload,
     update_meeting,
 )
 from asr_en_vi.runtime import read_runtime_profile
@@ -72,6 +74,55 @@ _MEDIA_VALIDATION_CONCURRENCY = 2
 _RangeResult = tuple[int, int] | Literal["ignore", "unsatisfiable"]
 
 
+async def _await_owned(task: asyncio.Task[Any]) -> tuple[Any, bool]:
+    """Drain an owned task before propagating cancellation to its caller."""
+    cancelled = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancelled = True
+    try:
+        result = task.result()
+    except BaseException:
+        if cancelled:
+            raise asyncio.CancelledError from None
+        raise
+    return result, cancelled
+
+
+async def _owned_thread_call(
+    function: Any, *args: Any, _capture_cancel: bool = False, **kwargs: Any
+) -> Any:
+    """Run a filesystem/DB operation without abandoning it on request cancel."""
+    task = asyncio.create_task(run_in_threadpool(function, *args, **kwargs))
+    result, cancelled = await _await_owned(task)
+    if cancelled and not _capture_cancel:
+        raise asyncio.CancelledError
+    return (result, cancelled) if _capture_cancel else result
+
+
+async def _owned_cleanup_call(function: Any, *args: Any, **kwargs: Any) -> Any:
+    """Drain cleanup work even when another cancellation arrives during cleanup."""
+    result, _ = await _owned_thread_call(function, *args, _capture_cancel=True, **kwargs)
+    return result
+
+
+async def _begin_upload_owned(data_dir: Path, upload_id: str, offset: int) -> tuple[Path, int, int]:
+    """Acquire the upload writer without abandoning the guard on request cancel."""
+    result, cancelled = await _owned_thread_call(
+        begin_upload,
+        data_dir,
+        upload_id,
+        offset,
+        _capture_cancel=True,
+    )
+    if cancelled:
+        await _owned_cleanup_call(release_upload, data_dir, upload_id)
+        raise asyncio.CancelledError
+    return result
+
+
 def _asset_response(filename: str, media_type: str) -> Response:
     if filename == "shell.html":
         content = (WEB_DIR / filename).read_text(encoding="utf-8")
@@ -81,9 +132,10 @@ def _asset_response(filename: str, media_type: str) -> Response:
 
 
 def _raise_recording_error(error: RecordingError) -> None:
+    detail = {"code": error.code, "message": error.message, **error.details}
     raise HTTPException(
         status_code=error.status_code,
-        detail={"code": error.code, "message": error.message},
+        detail=detail,
     ) from None
 
 
@@ -312,6 +364,7 @@ def install_routes(
             "extensions": list(ALLOWED_EXTENSIONS),
             "max_size_bytes": settings.max_upload_bytes,
             "max_duration_seconds": settings.max_recording_seconds,
+            "chunk_bytes": settings.upload_chunk_bytes,
             "output": {
                 "container": "m4a",
                 "audio_codec": OUTPUT_CODEC,
@@ -465,21 +518,33 @@ def install_routes(
             _raise_recording_error(error)
 
     @app.put("/api/uploads/{upload_id}/content")
-    async def upload_content(upload_id: str, request: Request) -> dict[str, object]:
+    async def upload_content(
+        upload_id: str,
+        request: Request,
+        offset: int | None = Query(default=None, ge=0),
+    ) -> dict[str, object]:
+        requested_offset = 0 if offset is None else offset
         try:
-            raw_path, declared_size = await run_in_threadpool(
-                begin_upload, settings.data_dir, upload_id
+            raw_path, declared_size, committed_size = await _begin_upload_owned(
+                settings.data_dir, upload_id, requested_offset
             )
         except RecordingError as error:
             _raise_recording_error(error)
 
         file_handle = None
-        received_size = 0
+        writer_owned = True
+        durable_committed = False
+        received_size = committed_size
+        cleanup_size = committed_size
+        stream_interrupted = False
         try:
-            flags = os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
+            flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
             descriptor = os.open(raw_path, flags)
             os.fchmod(descriptor, 0o600)
-            file_handle = os.fdopen(descriptor, "wb", buffering=0)
+            file_handle = os.fdopen(descriptor, "r+b", buffering=0)
+            # An interrupted previous request may have left uncommitted bytes behind.
+            await _owned_thread_call(os.ftruncate, file_handle.fileno(), committed_size)
+            await _owned_thread_call(file_handle.seek, committed_size)
             stream = request.stream().__aiter__()
             while True:
                 try:
@@ -491,8 +556,12 @@ def install_routes(
                     raise RecordingError(
                         408,
                         "upload_timeout",
-                        "No upload bytes arrived in time. Start a new upload.",
+                        "No upload bytes arrived in time. Resume from received_bytes.",
+                        details={"received_bytes": committed_size},
                     ) from None
+                except BaseException:
+                    stream_interrupted = True
+                    raise
                 if not chunk:
                     continue
                 received_size += len(chunk)
@@ -508,34 +577,80 @@ def install_routes(
                         "size_mismatch",
                         "The received byte count does not match size_bytes.",
                     )
-                written = await run_in_threadpool(file_handle.write, chunk)
+                written = await _owned_thread_call(file_handle.write, chunk)
                 if written != len(chunk):
                     raise RecordingError(
                         500, "storage_failed", "The upload could not be written safely."
                     )
-            if received_size != declared_size:
+            if received_size == committed_size:
                 raise RecordingError(
                     400,
                     "size_mismatch",
-                    "The received byte count does not match size_bytes.",
+                    "The received byte count does not advance the upload.",
                 )
-            await run_in_threadpool(os.fsync, file_handle.fileno())
-            await run_in_threadpool(finish_upload, settings.data_dir, upload_id)
+            await _owned_thread_call(os.fsync, file_handle.fileno())
+            status, finish_cancelled = await _owned_thread_call(
+                finish_upload,
+                settings.data_dir,
+                upload_id,
+                received_size,
+                expected_bytes=committed_size,
+                _capture_cancel=True,
+            )
+            durable_committed = True
+            if finish_cancelled:
+                raise asyncio.CancelledError
         except BaseException as error:
+            interrupted = (
+                stream_interrupted
+                or isinstance(error, (asyncio.CancelledError, ClientDisconnect))
+                or (isinstance(error, RecordingError) and error.code == "upload_timeout")
+            )
             if file_handle is not None:
-                file_handle.close()
+                if interrupted and not durable_committed:
+                    try:
+                        cleanup_size = max(
+                            committed_size,
+                            min(
+                                declared_size,
+                                await _owned_cleanup_call(
+                                    get_upload_received_bytes,
+                                    settings.data_dir,
+                                    upload_id,
+                                ),
+                            ),
+                        )
+                    except BaseException:
+                        cleanup_size = committed_size
+                    try:
+                        await _owned_cleanup_call(os.ftruncate, file_handle.fileno(), cleanup_size)
+                        await _owned_cleanup_call(os.fsync, file_handle.fileno())
+                    except OSError:
+                        pass
+                await _owned_cleanup_call(file_handle.close)
                 file_handle = None
-            if isinstance(error, (asyncio.CancelledError, ClientDisconnect)):
-                fail_upload(settings.data_dir, upload_id, code="upload_interrupted")
-                raise
-            await run_in_threadpool(
+            if interrupted:
+                if isinstance(error, (asyncio.CancelledError, ClientDisconnect)):
+                    raise
+                if isinstance(error, RecordingError):
+                    _raise_recording_error(error)
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "code": "upload_interrupted",
+                        "message": "The upload was interrupted. Resume from received_bytes.",
+                        "received_bytes": cleanup_size,
+                    },
+                ) from None
+            if isinstance(error, RecordingError):
+                fail_upload(settings.data_dir, upload_id, code=error.code)
+                _raise_recording_error(error)
+            await _owned_thread_call(
                 fail_upload,
                 settings.data_dir,
                 upload_id,
-                code=error.code if isinstance(error, RecordingError) else "upload_interrupted",
+                code="upload_interrupted",
             )
-            if isinstance(error, RecordingError):
-                _raise_recording_error(error)
             raise HTTPException(
                 status_code=400,
                 detail={
@@ -544,9 +659,18 @@ def install_routes(
                 },
             ) from None
         finally:
-            if file_handle is not None:
-                await run_in_threadpool(file_handle.close)
-        return {"id": upload_id, "status": "uploaded", "size_bytes": received_size}
+            try:
+                if file_handle is not None:
+                    await _owned_thread_call(file_handle.close)
+            finally:
+                if writer_owned:
+                    await _owned_cleanup_call(release_upload, settings.data_dir, upload_id)
+        return {
+            "id": upload_id,
+            "status": status,
+            "size_bytes": declared_size,
+            "received_bytes": received_size,
+        }
 
     @app.post("/api/uploads/{upload_id}/complete")
     async def complete_upload_route(upload_id: str) -> dict[str, object]:

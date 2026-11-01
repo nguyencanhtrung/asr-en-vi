@@ -12,8 +12,16 @@ import {
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const reply = (status, body) => ({ ok: status < 400, status, text: async () => JSON.stringify(body) });
-const POLICY = { supported_extensions: ["wav", ".mp3", "mp4"], max_bytes: 1000, max_duration_seconds: 7200 };
+const POLICY = { supported_extensions: ["wav", ".mp3", "mp4"], max_bytes: 1000, max_duration_seconds: 7200, chunk_bytes: 1000 };
 const FILE = { name: "Weekly sync.wav", size: 500 };
+const CHUNKED_POLICY = { ...POLICY, chunk_bytes: 4 };
+const CHUNKED_FILE = {
+  name: "Chunked.wav",
+  size: 10,
+  slice(start, end) {
+    return { start, end, size: end - start };
+  },
+};
 
 // Real store and runner over fakes: requests wait in `calls` until a test answers them.
 function setup() {
@@ -47,11 +55,30 @@ function setup() {
     new Promise((resolve, reject) => {
       extracts.push({ file, options, resolve, reject });
     });
+  const scheduled = [];
+  let nextTimerId = 0;
+  const setTimeout = (callback, delay) => {
+    const timer = { id: ++nextTimerId, callback, delay, cancelled: false, fired: false };
+    scheduled.push(timer);
+    return timer.id;
+  };
+  const clearTimeout = (id) => {
+    const timer = scheduled.find((candidate) => candidate.id === id);
+    if (timer) timer.cancelled = true;
+  };
+  const runNextTimer = async () => {
+    const timer = scheduled.find((candidate) => !candidate.cancelled && !candidate.fired);
+    assert.ok(timer, "no pending timer");
+    timer.fired = true;
+    timer.callback();
+    await tick();
+    return timer;
+  };
   const run = createRunner({
     extract,
     fetch,
-    setTimeout: () => 0,
-    clearTimeout: () => {},
+    setTimeout,
+    clearTimeout,
     XMLHttpRequest: FakeXhr,
     storage: { local: () => ({ setItem: (k, v) => written.push(["local", k, v]) }), session: () => ({ setItem: (k, v) => written.push(["session", k, v]) }) },
     navigate: (url) => navigated.push(url),
@@ -66,22 +93,35 @@ function setup() {
   };
   const is = (method, path) => (c) => c.method === method && c.url.includes(path);
   const form = { title: "Weekly sync", date: "", language: "en" };
-  return { store, calls, xhrs, extracts, written, navigated, answer, is, form, state: () => store.getState() };
+  return {
+    store,
+    calls,
+    xhrs,
+    extracts,
+    scheduled,
+    runNextTimer,
+    written,
+    navigated,
+    answer,
+    is,
+    form,
+    state: () => store.getState(),
+  };
 }
 
-async function opened(env, stored = {}) {
+async function opened(env, stored = {}, policy = POLICY) {
   env.store.dispatch({ type: "shell/dialog-opened", stored });
-  await env.answer(env.is("GET", "/api/uploads/policy"), 200, POLICY);
+  await env.answer(env.is("GET", "/api/uploads/policy"), 200, policy);
 }
 
-async function selected(env, file = FILE) {
-  await opened(env);
+async function selected(env, file = FILE, policy = POLICY) {
+  await opened(env, {}, policy);
   env.store.dispatch({ type: "shell/file-selected", file });
   env.store.dispatch({ type: "shell/form-edited", form: env.form });
 }
 
-async function uploading(env) {
-  await selected(env);
+async function uploading(env, file = FILE, policy = POLICY) {
+  await selected(env, file, policy);
   env.store.dispatch({ type: "shell/submit-requested" });
   await env.answer(env.is("POST", "/api/uploads"), 200, { id: "u1" });
 }
@@ -108,7 +148,7 @@ test("opening loads the policy; a reply for a closed or reopened dialog is stale
   env.store.dispatch({ type: "shell/policy-loaded", meta: { id: id - 1 }, response: { body: POLICY } });
   assert.equal(env.state().policy, null);
   await env.answer(env.is("GET", "/policy"), 200, POLICY);
-  assert.deepEqual(env.state().policy, { extensions: [".wav", ".mp3", ".mp4"], maxBytes: 1000, maxDurationSeconds: 7200 });
+  assert.deepEqual(env.state().policy, { extensions: [".wav", ".mp3", ".mp4"], maxBytes: 1000, maxDurationSeconds: 7200, chunkBytes: 1000 });
 });
 
 test("remembered choices fill the form; unknown language is ignored", () => {
@@ -178,7 +218,7 @@ test("one button: cleans, creates the upload, uploads with progress, checks, the
   assert.equal(env.state().starting, true);
   await env.answer(env.is("POST", "/api/uploads"), 200, { id: "u1" });
   assert.equal(env.state().phase, "uploading");
-  assert.equal(env.xhrs[0].url, "/api/uploads/u1/content");
+  assert.equal(env.xhrs[0].url, "/api/uploads/u1/content?offset=0");
   assert.equal(env.xhrs[0].body, FILE);
   env.xhrs[0].upload.onprogress({ loaded: 250, total: 500, lengthComputable: true });
   assert.equal(env.state().progress.percent, 50);
@@ -198,6 +238,40 @@ test("one button: cleans, creates the upload, uploads with progress, checks, the
     ["session", `${AUTO_TRANSCRIBE_HANDOFF_PREFIX}m 1`, "1"],
   ]);
   assert.deepEqual(env.navigated, ["/meetings/m%201"]);
+});
+
+test("chunked upload sends sequential slices, resumes a failed chunk, and keeps cumulative progress", async () => {
+  const env = setup();
+  await uploading(env, CHUNKED_FILE, CHUNKED_POLICY);
+  assert.equal(env.xhrs[0].url, "/api/uploads/u1/content?offset=0");
+  assert.deepEqual(env.xhrs[0].body, { start: 0, end: 4, size: 4 });
+  env.xhrs[0].upload.onprogress({ loaded: 2, total: 4, lengthComputable: true });
+  assert.equal(env.state().progress.percent, 20);
+
+  const finishChunk = (xhr, received) => {
+    Object.assign(xhr, { status: 200, responseText: JSON.stringify({ status: received === 10 ? "uploaded" : "receiving", received_bytes: received }) });
+    xhr.onload();
+  };
+  finishChunk(env.xhrs[0], 4);
+  assert.equal(env.state().progress.percent, 40);
+  assert.equal(env.xhrs[1].url, "/api/uploads/u1/content?offset=4");
+  assert.deepEqual(env.xhrs[1].body, { start: 4, end: 8, size: 4 });
+
+  env.xhrs[1].onerror();
+  await env.answer(env.is("GET", "/api/uploads/u1"), 200, { status: "receiving", received_bytes: 4 });
+  const retryTimer = await env.runNextTimer();
+  assert.equal(retryTimer.delay, 1_000);
+  assert.equal(env.xhrs[2].url, "/api/uploads/u1/content?offset=4");
+  assert.deepEqual(env.xhrs[2].body, { start: 4, end: 8, size: 4 });
+  finishChunk(env.xhrs[2], 8);
+  assert.equal(env.state().progress.percent, 80);
+  assert.equal(env.xhrs[3].url, "/api/uploads/u1/content?offset=8");
+  assert.deepEqual(env.xhrs[3].body, { start: 8, end: 10, size: 2 });
+  finishChunk(env.xhrs[3], 10);
+  assert.equal(env.state().phase, "checking");
+  assert.equal(env.state().progress.percent, 100);
+  await env.answer(env.is("POST", "/complete"), 200, { status: "ready" });
+  assert.equal(env.state().phase, "creating");
 });
 
 test("auto-transcribe off writes no handoff; toggling stores the choice", async () => {
@@ -252,21 +326,151 @@ test("an upload reply of an older run is ignored", async () => {
   assert.equal(env.state().failure, null);
 });
 
-test("network error during upload cleans up and offers a retry that starts a fresh upload", async () => {
+test("network error resumes the current chunk after reading the server offset", async () => {
   const env = setup();
   await uploading(env);
   env.xhrs[0].onerror();
-  assert.equal(env.state().phase, "uploading"); // waits for the cleanup answer
+  assert.equal(env.state().phase, "uploading");
+  await env.answer(env.is("GET", "/api/uploads/u1"), 200, { status: "receiving", received_bytes: 0 });
+  const retryTimer = await env.runNextTimer();
+  assert.equal(retryTimer.delay, 1_000);
+  assert.equal(env.xhrs.length, 2);
+  assert.equal(env.xhrs[1].url, "/api/uploads/u1/content?offset=0");
+  assert.equal(env.state().uploadRetries, 1);
+});
+
+test("a recovery GET failure is retried before resuming at the committed offset", async () => {
+  const env = setup();
+  await uploading(env, CHUNKED_FILE, CHUNKED_POLICY);
+  env.xhrs[0].onerror();
+  await env.answer(env.is("GET", "/api/uploads/u1"), 503, {});
+  assert.equal(env.state().phase, "uploading");
+  assert.equal(env.state().uploadId, "u1");
+  assert.equal(env.state().uploadStateRetries, 1);
+  assert.equal(env.calls.some((call) => call.method === "DELETE"), false);
+  assert.match(env.state().workflow.text, /thử đọc lại/);
+
+  const retryTimer = await env.runNextTimer();
+  assert.equal(retryTimer.delay, 1_000);
+  await env.answer(env.is("GET", "/api/uploads/u1"), 200, {
+    status: "receiving",
+    received_bytes: 4,
+  });
+  assert.equal(env.xhrs[1].url, "/api/uploads/u1/content?offset=4");
+  assert.deepEqual(env.xhrs[1].body, { start: 4, end: 8, size: 4 });
+  assert.equal(env.state().uploadStateRetries, 0);
+});
+
+test("recovery GET failures are capped before the upload is cleaned up", async () => {
+  const env = setup();
+  await uploading(env, CHUNKED_FILE, CHUNKED_POLICY);
+  env.xhrs[0].onerror();
+
+  const expectedDelays = [1_000, 2_000, 4_000, 8_000, 16_000, 32_000];
+  for (let failure = 1; failure <= expectedDelays.length + 1; failure += 1) {
+    await env.answer(env.is("GET", "/api/uploads/u1"), 503, {});
+    if (failure <= expectedDelays.length) {
+      assert.equal(env.state().phase, "uploading");
+      assert.equal(env.state().uploadStateRetries, failure);
+      const retryTimer = await env.runNextTimer();
+      assert.equal(retryTimer.delay, expectedDelays[failure - 1]);
+    }
+  }
+
+  assert.equal(env.state().phase, "uploading");
+  assert.equal(env.state().uploadId, null);
+  assert.equal(env.state().uploadStateRetries, 6);
+  assert.equal(env.calls.filter((call) => call.method === "DELETE").length, 1);
   await env.answer(env.is("DELETE", "/api/uploads/u1"), 204, {});
   assert.equal(env.state().phase, "error");
-  assert.equal(env.state().retryable, true);
-  assert.equal(env.state().uploadId, null);
-  assert.equal(selectView(env.state()).retryHidden, false);
-  assert.equal(canSubmit(env.state()), true);
-  env.store.dispatch({ type: "shell/submit-requested" }); // retry
-  await env.answer(env.is("POST", "/api/uploads"), 200, { id: "u2" });
-  assert.equal(env.state().uploadId, "u2");
+  assert.equal(env.state().pendingCleanup.length, 0);
+});
+
+test("an active-writer conflict keeps the upload and retries the same committed offset", async () => {
+  const env = setup();
+  await uploading(env, CHUNKED_FILE, CHUNKED_POLICY);
+  Object.assign(env.xhrs[0], {
+    status: 409,
+    responseText: JSON.stringify({
+      detail: {
+        code: "upload_busy",
+        message: "Another upload content request is already running.",
+        received_bytes: 0,
+      },
+    }),
+  });
+  env.xhrs[0].onload();
+  await env.answer(env.is("GET", "/api/uploads/u1"), 200, {
+    status: "receiving",
+    received_bytes: 0,
+  });
+  const retryTimer = await env.runNextTimer();
+  assert.equal(retryTimer.delay, 1_000);
+  assert.equal(env.state().phase, "uploading");
   assert.equal(env.xhrs.length, 2);
+  assert.equal(env.xhrs[1].url, "/api/uploads/u1/content?offset=0");
+  assert.equal(env.calls.some((call) => call.method === "DELETE"), false);
+});
+
+test("an interrupted upload response is resumable", async () => {
+  const env = setup();
+  await uploading(env, CHUNKED_FILE, CHUNKED_POLICY);
+  Object.assign(env.xhrs[0], {
+    status: 400,
+    responseText: JSON.stringify({
+      detail: {
+        code: "upload_interrupted",
+        message: "The upload was interrupted. Resume from received_bytes.",
+        received_bytes: 0,
+      },
+    }),
+  });
+  env.xhrs[0].onload();
+  await env.answer(env.is("GET", "/api/uploads/u1"), 200, {
+    status: "receiving",
+    received_bytes: 0,
+  });
+  const retryTimer = await env.runNextTimer();
+  assert.equal(retryTimer.delay, 1_000);
+  assert.equal(env.state().phase, "uploading");
+  assert.equal(env.xhrs[1].url, "/api/uploads/u1/content?offset=0");
+  assert.equal(env.calls.some((call) => call.method === "DELETE"), false);
+});
+
+test("a recovery GET with an advanced offset resumes from that offset", async () => {
+  const env = setup();
+  await uploading(env, CHUNKED_FILE, CHUNKED_POLICY);
+  env.xhrs[0].onerror();
+  await env.answer(env.is("GET", "/api/uploads/u1"), 200, {
+    status: "receiving",
+    received_bytes: 4,
+  });
+  assert.equal(env.xhrs[1].url, "/api/uploads/u1/content?offset=4");
+  assert.deepEqual(env.xhrs[1].body, { start: 4, end: 8, size: 4 });
+  assert.equal(env.state().uploadRetries, 0);
+});
+
+test("a chunk is resent six times with exponential backoff before cleanup", async () => {
+  const env = setup();
+  await uploading(env, CHUNKED_FILE, CHUNKED_POLICY);
+  const expectedDelays = [1_000, 2_000, 4_000, 8_000, 16_000, 32_000];
+  for (let attempt = 0; attempt < expectedDelays.length + 1; attempt += 1) {
+    env.xhrs.at(-1).onerror();
+    await env.answer(env.is("GET", "/api/uploads/u1"), 200, {
+      status: "receiving",
+      received_bytes: 0,
+    });
+    if (attempt < expectedDelays.length) {
+      const retryTimer = await env.runNextTimer();
+      assert.equal(retryTimer.delay, expectedDelays[attempt]);
+      assert.match(env.state().workflow.text, /thử lại phần file/);
+    }
+  }
+  assert.equal(env.xhrs.length, 7); // original request plus six automatic resends
+  assert.equal(env.state().phase, "uploading");
+  assert.ok(env.calls.some((call) => call.method === "DELETE"));
+  await env.answer(env.is("DELETE", "/api/uploads/u1"), 204, {});
+  assert.equal(env.state().phase, "error");
 });
 
 test("server refusal of the file is final; a 5xx is retryable", async () => {
@@ -283,9 +487,12 @@ test("server refusal of the file is final; a 5xx is retryable", async () => {
   await uploading(flaky);
   Object.assign(flaky.xhrs[0], { status: 503, responseText: "{}" });
   flaky.xhrs[0].onload();
-  await flaky.answer(flaky.is("DELETE", "/u1"), 204, {});
-  assert.equal(flaky.state().retryable, true);
+  await flaky.answer(flaky.is("GET", "/u1"), 200, { status: "receiving", received_bytes: 0 });
+  const retryTimer = await flaky.runNextTimer();
+  assert.equal(retryTimer.delay, 1_000);
+  assert.equal(flaky.state().phase, "uploading");
   assert.equal(flaky.state().fileRefused, false);
+  assert.equal(flaky.xhrs.length, 2);
 });
 
 test("a failed upload step before the slot exists needs no cleanup", async () => {
@@ -472,33 +679,32 @@ const doneXhr = (xhr) => {
   xhr.onload();
 };
 
-test("a cancel during the failure cleanup stands; the late DELETE reply does not turn it into an error", async () => {
+test("a cancel during offset recovery stands; the late state reply does not turn it into an error", async () => {
   const env = setup();
   await uploading(env);
   env.xhrs[0].onerror();
+  assert.ok(env.calls.some((call) => call.method === "GET" && call.url.endsWith("/u1")));
   env.store.dispatch({ type: "shell/upload-cancel-requested" });
-  assert.equal(env.state().phase, "aborted");
+  assert.equal(env.state().phase, "uploading");
+  assert.equal(env.state().cancelling, true);
   await env.answer(env.is("DELETE", "/u1"), 204, {});
   assert.equal(env.state().phase, "aborted");
   assert.equal(env.state().failure, null);
   assert.deepEqual(env.state().pendingCleanup, []);
 });
 
-test("cancel then retry during the failure cleanup: the old DELETE reply is ignored by the new run", async () => {
+test("cancel then retry during offset recovery: the old state reply is ignored by the new run", async () => {
   const env = setup();
   await uploading(env);
   env.xhrs[0].onerror();
   env.store.dispatch({ type: "shell/upload-cancel-requested" });
   env.store.dispatch({ type: "shell/submit-requested" });
+  assert.equal(env.state().starting, false); // cancellation is still settling
+  await env.answer(env.is("DELETE", "/u1"), 204, {});
+  env.store.dispatch({ type: "shell/submit-requested" });
   assert.equal(env.state().starting, true);
-  const [first] = env.calls.filter((c) => c.method === "DELETE");
-  first.done = true;
-  first.resolve(reply(204, {}));
-  await tick();
   assert.equal(env.state().formError, null);
-  assert.equal(env.state().starting, true);
-  await env.answer(env.is("DELETE", "/u1"), 204, {}); // the start path's own DELETE of the same id
-  assert.equal(env.calls.filter((c) => c.method === "POST" && c.url === "/api/uploads").length, 2); // slot asked once
+  assert.equal(env.calls.filter((c) => c.method === "POST" && c.url === "/api/uploads").length, 2);
   await env.answer((c) => c.method === "POST" && c.url === "/api/uploads" && !c.done, 200, { id: "u2" });
   assert.equal(env.state().phase, "uploading");
   assert.equal(env.state().formError, null);
@@ -808,7 +1014,11 @@ test("selecting another file clears the previous extraction notice and file", as
   env.extracts[0].reject(Object.assign(new Error("x"), { kind: "no-audio" }));
   await tick();
   await env.answer(env.is("POST", "/api/uploads"), 200, { id: "u1" });
-  env.xhrs[0].onerror();
+  env.store.dispatch({
+    type: "shell/upload-failed",
+    meta: { runId: env.state().runId },
+    error: { kind: "aborted", message: "aborted" },
+  });
   await env.answer(env.is("DELETE", "/api/uploads/u1"), 204, {});
   assert.notEqual(env.state().notice, null);
   env.store.dispatch({ type: "shell/file-selected", file: FILE });

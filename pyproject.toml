@@ -63,6 +63,7 @@ timeout_method = "thread"
 markers = [
     "browser: requires Chromium and exercises the access flow in a real browser",
     "slow: opt-in processing test that can take several minutes",
+    "upload_chunk_bytes: run a browser test with a deliberately small upload chunk policy",
 ]
 
 [tool.ruff]

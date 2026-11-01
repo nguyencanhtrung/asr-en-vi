@@ -21,6 +21,25 @@ def test_settings_read_local_model_device_and_compute_type(monkeypatch, tmp_path
     assert settings.asr_compute_type == "float16"
 
 
+def test_settings_read_upload_chunk_bytes_and_keep_the_64_mib_default(monkeypatch, tmp_path):
+    monkeypatch.setenv("ASR_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ASR_AUTH_DIR", str(tmp_path / "auth"))
+    monkeypatch.setenv("ASR_UPLOAD_CHUNK_BYTES", "4096")
+
+    assert Settings.from_env().upload_chunk_bytes == 4096
+    monkeypatch.delenv("ASR_UPLOAD_CHUNK_BYTES")
+    assert Settings.from_env().upload_chunk_bytes == 64 * 1024**2
+
+
+def test_settings_reject_upload_chunks_above_the_edge_safe_default(tmp_path):
+    with pytest.raises(ValueError, match="upload_chunk_bytes"):
+        Settings(
+            data_dir=tmp_path / "data",
+            auth_dir=tmp_path / "auth",
+            upload_chunk_bytes=64 * 1024**2 + 1,
+        )
+
+
 def test_settings_default_to_automatic_hardware_specific_profiles(monkeypatch, tmp_path):
     monkeypatch.setenv("ASR_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("ASR_AUTH_DIR", str(tmp_path / "auth"))

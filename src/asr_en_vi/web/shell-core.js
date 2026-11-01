@@ -82,7 +82,17 @@ function normalizePolicy(payload) {
   const rawExtensions = policyField(source, ["supported_extensions", "extensions", "allowed_extensions"]);
   const maxBytes = Number(policyField(source, ["max_bytes", "max_size_bytes", "max_file_size_bytes"]));
   const maxDurationSeconds = Number(policyField(source, ["max_duration_seconds", "max_duration_s"]));
-  if (!Array.isArray(rawExtensions) || !Number.isFinite(maxBytes) || maxBytes <= 0 || !Number.isFinite(maxDurationSeconds) || maxDurationSeconds <= 0) {
+  const rawChunkBytes = policyField(source, ["chunk_bytes", "chunk_size_bytes"]);
+  const chunkBytes = rawChunkBytes === undefined ? DEFAULT_UPLOAD_CHUNK_BYTES : Number(rawChunkBytes);
+  if (
+    !Array.isArray(rawExtensions)
+    || !Number.isSafeInteger(maxBytes)
+    || maxBytes <= 0
+    || !Number.isSafeInteger(maxDurationSeconds)
+    || maxDurationSeconds <= 0
+    || !Number.isSafeInteger(chunkBytes)
+    || chunkBytes <= 0
+  ) {
     return { error: t("Chính sách chưa công bố đủ định dạng, dung lượng và thời lượng tối đa.") };
   }
   const extensions = rawExtensions
@@ -90,7 +100,14 @@ function normalizePolicy(payload) {
     .map((extension) => (extension.startsWith(".") ? extension : `.${extension}`))
     .filter((extension) => /^\.[a-z0-9][a-z0-9.+_-]*$/.test(extension));
   if (extensions.length === 0) return { error: t("Chính sách chưa công bố định dạng file được hỗ trợ.") };
-  return { policy: { extensions: [...new Set(extensions)], maxBytes, maxDurationSeconds } };
+  return {
+    policy: {
+      extensions: [...new Set(extensions)],
+      maxBytes,
+      maxDurationSeconds,
+      chunkBytes: Math.min(chunkBytes, DEFAULT_UPLOAD_CHUNK_BYTES),
+    },
+  };
 }
 
 function fileExtension(filename) {
@@ -107,6 +124,15 @@ function formValuesAreValid(form) {
 const NO_PROGRESS = { visible: false, percent: 0, text: "0%" };
 const BUSY_PHASES = ["extracting", "uploading", "checking", "creating"];
 const CANCELLABLE_PHASES = ["extracting", "uploading", "checking"];
+const DEFAULT_UPLOAD_CHUNK_BYTES = 64 * 1024 * 1024;
+const MAX_CHUNK_RETRIES = 6;
+const RETRY_BACKOFF_BASE_MS = 1_000;
+const RETRY_BACKOFF_CAP_MS = 32_000;
+// 1+2+4+8+16+32 seconds is 63 seconds, beyond the server's 60-second
+// _UPLOAD_IDLE_TIMEOUT_SECONDS, so a half-open writer can expire within this bounded window.
+function retryDelayMs(retryNumber) {
+  return Math.min(RETRY_BACKOFF_CAP_MS, RETRY_BACKOFF_BASE_MS * 2 ** (retryNumber - 1));
+}
 // Video containers whose audio track the browser copies out before the upload.
 const VIDEO_EXTENSIONS = [".mp4", ".mov", ".webm"];
 
@@ -124,6 +150,9 @@ export const initialState = {
   autoTitle: "",
   uploadId: null,
   sendFile: null, // what the upload sends: the file itself, or the audio the browser extracted from it
+  uploadOffset: 0, // bytes durably committed by the server before the current chunk
+  uploadRetries: 0, // automatic retries already used for the current chunk
+  uploadStateRetries: 0, // recovery GET retries already used after a failed upload request
   notice: null, // result of the extraction step, shown beside the validation line
   runId: 0, // id of the latest upload run; replies of other runs are stale
   starting: false, // cleaning old uploads and creating the new upload slot
@@ -224,9 +253,9 @@ const NETWORK = t("Không kết nối được với máy chủ trên máy này.
 // fallback is the text for a failure that carries no message at all.
 function failureOf(error, fallback) {
   if (error.status !== undefined) return { api: true, status: error.status, body: error.body, message: responseMessage(error.status, error.body) };
-  if (error.kind === "network") return { api: false, message: t("Mất kết nối trong lúc truyền file.") };
-  if (error.kind === "timeout") return { api: false, message: t("Thời gian truyền file đã hết.") };
-  if (error.kind === "aborted") return { api: false, message: t("Đã hủy lượt truyền file.") };
+  if (error.kind === "network") return { api: false, kind: error.kind, message: t("Mất kết nối trong lúc truyền file.") };
+  if (error.kind === "timeout") return { api: false, kind: error.kind, message: t("Thời gian truyền file đã hết.") };
+  if (error.kind === "aborted") return { api: false, kind: error.kind, message: t("Đã hủy lượt truyền file.") };
   return { api: false, message: error.message ? NETWORK : fallback };
 }
 const otherFailure = (message) => ({ api: false, message });
@@ -276,6 +305,9 @@ function startUpload(state) {
     validation: null,
     notice: null,
     sendFile: null,
+    uploadOffset: 0,
+    uploadRetries: 0,
+    uploadStateRetries: 0,
     workflow: t("Đang tạo lượt upload. Chưa truyền byte nào."),
     uploadId: null,
     cleanupWait: stale,
@@ -333,6 +365,86 @@ function createUploadSlot(state) {
   };
 }
 
+function uploadChunkEffect(state, offset = state.uploadOffset) {
+  const file = state.sendFile;
+  if (!file || !Number.isSafeInteger(file.size) || file.size < 1) return null;
+  const chunkBytes = state.policy?.chunkBytes ?? DEFAULT_UPLOAD_CHUNK_BYTES;
+  const end = Math.min(file.size, offset + chunkBytes);
+  const body = typeof file.slice === "function"
+    ? file.slice(offset, end)
+    : offset === 0 && end === file.size
+      ? file
+      : null;
+  if (!body || end <= offset) return null;
+  return {
+    type: "upload",
+    key: "shell/upload",
+    url: `/api/uploads/${encodeURIComponent(state.uploadId)}/content?offset=${offset}`,
+    headers: { "Content-Type": "application/octet-stream" },
+    body,
+    ok: "shell/upload-sent",
+    error: "shell/upload-failed",
+    progress: "shell/upload-progressed",
+    meta: { runId: state.runId, offset, chunkBytes: end - offset },
+  };
+}
+
+function sendUploadChunk(state, offset = state.uploadOffset, retries = state.uploadRetries) {
+  const effect = uploadChunkEffect(state, offset);
+  if (!effect) return failUpload(state, otherFailure(t("Không thể cắt phần file cần tải lên.")));
+  return {
+    state: { ...state, uploadOffset: offset, uploadRetries: retries, uploadStateRetries: 0 },
+    effects: [effect],
+  };
+}
+
+function uploadStateEffect(state) {
+  return {
+    type: "fetch",
+    key: "shell/upload-state",
+    url: `/api/uploads/${encodeURIComponent(state.uploadId)}`,
+    init: jsonRequest("GET"),
+    ok: "shell/upload-state-loaded",
+    error: "shell/upload-state-failed",
+    meta: { runId: state.runId, offset: state.uploadOffset },
+  };
+}
+
+function uploadProgress(state, offset, loaded) {
+  const total = state.sendFile?.size ?? 0;
+  const cumulative = Math.min(total, Math.max(0, offset + loaded));
+  const percent = total > 0 ? Math.min(100, Math.round((cumulative / total) * 100)) : 0;
+  return {
+    visible: true,
+    percent,
+    text: `${percent}%`,
+    cumulative,
+  };
+}
+
+function startUploadCompletion(state) {
+  return {
+    state: {
+      ...state,
+      uploadOffset: state.sendFile.size,
+      uploadRetries: 0,
+      phase: "checking",
+      workflow: t("Đã truyền xong byte. Máy chủ đang kiểm tra định dạng, thời lượng và nội dung file."),
+      validation: t("Đang kiểm tra file trên máy chủ. Đây là bước xác nhận file, không phải tiến độ xử lý transcript."),
+      progress: { visible: true, percent: 100, text: "100%" },
+    },
+    effects: [{
+      type: "fetch",
+      key: "shell/upload-complete",
+      url: `/api/uploads/${encodeURIComponent(state.uploadId)}/complete`,
+      init: jsonRequest("POST", {}),
+      ok: "shell/upload-completed",
+      error: "shell/upload-completion-failed",
+      meta: { runId: state.runId },
+    }],
+  };
+}
+
 function uploadFailureMessage(failure, cleaned) {
   let reason = failure.message;
   if (failure.status === 413) reason = t("File vượt giới hạn dung lượng. Hãy chọn file nhỏ hơn.");
@@ -384,7 +496,7 @@ function cancelUpload(state) {
     failure: null,
     pendingCleanup: state.uploadId ? withItem(state.pendingCleanup, state.uploadId) : state.pendingCleanup,
   };
-  const effects = ["extract", "upload", "upload-complete"].map((name) => ({ type: "cancel", key: `shell/${name}` }));
+  const effects = ["extract", "upload", "upload-state", "upload-retry", "upload-complete"].map((name) => ({ type: "cancel", key: `shell/${name}` }));
   if (!state.uploadId) return { ...finishCancel(base, true), effects }; // an extraction in flight has no upload id
   return { state: base, effects: [...effects, cleanupEffect(state.uploadId, "cancel")] };
 }
@@ -556,7 +668,7 @@ function dialogClosed(state) {
   if (!state.open) return same(state);
   // A save in flight finishes and navigates; only the open flag follows the dialog.
   if (state.phase === "creating") return set(state, { open: false });
-  const effects = ["policy", "extract", "upload-create", "upload", "upload-complete"].map((name) => ({ type: "cancel", key: `shell/${name}` }));
+  const effects = ["policy", "extract", "upload-create", "upload", "upload-state", "upload-retry", "upload-complete"].map((name) => ({ type: "cancel", key: `shell/${name}` }));
   const leftover = state.createUncertain ? null : state.uploadId;
   if (leftover) effects.push(cleanupEffect(leftover, "close"));
   const pendingCleanup = leftover ? withItem(state.pendingCleanup, leftover) : state.pendingCleanup;
@@ -663,61 +775,159 @@ export function reduce(state, action) {
       if (!live(state, action.meta) || !state.starting) return same(state);
       const id = action.response.body && action.response.body.id;
       if (typeof id !== "string" || !id) return failUpload(state, otherFailure(t("Máy chủ không trả về mã upload.")));
-      return {
-        state: {
-          ...state,
-          uploadId: id,
-          starting: false,
-          phase: "uploading",
-          workflow: t("Đang tải file lên bằng byte progress thực tế."),
-          progress: { visible: true, percent: 0, text: "0%" },
-        },
-        effects: [{
-          type: "upload",
-          key: "shell/upload",
-          url: `/api/uploads/${encodeURIComponent(id)}/content`,
-          headers: { "Content-Type": "application/octet-stream" },
-          body: state.sendFile,
-          ok: "shell/upload-sent",
-          error: "shell/upload-failed",
-          progress: "shell/upload-progressed",
-          meta: { runId: state.runId },
-        }],
-      };
+      return sendUploadChunk({
+        ...state,
+        uploadId: id,
+        starting: false,
+        phase: "uploading",
+        workflow: t("Đang tải file lên theo từng phần byte; tiến độ là của cả file."),
+        uploadOffset: 0,
+        uploadRetries: 0,
+        progress: { visible: true, percent: 0, text: "0%" },
+      }, 0, 0);
     }
     case "shell/upload-create-failed":
-    case "shell/upload-failed":
-    case "shell/upload-completion-failed":
       if (!live(state, action.meta)) return same(state);
       return failUpload(state, failureOf(action.error, t("Máy chủ chưa thể nhận file.")));
-    case "shell/upload-progressed": {
+    case "shell/upload-failed": {
       if (!live(state, action.meta) || state.phase !== "uploading") return same(state);
-      if (action.lengthComputable && action.total > 0) {
-        const percent = Math.min(100, Math.round((action.loaded / action.total) * 100));
-        return set(state, { progress: { visible: true, percent, text: `${percent}%` } });
-      }
-      return set(state, { progress: { ...state.progress, visible: true, text: t("{size} đã gửi", { size: bytes(action.loaded) }) } });
-    }
-    case "shell/upload-sent":
-      if (!live(state, action.meta) || state.phase !== "uploading") return same(state);
+      const failure = failureOf(action.error, t("Máy chủ chưa thể nhận file."));
+      const detail = failure.body?.detail;
+      const code = detail && typeof detail === "object" ? detail.code : "";
+      const resumable =
+        failure.kind !== "aborted"
+        && (!failure.api
+        || failure.status >= 500
+        || failure.status === 408
+        || code === "offset_mismatch"
+        || code === "upload_timeout"
+        || code === "upload_busy"
+        || code === "upload_interrupted");
+      if (!resumable) return failUpload(state, failure);
       return {
         state: {
           ...state,
-          phase: "checking",
-          workflow: t("Đã truyền xong byte. Máy chủ đang kiểm tra định dạng, thời lượng và nội dung file."),
-          validation: t("Đang kiểm tra file trên máy chủ. Đây là bước xác nhận file, không phải tiến độ xử lý transcript."),
-          progress: { visible: true, percent: 100, text: "100%" },
+          workflow: t("Đang kiểm tra số byte đã nhận để tiếp tục lượt upload."),
+        },
+        effects: [uploadStateEffect(state)],
+      };
+    }
+    case "shell/upload-state-failed": {
+      if (!live(state, action.meta) || state.phase !== "uploading") return same(state);
+      const failure = failureOf(action.error, t("Không đọc được tiến độ upload trên máy chủ."));
+      const recoverable =
+        !failure.api || failure.status >= 500 || failure.status === 408 || failure.status === 429;
+      if (!recoverable || state.uploadStateRetries >= MAX_CHUNK_RETRIES) {
+        return failUpload(state, failure);
+      }
+      const retries = state.uploadStateRetries + 1;
+      return {
+        state: {
+          ...state,
+          uploadStateRetries: retries,
+          workflow: t("Đang thử đọc lại số byte đã nhận để tiếp tục lượt upload."),
         },
         effects: [{
-          type: "fetch",
-          key: "shell/upload-complete",
-          url: `/api/uploads/${encodeURIComponent(state.uploadId)}/complete`,
-          init: jsonRequest("POST", {}),
-          ok: "shell/upload-completed",
-          error: "shell/upload-completion-failed",
-          meta: { runId: state.runId },
+          type: "schedule",
+          key: "shell/upload-state",
+          delay: retryDelayMs(retries),
+          action: {
+            type: "shell/upload-state-retry",
+            meta: { runId: state.runId, offset: state.uploadOffset },
+          },
         }],
       };
+    }
+    case "shell/upload-state-retry":
+      if (
+        !live(state, action.meta)
+        || state.phase !== "uploading"
+        || action.meta.offset !== state.uploadOffset
+      ) return same(state);
+      return { state, effects: [uploadStateEffect(state)] };
+    case "shell/upload-retry":
+      if (
+        !live(state, action.meta)
+        || state.phase !== "uploading"
+        || action.meta.offset !== state.uploadOffset
+      ) return same(state);
+      return sendUploadChunk(state, state.uploadOffset, state.uploadRetries);
+    case "shell/upload-state-loaded": {
+      if (
+        !live(state, action.meta)
+        || state.phase !== "uploading"
+        || action.meta.offset !== state.uploadOffset
+      ) return same(state);
+      const body = action.response.body;
+      const received = body && Number(body.received_bytes);
+      const total = state.sendFile?.size;
+      if (
+        !Number.isSafeInteger(received)
+        || !Number.isSafeInteger(total)
+        || received < 0
+        || received > total
+        || (body.status !== "receiving" && body.status !== "uploaded")
+      ) {
+        return failUpload(state, otherFailure(t("Máy chủ trả về tiến độ upload không hợp lệ.")));
+      }
+      const next = {
+        ...state,
+        uploadOffset: received,
+        uploadRetries: received === state.uploadOffset ? state.uploadRetries + 1 : 0,
+        uploadStateRetries: 0,
+        progress: uploadProgress(state, received, 0),
+      };
+      if (received === total) return startUploadCompletion(next);
+      if (received === state.uploadOffset) {
+        if (next.uploadRetries > MAX_CHUNK_RETRIES) {
+          return failUpload(next, otherFailure(t("Không thể tiếp tục phần file sau nhiều lần thử.")));
+        }
+        return {
+          state: { ...next, workflow: t("Đang thử lại phần file chưa được xác nhận.") },
+          effects: [{
+            type: "schedule",
+            key: "shell/upload-retry",
+            delay: retryDelayMs(next.uploadRetries),
+            action: { type: "shell/upload-retry", meta: { runId: state.runId, offset: received } },
+          }],
+        };
+      }
+      return sendUploadChunk(next, received, 0);
+    }
+    case "shell/upload-completion-failed":
+      if (!live(state, action.meta)) return same(state);
+      return failUpload(state, failureOf(action.error, t("Máy chủ chưa thể kiểm tra file.")));
+    case "shell/upload-progressed": {
+      if (!live(state, action.meta) || state.phase !== "uploading") return same(state);
+      const offset = action.meta.offset ?? state.uploadOffset;
+      if (offset !== state.uploadOffset) return same(state);
+      const loaded = Number.isFinite(action.loaded) ? action.loaded : 0;
+      const progress = uploadProgress(state, offset, loaded);
+      if (action.lengthComputable && action.total > 0) return set(state, { progress });
+      return set(state, {
+        progress: { ...progress, text: t("{size} đã gửi", { size: bytes(progress.cumulative) }) },
+      });
+    }
+    case "shell/upload-sent": {
+      if (!live(state, action.meta) || state.phase !== "uploading") return same(state);
+      const body = action.response.body;
+      const reported = body && Number(body.received_bytes);
+      const nextOffset = Number.isSafeInteger(reported)
+        ? reported
+        : action.meta.offset + action.meta.chunkBytes;
+      const total = state.sendFile?.size;
+      if (!Number.isSafeInteger(total) || nextOffset < action.meta.offset || nextOffset > total) {
+        return failUpload(state, otherFailure(t("Máy chủ trả về số byte upload không hợp lệ.")));
+      }
+      const next = {
+        ...state,
+        uploadOffset: nextOffset,
+        uploadRetries: 0,
+        progress: uploadProgress(state, nextOffset, 0),
+      };
+      if (nextOffset === total) return startUploadCompletion(next);
+      return sendUploadChunk(next, nextOffset, 0);
+    }
     case "shell/upload-completed": {
       if (!live(state, action.meta) || state.phase !== "checking") return same(state);
       const body = action.response.body;

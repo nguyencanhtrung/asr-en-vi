@@ -326,7 +326,7 @@ Mỗi pha thêm vào tài liệu này bảng state và chuyển trạng thái c�
 
 Core `shell-core.js` (`initialState`, `reduce`, `selectView`), view `shell.js`. Văn bản trong core là `{text, params}`, view dịch bằng `t()`.
 
-**Id chống response cũ** (trong state): `policyRequest` (tải chính sách), `runId` (một lượt upload: tạo slot, truyền, kiểm tra), `createRequest` (lưu cuộc họp). Mỗi effect `fetch`/`upload` mang id trong `meta`; action có id khác bị bỏ. Mở và đóng dialog tăng `policyRequest` và `runId`.
+**Id chống response cũ** (trong state): `policyRequest` (tải chính sách), `runId` (một lượt upload: tạo slot, truyền, kiểm tra), `createRequest` (lưu cuộc họp). State upload còn có `uploadOffset` (byte đã commit), `uploadRetries` (số lần thử lại phần hiện tại) và `uploadStateRetries` (số lần thử lại GET trạng thái sau lỗi). Chính sách chuẩn hóa thành `chunkBytes`, mặc định 64 MiB. Mỗi effect `fetch`/`upload` mang id trong `meta`; action có id khác bị bỏ. Mở và đóng dialog tăng `policyRequest` và `runId`.
 
 **Trạng thái `phase`** (nhãn hiện ở `#state-label`, `data-state` của dialog):
 
@@ -363,14 +363,19 @@ Cờ bổ sung: `sendFile` (file mà upload gửi: chính file đã chọn, ho�
 | `extracting` | `extract-done` | `selected`, `starting`, `sendFile` = audio, `notice` = đã tách | `fetch shell/upload-create` với tên và dung lượng của file audio |
 | `extracting` | `extract-failed` (mọi lý do) | `selected`, `starting`, `sendFile` = file gốc, `notice` = không tách được | `fetch shell/upload-create` với file gốc |
 | `extracting` | `upload-cancel-requested` hoặc đóng dialog | `aborted` ngay (chưa có slot, không DELETE) | `cancel shell/extract` |
-| `starting` | `upload-created` | `uploading`, tiến độ về 0 | `upload shell/upload` gửi `sendFile` |
+| `starting` | `upload-created` | `uploading`, `uploadOffset = 0`, tiến độ về 0 | `upload shell/upload` gửi phần `sendFile.slice(0, chunkBytes)` với `offset=0` |
 | `starting` | `upload-create-failed` hoặc thiếu mã | `error` | |
 | `uploading` | `upload-progressed` | `uploading` | |
-| `uploading` | `upload-sent` | `checking` | `fetch shell/upload-complete` |
-| `uploading` | `upload-failed` (mạng, hết giờ, HTTP) | `uploading` rồi `error` sau khi dọn | DELETE upload |
+| `uploading` | `upload-sent` với `received_bytes < size_bytes` | `uploading`, offset kế tiếp | `upload shell/upload` gửi phần kế tiếp với `offset=received_bytes` |
+| `uploading` | `upload-sent` với `received_bytes == size_bytes` | `checking` | `fetch shell/upload-complete` |
+| `uploading` | `upload-failed` có thể tiếp tục (`upload_busy`, `upload_interrupted`, lỗi mạng, 5xx, 408 hoặc `offset_mismatch`) | `uploading` | `fetch shell/upload-state`, lỗi GET tạm thời được thử lại có backoff mũ; rồi thử lại cùng phần tối đa 6 lần |
+| `uploading` | `upload-state-loaded` có offset mới | `uploading` | Gửi phần từ offset server trả về; tiến độ là tiến độ cộng dồn của cả file |
+| `uploading` | `upload-state-loaded` có cùng offset | `uploading` | `schedule shell/upload-retry` với backoff mũ 1/2/4/8/16/32 giây (63 giây tổng); quá 6 lần thì dọn upload và báo lỗi |
+| `uploading` | `upload-state-failed` lỗi tạm thời | `uploading` | `schedule shell/upload-state-retry` với cùng backoff mũ và tối đa 6 lần; quá giới hạn thì dọn upload và báo lỗi |
+| `uploading` | `upload-failed` không thể tiếp tục hoặc `upload-state-failed` lỗi cuối | `error` sau khi dọn | DELETE upload |
 | `checking` | `upload-completed` ready | `ready` rồi `creating` ngay | `fetch shell/create` |
 | `checking` | `upload-completed` khác ready, `upload-completion-failed` | `error` sau khi dọn | DELETE upload |
-| `uploading`, `checking` | `upload-cancel-requested` hoặc đóng dialog | `aborted` sau khi dọn | `cancel shell/extract`, `cancel shell/upload`, `cancel shell/upload-complete`, DELETE upload (id vào `pendingCleanup` ngay, xóa khi DELETE được xác nhận) |
+| `uploading`, `checking` | `upload-cancel-requested` hoặc đóng dialog | `aborted` sau khi dọn | `cancel shell/extract`, `cancel shell/upload`, `cancel shell/upload-state`, `cancel shell/upload-retry`, `cancel shell/upload-complete`, DELETE upload (id vào `pendingCleanup` ngay, xóa khi DELETE được xác nhận) |
 | `uploading`, `checking` đang chờ DELETE của lỗi upload | `upload-cancel-requested` hoặc đóng dialog | `aborted` ngay; bỏ `failure`, kết quả hủy giữ nguyên khi DELETE cũ trả lời | |
 | `aborted` đang chờ DELETE (`cancelling`) | `upload-cancel-requested` | không đổi | |
 | `cancelling` | `dialog-close-requested` | đóng, state về ban đầu; DELETE đang chờ để id ở `pendingCleanup` | |
@@ -396,7 +401,7 @@ Cờ bổ sung: `sendFile` (file mà upload gửi: chính file đã chọn, ho�
 | `.mp4`, `.mov` | AAC | `.m4a` (audio-only) | codec khác (ví dụ MP3 trong MP4): gửi nguyên file |
 | `.webm` | Opus | `.webm` (audio-only) | codec khác (Vorbis): gửi nguyên file. Quyết định: **tách**, vì Mediabunny ghi được WebM audio-only bằng copy gói Opus và server vẫn chuyển mọi đầu vào thành M4A/AAC như trước |
 
-Mọi lỗi tách (thiếu API, không có luồng audio, codec không copy được, lỗi đọc file) đều dẫn tới gửi nguyên file gốc kèm thông báo ở `#upload-notice`; không lỗi nào dừng cuộc tạo. Track audio bắt đầu muộn hơn hình vẫn được tách và bị dời về 0, giống bản server chuyển mã từ video gốc. Nếu file gốc không có audio, server từ chối như trước. API upload của server không đổi. Giới hạn: file audio vẫn gửi trong một PUT, nên audio dài trên khoảng 100 MB (khoảng 1,4 giờ ở 160 kbit/s; audio bitrate cao hơn vượt sớm hơn) hoặc file gửi nguyên vẫn bị chặn ở edge Cloudflare; upload chia phần ngoài phạm vi.
+Mọi lỗi tách (thiếu API, không có luồng audio, codec không copy được, lỗi đọc file) đều dẫn tới gửi nguyên file gốc kèm thông báo ở `#upload-notice`; không lỗi nào dừng cuộc tạo. Track audio bắt đầu muộn hơn hình vẫn được tách và bị dời về 0, giống bản server chuyển mã từ video gốc. Nếu file gốc không có audio, server từ chối như trước. Sau khi tạo slot, browser gửi tuần tự các `Blob` slice theo `chunkBytes` từ `GET /api/uploads/policy`. Mỗi `PUT` có `offset`; progress hiển thị tổng byte đã gửi trên toàn file. Lỗi mạng, 5xx, 408, `upload_busy`, `upload_interrupted` hoặc `offset_mismatch` làm browser đọc lại `GET /api/uploads/{id}`; lỗi đọc trạng thái tạm thời cũng được thử lại hữu hạn, rồi phần chưa commit được gửi lại tối đa 6 lần, chờ 1–32 giây giữa các lần (khoảng 63 giây). Hủy dừng request hiện tại và dọn upload. Server chỉ kiểm tra media sau khi toàn bộ byte đã commit, nên request qua tunnel không vượt khoảng 100 MB với giá trị mặc định 64 MiB.
 
 Thay đổi nhỏ so với bản trước pha 1: đóng dialog gửi DELETE upload dở rồi đóng ngay, không chờ DELETE trả lời; DELETE lỗi vẫn vào `pendingCleanup`. DELETE treo không khóa dialog: Hủy rồi Đóng/Esc vẫn đóng được.
 

@@ -32,11 +32,19 @@ STALE_UPLOAD_SECONDS = 24 * 60 * 60
 class RecordingError(RuntimeError):
     """An API-safe failure in upload or recording operations."""
 
-    def __init__(self, status_code: int, code: str, message: str) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        code: str,
+        message: str,
+        *,
+        details: dict[str, object] | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
+        self.details = details or {}
 
 
 @contextmanager
@@ -124,6 +132,7 @@ def _upload_summary(row: sqlite3.Row, *, meeting_id: str | None = None) -> dict[
         "id": row["id"],
         "filename": row["filename"],
         "size_bytes": row["declared_size"],
+        "received_bytes": row["received_bytes"],
         "status": row["status"],
         "upload_url": f"/api/uploads/{row['id']}",
         "content_url": f"/api/uploads/{row['id']}/content",
@@ -178,6 +187,7 @@ def create_upload(
         "id": upload_id,
         "filename": safe_name,
         "size_bytes": size_bytes,
+        "received_bytes": 0,
         "status": "receiving",
         "upload_url": f"/api/uploads/{upload_id}",
         "content_url": f"/api/uploads/{upload_id}/content",
@@ -185,42 +195,122 @@ def create_upload(
     }
 
 
-def begin_upload(data_dir: Path, upload_id: str) -> tuple[Path, int]:
+def begin_upload(data_dir: Path, upload_id: str, offset: int = 0) -> tuple[Path, int, int]:
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        raise RecordingError(400, "invalid_offset", "offset must be a non-negative integer.")
     with _connect(data_dir) as connection, connection:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            "SELECT raw_key, declared_size, status, content_started, received_bytes "
+            "FROM uploads WHERE id = ?",
+            (upload_id,),
+        ).fetchone()
+        if row is None:
+            raise RecordingError(404, "upload_not_found", "Upload not found.")
+        if row["status"] != "receiving":
+            raise RecordingError(
+                409,
+                "upload_state_conflict",
+                f"Upload content cannot be received while status is {row['status']}.",
+            )
+        if row["content_started"]:
+            raise RecordingError(
+                409,
+                "upload_busy",
+                "Another upload content request is already running.",
+                details={"received_bytes": row["received_bytes"]},
+            )
+        if offset != row["received_bytes"]:
+            raise RecordingError(
+                409,
+                "offset_mismatch",
+                f"Resume from received_bytes={row['received_bytes']}.",
+                details={"received_bytes": row["received_bytes"]},
+            )
         cursor = connection.execute(
             "UPDATE uploads SET content_started = 1 "
             "WHERE id = ? AND status = 'receiving' AND content_started = 0",
             (upload_id,),
         )
         if cursor.rowcount != 1:
-            row = connection.execute(
-                "SELECT status FROM uploads WHERE id = ?", (upload_id,)
-            ).fetchone()
-            if row is None:
-                raise RecordingError(404, "upload_not_found", "Upload not found.")
             raise RecordingError(
                 409,
                 "upload_state_conflict",
-                f"Upload content cannot be received while status is {row['status']}.",
+                "Another upload content request is already running.",
             )
-        row = connection.execute(
-            "SELECT raw_key, declared_size FROM uploads WHERE id = ?", (upload_id,)
-        ).fetchone()
-        assert row is not None
-        return _path_for_key(data_dir, row["raw_key"]), row["declared_size"]
+        return (
+            _path_for_key(data_dir, row["raw_key"]),
+            row["declared_size"],
+            row["received_bytes"],
+        )
 
 
-def finish_upload(data_dir: Path, upload_id: str) -> None:
+def finish_upload(
+    data_dir: Path,
+    upload_id: str,
+    received_bytes: int,
+    *,
+    expected_bytes: int | None = None,
+) -> str:
+    if (
+        isinstance(received_bytes, bool)
+        or not isinstance(received_bytes, int)
+        or received_bytes < 0
+    ):
+        raise RecordingError(400, "invalid_received_bytes", "received_bytes must be non-negative.")
     with _connect(data_dir) as connection, connection:
-        cursor = connection.execute(
-            "UPDATE uploads SET status = 'uploaded', content_started = 0 "
-            "WHERE id = ? AND status = 'receiving' AND content_started = 1",
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            "SELECT status, content_started, declared_size, received_bytes "
+            "FROM uploads WHERE id = ?",
             (upload_id,),
+        ).fetchone()
+        if row is None:
+            raise RecordingError(404, "upload_not_found", "Upload not found.")
+        base_offset = row["received_bytes"] if expected_bytes is None else expected_bytes
+        if (
+            row["status"] != "receiving"
+            or not row["content_started"]
+            or row["received_bytes"] != base_offset
+            or received_bytes < base_offset
+            or received_bytes > row["declared_size"]
+        ):
+            raise RecordingError(
+                409, "upload_state_conflict", "Upload state changed during transfer."
+            )
+        status = "uploaded" if received_bytes == row["declared_size"] else "receiving"
+        cursor = connection.execute(
+            "UPDATE uploads SET received_bytes = ?, status = ? "
+            "WHERE id = ? AND status = 'receiving' AND content_started = 1 "
+            "AND received_bytes = ?",
+            (received_bytes, status, upload_id, base_offset),
         )
         if cursor.rowcount != 1:
             raise RecordingError(
                 409, "upload_state_conflict", "Upload state changed during transfer."
             )
+        return status
+
+
+def release_upload(data_dir: Path, upload_id: str) -> None:
+    """Release a content request without changing the last committed chunk."""
+    with _connect(data_dir) as connection, connection:
+        connection.execute(
+            "UPDATE uploads SET content_started = 0 "
+            "WHERE id = ? AND status IN ('receiving', 'uploaded') AND content_started = 1",
+            (upload_id,),
+        )
+
+
+def get_upload_received_bytes(data_dir: Path, upload_id: str) -> int:
+    """Read the latest durable byte offset while an upload request is cleaning up."""
+    with _connect(data_dir) as connection:
+        row = connection.execute(
+            "SELECT received_bytes FROM uploads WHERE id = ?", (upload_id,)
+        ).fetchone()
+    if row is None:
+        raise RecordingError(404, "upload_not_found", "Upload not found.")
+    return row["received_bytes"]
 
 
 def fail_upload(data_dir: Path, upload_id: str, *, code: str) -> None:

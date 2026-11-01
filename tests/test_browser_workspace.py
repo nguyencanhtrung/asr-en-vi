@@ -7,6 +7,7 @@ import socket
 import threading
 import time
 import wave
+from urllib.parse import urlsplit
 
 import pytest
 import uvicorn
@@ -111,7 +112,13 @@ def test_managed_recording_upload_saves_and_restores_meeting(tmp_path):
                     {
                         "method": request.method,
                         "url": request.url,
-                        "post_data": request.post_data,
+                        "post_data": (
+                            None
+                            if request.headers.get("content-type", "").startswith(
+                                "application/octet-stream"
+                            )
+                            else request.post_data
+                        ),
                         "headers": headers,
                     }
                 )
@@ -137,13 +144,34 @@ def test_managed_recording_upload_saves_and_restores_meeting(tmp_path):
             expect(create_button).to_be_enabled()  # the file and the form are valid
             expect(page.get_by_role("button", name="Tải lên và kiểm tra")).to_have_count(0)
 
-            page.route("**/api/uploads/*/content", lambda route: route.abort("connectionfailed"))
+            failed_content_requests = 0
+
+            def fail_upload_after_recovery(route) -> None:
+                nonlocal failed_content_requests
+                failed_content_requests += 1
+                if failed_content_requests == 1:
+                    route.abort("connectionfailed")
+                else:
+                    route.fulfill(
+                        status=403,
+                        content_type="application/json",
+                        body=json.dumps(
+                            {
+                                "detail": {
+                                    "code": "invalid_media",
+                                    "message": "Test upload refusal",
+                                }
+                            }
+                        ),
+                    )
+
+            page.route("**/api/uploads/*/content**", fail_upload_after_recovery)
             create_button.click()
             expect(dialog).to_have_attribute("data-state", "error", timeout=10_000)
             expect(page.locator("#form-error")).to_contain_text("Không tạo cuộc họp")
             retry_button = page.get_by_role("button", name="Tải lại từ đầu")
             expect(retry_button).to_be_visible()
-            page.unroute("**/api/uploads/*/content")
+            page.unroute("**/api/uploads/*/content**")
 
             def commit_meeting_then_drop_response(route) -> None:
                 response = route.fetch()
@@ -177,10 +205,14 @@ def test_managed_recording_upload_saves_and_restores_meeting(tmp_path):
             pre_restart_content_paths = [
                 request["url"].removeprefix(public_url)
                 for request in api_requests
-                if request["method"] == "PUT" and request["url"].endswith("/content")
+                if request["method"] == "PUT" and urlsplit(request["url"]).path.endswith("/content")
             ]
-            assert len(pre_restart_content_paths) == 2
-            interrupted_upload_id = pre_restart_content_paths[0].split("/")[3]
+            assert len(pre_restart_content_paths) >= 2  # one network retry, then terminal refusal
+            interrupted_upload_id = urlsplit(pre_restart_content_paths[0]).path.split("/")[3]
+            assert all(
+                urlsplit(path).path.split("/")[3] == interrupted_upload_id
+                for path in pre_restart_content_paths[:2]
+            )
             interrupted_state = context.request.get(
                 f"{public_url}/api/uploads/{interrupted_upload_id}"
             )
@@ -302,7 +334,7 @@ def test_managed_recording_upload_saves_and_restores_meeting(tmp_path):
             content_paths = [
                 path
                 for method, path in methods_and_paths
-                if method == "PUT" and path.endswith("/content")
+                if method == "PUT" and urlsplit(path).path.endswith("/content")
             ]
             complete_path = next(
                 path
@@ -312,9 +344,13 @@ def test_managed_recording_upload_saves_and_restores_meeting(tmp_path):
             upload_id = complete_path.split("/")[3]
             assert ("GET", "/api/uploads/policy") in methods_and_paths
             assert methods_and_paths.count(("POST", "/api/uploads")) == 2
-            assert len(content_paths) == 2
-            assert content_paths[0] != content_paths[1]
-            assert f"/api/uploads/{upload_id}/content" in content_paths
+            assert len(content_paths) >= 3
+            content_upload_ids = [urlsplit(path).path.split("/")[3] for path in content_paths]
+            assert len(set(content_upload_ids)) == 2
+            assert content_upload_ids.count(upload_id) == 1
+            assert any(
+                urlsplit(path).path == f"/api/uploads/{upload_id}/content" for path in content_paths
+            )
             assert complete_path == f"/api/uploads/{upload_id}/complete"
             assert methods_and_paths.count(("POST", "/api/meetings")) == 2
             assert ("GET", f"/api/meetings/{meeting_id}") in methods_and_paths

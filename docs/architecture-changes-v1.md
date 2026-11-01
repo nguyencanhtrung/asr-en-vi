@@ -722,6 +722,92 @@ Mục tùy chọn trong comment của #118: pha 5 xử lý `LATEST_MISMATCH` và
 
 Còn mở sau #118 (không đổi hành vi nên không làm trong pha 5): trình duyệt tự đóng dialog tạo cuộc họp giữa lúc lưu rồi mở lại (pha 1); cuộn tới mục Google trước khi view Google vẽ xong, và trả lời `POST …/input` của Google chưa kiểm thế hệ đăng nhập (pha 2); `readId` dùng chung giữa các cuộc họp (pha 3); khóa `history/save` latest-wins theo cuộc họp, poll cũ hơn câu trả lời hủy, `shownOf` thuần cho harness task (4a đến 4c); khóa `transcript/copy` latest-wins và chi phí mỗi phím gõ trong trình sửa (4c); hơn mười cờ descriptor provider còn là switch theo provider; live region không ghi lại khi chữ không đổi (chỉ sửa nếu kiểm bằng trình đọc màn hình thấy cần).
 
+### #145 / PR (chưa mở) — upload file theo phần byte qua tunnel giới hạn body
+
+#### Vấn đề
+
+Cloudflare Tunnel có thể từ chối một request body khoảng 100 MiB. Upload cũ gửi toàn bộ file trong
+một `PUT`, dù app cho phép file tới 4 GiB. Upload audio lớn vì vậy không thể tạo meeting.
+
+#### Nguyên nhân đo được
+
+Proxy proof dùng giới hạn đúng 104.857.600 byte. File WAV hợp lệ có 184.320.078 byte. Probe bị từ
+chối gửi 104.857.601 byte (giới hạn + 1); việc một request toàn bộ file vượt giới hạn là suy ra từ
+hai kích thước này. Ba request phần 67.108.864 byte hoặc nhỏ hơn đi qua proxy và tạo meeting.
+
+Nguồn: `timeout 600 .venv/bin/python scripts/prove_chunked_upload.py --duration 960`.
+
+#### Thay đổi thiết kế
+
+- Migration schema 13 thêm `uploads.received_bytes`, mặc định `0`, có CHECK không vượt
+  `declared_size`. Database schema cũ v0.1.2 đọc được và backfill về `0`.
+- `PUT /api/uploads/{id}/content?offset=N` ghi tuần tự từ offset bền. Server cắt file tạm về
+  offset đã commit, ghi phần mới, `fsync`, rồi cập nhật DB. `offset_mismatch` trả 409 và byte đã
+  nhận. Writer đang chạy trả `upload_busy` cùng byte đã nhận; disconnect, cancel hoặc idle timeout
+  giữ upload ở `receiving` và nhả single-writer guard. Khi request bị cancel, thao tác ghi/fsync/
+  commit đang sở hữu được drain tới khi kết thúc trước khi cleanup đọc offset DB, truncate, đóng
+  file hoặc nhả guard; nhờ đó worker cũ không thể ghi đè hoặc nhả guard của request mới.
+- `ASR_UPLOAD_CHUNK_BYTES` mặc định 64 MiB và được công bố trong policy `chunk_bytes`. Browser
+  dùng `File.slice`, gửi offset tuần tự, hiển thị progress cộng dồn, đọc lại trạng thái và thử
+  lại cùng phần tối đa sáu lần với backoff mũ 1/2/4/8/16/32 giây (tổng 63 giây, vượt idle
+  timeout writer 60 giây); GET trạng thái tạm thời dùng cùng giới hạn.
+- `shell-core.js` giữ `uploadOffset`, `uploadRetries` và retry hữu hạn cho GET trạng thái. `store.js` giữ ngữ nghĩa XHR hiện có.
+  Không đổi CSP, không tách hoặc nối audio ở server, không thêm dependency.
+
+#### Số đo trước và sau
+
+Điều kiện: revision làm việc của issue #145, Chromium headless, proxy Python giới hạn 100 MiB,
+file WAV 16 phút và các lệnh ghi ngay cạnh số đo.
+
+| Chỉ số | Trước | Sau |
+| --- | --- | --- |
+| Kích thước request content | 104.857.601 byte trong probe bị proxy từ chối (file 184.320.078 byte; full-file rejection là suy ra) | Tối đa 67.108.864 byte mỗi `PUT` |
+| Proof qua proxy | HTTP 413 | 3 phần, upload `ready`, tạo meeting thành công |
+| Backend/config/migration tests | Không có offset/resume coverage | 38 tests passed |
+| Browser chunk proof | Không có | 1 Playwright test passed, gồm một request bị abort và resume |
+| Browser RSS khi extract video 1 giờ | Chưa đo | +759.345.152 byte; JS heap +2.318.849 byte |
+| Upload audio đo được sau extract 1 giờ | Chưa đo | 67.177.975 byte; tuyến tính 4 giờ ≈268.711.900 byte |
+
+Commands:
+
+```sh
+timeout 600 .venv/bin/python scripts/prove_chunked_upload.py --duration 960
+timeout 900 .venv/bin/python -u scripts/measure_browser_extract_memory.py --duration 3600
+timeout 180 env ASR_RUN_BROWSER_TESTS=1 .venv/bin/python -m pytest -q tests/test_browser_create_flow.py -k browser_uploads
+timeout 180 .venv/bin/python -m pytest -q tests/test_recordings.py tests/test_storage.py tests/test_transcription_config.py
+```
+
+#### Đánh đổi và phương án đã loại
+
+- Upload theo phần giữ file tạm và trạng thái resume trong SQLite. Đổi lại, server phải truncate và
+  `fsync` mỗi phần, còn browser phải đọc trạng thái sau lỗi mạng.
+- Retry tự động tối đa sáu lần cho phần hiện tại, với cửa sổ backoff 63 giây để có thể vượt qua
+  một writer bị giữ bởi tunnel. Retry không gửi lại inference và không tạo meeting mới.
+- BufferTarget của bước extract video vẫn giữ audio trong bộ nhớ. Số đo một giờ cho thấy RSS tăng
+  khoảng 724 MiB. Tuyến tính bốn giờ có thể cần thêm khoảng 256 MiB (269 MB) chỉ cho output audio,
+  chưa tính các bản copy. Không hứa hỗ trợ bốn giờ video trên browser thiếu bộ nhớ.
+- Không dùng một request lớn hơn edge limit, không chia audio thành nhiều file, và không nới CSP.
+
+#### Follow-up
+
+- Cần quyết định giới hạn sản phẩm cho video import dài hoặc triển khai streaming extraction trước
+  khi hứa hỗ trợ video bốn giờ trên browser hạn chế bộ nhớ.
+- Có thể thay proxy proof bằng nginx/Cloudflare staging khi môi trường tunnel sẵn sàng.
+
+#### Liên kết issue/PR
+
+Issue #145, PR chưa mở; liên quan #117.
+
+#### Tag
+
+Hiệu năng; Kiến trúc
+
+#### Tài liệu đích
+
+- `docs/backend-contract-v1.md` — giao thức upload theo phần byte.
+- `docs/frontend-design-v1.md` — state và retry của shell upload.
+- `docs/user-guide.md` — flow upload và giới hạn bộ nhớ khi extract video.
+
 ### #117 / PR (chưa mở) — tách audio khỏi video ngay trên trình duyệt trước khi upload
 
 #### Vấn đề

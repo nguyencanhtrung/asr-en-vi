@@ -72,7 +72,7 @@ Chọn HTTP JSON cho thao tác và polling trạng thái khi có tác vụ; chu 
 | --- | --- |
 | `POST /api/access/session` | Đổi token local hợp lệ lấy cookie; loại token khỏi URL theo ADR 0002 |
 | `GET /api/meetings` và `GET /api/meetings/{id}` | Lịch sử, lịch ngày/chưa đặt ngày, metadata và các kết quả hiện có |
-| `POST /api/uploads`, upload nội dung, hoàn tất upload | Tạo vùng tạm bằng ID backend cấp, nhận đủ file rồi kiểm tra; chưa hoàn tất không tạo recording ready |
+| `POST /api/uploads`, `GET /api/uploads/{id}`, `PUT /api/uploads/{id}/content`, hoàn tất upload | Tạo vùng tạm bằng ID backend cấp, nhận file theo từng phần byte rồi kiểm tra; chưa hoàn tất không tạo recording ready |
 | `POST /api/meetings` và `PATCH /api/meetings/{id}` | Tạo meeting từ upload hợp lệ; sửa title/ngày với expected metadata version. Đổi ngày phải kiểm tra khóa nguồn và làm notes cần cập nhật |
 | `GET /api/meetings/{id}/audio` | Phát/tua audio được cấp quyền, không lộ đường dẫn filesystem |
 | `GET /api/meetings/{id}/generations` và `GET /api/generations/{id}` | Chọn current generation hoặc đọc lịch sử; trạng thái readonly do backend trả và kiểm tra khi ghi |
@@ -85,6 +85,36 @@ Chọn HTTP JSON cho thao tác và polling trạng thái khi có tác vụ; chu 
 | `GET /api/providers`, `GET /api/providers/{id}/models`, tạo/đọc/hủy login session, `DELETE /api/providers/{id}/connection` | UI kết nối và chọn model đúng provider; không trả OAuth credential; ngắt/đổi account phải kiểm tra Q22 trong backend |
 | `GET /api/notes-preferences` và `PUT /api/notes-preferences` | `GET` trả `{provider: dùng gần nhất hoặc null, models: {chatgpt?, antigravity?}, reasoning_effort: effort ChatGPT, reasoning_efforts: {chatgpt, antigravity}}` (`reasoning_effort` giữ nguyên cho client cũ). `PUT {provider, model, reasoning_effort?}` chỉ kiểm tra tĩnh (không mạng, không inference, không chặn bởi tác vụ đang chạy): ChatGPT kiểm tra độ dài model và effort theo model; Antigravity kiểm tra ID an toàn và chỉ nhận effort `high`/`medium` (`default` = `high`), giá trị khác trả `invalid_reasoning_effort`. Lỗi: `invalid_provider`, `invalid_preference`, `invalid_model`, `invalid_reasoning_effort` (400). `PUT /api/providers/antigravity/preference {model, reasoning_effort?}` lưu cùng model (vắng field thì giữ mức đã lưu) và trả `reasoning_effort`; `GET /api/providers/antigravity/models` và `GET /api/providers` (mục Antigravity) trả mức đã lưu. Mỗi lần gọi OMP của tác vụ gửi `set_thinking_level` sau `set_model` rồi đọc lại bằng `get_state`; không khớp thì dừng trước khi gửi prompt với `thinking_level_unavailable` 422. Lỗi OMP có `httpStatus` 404 hoặc "Requested entity was not found" (kiểm tra sau auth/quota) được báo là `model_unavailable` 422, không phải `provider_unavailable`. Model về sau không còn dùng được được báo khi chạy (`model_unavailable`), không bị thay thế. Không đổi tác vụ đã nhận |
 | `DELETE /api/meetings/{id}` | Từ chối meeting có tác vụ; đánh dấu xóa và dọn dữ liệu đúng phạm vi một cách có thể tiếp tục sau restart |
+
+### Giao thức upload theo phần byte
+
+`POST /api/uploads` nhận `{filename, size_bytes}`. Response `201` trả `id`, các URL của upload,
+`size_bytes`, `received_bytes: 0` và `status: "receiving"`.
+
+`GET /api/uploads/{id}` trả cùng tóm tắt upload và luôn trả `received_bytes`. Đây là số byte
+đã ghi và `fsync` thành công trước khi server cập nhật DB. Client dùng số này để tiếp tục.
+
+`PUT /api/uploads/{id}/content?offset=N` nhận một phần liên tiếp của file với content type
+`application/octet-stream`. Nếu thiếu `offset`, server dùng `0`. Client phải gửi tuần tự với
+`N = received_bytes` hiện tại. Mỗi yêu cầu chỉ có một writer. Server cắt file tạm về offset đã
+commit trước khi ghi phần mới. Server chỉ cập nhật `received_bytes` sau khi ghi xong và gọi
+`fsync`.
+
+| Tình huống | Response và bất biến |
+| --- | --- |
+| Phần ghi thành công nhưng chưa đủ file | `200`, `status: "receiving"`, `received_bytes` tăng theo số byte đã commit |
+| Phần cuối ghi đủ `size_bytes` | `200`, `status: "uploaded"`, `received_bytes == size_bytes` |
+| `offset` khác `received_bytes` | `409`, `detail.code: "offset_mismatch"`, detail có `received_bytes`; upload vẫn `receiving` |
+| Một yêu cầu bị ngắt hoặc hết thời gian chờ | Server drain xong thao tác ghi/fsync/commit đang sở hữu, giữ `receiving`, bỏ byte chưa commit, rồi nhả writer; client đọc lại `GET` rồi tiếp tục |
+| Hai yêu cầu content cùng lúc | `409`, `detail.code: "upload_busy"`, detail có `received_bytes`; chỉ writer đầu tiên được ghi |
+
+Client không gọi endpoint hoàn tất trước khi `received_bytes == size_bytes`. Sau đó,
+`POST /api/uploads/{id}/complete` kiểm tra media và chuyển upload sang `ready`.
+`GET /api/uploads/policy` trả thêm `chunk_bytes`. Giá trị mặc định là `67108864` byte (64 MiB).
+Client dùng giá trị này làm kích thước phần, nhưng mỗi request vẫn phải dùng offset server đã xác
+nhận. Sau lỗi mạng hoặc phản hồi `upload_busy`/`upload_interrupted`, client đọc lại trạng thái và
+thử lại phần hiện tại tối đa sáu lần với backoff mũ 1, 2, 4, 8, 16 và 32 giây (tổng cửa sổ 63
+giây); lỗi tạm thời của GET trạng thái dùng cùng lịch và giới hạn.
 
 Mỗi yêu cầu tạo tác vụ mang request ID để retry HTTP do mất phản hồi trả lại cùng tác vụ đã nhận, không tạo thêm lần gọi model. Cùng request ID nhưng payload khác phải bị từ chối; retry không được trở thành tác vụ mới chỉ vì tác vụ cũ đã kết thúc. Đây khác tự gửi lại inference bị Q25 cấm. Ghi từ phiên bản cũ hoặc trạng thái đang khóa trả lỗi có mã phân biệt (`stale_version`, `notes_source_locked`, `system_busy`, `provider_in_use`); UI giữ bản nháp khi xung đột. Lỗi provider cần đăng nhập không được diễn giải thành mất cookie đăng nhập ứng dụng.
 
