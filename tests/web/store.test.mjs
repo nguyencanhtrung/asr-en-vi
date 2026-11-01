@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { combine, createRunner, createStore } from "../../src/asr_en_vi/web/store.js";
+import { combine, createRunner, createStore } from "../../src/asr_studio/web/store.js";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 

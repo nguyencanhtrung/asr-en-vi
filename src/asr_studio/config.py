@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 DEFAULT_PUBLIC_URL = "http://127.0.0.1:8765"
-DEFAULT_PROVIDER_DIR = Path("/var/lib/asr-en-vi/provider")
+DEFAULT_PROVIDER_DIR = Path("/var/lib/asr-studio/provider")
 CHATGPT_CALLBACK_PATH = "/auth/chatgpt/callback"
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost"})
 DEFAULT_MAX_UPLOAD_BYTES = 4 * 1024**3
@@ -162,8 +162,8 @@ class Settings:
     @classmethod
     def from_env(cls) -> Settings:
         return cls(
-            data_dir=Path(os.environ.get("ASR_DATA_DIR", "/var/lib/asr-en-vi/data")),
-            auth_dir=Path(os.environ.get("ASR_AUTH_DIR", "/var/lib/asr-en-vi/auth")),
+            data_dir=Path(os.environ.get("ASR_DATA_DIR", "/var/lib/asr-studio/data")),
+            auth_dir=Path(os.environ.get("ASR_AUTH_DIR", "/var/lib/asr-studio/auth")),
             provider_dir=Path(os.environ.get("ASR_PROVIDER_DIR", str(DEFAULT_PROVIDER_DIR))),
             public_url=os.environ.get("ASR_PUBLIC_URL", DEFAULT_PUBLIC_URL),
             chatgpt_callback_url=os.environ.get("ASR_CHATGPT_CALLBACK_URL") or None,

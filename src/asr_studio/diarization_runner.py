@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from asr_en_vi.safe_logging import emit_safe_log
+from asr_studio.safe_logging import emit_safe_log
 
 COMMUNITY_1_REQUIRED_FILES = (
     Path("config.yaml"),
@@ -281,7 +281,7 @@ def _write_error_context(*, diagnostic_id: str, meeting_id: str, stage: str, cod
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="asr-en-vi-diarization-runner")
+    parser = argparse.ArgumentParser(prog="asr-studio-diarization-runner")
     parser.add_argument("--model", required=True, type=Path)
     parser.add_argument("--audio", type=Path)
     parser.add_argument("--device", required=True, choices=("cpu", "cuda", "auto"))

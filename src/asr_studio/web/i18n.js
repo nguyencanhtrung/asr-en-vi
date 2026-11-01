@@ -5,7 +5,26 @@
 // lifetime: a [data-lang-toggle] button stores the other language and reloads, so no caller has
 // to re-render. Pages load this script before theme.js and every other script.
 const { t, UI_LOCALE } = (() => {
-  const storageKey = "asr-en-vi:lang";
+  // Migrate once per key, before theme and feature scripts read their preferences.
+  // Remove copied keys so clearing a new preference cannot revive a stale value.
+  for (const storageName of ["localStorage", "sessionStorage"]) {
+    try {
+      const storage = window[storageName];
+      const legacyKeys = [];
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index);
+        if (key?.startsWith("asr-en-vi:")) legacyKeys.push(key);
+      }
+      for (const key of legacyKeys) {
+        const nextKey = `asr-studio:${key.slice("asr-en-vi:".length)}`;
+        if (storage.getItem(nextKey) === null) storage.setItem(nextKey, storage.getItem(key));
+        storage.removeItem(key);
+      }
+    } catch {
+      // Storage may be blocked or full; the page must still open.
+    }
+  }
+  const storageKey = "asr-studio:lang";
   const lang = (() => {
     try {
       return window.localStorage.getItem(storageKey) === "en" ? "en" : "vi";
@@ -83,7 +102,7 @@ const { t, UI_LOCALE } = (() => {
       " Ứng dụng chưa xác nhận đã dọn phần upload dở; hãy thử lại để tạo lượt upload mới.": " The app has not confirmed the partial upload was cleaned up; try again to start a new upload.",
       "(để trống; máy chủ sẽ đặt tên mặc định)": "(left empty; the server will assign a default name)",
       "+{count} khác": "+{count} more",
-      "ASR EN VI — về workspace": "ASR EN VI — back to workspace",
+      "ASR Studio — về workspace": "ASR Studio — back to workspace",
       "Audio hoặc video": "Audio or video",
       "Bạn chưa sửa trường nào khác bản đã lưu": "You have not changed any field from the saved version",
       "Bản chụp nguồn không khớp cuộc họp hoặc mã nguồn đã chọn.": "The source snapshot does not match the meeting or the selected source ID.",
@@ -193,7 +212,7 @@ const { t, UI_LOCALE } = (() => {
       "Cuộc họp còn tác vụ đang chạy. Hãy hủy chép lời hoặc tạo notes, rồi chờ trạng thái kết thúc trước khi xóa.": "The meeting still has a running task. Cancel the transcription or notes, then wait for it to finish before deleting.",
       "Cuộc họp mới": "New meeting",
       "Cuộc họp sẽ được tạo ngay khi máy chủ xác nhận file đã sẵn sàng.": "The meeting will be created as soon as the server confirms the file is ready.",
-      "Cuộc họp · ASR EN VI": "Meeting · ASR EN VI",
+      "Cuộc họp · ASR Studio": "Meeting · ASR Studio",
       "Cuộc họp đã lưu sẽ xuất hiện tại đây.": "Saved meetings will appear here.",
       "Cuộc họp đã được cập nhật ở nơi khác và chưa tải được bản mới. Bản nháp của bạn được giữ nguyên.": "The meeting was updated elsewhere and the new version could not be loaded. Your draft is kept as is.",
       "Cuộc họp đã được cập nhật ở nơi khác: “{title}” · {date}. {kept}, hoặc hủy để dùng bản đã lưu.": "The meeting was updated elsewhere: “{title}” · {date}. {kept}, or cancel to use the saved version.",
@@ -356,7 +375,7 @@ const { t, UI_LOCALE } = (() => {
       "Lệnh đã được chọn. Nhấn Ctrl+C hoặc ⌘C để sao chép.": "Command selected. Press Ctrl+C or ⌘C to copy.",
       "Lịch": "Calendar",
       "Lịch cuộc họp": "Meeting calendar",
-      "Lịch cuộc họp · ASR EN VI": "Meeting calendar · ASR EN VI",
+      "Lịch cuộc họp · ASR Studio": "Meeting calendar · ASR Studio",
       "Lựa chọn cần xem lại: {speaker}": "Choice to review: {speaker}",
       "Lựa chọn mới chưa được lưu.": "The new choice is not saved yet.",
       "Lựa chọn nhà cung cấp hoặc model đã đổi ở nơi khác nên yêu cầu chưa được gửi. Hãy xác nhận lại nhà cung cấp và model đang hiển thị rồi bấm tạo notes lần nữa.": "The provider or model choice changed elsewhere, so the request was not sent. Confirm the provider and model shown, then create notes again.",
@@ -398,7 +417,7 @@ const { t, UI_LOCALE } = (() => {
       "Máy chủ từ chối tạo cuộc họp.": "The server refused to create the meeting.",
       "Máy đang bận vì một tác vụ khác đang chạy.": "The machine is busy with another running task.",
       "Mã lỗi": "Error code",
-      "Mã nguồn ASR EN VI trên GitHub": "ASR EN VI source code on GitHub",
+      "Mã nguồn ASR Studio trên GitHub": "ASR Studio source code on GitHub",
       "Mã xác nhận hoặc URL chuyển hướng": "Confirmation code or redirect URL",
       "Mô hình Antigravity": "Antigravity model",
       "Mô hình dùng cho ghi chú cuộc họp": "Model for meeting notes",
@@ -552,7 +571,7 @@ const { t, UI_LOCALE } = (() => {
       "Transcript đã thay đổi. Xem bản mới nhất rồi chỉnh bản nháp trước khi lưu.": "The transcript changed. View the latest version and adjust the draft before saving.",
       "Transcript đã được lưu hoàn chỉnh.": "The complete transcript is saved.",
       "Trung bình (medium)": "Medium (medium)",
-      "Truy cập · ASR EN VI": "Access · ASR EN VI",
+      "Truy cập · ASR Studio": "Access · ASR Studio",
       "Trình duyệt đang chặn cửa sổ đăng nhập. Cho phép mở cửa sổ cho không gian làm việc này rồi thử lại.": "The browser is blocking the sign-in window. Allow pop-ups for this workspace, then try again.",
       "Trình phát bản ghi cuộc họp": "Meeting recording player",
       "Trạng thái cuộc họp": "Meeting status",

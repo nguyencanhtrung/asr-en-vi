@@ -17,25 +17,25 @@ import ctranslate2
 import qrcode
 from qrcode.constants import ERROR_CORRECT_M
 
-from asr_en_vi import __version__
-from asr_en_vi.auth import AuthState, AuthStore
-from asr_en_vi.config import Settings
-from asr_en_vi.diarization_runner import (
+from asr_studio import __version__
+from asr_studio.auth import AuthState, AuthStore
+from asr_studio.config import Settings
+from asr_studio.diarization_runner import (
     DIARIZATION_ERROR_MESSAGES,
     DiarizationConfigurationError,
     prepared_diarization_directory,
     safe_diarization_error,
 )
-from asr_en_vi.runner import ModelConfigurationError, prepared_model_directory
-from asr_en_vi.runtime import (
+from asr_studio.runner import ModelConfigurationError, prepared_model_directory
+from asr_studio.runtime import (
     MODEL_REPOSITORIES,
     RuntimeConfigurationError,
     read_runtime_profile,
     select_runtime,
 )
-from asr_en_vi.storage import SCHEMA_VERSION
-from asr_en_vi.tasks import TASK_ERROR_MESSAGES, TaskError, get_task
-from asr_en_vi.worker import is_healthy as worker_is_healthy
+from asr_studio.storage import SCHEMA_VERSION
+from asr_studio.tasks import TASK_ERROR_MESSAGES, TaskError, get_task
+from asr_studio.worker import is_healthy as worker_is_healthy
 
 _TASK_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 _SAFE_TASK_STATES = frozenset(
@@ -195,7 +195,7 @@ def _run_diarization_preflight(
     command = [
         sys.executable,
         "-m",
-        "asr_en_vi.diarization_runner",
+        "asr_studio.diarization_runner",
         "--check-runtime",
         "--model",
         str(model_path),
@@ -278,8 +278,8 @@ def diagnose_task(settings: Settings, task_id: str) -> int:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="asr-en-vi")
-    parser.add_argument("--version", action="version", version=f"asr-en-vi {__version__}")
+    parser = argparse.ArgumentParser(prog="asr-studio")
+    parser.add_argument("--version", action="version", version=f"asr-studio {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
     version_parser = commands.add_parser("version", help="report application and schema versions")
     version_parser.add_argument("--json", action="store_true", help="print a JSON version report")
@@ -337,7 +337,7 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.json:
             print(json.dumps(report, separators=(",", ":")))
         else:
-            print(f"asr-en-vi {__version__} (supported schema {SCHEMA_VERSION})")
+            print(f"asr-studio {__version__} (supported schema {SCHEMA_VERSION})")
         return 0
 
     settings = Settings.from_env()

@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 
-from asr_en_vi import antigravity
-from asr_en_vi.antigravity import (
+from asr_studio import antigravity
+from asr_studio.antigravity import (
     _CONTEXT_AUTOLOAD_MARKERS,
     ANTIGRAVITY_PROVIDER_ID,
     OMP_VERSION,

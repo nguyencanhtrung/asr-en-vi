@@ -13,9 +13,9 @@ import pytest
 import uvicorn
 from playwright.sync_api import expect, sync_playwright
 
-from asr_en_vi.app import create_app
-from asr_en_vi.auth import AuthStore
-from asr_en_vi.config import Settings
+from asr_studio.app import create_app
+from asr_studio.auth import AuthStore
+from asr_studio.config import Settings
 
 
 @pytest.mark.browser
@@ -96,7 +96,7 @@ def test_managed_recording_upload_saves_and_restores_meeting(tmp_path):
             page.wait_for_url(f"{public_url}/", timeout=10_000)
             assert page.evaluate("window.location.hash") == ""
             cookie = next(
-                cookie for cookie in context.cookies() if cookie["name"] == "asr_en_vi_session"
+                cookie for cookie in context.cookies() if cookie["name"] == "asr_studio_session"
             )
             assert cookie["httpOnly"] is True
             assert cookie["sameSite"] == "Strict"

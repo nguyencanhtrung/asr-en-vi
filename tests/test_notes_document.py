@@ -8,7 +8,7 @@ from itertools import pairwise
 
 import pytest
 
-from asr_en_vi.notes_document import (
+from asr_studio.notes_document import (
     MAX_CHUNK_OUTPUT_BYTES,
     MAX_NOTES_CHUNKS,
     MAX_OUTPUT_BYTES,
@@ -338,7 +338,7 @@ def test_reducer_scope_is_sparse_but_source_order_stays_global(snapshot):
 def test_reduction_prompt_uses_actual_primary_budget_without_repair_reserve(
     snapshot, document, monkeypatch, final
 ):
-    from asr_en_vi import notes_document
+    from asr_studio import notes_document
 
     monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 0)
     prompt = build_reduction_prompt(snapshot, [document], final=final)
@@ -800,7 +800,7 @@ def test_verification_rejects_parts_with_invented_times_altered_text_or_a_missin
 
 def test_segment_that_cannot_fit_even_as_a_tiny_part_is_rejected(snapshot, monkeypatch):
     snapshot["segments"][0]["text"] = "x" * 48_000
-    monkeypatch.setattr("asr_en_vi.notes_document.MAX_PRIMARY_PROMPT_BYTES", 500)
+    monkeypatch.setattr("asr_studio.notes_document.MAX_PRIMARY_PROMPT_BYTES", 500)
 
     with pytest.raises(NotesDocumentError, match="single transcript segment"):
         plan_source(snapshot)
@@ -900,7 +900,7 @@ def test_source_plan_rejects_oversized_total_and_chunk_count(snapshot, monkeypat
         }
         for index in range(2)
     ]
-    monkeypatch.setattr("asr_en_vi.notes_document.MAX_NOTES_CHUNKS", 1)
+    monkeypatch.setattr("asr_studio.notes_document.MAX_NOTES_CHUNKS", 1)
     with pytest.raises(NotesDocumentError, match="maximum of 1 notes chunks"):
         plan_source(snapshot)
 
@@ -1153,7 +1153,7 @@ def test_vietnamese_prompt_builders_localize_all_hierarchy_and_one_repair(snapsh
 
 
 def test_source_planning_uses_selected_language_prompt_size(snapshot, monkeypatch):
-    from asr_en_vi import notes_document
+    from asr_studio import notes_document
 
     snapshot["segments"] = [
         {

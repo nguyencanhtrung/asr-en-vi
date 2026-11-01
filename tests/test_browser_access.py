@@ -11,9 +11,9 @@ import pytest
 import uvicorn
 from playwright.sync_api import sync_playwright
 
-from asr_en_vi.app import create_app
-from asr_en_vi.auth import AuthStore
-from asr_en_vi.config import Settings
+from asr_studio.app import create_app
+from asr_studio.auth import AuthStore
+from asr_studio.config import Settings
 
 
 @pytest.mark.browser
@@ -82,7 +82,7 @@ def test_access_fragment_is_removed_before_http_exchange_and_cookie_is_httponly(
             assert state.token not in request_url
             assert state.token in request_body
             cookie = next(
-                cookie for cookie in context.cookies() if cookie["name"] == "asr_en_vi_session"
+                cookie for cookie in context.cookies() if cookie["name"] == "asr_studio_session"
             )
             assert cookie["httpOnly"] is True
             assert cookie["sameSite"] == "Strict"

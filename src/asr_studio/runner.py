@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from asr_en_vi.safe_logging import emit_safe_log
+from asr_studio.safe_logging import emit_safe_log
 
 _REQUIRED_MODEL_FILES = (
     "model.bin",
@@ -148,7 +148,7 @@ def transcribe_file(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(prog="asr-en-vi-runner")
+    parser = argparse.ArgumentParser(prog="asr-studio-runner")
     parser.add_argument("--model", required=True, type=Path)
     parser.add_argument("--audio", required=True, type=Path)
     parser.add_argument("--device", required=True, choices=("cpu", "cuda", "auto"))

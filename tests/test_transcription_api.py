@@ -8,19 +8,19 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from seeding import prepare_diarization_model, seed_meeting
 
-from asr_en_vi import routes
-from asr_en_vi.app import create_app
-from asr_en_vi.auth import AuthStore
-from asr_en_vi.config import Settings
-from asr_en_vi.runtime import RuntimeProfile, write_runtime_profile
-from asr_en_vi.tasks import (
+from asr_studio import routes
+from asr_studio.app import create_app
+from asr_studio.auth import AuthStore
+from asr_studio.config import Settings
+from asr_studio.runtime import RuntimeProfile, write_runtime_profile
+from asr_studio.tasks import (
     accept_transcription_task,
     claim_next_task,
     publish_complete_generation,
     transcription_state,
     update_task_progress,
 )
-from asr_en_vi.worker import acquire_worker_lock, write_heartbeat
+from asr_studio.worker import acquire_worker_lock, write_heartbeat
 
 pytestmark = pytest.mark.anyio
 

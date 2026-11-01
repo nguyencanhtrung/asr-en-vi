@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { combine, createRunner, createStore } from "../../src/asr_en_vi/web/store.js";
+import { combine, createRunner, createStore } from "../../src/asr_studio/web/store.js";
 import {
   activeRows,
   canPlay,
@@ -9,7 +9,7 @@ import {
   reduce,
   sourceRow,
   validSource,
-} from "../../src/asr_en_vi/web/playback-core.js";
+} from "../../src/asr_studio/web/playback-core.js";
 
 const row = (id, start, end) => ({ id, start_seconds: start, end_seconds: end });
 // r1 and r2 overlap; there is a gap between 10 and 12.

@@ -17,20 +17,20 @@ from notes_helpers import StubNotesProvider, seed_completed_transcript
 from playwright.sync_api import expect, sync_playwright
 from seeding import prepare_diarization_model, seed_meeting
 
-from asr_en_vi import routes as routes_module
-from asr_en_vi.app import create_app
-from asr_en_vi.auth import AuthStore
-from asr_en_vi.config import Settings
-from asr_en_vi.notes import accept_notes_task
-from asr_en_vi.runtime import RuntimeProfile, write_runtime_profile
-from asr_en_vi.storage import database_path
-from asr_en_vi.tasks import (
+from asr_studio import routes as routes_module
+from asr_studio.app import create_app
+from asr_studio.auth import AuthStore
+from asr_studio.config import Settings
+from asr_studio.notes import accept_notes_task
+from asr_studio.runtime import RuntimeProfile, write_runtime_profile
+from asr_studio.storage import database_path
+from asr_studio.tasks import (
     accept_transcription_task,
     claim_next_task,
     publish_complete_generation,
     update_task_progress,
 )
-from asr_en_vi.worker import acquire_worker_lock, write_heartbeat
+from asr_studio.worker import acquire_worker_lock, write_heartbeat
 
 pytestmark = pytest.mark.browser
 
@@ -274,7 +274,7 @@ def _design_metrics(page):
           bodyFont: getComputedStyle(document.body).fontFamily,
           headingFont: getComputedStyle(document.querySelector("h1, h2")).fontFamily,
           monoFont: getComputedStyle(document.querySelector(".brand-wordmark")).fontFamily,
-          storedTheme: localStorage.getItem("asr-en-vi:theme"),
+          storedTheme: localStorage.getItem("asr-studio:theme"),
         })"""
     )
 
@@ -387,7 +387,7 @@ def test_design_system_theme_fonts_focus_and_offline_assets(live, signed_in, tmp
     assert _design_metrics(page)["theme"] == "light"
     assert min(_semantic_contrast_ratios(page).values()) >= 4.5
 
-    page.evaluate("localStorage.removeItem('asr-en-vi:theme')")
+    page.evaluate("localStorage.removeItem('asr-studio:theme')")
     assert _design_metrics(page)["storedTheme"] is None
     page.emulate_media(color_scheme="light", reduced_motion="reduce")
     page.reload(wait_until="domcontentloaded")
@@ -650,7 +650,7 @@ def test_history_search_calendar_navigation_and_return(live, browser_context):
 
     page.goto(f"{live.url}/meetings/{alpha}", wait_until="domcontentloaded")
     expect(page.locator("#meeting-title")).to_have_text("Alpha review")
-    page.get_by_role("link", name="ASR EN VI — về workspace").click()
+    page.get_by_role("link", name="ASR Studio — về workspace").click()
     page.wait_for_url(f"{live.url}/")
     expect(page.locator("#home-view")).to_be_visible()
 
@@ -850,7 +850,7 @@ def test_delete_ui_keeps_unrelated_404_visible(live, browser_context):
 
 
 def test_delete_ui_guides_active_task_cancel_and_wait(live, browser_context, tmp_path):
-    from asr_en_vi.tasks import accept_transcription_task
+    from asr_studio.tasks import accept_transcription_task
 
     meeting_id = seed_meeting(live.settings.data_dir, "Active deletion target", "2026-10-14")
     model_path = _prepare_browser_asr_model(tmp_path / "whisper-model")
@@ -1130,7 +1130,7 @@ def test_wordmark_home_preserves_unsaved_transcript_draft(live, browser_context)
     editor = edit_segment(page)
     editor.fill("Unsaved transcript draft.")
     page.evaluate("window.__wordmarkSpaMarker = 'same document'")
-    page.get_by_role("link", name="ASR EN VI — về workspace").click()
+    page.get_by_role("link", name="ASR Studio — về workspace").click()
     page.wait_for_url(f"{live.url}/")
     expect(page.locator("#home-view")).to_be_visible()
     expect(page.locator("#page-title")).to_be_focused()
@@ -1396,7 +1396,7 @@ def test_diarization_error_shows_sanitized_copyable_diagnostic_command(live, bro
     expect(page.locator("#transcription-error")).to_be_visible()
     expect(page.locator("#task-diagnostic-code")).to_have_text("diarization_input_decode_failed")
     expect(page.locator("#task-diagnostic-id")).to_have_text(task_id)
-    command = f"docker compose exec -T app python -m asr_en_vi.cli task diagnose {task_id}"
+    command = f"docker compose exec -T app python -m asr_studio.cli task diagnose {task_id}"
     command_input = page.locator("#task-diagnostic-command")
     expect(command_input).to_have_value(command)
     expect(command_input).to_have_attribute("readonly", "")
@@ -1834,7 +1834,7 @@ def test_slow_save_never_repaints_after_navigating_elsewhere(live, browser_conte
     settle(page)
     expect(page.locator("#meeting-title")).to_have_text("Meeting B")
     expect(page.locator("#page-title")).to_have_text("Cuộc họp")  # the name shows once, below
-    assert page.title() == "Meeting B · ASR EN VI"
+    assert page.title() == "Meeting B · ASR Studio"
     assert page.url == f"{live.url}/meetings/{b}"
     assert audio_meeting_id(page) == b
     expect(page.locator("#meeting-edit")).to_be_hidden()
@@ -1855,7 +1855,7 @@ def test_slow_save_never_repaints_after_navigating_elsewhere(live, browser_conte
     expect(page.locator("#calendar-view")).to_be_visible()
     expect(page.locator("#meeting-view")).to_be_hidden()
     expect(page.locator("#page-title")).to_have_text("Lịch cuộc họp")
-    assert page.title() == "Lịch cuộc họp · ASR EN VI"
+    assert page.title() == "Lịch cuộc họp · ASR Studio"
     assert page.url == f"{live.url}/meetings/{b}"
     page.get_by_role("button", name="Quay lại notes").click()
     expect(page.locator("#meeting-title")).to_have_text("B renamed")
@@ -1881,7 +1881,7 @@ def test_delayed_transcript_save_notifies_other_tab_after_origin_navigation_and_
     observed.evaluate(
         """() => {
           window.__meetingChangeMessages = [];
-          const channel = new BroadcastChannel('asr-en-vi:meeting-changes');
+          const channel = new BroadcastChannel('asr-studio:meeting-changes');
           channel.addEventListener('message', event =>
             window.__meetingChangeMessages.push(event.data));
         }"""
@@ -2298,7 +2298,7 @@ def test_stale_meeting_read_answering_after_a_save_cannot_roll_the_ui_back(live,
     expect(page.locator("#meeting-title")).to_have_text("After save")
     expect(page.locator("#page-title")).to_have_text("Cuộc họp")  # the name shows once, below
     expect(page.locator("#meeting-date")).to_have_attribute("datetime", "2026-10-20")
-    assert page.title() == "After save · ASR EN VI"
+    assert page.title() == "After save · ASR Studio"
 
     # The model kept version 2: the next edit saves cleanly instead of conflicting.
     page.locator("#meeting-actions").click()

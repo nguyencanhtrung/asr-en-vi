@@ -7,8 +7,8 @@ import pytest
 from fake_chatgpt import FakeChatGPTAdapter
 from httpx import ASGITransport, AsyncClient
 
-from asr_en_vi.antigravity import ANTIGRAVITY_PROVIDER_ID, LoginInteraction
-from asr_en_vi.app import create_app
+from asr_studio.antigravity import ANTIGRAVITY_PROVIDER_ID, LoginInteraction
+from asr_studio.app import create_app
 
 pytestmark = pytest.mark.anyio
 

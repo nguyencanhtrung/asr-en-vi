@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { combine, createRunner, createStore } from "../../src/asr_en_vi/web/store.js";
+import { combine, createRunner, createStore } from "../../src/asr_studio/web/store.js";
 import {
   TAB_PENDING_MS,
   addDays,
@@ -23,7 +23,7 @@ import {
   selectSidebar,
   validMeetingDate,
   validYear,
-} from "../../src/asr_en_vi/web/history-core.js";
+} from "../../src/asr_studio/web/history-core.js";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const reply = (status, body) => ({ ok: status < 400, status, text: async () => JSON.stringify(body) });
@@ -182,7 +182,7 @@ test("boot at home shows home, fetches the list and keeps today selected", async
   assert.equal(s.total, 2);
   assert.equal(s.contextRev, 1, "home tells notes.js");
   assert.equal(text(selectHeading(s).title), "Cuộc họp");
-  assert.equal(selectHeading(s).documentTitle, "Workspace · ASR EN VI");
+  assert.equal(selectHeading(s).documentTitle, "Workspace · ASR Studio");
 });
 
 test("the calendars share one state: month steps, year entry, month choice, today and undated", async () => {
@@ -351,7 +351,7 @@ test("boot at a meeting address loads it, then shows it, tells notes.js and gets
   assert.equal(s.view, "meeting");
   assert.equal(s.meeting.id, "m1");
   assert.equal(text(selectHeading(s).title), "Cuộc họp");
-  assert.equal(selectHeading(s).documentTitle, "Meeting m1 · ASR EN VI");
+  assert.equal(selectHeading(s).documentTitle, "Meeting m1 · ASR Studio");
   assert.equal(s.readyRev, 1);
   assert.ok(s.contextRev > 0, "notes.js is told");
   assert.equal(s.paintRev, 1);

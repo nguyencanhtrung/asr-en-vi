@@ -1,17 +1,17 @@
 <div align="center">
 
-<img src="docs/assets/readme/logo.svg" alt="ASR EN VI Meeting Notes" width="460">
+<img src="docs/assets/readme/logo.svg" alt="ASR Studio Meeting Notes" width="460">
 
 **Private meeting transcription and notes for English and Vietnamese**
 
 _Recordings are transcribed on your own machine. Only the transcript goes to the notes
 provider you choose, and every note links back to the moment in the recording it came from._
 
-[![Pipeline](https://github.com/nguyencanhtrung/asr-en-vi/actions/workflows/pipeline.yml/badge.svg?branch=main)](https://github.com/nguyencanhtrung/asr-en-vi/actions/workflows/pipeline.yml)
-[![Release](https://img.shields.io/github/v/release/nguyencanhtrung/asr-en-vi?include_prereleases&label=release)](https://github.com/nguyencanhtrung/asr-en-vi/releases)
+[![Pipeline](https://github.com/nguyencanhtrung/asr-studio/actions/workflows/pipeline.yml/badge.svg?branch=main)](https://github.com/nguyencanhtrung/asr-studio/actions/workflows/pipeline.yml)
+[![Release](https://img.shields.io/github/v/release/nguyencanhtrung/asr-studio?include_prereleases&label=release)](https://github.com/nguyencanhtrung/asr-studio/releases)
 [![License](https://img.shields.io/badge/license-non--commercial-blue)](#license)
 [![Python](https://img.shields.io/badge/python-3.12-blue)](pyproject.toml)
-[![Last commit](https://img.shields.io/github/last-commit/nguyencanhtrung/asr-en-vi)](https://github.com/nguyencanhtrung/asr-en-vi/commits/main)
+[![Last commit](https://img.shields.io/github/last-commit/nguyencanhtrung/asr-studio)](https://github.com/nguyencanhtrung/asr-studio/commits/main)
 
 [Quickstart](#quickstart) · [Features](#features) · [Docs](#documentation) · [License](#license)
 
@@ -33,9 +33,25 @@ fresh temporary local app, uses a stub notes provider, captures at 1440 × 1000,
 non-loopback browser requests. It does not read recordings, credentials or provider sessions, run
 ASR/inference, or use a user's browser.
 
+## Renaming an existing checkout
+
+The product and Python package are now `ASR Studio` and `asr_studio`.
+Run Python commands with `python -m asr_studio.cli`; rebuild the local image with
+`./scripts/start.sh --source` before starting the updated Compose services.
+Use `ASR_IMAGE=asr-studio:local` for a source build. Images published before the
+rename retain their original package names and must use the Compose file from
+their release tag. Archived release inventories describe those original images.
+
+Compose keeps the existing deployment name `asr-en-vi` so renaming the checkout
+folder does not switch to empty data, auth or provider volumes. Keep any custom
+`COMPOSE_PROJECT_NAME` override you previously used. Browser preferences and
+pending request keys migrate automatically on the next page load at the same origin.
+After moving a checkout with a virtual environment, run `uv sync --all-groups --locked`
+to refresh its editable install and command paths.
+
 ## Overview
 
-ASR EN VI is a self-hosted web app for meeting recordings. You upload a recording and get back a
+ASR Studio is a self-hosted web app for meeting recordings. You upload a recording and get back a
 transcript with speaker labels. From that transcript the app writes structured meeting notes.
 Speech recognition and speaker diarization run locally in Docker, on a GPU if one is available and
 on the CPU otherwise.
@@ -89,12 +105,12 @@ git clone https://hf.co/pyannote/speaker-diarization-community-1 \
 `start.sh` downloads any missing Whisper model, builds the image and starts the `app` and `worker`
 services. On an interactive terminal it prints an access link and a QR code. When stdout is a
 pipe, redirect or CI log, access details are withheld; run `docker compose exec -T app python -m
-asr_en_vi.cli access show` explicitly when you want to display them. Open that exact link (the
+asr_studio.cli access show` explicitly when you want to display them. Open that exact link (the
 default address is `http://127.0.0.1:8765`), then connect ChatGPT or Google from the workspace
 header.
 
 To install a release, check out its tag and run `./scripts/start.sh --pull` with a versioned
-`ASR_IMAGE` such as `ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.3`, or `--source` to build it.
+`ASR_IMAGE` copied from that release’s published instructions, or `--source` to build it.
 After setup, `--offline` starts without network access. See
 [Install a release](docs/user-guide.md#install-a-release).
 

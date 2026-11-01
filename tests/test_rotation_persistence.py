@@ -4,9 +4,9 @@ import sqlite3
 
 import pytest
 
-from asr_en_vi.auth import AuthStore, create_session_cookie, session_is_valid, token_matches
-from asr_en_vi.storage import initialize
-from asr_en_vi.worker import heartbeat_path, write_heartbeat
+from asr_studio.auth import AuthStore, create_session_cookie, session_is_valid, token_matches
+from asr_studio.storage import initialize
+from asr_studio.worker import heartbeat_path, write_heartbeat
 
 
 def test_rotation_invalidates_old_access_and_preserves_data_and_worker_state(settings):
@@ -46,7 +46,7 @@ async def test_http_exchange_rejects_old_token_and_cookie_after_rotation(client,
         json={"token": previous.token},
     )
     assert exchange.status_code == 204
-    old_cookie = client.cookies.get("asr_en_vi_session")
+    old_cookie = client.cookies.get("asr_studio_session")
     assert (await client.get("/")).status_code == 200
 
     rotated = store.rotate()

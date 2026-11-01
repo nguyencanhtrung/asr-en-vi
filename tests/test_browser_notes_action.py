@@ -31,7 +31,7 @@ from test_browser_notes_provider import (
 from test_browser_notes_provider import fake_notes_provider as fake_notes_provider
 from test_browser_task_progress import CONTRAST_JS, overflow, record_requests, running_notes
 
-from asr_en_vi.storage import database_path
+from asr_studio.storage import database_path
 
 pytestmark = pytest.mark.browser
 
@@ -383,7 +383,7 @@ def test_a_stored_retry_keeps_its_button_when_the_provider_is_not_connected(live
     }
     page.evaluate(
         "([key, value]) => localStorage.setItem(key, value)",
-        [f"asr-en-vi:notes-request-v2:{meeting_id}", json.dumps(stored)],
+        [f"asr-studio:notes-request-v2:{meeting_id}", json.dumps(stored)],
     )
     page.reload()
 

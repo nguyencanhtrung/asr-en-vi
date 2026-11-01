@@ -72,7 +72,7 @@ def prepare(
     output.mkdir(parents=True, exist_ok=True)
     schema_match = re.search(
         r"^SCHEMA_VERSION = (\d+)$",
-        Path("src/asr_en_vi/storage.py").read_text(),
+        Path("src/asr_studio/storage.py").read_text(),
         flags=re.MULTILINE,
     )
     if schema_match is None:
@@ -88,7 +88,7 @@ def prepare(
             "python",
             image,
             "-m",
-            "asr_en_vi.cli",
+            "asr_studio.cli",
             "version",
             "--json",
             "--expect-version",
@@ -161,7 +161,7 @@ import ctypes,hashlib,json,shutil,sys,sysconfig,tempfile,wave
 from pathlib import Path
 assert shutil.which('cuda-gdb') is None
 assert not list(Path('/usr/local').glob('cuda*/bin/cuda-gdb*'))
-base=Path('/usr/local/share/licenses/asr-en-vi')
+base=Path('/usr/local/share/licenses/asr-studio')
 assert (base/'LICENSE').is_file() and (base/'LICENSE.vi').is_file()
 for name, expected in json.loads(sys.argv[1]).items():
     assert hashlib.sha256((base/'third-party'/name).read_bytes()).hexdigest()==expected
@@ -237,7 +237,7 @@ assert ctranslate2.get_supported_compute_types('cpu')
         archive.add(coverage_path, arcname="platform-coverage.json")
         archive.add("third_party/notices", arcname="notices")
         # MPL-2.0 vendored browser code: unmodified file, LICENSE and source pointer.
-        archive.add("src/asr_en_vi/web/vendor", arcname="web-vendor")
+        archive.add("src/asr_studio/web/vendor", arcname="web-vendor")
         archive.add("third_party/platform-coverage.json", arcname="build/platform-coverage.json")
         archive.add("Dockerfile", arcname="build/Dockerfile")
         archive.add("scripts/build-lgpl-media.sh", arcname="build/build-lgpl-media.sh")

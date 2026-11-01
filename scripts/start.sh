@@ -72,8 +72,8 @@ if [ -z "$selected_image" ] || [ "$selected_image" != "$second_image" ] || \
     fail "Compose app and worker must resolve to the same single ASR_IMAGE."
 fi
 
-source_version=$(sed -n 's/^__version__ = "\([^"]*\)"$/\1/p' src/asr_en_vi/__init__.py)
-source_schema=$(sed -n 's/^SCHEMA_VERSION = \([0-9][0-9]*\)$/\1/p' src/asr_en_vi/storage.py)
+source_version=$(sed -n 's/^__version__ = "\([^"]*\)"$/\1/p' src/asr_studio/__init__.py)
+source_schema=$(sed -n 's/^SCHEMA_VERSION = \([0-9][0-9]*\)$/\1/p' src/asr_studio/storage.py)
 if [ -z "$source_version" ] || [ -z "$source_schema" ]; then
     fail "Could not read source application version and supported schema."
 fi
@@ -234,7 +234,7 @@ case "$mode" in
 esac
 
 if ! docker run --pull=never --rm --network none --entrypoint python "$selected_image" \
-    -m asr_en_vi.cli version --json --expect-version "$source_version" \
+    -m asr_studio.cli version --json --expect-version "$source_version" \
     --expect-schema "$source_schema"; then
     fail "Image $selected_image does not match source version $source_version and schema $source_schema."
 fi
@@ -257,21 +257,21 @@ else
 fi
 
 if [ "$mode" = offline ]; then
-    compose_runtime run --pull never --rm --no-deps worker python -m asr_en_vi.cli model check
+    compose_runtime run --pull never --rm --no-deps worker python -m asr_studio.cli model check
 else
     compose_runtime -f compose.model-prepare.yaml run --pull never --rm --no-deps \
         --user "$(id -u):$(id -g)" \
         -e HF_HOME=/tmp/huggingface -e HF_HUB_OFFLINE=0 -e TRANSFORMERS_OFFLINE=0 \
-        worker python -m asr_en_vi.cli model prepare
+        worker python -m asr_studio.cli model prepare
 fi
-compose_runtime run --pull never --rm --no-deps worker python -m asr_en_vi.cli runtime check
+compose_runtime run --pull never --rm --no-deps worker python -m asr_studio.cli runtime check
 compose_runtime up --pull never --no-build --detach --wait \
     --wait-timeout "${ASR_STARTUP_TIMEOUT:-120}"
-compose_runtime exec -T app python -m asr_en_vi.cli installation check
+compose_runtime exec -T app python -m asr_studio.cli installation check
 if [ -t 1 ]; then
-    compose_runtime exec -T app python -m asr_en_vi.cli access show
+    compose_runtime exec -T app python -m asr_studio.cli access show
 else
     printf '%s\n' \
         "Startup complete; access details are withheld from non-interactive output." \
-        "Run 'docker compose exec -T app python -m asr_en_vi.cli access show' to display the access link and QR."
+        "Run 'docker compose exec -T app python -m asr_studio.cli access show' to display the access link and QR."
 fi

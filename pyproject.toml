@@ -1,6 +1,6 @@
 [project]
-name = "asr-en-vi"
-version = "0.1.3"
+name = "asr-studio"
+version = "0.2.0"
 description = "Local-first meeting notes workspace"
 readme = "README.md"
 license = "PolyForm-Noncommercial-1.0.0"
@@ -35,18 +35,18 @@ requires = ["hatchling>=1.27,<2.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/asr_en_vi"]
+packages = ["src/asr_studio"]
 include = [
-    "src/asr_en_vi/web/*.html",
-    "src/asr_en_vi/web/*.css",
-    "src/asr_en_vi/web/*.js",
-    "src/asr_en_vi/web/fonts/*",
-    "src/asr_en_vi/web/vendor/mediabunny/*",
+    "src/asr_studio/web/*.html",
+    "src/asr_studio/web/*.css",
+    "src/asr_studio/web/*.js",
+    "src/asr_studio/web/fonts/*",
+    "src/asr_studio/web/vendor/mediabunny/*",
 ]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "/src/asr_en_vi",
+    "/src/asr_studio",
     "/pyproject.toml",
     "/README.md",
     "/LICENSE",

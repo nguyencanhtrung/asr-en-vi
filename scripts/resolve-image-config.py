@@ -48,7 +48,7 @@ def anonymous_registry_token(repository: str) -> str:
     query = urllib.parse.urlencode({"service": REGISTRY, "scope": f"repository:{repository}:pull"})
     request = urllib.request.Request(
         f"https://{REGISTRY}/token?{query}",
-        headers={"Accept": "application/json", "User-Agent": "asr-en-vi-release-resolver/1"},
+        headers={"Accept": "application/json", "User-Agent": "asr-studio-release-resolver/1"},
     )
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
@@ -75,7 +75,7 @@ def registry_json(
         headers={
             "Accept": accept,
             "Authorization": f"Bearer {token}",
-            "User-Agent": "asr-en-vi-release-resolver/1",
+            "User-Agent": "asr-studio-release-resolver/1",
         },
     )
     try:

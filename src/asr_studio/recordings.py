@@ -15,13 +15,13 @@ from datetime import date
 from pathlib import Path
 from typing import BinaryIO
 
-from asr_en_vi.media import (
+from asr_studio.media import (
     ALLOWED_EXTENSIONS,
     OUTPUT_CONTENT_TYPE,
     MediaProcessingError,
     normalize_media,
 )
-from asr_en_vi.storage import database_path
+from asr_studio.storage import database_path
 
 _UPLOAD_KEY_RE = re.compile(r"uploads/[0-9a-f]{32}\.part\Z")
 _AUDIO_KEY_RE = re.compile(r"recordings/[0-9a-f]{32}\.m4a\Z")
@@ -678,7 +678,7 @@ def get_meeting(data_dir: Path, meeting_id: str) -> dict[str, object]:
         raise RecordingError(404, "meeting_not_found", "Meeting not found.")
     summary = _meeting_summary(row)
     summary["notes_source_locked"] = source_locked
-    from asr_en_vi.tasks import transcription_state
+    from asr_studio.tasks import transcription_state
 
     summary["transcription"] = transcription_state(data_dir, meeting_id)
     return summary

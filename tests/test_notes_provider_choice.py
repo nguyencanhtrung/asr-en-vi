@@ -28,17 +28,17 @@ from test_notes_provider import (
     _valid_document,
 )
 
-from asr_en_vi import notes_runner, worker
-from asr_en_vi.antigravity import (
+from asr_studio import notes_runner, worker
+from asr_studio.antigravity import (
     AntigravityError,
     AntigravityProvider,
     OmpRpcAdapter,
     _strip_json_fence,
 )
-from asr_en_vi.app import create_app
-from asr_en_vi.chatgpt import DIRECT_SCOPE, ChatGPTError, ChatGPTProvider
-from asr_en_vi.config import Settings
-from asr_en_vi.notes import (
+from asr_studio.app import create_app
+from asr_studio.chatgpt import DIRECT_SCOPE, ChatGPTError, ChatGPTProvider
+from asr_studio.config import Settings
+from asr_studio.notes import (
     accept_notes_task,
     get_note,
     last_notes_provider,
@@ -46,15 +46,15 @@ from asr_en_vi.notes import (
     publish_notes_revision,
     update_note,
 )
-from asr_en_vi.notes_document import (
+from asr_studio.notes_document import (
     MAX_CHUNK_OUTPUT_BYTES,
     MAX_OUTPUT_BYTES,
     MAX_OUTPUT_RECOVERY_ATTEMPTS,
     render_markdown,
 )
-from asr_en_vi.storage import database_path
-from asr_en_vi.tasks import TaskError, cancel_task, claim_next_task, fail_task
-from asr_en_vi.worker import acquire_worker_lock
+from asr_studio.storage import database_path
+from asr_studio.tasks import TaskError, cancel_task, claim_next_task, fail_task
+from asr_studio.worker import acquire_worker_lock
 
 PINNED_MODEL = "gemini-3-pro-high"
 INSTRUCTION = "\n\nReturn only one JSON object"
@@ -450,7 +450,7 @@ class Api:
 
 @asynccontextmanager
 async def _api(settings, monkeypatch, *, chatgpt=None, omp=None):
-    monkeypatch.setattr("asr_en_vi.notes_routes.worker_is_healthy", lambda _path: True)
+    monkeypatch.setattr("asr_studio.notes_routes.worker_is_healthy", lambda _path: True)
     app = create_app(
         settings,
         chatgpt_adapter=chatgpt or FakeChatGPTAdapter(),
@@ -1518,7 +1518,7 @@ async def test_confirmed_choice_is_optional_and_validated(tmp_path, monkeypatch)
 def test_request_hash_changes_only_when_confirmed_fields_are_present():
     import hashlib
 
-    from asr_en_vi.notes import _request_hash
+    from asr_studio.notes import _request_hash
 
     base = {
         "meeting_id": "m",

@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from asr_en_vi import antigravity
-from asr_en_vi.antigravity import (
+from asr_studio import antigravity
+from asr_studio.antigravity import (
     ANTIGRAVITY_PROVIDER_ID,
     RPC_INFERENCE_TIMEOUT_SECONDS,
     RPC_NOTES_INFERENCE_TIMEOUT_SECONDS,
@@ -419,9 +419,9 @@ def test_rpc_rejects_malformed_or_oversized_system_prompt_shapes():
 
 def test_connection_ui_exposes_antigravity_login_model_and_verification_controls():
     root = Path(__file__).parents[1]
-    markup = (root / "src/asr_en_vi/web/shell.html").read_text(encoding="utf-8")
-    view = (root / "src/asr_en_vi/web/antigravity.js").read_text(encoding="utf-8")
-    core = (root / "src/asr_en_vi/web/provider-core.js").read_text(encoding="utf-8")
+    markup = (root / "src/asr_studio/web/shell.html").read_text(encoding="utf-8")
+    view = (root / "src/asr_studio/web/antigravity.js").read_text(encoding="utf-8")
+    core = (root / "src/asr_studio/web/provider-core.js").read_text(encoding="utf-8")
 
     for element_id in (
         "antigravity-sign-in",

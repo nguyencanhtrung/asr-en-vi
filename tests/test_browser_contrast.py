@@ -7,7 +7,7 @@ import pytest
 from playwright.sync_api import sync_playwright
 
 pytestmark = pytest.mark.browser
-WEB = Path(__file__).resolve().parents[1] / "src/asr_en_vi/web"
+WEB = Path(__file__).resolve().parents[1] / "src/asr_studio/web"
 
 # Small specimens keep every affected selector measurable without hidden dialogs,
 # disabled provider controls, or a live inference service.

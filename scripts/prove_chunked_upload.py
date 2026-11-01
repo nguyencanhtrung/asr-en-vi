@@ -16,9 +16,9 @@ from urllib.parse import urlsplit
 import httpx
 import uvicorn
 
-from asr_en_vi.app import create_app
-from asr_en_vi.auth import AuthStore
-from asr_en_vi.config import Settings
+from asr_studio.app import create_app
+from asr_studio.auth import AuthStore
+from asr_studio.config import Settings
 
 DEFAULT_CHUNK_BYTES = 64 * 1024**2
 DEFAULT_EDGE_LIMIT = 100 * 1024**2

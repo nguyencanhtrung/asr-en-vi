@@ -11,11 +11,11 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from asr_en_vi.app import create_app
-from asr_en_vi.auth import AuthStore
-from asr_en_vi.config import Settings
-from asr_en_vi.runner import ModelConfigurationError, prepared_model_directory
-from asr_en_vi.worker import is_healthy
+from asr_studio.app import create_app
+from asr_studio.auth import AuthStore
+from asr_studio.config import Settings
+from asr_studio.runner import ModelConfigurationError, prepared_model_directory
+from asr_studio.worker import is_healthy
 
 # This opt-in proof has its own ASR_TEST_TIMEOUT_SECONDS deadline (default: 1 hour).
 pytestmark = [pytest.mark.anyio, pytest.mark.slow, pytest.mark.timeout(0)]
@@ -69,7 +69,7 @@ async def test_video_import_worker_transcription_and_saved_transcript(tmp_path):
 
     async with app.router.lifespan_context(app):
         worker = subprocess.Popen(
-            [sys.executable, "-m", "asr_en_vi.worker"],
+            [sys.executable, "-m", "asr_studio.worker"],
             env=worker_environment,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,

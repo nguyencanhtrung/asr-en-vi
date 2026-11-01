@@ -10,7 +10,7 @@ from contextlib import suppress
 from typing import Any, Protocol
 
 # Limits are read through the module at call time so tests can lower them.
-from asr_en_vi import notes_document as nd
+from asr_studio import notes_document as nd
 
 # The code a transport gives a response over its output cap.
 _OUTPUT_TOO_LARGE = "provider_output_too_large"

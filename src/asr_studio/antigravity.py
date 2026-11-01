@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from asr_en_vi.notes_document import (
+from asr_studio.notes_document import (
     NotesBudget,
     build_notes_provider_message,
     build_notes_schema,
@@ -30,10 +30,10 @@ from asr_en_vi.notes_document import (
     notes_provider_input_bytes,
     notes_request_body_bytes,
 )
-from asr_en_vi.notes_pipeline import (
+from asr_studio.notes_pipeline import (
     generate_notes_document as generate_notes_pipeline,
 )
-from asr_en_vi.notes_pipeline import (
+from asr_studio.notes_pipeline import (
     log_notes_provider_call,
     log_notes_validation_failure,
 )

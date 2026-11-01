@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from asr_en_vi.chatgpt import (
+from asr_studio.chatgpt import (
     ACCESS_REFRESH_MARGIN_SECONDS,
     DIRECT_SCOPE,
     NOTES_HTTP_READ_TIMEOUT_SECONDS,
@@ -17,7 +17,7 @@ from asr_en_vi.chatgpt import (
     ChatGPTError,
     ChatGPTProvider,
 )
-from asr_en_vi.notes_document import (
+from asr_studio.notes_document import (
     MAX_OUTPUT_BYTES,
     MAX_OUTPUT_RECOVERY_ATTEMPTS,
     MAX_OUTPUT_RECOVERY_CALLS,
@@ -196,7 +196,7 @@ class MutableClock:
 
 
 def test_invalid_first_result_gets_one_bounded_repair_on_the_pinned_account(tmp_path):
-    from asr_en_vi.notes_document import build_notes_schema
+    from asr_studio.notes_document import build_notes_schema
 
     adapter = NotesOnlyAdapter(["not-json", json.dumps(_valid_document())])
     provider = _provider(tmp_path, adapter)
@@ -256,7 +256,7 @@ def test_notes_progress_reports_pipeline_stages_without_replacing_coverage(tmp_p
 
 
 def test_chunk_progress_is_before_each_call_and_after_each_validated_chunk(tmp_path, monkeypatch):
-    from asr_en_vi import notes_document
+    from asr_studio import notes_document
 
     monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
     progress = []
@@ -287,7 +287,7 @@ def test_chunk_progress_is_before_each_call_and_after_each_validated_chunk(tmp_p
 
 
 def test_vietnamese_generation_localizes_chunk_repair_reduction_and_final_prompts(tmp_path):
-    from asr_en_vi.notes_document import NotesDocumentError
+    from asr_studio.notes_document import NotesDocumentError
 
     snapshot = _snapshot()
     snapshot["segments"] = [
@@ -393,7 +393,7 @@ def test_provider_failure_is_not_retried_as_a_repair(tmp_path):
 
 
 def test_compact_near_limit_document_is_accepted_without_schema_repair(tmp_path, monkeypatch):
-    from asr_en_vi import notes_document
+    from asr_studio import notes_document
 
     output_budget = 8_000
     compact_budget = 7_985
@@ -475,7 +475,7 @@ def test_provider_normalizes_only_valid_duplicate_citations_without_repair(tmp_p
 
 
 def test_final_output_expansion_fails_safely_after_restoring_original_ids(tmp_path):
-    from asr_en_vi.notes_document import MAX_OUTPUT_BYTES, project_source_snapshot
+    from asr_studio.notes_document import MAX_OUTPUT_BYTES, project_source_snapshot
 
     snapshot = _snapshot()
     snapshot["segments"] = [
@@ -672,7 +672,7 @@ def test_deeply_nested_provider_json_is_normalized_as_invalid_output(tmp_path):
 
 
 def test_notes_refreshes_access_token_between_stages_and_keeps_the_task_pin(tmp_path, monkeypatch):
-    from asr_en_vi import notes_document
+    from asr_studio import notes_document
 
     monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
     clock = MutableClock()
@@ -740,7 +740,7 @@ def test_notes_proactively_refreshes_when_token_cannot_cover_stage_deadline(tmp_
 
 
 def test_terminal_refresh_failure_stops_notes_without_replaying_inference(tmp_path, monkeypatch):
-    from asr_en_vi import notes_document
+    from asr_studio import notes_document
 
     monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
     clock = MutableClock()
@@ -960,8 +960,8 @@ def test_changed_saved_model_does_not_change_the_pinned_run_but_a_new_connection
 def test_long_source_uses_bounded_multi_level_reduction_and_later_decision_wins(
     tmp_path, monkeypatch
 ):
-    from asr_en_vi import notes_document
-    from asr_en_vi.notes_document import (
+    from asr_studio import notes_document
+    from asr_studio.notes_document import (
         MAX_CHUNK_OUTPUT_BYTES,
         MAX_NOTES_CHUNKS,
         project_source_snapshot,
@@ -1098,7 +1098,7 @@ def test_long_source_uses_bounded_multi_level_reduction_and_later_decision_wins(
 
 
 def test_final_synthesis_uses_primary_budget_without_repair_reserve(tmp_path, monkeypatch):
-    from asr_en_vi import notes_document
+    from asr_studio import notes_document
 
     monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
     snapshot = _snapshot()
@@ -1162,7 +1162,7 @@ def test_final_synthesis_uses_primary_budget_without_repair_reserve(tmp_path, mo
 
 
 def test_final_repair_is_skipped_when_actual_prompt_budget_cannot_fit_it(tmp_path, monkeypatch):
-    from asr_en_vi import notes_document
+    from asr_studio import notes_document
 
     monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
     snapshot = _snapshot()
@@ -1217,7 +1217,7 @@ def test_final_repair_is_skipped_when_actual_prompt_budget_cannot_fit_it(tmp_pat
 def test_intermediate_reduction_has_its_own_hard_output_budget(
     tmp_path, monkeypatch, intermediate_bytes
 ):
-    from asr_en_vi import notes_document
+    from asr_studio import notes_document
 
     monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
     snapshot = _snapshot()
@@ -1327,7 +1327,7 @@ def test_intermediate_reduction_has_its_own_hard_output_budget(
 
 
 def test_transport_failure_diagnostics_use_actual_stage_and_bounded_metadata(tmp_path, monkeypatch):
-    from asr_en_vi import notes_document
+    from asr_studio import notes_document
 
     monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
     snapshot = _snapshot()
@@ -1416,7 +1416,7 @@ def _synthesis_summaries(prompt):
 
 
 def test_long_run_sends_budgeted_overlapping_requests_and_reports_coverage(tmp_path):
-    from asr_en_vi.notes_document import MAX_CHUNK_OUTPUT_BYTES, prompt_fits_repair
+    from asr_studio.notes_document import MAX_CHUNK_OUTPUT_BYTES, prompt_fits_repair
 
     snapshot = _many_segments_snapshot()
     original = copy.deepcopy(snapshot)
@@ -1513,7 +1513,7 @@ def test_single_request_run_reports_a_manifest_for_its_one_call(tmp_path):
 
 
 def test_incomplete_coverage_stops_the_run_before_any_provider_call(tmp_path, monkeypatch):
-    from asr_en_vi import notes_document
+    from asr_studio import notes_document
 
     real_plan_source = notes_document.plan_source
 
@@ -1651,7 +1651,7 @@ def test_overlap_repeats_are_dropped_before_reduction_but_distinct_items_survive
 
 
 def _tight_budget(monkeypatch, *, limit=14_000):
-    from asr_en_vi import notes_document
+    from asr_studio import notes_document
 
     monkeypatch.setattr(notes_document, "MAX_PROMPT_BYTES", limit)
 
@@ -1844,7 +1844,7 @@ def _generate(provider, snapshot, **options):
 
 
 def _six_chunk_snapshot(monkeypatch):
-    from asr_en_vi import notes_document
+    from asr_studio import notes_document
 
     monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
     snapshot = _snapshot()
@@ -1947,7 +1947,7 @@ def test_level_two_reduce_over_its_cap_is_asked_again_for_a_smaller_answer(
 
 
 def test_chunk_over_its_cap_is_asked_again_for_a_smaller_answer(tmp_path):
-    from asr_en_vi.notes_document import MAX_CHUNK_OUTPUT_BYTES
+    from asr_studio.notes_document import MAX_CHUNK_OUTPUT_BYTES
 
     second = _valid_document()
     second["overview"][0]["source_ids"] = ["00001"]
@@ -1989,7 +1989,7 @@ def test_vietnamese_run_asks_again_in_vietnamese(tmp_path):
 
 
 def test_chunk_that_stays_over_its_cap_fails_with_the_overflow_and_its_diagnostics(tmp_path):
-    from asr_en_vi.notes_document import MAX_CHUNK_OUTPUT_BYTES
+    from asr_studio.notes_document import MAX_CHUNK_OUTPUT_BYTES
 
     adapter = NotesOnlyAdapter(
         [_too_large(MAX_CHUNK_OUTPUT_BYTES + 5)] * (1 + MAX_OUTPUT_RECOVERY_ATTEMPTS)
@@ -2076,7 +2076,7 @@ def test_recoveries_are_capped_across_the_whole_task(tmp_path, monkeypatch):
 
 
 def test_a_lower_target_prompt_that_does_not_fit_is_not_sent(tmp_path, monkeypatch):
-    from asr_en_vi import notes_document
+    from asr_studio import notes_document
 
     def respond(prompt, max_output_bytes):
         # The request now fills its whole budget, so the added lower aim has no room.
@@ -2134,7 +2134,7 @@ def test_a_smaller_answer_that_fails_validation_gets_the_one_repair(tmp_path):
 
 
 def test_a_chunk_over_its_cap_is_asked_again_after_the_task_repair_was_spent(tmp_path):
-    from asr_en_vi.notes_document import MAX_CHUNK_OUTPUT_BYTES
+    from asr_studio.notes_document import MAX_CHUNK_OUTPUT_BYTES
 
     second = _valid_document()
     second["overview"][0]["source_ids"] = ["00001"]
@@ -2193,7 +2193,7 @@ def test_final_synthesis_over_its_cap_is_asked_again_for_a_smaller_answer(tmp_pa
 def test_a_lower_target_prompt_that_overruns_the_context_for_its_ids_is_not_sent(
     tmp_path, monkeypatch
 ):
-    from asr_en_vi import notes_document
+    from asr_studio import notes_document
 
     scope = ("00000",)
     assert notes_schema_json_bytes(scope) > notes_schema_json_bytes(())  # the ids widen the schema

@@ -8,8 +8,8 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from asr_en_vi import runner
-from asr_en_vi.runner import ModelConfigurationError, prepared_model_directory, transcribe_file
+from asr_studio import runner
+from asr_studio.runner import ModelConfigurationError, prepared_model_directory, transcribe_file
 
 
 def _prepared_model(path: Path) -> Path:
@@ -71,7 +71,7 @@ def test_runner_reports_fixed_error_to_stderr_without_exposing_exception(
         sys,
         "argv",
         [
-            "asr-en-vi-runner",
+            "asr-studio-runner",
             "--model",
             str(model_dir),
             "--audio",

@@ -32,7 +32,7 @@ def _source_version(path: Path) -> str:
 
 def check_release_metadata(
     pyproject_path: Path = ROOT / "pyproject.toml",
-    source_path: Path = ROOT / "src" / "asr_en_vi" / "__init__.py",
+    source_path: Path = ROOT / "src" / "asr_studio" / "__init__.py",
     lock_path: Path = ROOT / "uv.lock",
     tag: str | None = None,
 ) -> dict[str, str]:
@@ -40,9 +40,9 @@ def check_release_metadata(
     project_version = project["project"]["version"]
     source_version = _source_version(source_path)
     lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
-    app_packages = [package for package in lock["package"] if package["name"] == "asr-en-vi"]
+    app_packages = [package for package in lock["package"] if package["name"] == "asr-studio"]
     if len(app_packages) != 1:
-        raise ValueError("uv.lock must contain exactly one asr-en-vi package entry")
+        raise ValueError("uv.lock must contain exactly one asr-studio package entry")
     lock_version = app_packages[0]["version"]
 
     try:

@@ -23,10 +23,10 @@ from test_browser_history import _prepare_browser_asr_model
 from test_browser_history import live as live
 from test_browser_history import signed_in as signed_in
 
-from asr_en_vi.runtime import RuntimeProfile, write_runtime_profile
-from asr_en_vi.storage import database_path
-from asr_en_vi.tasks import accept_transcription_task, cancel_task
-from asr_en_vi.worker import acquire_worker_lock, write_heartbeat
+from asr_studio.runtime import RuntimeProfile, write_runtime_profile
+from asr_studio.storage import database_path
+from asr_studio.tasks import accept_transcription_task, cancel_task
+from asr_studio.worker import acquire_worker_lock, write_heartbeat
 
 pytestmark = pytest.mark.browser
 
@@ -34,7 +34,7 @@ MEETING_URL = re.compile(r".*/meetings/[0-9a-f]+$")
 TECHNICAL_STATE_CODE = re.compile(
     r"\b(IDLE|SELECTED|UPLOADING|CHECKING|READY|CREATING|SAVED|ERROR|ABORTED)\b"
 )
-HANDOFF_KEY = "asr-en-vi:auto-transcribe:"
+HANDOFF_KEY = "asr-studio:auto-transcribe:"
 
 
 @pytest.fixture
@@ -251,12 +251,12 @@ def test_last_language_is_remembered_after_a_successful_create(live, signed_in, 
 
 def test_stored_language_default_ignores_unknown_values(live, signed_in):
     _context, page = signed_in()
-    page.evaluate("localStorage.setItem('asr-en-vi:last-language-hint', 'vi')")
+    page.evaluate("localStorage.setItem('asr-studio:last-language-hint', 'vi')")
     _open_dialog(page)
     expect(page.locator('input[name="language_hint"][value="vi"]')).to_be_checked()
     page.locator("#close-dialog").click()
 
-    page.evaluate("localStorage.setItem('asr-en-vi:last-language-hint', 'fr')")
+    page.evaluate("localStorage.setItem('asr-studio:last-language-hint', 'fr')")
     _open_dialog(page)
     expect(page.locator('input[name="language_hint"]:checked')).to_have_count(0)
 
@@ -661,7 +661,7 @@ def test_auto_transcribe_checkbox_defaults_on_and_is_remembered(live, signed_in)
     expect(dialog.get_by_text("Bỏ chọn để tự bấm")).to_be_visible()
 
     checkbox.uncheck()
-    assert page.evaluate("localStorage.getItem('asr-en-vi:auto-transcribe')") == "0"
+    assert page.evaluate("localStorage.getItem('asr-studio:auto-transcribe')") == "0"
     page.locator("#close-dialog").click()
     _open_dialog(page)
     expect(checkbox).not_to_be_checked()
@@ -776,7 +776,7 @@ def test_a_blocked_handoff_never_starts_transcription_and_still_creates(
         """
         const setItem = Storage.prototype.setItem;
         Storage.prototype.setItem = function (key, value) {
-          if (String(key).startsWith("asr-en-vi:auto-transcribe:")) {
+          if (String(key).startsWith("asr-studio:auto-transcribe:")) {
             throw new DOMException("blocked", "QuotaExceededError");
           }
           return setItem.call(this, key, value);

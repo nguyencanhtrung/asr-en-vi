@@ -1,4 +1,4 @@
-# Thay đổi kiến trúc và tối ưu v1 — ASR EN VI
+# Thay đổi kiến trúc và tối ưu v1 — ASR Studio
 
 ## 1. Mở đầu
 
@@ -122,7 +122,7 @@ Nguồn: `tests/test_delivery_contract.py`, `tests/test_image_config.py` và `te
 
 #### Liên kết issue/PR
 
-[Issue #115](https://github.com/nguyencanhtrung/asr-en-vi/issues/115).
+[Issue #115](https://github.com/nguyencanhtrung/asr-studio/issues/115).
 
 #### Tag
 
@@ -136,7 +136,7 @@ Kiến trúc
 
 #### Vấn đề
 
-Frontend (`src/asr_en_vi/web/`) là JS thuần với state sửa trực tiếp ở khoảng 250 chỗ, chống response cũ bằng các bộ đếm rải rác và không có unit test JS (CI chưa cài Node). Issue #118 chuyển dần sang core thuần; pha 0 dựng nền, chưa chuyển module UI nào.
+Frontend (`src/asr_studio/web/`) là JS thuần với state sửa trực tiếp ở khoảng 250 chỗ, chống response cũ bằng các bộ đếm rải rác và không có unit test JS (CI chưa cài Node). Issue #118 chuyển dần sang core thuần; pha 0 dựng nền, chưa chuyển module UI nào.
 
 #### Nguyên nhân đo được
 
@@ -146,7 +146,7 @@ Nguồn: issue #118.
 
 #### Thay đổi thiết kế
 
-`docs/adr/0010-frontend-reducer-core.md` chốt kiến trúc; `src/asr_en_vi/web/store.js` là ES module không chạm DOM gồm `createStore`, `combine`, `createRunner` (effect `fetch`, `schedule`, `cancel`, latest-wins theo `key`, kết quả mang `meta` để reducer bỏ response cũ). `tests/web/*.test.mjs` chạy bằng `node --test`, nằm trong `scripts/check.sh` và job quality của CI (Node 24, action ghim SHA). File UI hiện có, CSP và hành vi người dùng không đổi; không thêm dependency hay build step.
+`docs/adr/0010-frontend-reducer-core.md` chốt kiến trúc; `src/asr_studio/web/store.js` là ES module không chạm DOM gồm `createStore`, `combine`, `createRunner` (effect `fetch`, `schedule`, `cancel`, latest-wins theo `key`, kết quả mang `meta` để reducer bỏ response cũ). `tests/web/*.test.mjs` chạy bằng `node --test`, nằm trong `scripts/check.sh` và job quality của CI (Node 24, action ghim SHA). File UI hiện có, CSP và hành vi người dùng không đổi; không thêm dependency hay build step.
 
 #### Số đo trước và sau
 
@@ -656,7 +656,7 @@ Khác biệt hành vi so với bản cũ (đối chiếu với `git show 4e29c59
 
 #### Số đo trước và sau
 
-Điều kiện đo: Node 24.13.0, `node --test 'tests/web/*.test.mjs'`, một lần chạy cục bộ; đếm lần xuất hiện bằng `grep -o` trên mọi `src/asr_en_vi/web/*.js`, trước = `git show 4e29c59:<file>`.
+Điều kiện đo: Node 24.13.0, `node --test 'tests/web/*.test.mjs'`, một lần chạy cục bộ; đếm lần xuất hiện bằng `grep -o` trên mọi `src/asr_studio/web/*.js`, trước = `git show 4e29c59:<file>`.
 
 | | Trước | Sau |
 | --- | --- | --- |
@@ -697,7 +697,7 @@ Kiến trúc
 
 ### Tổng kết refactor #118
 
-Mục tiêu: đưa `src/asr_en_vi/web/` từ JS dùng global và state sửa tại chỗ sang core reducer thuần, effect là dữ liệu, store tự viết (ADR 0010), không đổi hành vi người dùng thấy, không framework, không build step, không dependency runtime, không nới CSP.
+Mục tiêu: đưa `src/asr_studio/web/` từ JS dùng global và state sửa tại chỗ sang core reducer thuần, effect là dữ liệu, store tự viết (ADR 0010), không đổi hành vi người dùng thấy, không framework, không build step, không dependency runtime, không nới CSP.
 
 | Pha | Issue / PR | Chuyển gì |
 | --- | --- | --- |

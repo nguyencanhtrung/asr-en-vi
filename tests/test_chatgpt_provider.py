@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from fake_chatgpt import FakeChatGPTAdapter
 
-from asr_en_vi.chatgpt import (
+from asr_studio.chatgpt import (
     DIRECT_SCOPE,
     DYNAMIC_CLIENT_ID,
     NOTES_HTTP_READ_TIMEOUT_SECONDS,
@@ -23,7 +23,7 @@ from asr_en_vi.chatgpt import (
     ChatGPTProvider,
     ProviderStore,
 )
-from asr_en_vi.config import Settings
+from asr_studio.config import Settings
 
 CALLBACK_URL = "http://127.0.0.1:8765/auth/chatgpt/callback"
 ISSUED_CLIENT_ID = "oaiapp_test-123456"
@@ -94,7 +94,7 @@ def test_authorization_uses_dynamic_registration_pkce_scopes_and_stable_host(tmp
     started = provider.start_login()
     query = parse_qs(urlsplit(started["authorization_url"]).query)
     assert query["client_id"] == [DYNAMIC_CLIENT_ID]
-    assert query["agent_name_hint"] == ["ASR EN VI"]
+    assert query["agent_name_hint"] == ["ASR Studio"]
     assert query["redirect_uri"] == [CALLBACK_URL]
     assert query["scope"] == [REQUESTED_SCOPES]
     assert query["code_challenge_method"] == ["S256"]
@@ -283,7 +283,7 @@ def test_start_login_remains_busy_while_callback_holds_operation_lock(tmp_path, 
     other_caller.ensure()
     started = provider.start_login()
     adapter.exchange_release.clear()
-    monkeypatch.setattr("asr_en_vi.chatgpt.OPERATION_LOCK_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr("asr_studio.chatgpt.OPERATION_LOCK_TIMEOUT_SECONDS", 0.01)
 
     with ThreadPoolExecutor(max_workers=1) as executor:
         callback = executor.submit(provider.handle_callback, callback_pairs(started))
@@ -573,7 +573,7 @@ def test_verification_and_disconnect_serialize_without_provider_locking_other_wo
 def test_disconnect_returns_retryable_busy_without_clearing_tokens_during_operation(
     tmp_path, monkeypatch
 ):
-    import asr_en_vi.chatgpt as chatgpt
+    import asr_studio.chatgpt as chatgpt
 
     monkeypatch.setattr(chatgpt, "OPERATION_LOCK_TIMEOUT_SECONDS", 0.05, raising=False)
     adapter = FakeChatGPTAdapter()
@@ -672,7 +672,7 @@ def test_notes_http_client_bounds_silent_reads_but_keeps_long_task_budget():
 def test_real_http_401_marks_reconnect_and_preserves_only_safe_diagnostics(tmp_path, body):
     import httpx
 
-    from asr_en_vi.chatgpt import ChatGPTHTTPAdapter
+    from asr_studio.chatgpt import ChatGPTHTTPAdapter
 
     provider = provider_for(tmp_path)
     connect(provider)
@@ -693,7 +693,7 @@ def test_real_http_401_marks_reconnect_and_preserves_only_safe_diagnostics(tmp_p
 
 
 def test_busy_callback_does_not_claim_state_or_exchange_code(tmp_path, monkeypatch):
-    import asr_en_vi.chatgpt as chatgpt
+    import asr_studio.chatgpt as chatgpt
 
     monkeypatch.setattr(chatgpt, "OPERATION_LOCK_TIMEOUT_SECONDS", 0.01)
     adapter = FakeChatGPTAdapter()

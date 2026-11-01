@@ -1,4 +1,4 @@
-# Đặc tả v1 — ASR EN VI Meeting Notes
+# Đặc tả v1 — ASR Studio Meeting Notes
 
 > Phạm vi sản phẩm v1 đã được thống nhất. Các quyết định nền tảng được ghi tại [kiến trúc web và Docker](adr/0001-browser-ui-container-backend.md), [truy cập bằng token](adr/0002-localhost-reusable-token.md) và [phân phối non-commercial](adr/0003-public-source-noncommercial.md). Các lựa chọn triển khai và việc kiểm chứng còn lại được nêu ở mục 9.
 

@@ -15,8 +15,8 @@ from notes_helpers import (
     seed_completed_transcript,
 )
 
-from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
-from asr_en_vi.notes import (
+from asr_studio.chatgpt import ChatGPTError, ChatGPTProvider
+from asr_studio.notes import (
     accept_notes_task,
     assert_provider_mutation_allowed,
     export_note,
@@ -28,10 +28,10 @@ from asr_en_vi.notes import (
     publish_notes_revision,
     update_note,
 )
-from asr_en_vi.notes_document import PROMPT_VERSION, NotesDocumentError, validate_document
-from asr_en_vi.recordings import RecordingError, update_meeting
-from asr_en_vi.storage import database_path
-from asr_en_vi.tasks import (
+from asr_studio.notes_document import PROMPT_VERSION, NotesDocumentError, validate_document
+from asr_studio.recordings import RecordingError, update_meeting
+from asr_studio.storage import database_path
+from asr_studio.tasks import (
     TaskError,
     add_current_generation_speaker,
     cancel_task,
@@ -44,7 +44,7 @@ from asr_en_vi.tasks import (
     update_current_generation_segment_text,
     update_current_generation_speaker_name,
 )
-from asr_en_vi.worker import acquire_worker_lock
+from asr_studio.worker import acquire_worker_lock
 
 
 def _accept(data_dir: Path, meeting_id: str, generation_id: str, *, request_id="notes-req-0001"):
@@ -213,7 +213,7 @@ def test_busy_notes_refusal_does_not_wait_for_provider_operation_lock(tmp_path):
 def test_busy_precheck_rechecks_a_request_accepted_after_initial_lookup(
     tmp_path, monkeypatch, output_language
 ):
-    from asr_en_vi import notes
+    from asr_studio import notes
 
     data_dir = tmp_path / "data"
     meeting_id, generation_id, _ = seed_completed_transcript(data_dir)

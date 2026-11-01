@@ -15,18 +15,18 @@ from test_browser_history import live as live
 from test_browser_history import signed_in as browser_signed_in  # noqa: F401
 from test_browser_notes_provider import mock_providers
 
-from asr_en_vi import notes_routes
-from asr_en_vi.media import normalize_media
-from asr_en_vi.notes import (
+from asr_studio import notes_routes
+from asr_studio.media import normalize_media
+from asr_studio.notes import (
     accept_notes_task,
     get_note,
     get_notes_source,
     publish_notes_revision,
     update_note,
 )
-from asr_en_vi.notes_document import render_markdown
-from asr_en_vi.storage import database_path
-from asr_en_vi.tasks import claim_next_task, transcription_state
+from asr_studio.notes_document import render_markdown
+from asr_studio.storage import database_path
+from asr_studio.tasks import claim_next_task, transcription_state
 
 pytestmark = pytest.mark.browser
 
@@ -342,7 +342,7 @@ def test_active_vietnamese_task_overrides_stale_future_language_preference(live,
     )
     assert active["status"] == "accepted"
     assert active["output_language"] == "vi"
-    preference_key = f"asr-en-vi:notes-output-language:{meeting_id}"
+    preference_key = f"asr-studio:notes-output-language:{meeting_id}"
     page.evaluate("([key, value]) => localStorage.setItem(key, value)", [preference_key, "en"])
 
     page.goto(f"{live.url}/meetings/{meeting_id}", wait_until="domcontentloaded")
@@ -872,7 +872,7 @@ def test_notes_open_in_view_mode_and_remember_the_last_choice(live, signed_in):
     meeting_id, *_ = _seed_saved_notes(live.settings.data_dir)
     _open_saved_notes(live, page, meeting_id)
     view, write = page.locator("#notes-mode-view"), page.locator("#notes-mode-write")
-    stored = "localStorage.getItem('asr-en-vi:notes-view-mode')"
+    stored = "localStorage.getItem('asr-studio:notes-view-mode')"
 
     expect(view).to_have_attribute("aria-pressed", "true")
     expect(write).to_have_attribute("aria-pressed", "false")
@@ -908,7 +908,7 @@ def test_notes_view_mode_falls_back_to_view_when_storage_fails(live, signed_in, 
             "get() { throw new Error('local storage unavailable'); } });"
         )
     else:
-        page.evaluate("localStorage.setItem('asr-en-vi:notes-view-mode', 'sideways')")
+        page.evaluate("localStorage.setItem('asr-studio:notes-view-mode', 'sideways')")
     meeting_id, *_ = _seed_saved_notes(live.settings.data_dir)
     _open_saved_notes(live, page, meeting_id)
 

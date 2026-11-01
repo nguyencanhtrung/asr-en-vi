@@ -78,25 +78,25 @@ ENV PATH="/app/.venv/bin:${PATH}" \
     PYANNOTE_METRICS_ENABLED=0 \
     HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1 \
-    ASR_DATA_DIR=/var/lib/asr-en-vi/data \
-    ASR_AUTH_DIR=/var/lib/asr-en-vi/auth
+    ASR_DATA_DIR=/var/lib/asr-studio/data \
+    ASR_AUTH_DIR=/var/lib/asr-studio/auth
 LABEL org.opencontainers.image.revision="${VCS_REF}"
 LABEL org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
 WORKDIR /app
-COPY LICENSE LICENSE.vi /usr/local/share/licenses/asr-en-vi/
-COPY third_party/notices/ /usr/local/share/licenses/asr-en-vi/third-party/
-COPY third_party/platform-coverage.json /usr/local/share/licenses/asr-en-vi/platform-coverage.json
+COPY LICENSE LICENSE.vi /usr/local/share/licenses/asr-studio/
+COPY third_party/notices/ /usr/local/share/licenses/asr-studio/third-party/
+COPY third_party/platform-coverage.json /usr/local/share/licenses/asr-studio/platform-coverage.json
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=media-builder /opt/asr-media/lib /opt/asr-media/lib
-COPY --from=media-builder /opt/asr-media/share/licenses /usr/local/share/licenses/asr-en-vi/media/
-COPY --from=builder /app/openmp-runtime.json /usr/local/share/licenses/asr-en-vi/openmp-runtime.json
+COPY --from=media-builder /opt/asr-media/share/licenses /usr/local/share/licenses/asr-studio/media/
+COPY --from=builder /app/openmp-runtime.json /usr/local/share/licenses/asr-studio/openmp-runtime.json
 COPY --from=omp-bin /usr/local/bin/omp /usr/local/bin/omp
 COPY --from=omp-bin /usr/local/share/licenses/omp /usr/local/share/licenses/omp
 RUN groupadd --gid 10001 asr \
     && useradd --uid 10001 --gid asr --no-create-home --shell /usr/sbin/nologin asr \
-    && mkdir -p /var/lib/asr-en-vi/data /var/lib/asr-en-vi/auth /var/lib/asr-en-vi/provider \
-    && chown -R 10001:10001 /var/lib/asr-en-vi \
-    && chmod 0700 /var/lib/asr-en-vi/data /var/lib/asr-en-vi/auth /var/lib/asr-en-vi/provider \
+    && mkdir -p /var/lib/asr-studio/data /var/lib/asr-studio/auth /var/lib/asr-studio/provider \
+    && chown -R 10001:10001 /var/lib/asr-studio \
+    && chmod 0700 /var/lib/asr-studio/data /var/lib/asr-studio/auth /var/lib/asr-studio/provider \
     && chmod -R a+rX /usr/local/share/licenses
 USER 10001:10001
-CMD ["uvicorn", "asr_en_vi.app:app", "--host", "0.0.0.0", "--port", "8765", "--no-proxy-headers", "--no-server-header", "--no-access-log"]
+CMD ["uvicorn", "asr_studio.app:app", "--host", "0.0.0.0", "--port", "8765", "--no-proxy-headers", "--no-server-header", "--no-access-log"]

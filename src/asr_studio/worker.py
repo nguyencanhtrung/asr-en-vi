@@ -21,24 +21,24 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
-from asr_en_vi.alignment import AlignmentError, align_segments_to_speakers, validate_turns
-from asr_en_vi.config import Settings
-from asr_en_vi.diarization_runner import (
+from asr_studio.alignment import AlignmentError, align_segments_to_speakers, validate_turns
+from asr_studio.config import Settings
+from asr_studio.diarization_runner import (
     DIARIZATION_ERROR_MESSAGES,
     DiarizationConfigurationError,
     prepared_diarization_directory,
     safe_diarization_error,
 )
-from asr_en_vi.notes import publish_notes_revision
-from asr_en_vi.recordings import RecordingError, recording_path
-from asr_en_vi.runtime import (
+from asr_studio.notes import publish_notes_revision
+from asr_studio.recordings import RecordingError, recording_path
+from asr_studio.runtime import (
     RuntimeConfigurationError,
     select_runtime,
     write_runtime_profile,
 )
-from asr_en_vi.safe_logging import emit_safe_log
-from asr_en_vi.storage import initialize
-from asr_en_vi.tasks import (
+from asr_studio.safe_logging import emit_safe_log
+from asr_studio.storage import initialize
+from asr_studio.tasks import (
     TASK_ERROR_MESSAGES,
     TaskError,
     claim_next_task,
@@ -254,7 +254,7 @@ def _runner_command(task: dict[str, Any], audio_path: Path) -> list[str]:
     return [
         sys.executable,
         "-m",
-        "asr_en_vi.runner",
+        "asr_studio.runner",
         "--model",
         str(task["model_path"]),
         "--audio",
@@ -271,7 +271,7 @@ def _diarization_command(task: dict[str, Any], audio_path: Path) -> list[str]:
     return [
         sys.executable,
         "-m",
-        "asr_en_vi.diarization_runner",
+        "asr_studio.diarization_runner",
         "--model",
         str(task["diarization_model_path"]),
         "--audio",
@@ -289,7 +289,7 @@ def _notes_command(task: dict[str, Any], owner_id: str, data_dir: Path) -> list[
     return [
         sys.executable,
         "-m",
-        "asr_en_vi.notes_runner",
+        "asr_studio.notes_runner",
         "--data-dir",
         str(data_dir),
         "--task-id",
@@ -1068,7 +1068,7 @@ def run_worker(settings: Settings) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(prog="asr-en-vi-worker")
+    parser = argparse.ArgumentParser(prog="asr-studio-worker")
     parser.add_argument("--health-check", action="store_true")
     arguments = parser.parse_args()
     settings = Settings.from_env()

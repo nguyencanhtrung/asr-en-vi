@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from asr_en_vi.storage import database_path
+from asr_studio.storage import database_path
 
 _UPLOAD_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 _TEMP_NAME_RE = re.compile(r"([0-9a-f]{32})-([0-9a-f]{16})\.m4a\Z")

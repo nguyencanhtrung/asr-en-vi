@@ -21,7 +21,7 @@ export const POLL_VISIBLE_MS = 1000;
 export const POLL_HIDDEN_MS = 3000;
 export const POLL_RETRY_MS = 3000; // after a failed read, whatever the visibility
 
-export const requestStorageKey = (meetingId) => `asr-en-vi:transcription-request:${meetingId}`;
+export const requestStorageKey = (meetingId) => `asr-studio:transcription-request:${meetingId}`;
 export const autoStartStorageKey = (meetingId) => `${AUTO_TRANSCRIBE_HANDOFF_PREFIX}${meetingId}`;
 
 const KEY = {
@@ -370,7 +370,7 @@ function refreshFailedLoading(state, action) {
 // ---- the diagnostic command ----
 
 function diagnosticCommand(task) {
-  return task && SAFE_TASK_ID.test(task.id || "") ? `docker compose exec -T app python -m asr_en_vi.cli task diagnose ${task.id}` : "";
+  return task && SAFE_TASK_ID.test(task.id || "") ? `docker compose exec -T app python -m asr_studio.cli task diagnose ${task.id}` : "";
 }
 
 function copyClicked(state, action) {

@@ -27,8 +27,8 @@ from test_browser_notes import signed_in as signed_in
 from test_browser_notes_provider import accept
 from test_browser_task_progress import end_notes_run, running_notes, running_transcription
 
-from asr_en_vi.notes import get_notes_source
-from asr_en_vi.storage import database_path
+from asr_studio.notes import get_notes_source
+from asr_studio.storage import database_path
 
 pytestmark = pytest.mark.browser
 
@@ -838,7 +838,7 @@ def test_the_meeting_name_shows_once_on_the_meeting_page(live, signed_in):
         assert shown(title) == 1
     expect(page.locator("#meeting-title")).to_have_text(title)
     expect(page.locator("#page-title")).to_have_text("Cuộc họp")
-    assert page.title() == f"{title} · ASR EN VI"
+    assert page.title() == f"{title} · ASR Studio"
     # The one place is the focus target of the page.
     assert page.locator("#meeting-title").get_attribute("tabindex") == "-1"
 
@@ -850,7 +850,7 @@ def test_the_meeting_name_shows_once_on_the_meeting_page(live, signed_in):
     expect(page.locator("#meeting-title")).to_have_text("Renamed planning")
     expect(page.locator("#page-title")).to_have_text("Cuộc họp")
     assert shown("Renamed planning") == 1
-    assert page.title() == "Renamed planning · ASR EN VI"
+    assert page.title() == "Renamed planning · ASR Studio"
 
 
 @pytest.mark.parametrize(

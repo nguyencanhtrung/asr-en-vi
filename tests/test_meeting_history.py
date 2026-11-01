@@ -6,9 +6,9 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from seeding import seed_meeting
 
-from asr_en_vi.app import create_app
-from asr_en_vi.auth import AuthStore
-from asr_en_vi.storage import database_path
+from asr_studio.app import create_app
+from asr_studio.auth import AuthStore
+from asr_studio.storage import database_path
 
 pytestmark = pytest.mark.anyio
 

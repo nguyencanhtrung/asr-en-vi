@@ -56,7 +56,7 @@ ASR_RUN_OMP_CONTRACT=1 .venv/bin/python -m pytest -q tests/test_omp_contract.py
 ```
 
 Run it when changing OMP adapter or RPC code in
-`src/asr_en_vi/antigravity.py`, or when bumping `OMP_VERSION` and the OMP
+`src/asr_studio/antigravity.py`, or when bumping `OMP_VERSION` and the OMP
 checksums in `Dockerfile`. The contract runs offline and sends no prompt or
 inference request.
 

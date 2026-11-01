@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from asr_en_vi.auth import (
+from asr_studio.auth import (
     AuthStateError,
     AuthStore,
     create_session_cookie,

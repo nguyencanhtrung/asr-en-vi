@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from asr_en_vi.app import create_app
-from asr_en_vi.config import Settings
+from asr_studio.app import create_app
+from asr_studio.config import Settings
 
 
 @pytest.fixture

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from asr_en_vi.config import Settings
-from asr_en_vi.diarization_runner import (
+from asr_studio.config import Settings
+from asr_studio.diarization_runner import (
     DiarizationConfigurationError,
     diarize_file,
     prepared_diarization_directory,

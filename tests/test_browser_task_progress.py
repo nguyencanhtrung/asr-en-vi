@@ -21,9 +21,9 @@ from test_browser_history import live as live
 from test_browser_history import signed_in as signed_in
 from test_browser_notes_provider import accept, claim
 
-from asr_en_vi.notes import publish_notes_revision
-from asr_en_vi.runtime import RuntimeProfile, write_runtime_profile
-from asr_en_vi.tasks import (
+from asr_studio.notes import publish_notes_revision
+from asr_studio.runtime import RuntimeProfile, write_runtime_profile
+from asr_studio.tasks import (
     accept_transcription_task,
     cancel_task,
     claim_next_task,
@@ -32,7 +32,7 @@ from asr_en_vi.tasks import (
     finish_interrupted_task,
     update_task_progress,
 )
-from asr_en_vi.worker import acquire_worker_lock, write_heartbeat
+from asr_studio.worker import acquire_worker_lock, write_heartbeat
 
 pytestmark = pytest.mark.browser
 

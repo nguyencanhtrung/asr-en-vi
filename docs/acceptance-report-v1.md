@@ -9,12 +9,12 @@ biến kết quả fail hoặc partial thành pass.
 
 Nguồn công khai của các mốc hiệu năng được giữ lại:
 
-- Release candidate 0.1.0-rc.1: source [151f3e4](https://github.com/nguyencanhtrung/asr-en-vi/commit/151f3e4d6249ea6f75d74251d37fc7addb711557).
-- Lần đo lại #99: source [4a88ec8](https://github.com/nguyencanhtrung/asr-en-vi/commit/4a88ec8be964aa5b818d854ef207eb0a2905718f), [issue #99](https://github.com/nguyencanhtrung/asr-en-vi/issues/99).
+- Release candidate 0.1.0-rc.1: source [151f3e4](https://github.com/nguyencanhtrung/asr-studio/commit/151f3e4d6249ea6f75d74251d37fc7addb711557).
+- Lần đo lại #99: source [4a88ec8](https://github.com/nguyencanhtrung/asr-studio/commit/4a88ec8be964aa5b818d854ef207eb0a2905718f), [issue #99](https://github.com/nguyencanhtrung/asr-studio/issues/99).
 - Số đo kết hợp 12,2 phút của #104 không phải một lần chạy liên tục; nguồn là
-  [source b78711d](https://github.com/nguyencanhtrung/asr-en-vi/commit/b78711d),
-  [issue #104](https://github.com/nguyencanhtrung/asr-en-vi/issues/104) và
-  [PR #109](https://github.com/nguyencanhtrung/asr-en-vi/pull/109).
+  [source b78711d](https://github.com/nguyencanhtrung/asr-studio/commit/b78711d),
+  [issue #104](https://github.com/nguyencanhtrung/asr-studio/issues/104) và
+  [PR #109](https://github.com/nguyencanhtrung/asr-studio/pull/109).
 
 Bản công khai này chỉ giữ kết quả tổng hợp, điều kiện kỹ thuật và giới hạn của phép
 đo. Nó không chứa transcript, notes, tên người, tên hoặc ngày bản ghi, meeting/task
@@ -115,7 +115,7 @@ Các kết luận frontend giữ nguyên theo ma trận trên:
 - FE-01 pass: bố cục A, hệ sáng/tối, sidebar, font và các vùng chính khớp
   thiết kế.
 - FE-02 partial: metadata brand và tên truy cập đúng, nhưng wordmark hiển thị
-  dấu gạch chéo trong khi tài liệu gọi brand là ASR EN VI; version và một số
+  dấu gạch chéo trong khi tài liệu gọi brand là ASR Studio; version và một số
   điểm tương phản/kích thước còn lệch.
 - FE-03..FE-09 pass: lịch, tìm kiếm, điều hướng, notes/transcript, keyboard,
   viewport, player dính và trạng thái task đã được kiểm tra ở các ma trận đã

@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from seeding import prepare_diarization_model, seed_meeting
 
-from asr_en_vi.storage import database_path, initialize
-from asr_en_vi.tasks import (
+from asr_studio.storage import database_path, initialize
+from asr_studio.tasks import (
     TaskError,
     accept_transcription_task,
     add_current_generation_speaker,
@@ -27,7 +27,7 @@ from asr_en_vi.tasks import (
     update_current_generation_speaker_name,
     update_task_progress,
 )
-from asr_en_vi.worker import acquire_worker_lock
+from asr_studio.worker import acquire_worker_lock
 
 
 def _task_store(tmp_path: Path, *, meeting_count: int = 1):

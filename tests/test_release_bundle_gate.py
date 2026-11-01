@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from asr_en_vi import cli
+from asr_studio import cli
 
 ROOT = Path(__file__).parents[1]
 spec = importlib.util.spec_from_file_location(
@@ -34,7 +34,7 @@ def test_bundle_gate_uses_actual_version_and_schema_contract(tmp_path, monkeypat
     monkeypatch.chdir(ROOT)
     monkeypatch.setattr(module.subprocess, "run", run)
     with pytest.raises(StopAfterVersion):
-        module.prepare("synthetic-image", tmp_path, "0.1.3")
+        module.prepare("synthetic-image", tmp_path, "0.2.0")
     assert len(calls) == 2
 
 
@@ -70,7 +70,7 @@ def test_bundle_inventory_records_supplied_buildkit_config_digest(tmp_path, monk
         module.prepare(
             "synthetic-image",
             tmp_path,
-            "0.1.3",
+            "0.2.0",
             expected_platform="arm64",
             config_digest="sha256:" + "b" * 64,
         )

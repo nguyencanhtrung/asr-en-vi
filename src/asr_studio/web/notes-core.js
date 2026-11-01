@@ -13,7 +13,7 @@
 
 import { errorMessageForCode, isWorkspaceAuthenticationFailure, responseCode, responseMessage } from "./shell-core.js";
 
-export const VIEW_MODE_KEY = "asr-en-vi:notes-view-mode";
+export const VIEW_MODE_KEY = "asr-studio:notes-view-mode";
 export const ACTIVE_TASK_STATES = ["accepted", "running", "stopping"];
 const PROVIDER_IDS = ["chatgpt", "antigravity"];
 const POLL_DELAY = 1000;
@@ -97,9 +97,9 @@ const FAILURE_MESSAGES = {
   provider_busy: (name) => t("{name} đang bận với một thao tác kết nối hoặc đăng nhập. Hãy hoàn tất hoặc hủy đăng nhập rồi thử lại; hệ thống chưa đổi gì.", { name }),
 };
 
-export const requestStorageKey = (meetingId) => `asr-en-vi:notes-request:${meetingId}`;
-export const pendingRequestStorageKey = (meetingId) => `asr-en-vi:notes-request-v2:${meetingId}`;
-export const outputLanguageStorageKey = (meetingId) => `asr-en-vi:notes-output-language:${meetingId}`;
+export const requestStorageKey = (meetingId) => `asr-studio:notes-request:${meetingId}`;
+export const pendingRequestStorageKey = (meetingId) => `asr-studio:notes-request-v2:${meetingId}`;
+export const outputLanguageStorageKey = (meetingId) => `asr-studio:notes-output-language:${meetingId}`;
 
 function providerLabel(provider) {
   return PROVIDER_LABELS[provider] || t("nhà cung cấp");

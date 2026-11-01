@@ -15,13 +15,13 @@ from httpx import ASGITransport, AsyncClient
 from media_tools import require_media_tools
 from starlette.requests import ClientDisconnect, Request
 
-from asr_en_vi import recordings as recordings_module
-from asr_en_vi import routes as routes_module
-from asr_en_vi.app import create_app
-from asr_en_vi.auth import AuthStore
-from asr_en_vi.config import Settings
-from asr_en_vi.media import MediaProcessingError
-from asr_en_vi.storage import initialize
+from asr_studio import recordings as recordings_module
+from asr_studio import routes as routes_module
+from asr_studio.app import create_app
+from asr_studio.auth import AuthStore
+from asr_studio.config import Settings
+from asr_studio.media import MediaProcessingError
+from asr_studio.storage import initialize
 
 pytestmark = pytest.mark.anyio
 
@@ -1240,7 +1240,7 @@ async def test_shell_route_and_script_are_protected_and_refresh_uses_shell(clien
     await _authorize(client, settings)
     page = await client.get("/meetings/known-id")
     assert page.status_code == 200
-    assert "ASR EN VI" in page.text
+    assert "ASR Studio" in page.text
     for name in (
         "shell.js",
         "shell-core.js",

@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import sys
 
-from asr_en_vi import notes_runner, worker
-from asr_en_vi.runtime import RuntimeConfigurationError
-from asr_en_vi.safe_logging import emit_safe_log
+from asr_studio import notes_runner, worker
+from asr_studio.runtime import RuntimeConfigurationError
+from asr_studio.safe_logging import emit_safe_log
 
 
 def test_safe_log_allowlist_never_echoes_untrusted_values(capsys):
@@ -53,7 +53,7 @@ def test_worker_startup_failure_uses_fixed_code_and_stage(monkeypatch, capsys):
         raise RuntimeConfigurationError("worker startup token=secret /private/model")
 
     monkeypatch.setattr(worker, "run_worker", fail)
-    monkeypatch.setattr(sys, "argv", ["asr-en-vi-worker"])
+    monkeypatch.setattr(sys, "argv", ["asr-studio-worker"])
 
     assert worker.main() == 1
 

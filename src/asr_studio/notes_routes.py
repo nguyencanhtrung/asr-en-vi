@@ -9,10 +9,10 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from starlette.concurrency import run_in_threadpool
 
-from asr_en_vi.antigravity import AntigravityError, AntigravityProvider
-from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
-from asr_en_vi.config import Settings
-from asr_en_vi.notes import (
+from asr_studio.antigravity import AntigravityError, AntigravityProvider
+from asr_studio.chatgpt import ChatGPTError, ChatGPTProvider
+from asr_studio.config import Settings
+from asr_studio.notes import (
     ABSENT,
     accept_notes_task,
     export_note,
@@ -23,8 +23,8 @@ from asr_en_vi.notes import (
     save_notes_preference,
     update_note,
 )
-from asr_en_vi.tasks import TaskError
-from asr_en_vi.worker import is_healthy as worker_is_healthy
+from asr_studio.tasks import TaskError
+from asr_studio.worker import is_healthy as worker_is_healthy
 
 WEB_DIR = Path(__file__).parent / "web"
 

@@ -12,7 +12,7 @@ Người vận hành làm việc một mình trên máy tự quản. Họ nhập
 
 ## Product Purpose
 
-ASR EN VI biến bản ghi cuộc họp tiếng Anh hoặc tiếng Việt thành transcript có timestamp và người nói để người vận hành rà soát. Thành công là kết quả vẫn rõ nguồn, bền qua restart và dùng được khi phần xử lý local không có Internet.
+ASR Studio biến bản ghi cuộc họp tiếng Anh hoặc tiếng Việt thành transcript có timestamp và người nói để người vận hành rà soát. Thành công là kết quả vẫn rõ nguồn, bền qua restart và dùng được khi phần xử lý local không có Internet.
 
 ## Positioning
 
@@ -44,7 +44,7 @@ ASR EN VI biến bản ghi cuộc họp tiếng Anh hoặc tiếng Việt thành
 
 ## Brand Commitments
 
-- Tên sản phẩm giữ nguyên là **ASR EN VI**; biểu tượng sóng âm nét đơn tiếp tục là dấu nhận diện của ứng dụng.
+- Tên sản phẩm là **ASR Studio** (`asr-studio`); dấu nhận diện kết hợp sóng âm nét đơn với thanh điều chỉnh studio.
 - `https://bibo.id.vn/` là visual authority cho ngôn ngữ nhận diện dùng chung. ASR vẫn là công cụ vận hành, không sao chép bố cục portfolio hoặc biến thành landing page.
 - Giọng giao diện ngắn gọn, chính xác, bình tĩnh và thiên về kỹ thuật; không đổi product copy hoặc tạo claim mới ngoài phạm vi đã xác nhận.
 
@@ -52,7 +52,7 @@ ASR EN VI biến bản ghi cuộc họp tiếng Anh hoặc tiếng Việt thành
 
 - Product terminology: `CONTEXT.md`.
 - Product and workflow constraints: `docs/specification-v1.md`, `docs/backend-design-v1.md` and `docs/backend-contract-v1.md`.
-- Existing implemented surfaces and states: `src/asr_en_vi/web/`.
+- Existing implemented surfaces and states: `src/asr_studio/web/`.
 - Existing real-browser behavior coverage: `tests/test_browser_access.py`, `tests/test_browser_workspace.py` and `tests/test_browser_history.py`.
 - The repository contains no customer claims, testimonials or marketing proof; future UI must not fabricate them.
 
