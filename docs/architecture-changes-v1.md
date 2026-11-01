@@ -722,7 +722,7 @@ Mục tùy chọn trong comment của #118: pha 5 xử lý `LATEST_MISMATCH` và
 
 Còn mở sau #118 (không đổi hành vi nên không làm trong pha 5): trình duyệt tự đóng dialog tạo cuộc họp giữa lúc lưu rồi mở lại (pha 1); cuộn tới mục Google trước khi view Google vẽ xong, và trả lời `POST …/input` của Google chưa kiểm thế hệ đăng nhập (pha 2); `readId` dùng chung giữa các cuộc họp (pha 3); khóa `history/save` latest-wins theo cuộc họp, poll cũ hơn câu trả lời hủy, `shownOf` thuần cho harness task (4a đến 4c); khóa `transcript/copy` latest-wins và chi phí mỗi phím gõ trong trình sửa (4c); hơn mười cờ descriptor provider còn là switch theo provider; live region không ghi lại khi chữ không đổi (chỉ sửa nếu kiểm bằng trình đọc màn hình thấy cần).
 
-### #145 / PR (chưa mở) — upload file theo phần byte qua tunnel giới hạn body
+### #145 / PR #146 — upload file theo phần byte qua tunnel giới hạn body
 
 #### Vấn đề
 
@@ -796,7 +796,7 @@ timeout 180 .venv/bin/python -m pytest -q tests/test_recordings.py tests/test_st
 
 #### Liên kết issue/PR
 
-Issue #145, PR chưa mở; liên quan #117.
+Issue #145, PR #146; liên quan #117.
 
 #### Tag
 
@@ -808,7 +808,7 @@ Hiệu năng; Kiến trúc
 - `docs/frontend-design-v1.md` — state và retry của shell upload.
 - `docs/user-guide.md` — flow upload và giới hạn bộ nhớ khi extract video.
 
-### #117 / PR (chưa mở) — tách audio khỏi video ngay trên trình duyệt trước khi upload
+### #117 / PR #142 — tách audio khỏi video ngay trên trình duyệt trước khi upload
 
 #### Vấn đề
 
