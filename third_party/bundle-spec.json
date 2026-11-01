@@ -491,7 +491,7 @@
     },
     {
       "id": "ffmpeg-8.1.2",
-      "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+      "url": "https://deb.debian.org/debian/pool/main/f/ffmpeg/ffmpeg_8.1.2.orig.tar.xz",
       "sha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c",
       "artifact_name": "ffmpeg-8.1.2.tar.xz"
     },
