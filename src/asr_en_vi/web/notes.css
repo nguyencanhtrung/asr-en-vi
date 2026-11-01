@@ -140,7 +140,7 @@
 .notes-output-language-control select {
   min-height: 38px;
   padding: 7px 9px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--surface-subtle);
   color: var(--ink);
@@ -375,7 +375,7 @@
   min-width: 0;
   min-height: 40px;
   padding: 7px 9px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--surface-subtle);
   color: var(--ink);
@@ -482,7 +482,7 @@
 
 .notes-frame {
   margin-top: 12px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--surface-subtle);
 }

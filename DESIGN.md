@@ -7,11 +7,12 @@ colors:
   light-surface-subtle: "#f6f4f0"
   light-ink: "#1c1c21"
   light-ink-secondary: "#52525b"
-  light-ink-muted: "#70707c"
+  light-ink-muted: "#6b6b77"
   light-accent: "#8e2433"
   light-accent-hover: "#741b29"
   light-accent-soft: "#f3e4e6"
   light-hairline: "#e5e2dc"
+  light-control-border: "#858078"
   dark-background: "#131318"
   dark-surface: "#1b1b22"
   dark-surface-subtle: "#17171d"
@@ -22,6 +23,7 @@ colors:
   dark-accent-hover: "#eea2ab"
   dark-accent-soft: "#35222a"
   dark-hairline: "#2a2a33"
+  dark-control-border: "#777783"
   success-light: "#226442"
   success-dark: "#86c9a4"
   warning-light: "#81540f"
@@ -235,6 +237,7 @@ The palette pairs warm paper neutrals with charcoal dark surfaces and a reserved
 - **Charcoal Field:** The dark canvas; use close charcoal steps instead of blue-tinted dashboard layers.
 - **Ledger Ink:** Primary copy and titles; secondary and muted ink are reserved for explanation and metadata.
 - **Hairline Rule:** One-pixel borders and dividers; it organizes information without becoming a frame.
+- **Control Boundary:** `--control-border` separates editable fields, selects, language radio labels and the notes editor frame from their surroundings at ≥3:1 in both themes. Decorative dividers retain `--hairline` and `--line-strong`. Small text, including placeholders and dates outside the calendar month, stays ≥4.5:1; selected metadata uses secondary ink on the accent-soft fill. Placeholders use full opacity in every browser.
 
 ### Named Rules
 
