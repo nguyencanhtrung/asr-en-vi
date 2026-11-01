@@ -370,6 +370,7 @@ const run = createRunner({
   fetch: (url, init) => fetch(url, init),
   setTimeout: (callback, delay) => window.setTimeout(callback, delay),
   clearTimeout: (id) => window.clearTimeout(id),
+  navigate: (url) => window.location.assign(url),
   storage: { local: () => window.localStorage, session: () => window.sessionStorage },
   calls: {
     "history.setNotesSourceLock": meetingHistory.setNotesSourceLock,
@@ -446,7 +447,9 @@ els.reload.addEventListener("click", () => dispatch({ type: "notes/choice-reload
 // Connections saved a model or changed a provider status: reload before a new run can start.
 providerChoice.subscribe(() => dispatch({ type: "notes/provider-choice-changed" }));
 meetingChanges.subscribe((detail) => {
-  if (detail && typeof detail.meetingId === "string" && detail.meetingId) {
+  // Remote hints refresh history first; its authoritative context triggers the notes read.
+  // Only local transcript/metadata writes need the direct notes refresh here.
+  if (detail?.local && typeof detail.meetingId === "string" && detail.meetingId) {
     dispatch({ type: "notes/meeting-change-received", meetingId: detail.meetingId });
   }
 });

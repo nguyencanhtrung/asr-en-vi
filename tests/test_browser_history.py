@@ -843,9 +843,7 @@ def test_delete_ui_keeps_unrelated_404_visible(live, browser_context):
     _confirm_meeting_deletion(page, "Unrelated 404 deletion target")
 
     expect(page.locator("#meeting-delete-error")).to_be_visible()
-    expect(page.locator("#meeting-delete-error")).to_have_text(
-        "The requested deletion target was not found."
-    )
+    expect(page.locator("#meeting-delete-error")).to_have_text("Không tìm thấy dữ liệu yêu cầu.")
     expect(page.locator("#meeting-title")).to_have_text("Unrelated 404 deletion target")
     expect(page.locator("#recent-list a")).to_have_count(1)
     assert context.request.get(f"{live.url}/api/meetings/{meeting_id}").status == 200
@@ -895,7 +893,7 @@ def test_delete_ui_guides_active_task_cancel_and_wait(live, browser_context, tmp
             503,
             "storage_unavailable",
             "Storage service is temporarily unavailable.",
-            "Storage service is temporarily unavailable.",
+            "Máy chủ chưa thể hoàn tất yêu cầu. Hãy thử lại sau.",
         ),
     ],
 )
@@ -1259,10 +1257,14 @@ def test_sidebar_fits_beside_a_classic_scrollbar_and_still_scrolls(live, signed_
         assert metrics["monthWidth"] >= metrics["monthWanted"] - 0.5, metrics
         assert metrics["pickRight"] <= metrics["calendarRight"] + 0.5, metrics
 
-        # It still scrolls by itself, down to the footer.
-        expect(page.locator(".version-link")).not_to_be_in_viewport()
+        # The footer stays visible while the calendar/list still scroll independently.
+        expect(page.locator(".version-link")).to_be_in_viewport()
+        before_scroll = page.locator(".sidebar").evaluate("el => el.scrollTop")
         page.mouse.move(40, height // 2)
         page.mouse.wheel(0, 2000)
+        page.wait_for_function(
+            "before => document.querySelector('.sidebar').scrollTop > before", arg=before_scroll
+        )
         expect(page.locator(".version-link")).to_be_in_viewport()
 
 
@@ -1410,7 +1412,7 @@ def test_diarization_error_shows_sanitized_copyable_diagnostic_command(live, bro
     edit_segment(page)
     page.locator(".segment-speaker-select").select_option("SPEAKER_01")
     expect(page.locator("#transcript-mutation-error-message")).to_have_text(
-        "Không thể lưu người nói."
+        "Máy chủ chưa thể hoàn tất yêu cầu. Hãy thử lại sau."
     )
     expect(page.locator("#transcription-error-message")).to_have_text(
         "Không thể giải mã bản ghi. Tải lại file âm thanh hợp lệ rồi thử lại."
@@ -1447,7 +1449,7 @@ def test_diarization_error_shows_sanitized_copyable_diagnostic_command(live, bro
     )
     page.get_by_role("button", name="Chạy lại bản ghi").click()
     expect(page.locator("#transcription-error-message")).to_contain_text(
-        "Không thể gửi lại tác vụ."
+        "Máy chủ chưa thể hoàn tất yêu cầu. Hãy thử lại sau."
     )
     expect(page.locator("#task-diagnostic-details")).to_be_hidden()
     expect(page.locator("#task-diagnostic-command-wrap")).to_be_hidden()
@@ -1458,7 +1460,7 @@ def test_diarization_error_shows_sanitized_copyable_diagnostic_command(live, bro
             ("Safe fallback.", task_id),
         )
     page.reload(wait_until="domcontentloaded")
-    expect(page.locator("#transcription-error-message")).to_have_text("Safe fallback.")
+    expect(page.locator("#transcription-error-message")).to_have_text("Tác vụ chưa hoàn tất.")
     expect(page.locator("#task-diagnostic-details")).to_be_hidden()
     expect(page.locator("#task-diagnostic-command-wrap")).to_be_hidden()
 
@@ -1903,15 +1905,27 @@ def test_delayed_transcript_save_notifies_other_tab_after_origin_navigation_and_
     page_a.locator("#recent-list a").filter(has_text="Other tab destination").click()
     page_a.wait_for_url(f"{live.url}/meetings/{other_id}")
     expect(page_a.locator("#meeting-title")).to_have_text("Other tab destination")
+    page_b.wait_for_load_state("networkidle")
+    receiver_notes_reads = []
+    page_b.on(
+        "request",
+        lambda request: (
+            receiver_notes_reads.append(request.url)
+            if request.method == "GET"
+            and request.url == f"{live.url}/api/meetings/{meeting_id}/notes"
+            else None
+        ),
+    )
     held[0].continue_()
 
     expect(row_b.locator(".segment-text-editor")).to_have_value("Draft kept in B", timeout=10_000)
     expect(row_b.locator(".transcript-draft-review")).to_contain_text(
         "Bản mới nhất đã lưu: Saved from A", timeout=10_000
     )
+    page_b.wait_for_load_state("networkidle")
+    assert len(receiver_notes_reads) == 1, "one hint must cause one authoritative notes read"
     row_b.get_by_role("button", name="Hủy").click()
     expect(row_b.locator(".segment-draft-mark")).to_have_text("Bản nháp chưa lưu")
-
     messages = observed.evaluate("window.__meetingChangeMessages")
     assert len(messages) == 1, "the receiver's authoritative read must not echo-broadcast"
     assert messages[0]["meetingId"] == meeting_id
@@ -2818,9 +2832,11 @@ def test_delayed_text_and_name_errors_target_replacement_statuses(live, browser_
             content_type="application/json",
             body=json.dumps({"detail": {"message": fulfill_error}}),
         )
-        expect(replacement).to_have_text(fulfill_error)
+        expect(replacement).to_have_text("Máy chủ chưa thể hoàn tất yêu cầu. Hãy thử lại sau.")
         expect(page.locator("#transcript-mutation-status")).to_be_visible()
-        expect(page.locator("#transcript-mutation-status")).to_have_text(fulfill_error)
+        expect(page.locator("#transcript-mutation-status")).to_have_text(
+            "Máy chủ chưa thể hoàn tất yêu cầu. Hãy thử lại sau."
+        )
 
     text = edit_segment(page)
     text.fill("Delayed text failure.")

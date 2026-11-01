@@ -11,7 +11,7 @@
 // `href`, `origin`, `hidden`, `mode`); history.js commands, the clipboard, the download and
 // history.replaceState leave as `call` effects.
 
-import { errorMessageForCode, responseCode, responseMessage } from "./shell-core.js";
+import { errorMessageForCode, isWorkspaceAuthenticationFailure, responseCode, responseMessage } from "./shell-core.js";
 
 export const VIEW_MODE_KEY = "asr-en-vi:notes-view-mode";
 export const ACTIVE_TASK_STATES = ["accepted", "running", "stopping"];
@@ -1509,7 +1509,9 @@ function meetingContext(state, action) {
   const data = entryOf(result.state, meetingId);
   result.effects.push(lockEffect(meetingId, data.sourceLocked, data.sourceLockKnown));
   result = then(result, (s) => adoptStored(s, meetingId, action.stored || {}));
-  result = then(result, (s) => readNotes(s, meetingId));
+  // Several render paths can publish the same installed meeting. Read once per new
+  // authoritative context; repeated paints still update local state and lock effects.
+  if (changed || previousMeeting !== meeting) result = then(result, (s) => readNotes(s, meetingId));
   if (changed || !result.state.choice.loaded) result = then(result, (s) => loadChoice(s, meetingId));
   return then(result, (s) => handleLocation(s, action.href));
 }
@@ -1551,6 +1553,18 @@ function response(state, action) {
 
 function requestFailed(state, action) {
   const { meta } = action;
+  if (isWorkspaceAuthenticationFailure(action.error?.status, action.error?.body)) {
+    const meetingId = state.meetingId || meta.meetingId;
+    const next = meetingId ? patchNotes(state, meetingId, {
+      runError: t("Phiên làm việc đã hết. Đang chuyển đến trang đăng nhập."),
+      runErrorUncertain: false,
+    }) : state;
+    const stopped = stopPolling(next);
+    return out(stopped.state, [
+      ...stopped.effects,
+      { type: "navigate", key: "notes/session-ended", url: "/access" },
+    ]);
+  }
   const task = meta.op === "cancel" ? entryOf(state, meta.meetingId)?.task : null;
   const error = apiError(action.error, meta.provider || task?.provider);
   switch (meta.op) {

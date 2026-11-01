@@ -154,6 +154,17 @@ test("a notes answer for the meeting that was left is dropped", async () => {
   assert.equal(notes(env, "m2").revisions[0].id, "r2");
 });
 
+test("repeated paints of the same meeting context do not add notes reads", () => {
+  const env = setup();
+  const current = meeting();
+  env.context(current);
+  env.context(current);
+  env.context(current);
+  assert.equal(env.waiting(env.is("GET", "/api/meetings/m1/notes")).length, 1);
+  env.context({ ...current }); // a genuinely refreshed server context still reads
+  assert.equal(env.waiting(env.is("GET", "/api/meetings/m1/notes")).length, 2);
+});
+
 test("only the newest read of a meeting counts", async () => {
   const env = setup();
   env.context();
@@ -1454,4 +1465,28 @@ test("opening another meeting forgets what the server said about the last one's 
   env.context({ ...meeting("m1"), notes_source_locked: undefined });
   assert.equal(notes(env, "m1").known, false);
   assert.equal(notes(env, "m1").sourceLockKnown, false);
+});
+
+test("workspace authentication failure ends notes polling without dropping drafts or pending work", () => {
+  const state = {
+    ...initialState, view: "meeting", meetingId: "m1", readId: 1,
+    poll: { token: 2, scheduled: false },
+    drafts: { r1: { value: "Unsaved notes" } },
+    pending: { m1: { request_id: "still-owned-by-worker" } },
+  };
+  const action = {
+    type: "notes/request-failed",
+    meta: { op: "read", id: 1, meetingId: "m1", poll: 2 },
+    error: { status: 401, body: { detail: "Authentication required" } },
+  };
+  const expired = reduce(state, action);
+  assert.ok(expired.effects.some(effect => effect.type === "navigate" && effect.url === "/access"));
+  assert.equal(expired.state.poll.scheduled, false);
+  assert.deepEqual(expired.state.drafts, state.drafts);
+  assert.deepEqual(expired.state.pending, state.pending);
+  const provider = reduce(state, {
+    ...action, error: { status: 401, body: { detail: { code: "provider_auth_error" } } },
+  });
+  assert.ok(!provider.effects.some(effect => effect.type === "navigate"));
+  assert.deepEqual(provider.state.choice.status, state.choice.status);
 });

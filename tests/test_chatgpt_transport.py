@@ -338,7 +338,7 @@ def test_notes_completed_output_over_cap_reports_observed_text_bytes():
     assert oversized.value.diagnostics["output_bytes"] == len(output_text.encode("utf-8"))
 
 
-def test_notes_reasoning_stream_can_finish_after_the_control_call_deadline(monkeypatch):
+def test_notes_reasoning_stream_with_heartbeats_outlives_control_call_deadline(monkeypatch):
     clock = [0.0]
     requests = []
     monkeypatch.setattr("asr_en_vi.chatgpt.time.monotonic", lambda: clock[0])
@@ -347,8 +347,12 @@ def test_notes_reasoning_stream_can_finish_after_the_control_call_deadline(monke
         def __iter__(self):
             clock[0] = 45.0
             yield b": reasoning\n\n"
+            clock[0] = 90.0
+            yield b": reasoning\n\n"
             clock[0] = 120.0
             yield b'data: {"type":"response.output_text.delta","delta":"{}"}\n\n'
+            clock[0] = 165.0
+            yield b": reasoning\n\n"
             clock[0] = 180.0
             yield b'data: {"type":"response.completed","response":{"output":[]}}\n\n'
 
@@ -368,7 +372,7 @@ def test_notes_reasoning_stream_can_finish_after_the_control_call_deadline(monke
         == "{}"
     )
     assert len(requests) == 1
-    assert requests[0].extensions["timeout"]["read"] >= 180
+    assert requests[0].extensions["timeout"]["read"] == 60.0
     # The short connection-check budget remains independent from notes inference.
     with adapter._client() as client:
         assert client.timeout.read == 15.0

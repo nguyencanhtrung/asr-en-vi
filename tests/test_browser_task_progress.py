@@ -413,11 +413,12 @@ def test_runtime_details_sit_in_a_closed_disclosure(live, signed_in):
 
 
 @pytest.mark.parametrize("scheme", ["light", "dark"])
-def test_progress_fits_360px_in_both_themes_and_the_summary_shows_focus(live, signed_in, scheme):
+@pytest.mark.parametrize("stage", ["transcribing", "starting_diarization"])
+def test_progress_fits_360px_in_both_themes_and_the_summary_shows_focus(
+    live, signed_in, scheme, stage
+):
     _context, page = signed_in(color_scheme=scheme, viewport={"width": 360, "height": 800})
-    meeting_id, _task_id, _owner_id = running_transcription(
-        live, stage="starting_diarization", end=42
-    )
+    meeting_id, _task_id, _owner_id = running_transcription(live, stage=stage, end=42)
     page.goto(f"{live.url}/meetings/{meeting_id}")
 
     expect(page.locator("#task-progress")).to_be_visible()
@@ -428,7 +429,15 @@ def test_progress_fits_360px_in_both_themes_and_the_summary_shows_focus(live, si
     tokens = theme_tokens(page)
     bar = page.locator("#task-progress-bar")
     assert bar.evaluate("el => getComputedStyle(el).color") == rgb(tokens["--accent"])
-    assert bar.evaluate("el => getComputedStyle(el).backgroundColor") == rgb(tokens["--hairline"])
+    if stage == "transcribing":
+        expect(bar).to_have_attribute("value", "0.42")
+        assert bar.evaluate("el => getComputedStyle(el).backgroundColor") == rgb(
+            tokens["--hairline"]
+        )
+    else:
+        assert bar.get_attribute("value") is None
+        assert bar.evaluate("el => getComputedStyle(el).backgroundColor") == "rgba(0, 0, 0, 0)"
+        assert bar.evaluate("el => getComputedStyle(el).borderTopStyle") == "dashed"
     ratios = page.evaluate(
         CONTRAST_JS, "#task-progress-stage, #task-progress-percent, .processing-details > summary"
     )
@@ -629,3 +638,19 @@ def test_notes_steps_fit_360px_in_both_themes(live, signed_in, scheme):
     assert failed.evaluate("el => getComputedStyle(el).color") == rgb(tokens["--danger"])
     assert min(page.evaluate(CONTRAST_JS, selector)) >= 4.5
     assert overflow(page) == 0
+
+
+def test_expired_workspace_session_during_notes_poll_returns_to_access(live, signed_in):
+    _context, page = signed_in()
+    meeting_id, _task_id, _owner_id = running_notes(live)
+    page.goto(f"{live.url}/meetings/{meeting_id}")
+    expect(page.locator("#notes-task-details")).to_be_visible()
+    page.route(
+        f"{live.url}/api/meetings/{meeting_id}/notes",
+        lambda route: route.fulfill(
+            status=401,
+            content_type="application/json",
+            body='{"detail": "Authentication required"}',
+        ),
+    )
+    page.wait_for_url(f"{live.url}/access", timeout=8_000)
