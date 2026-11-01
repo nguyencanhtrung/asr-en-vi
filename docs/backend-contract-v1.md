@@ -111,12 +111,37 @@ commit trước khi ghi phần mới. Server chỉ cập nhật `received_bytes`
 | Hai yêu cầu content cùng lúc | `409`, `detail.code: "upload_busy"`, detail có `received_bytes`; chỉ writer đầu tiên được ghi |
 
 Client không gọi endpoint hoàn tất trước khi `received_bytes == size_bytes`. Sau đó,
-`POST /api/uploads/{id}/complete` kiểm tra media và chuyển upload sang `ready`.
+`POST /api/uploads/{id}/complete` chuyển upload sang `validating` trước khi kiểm tra media; khi
+thành công nó chuyển sang `ready`. Nếu phản hồi POST bị mất, timeout hoặc là lỗi 5xx/408/429,
+đó là kết quả chưa biết: client không được DELETE upload mà phải đọc `GET /api/uploads/{id}`.
+Trạng thái `ready` tiếp tục tạo meeting, `validating` được poll mỗi giây không có deadline tổng
+ngắn, `uploaded` chỉ được POST complete lại khi client biết chắc trạng thái đó, còn
+`failed`/`receiving` hoặc trạng thái khác phải đi qua cleanup có chủ đích. GET trạng thái tạm thời
+được retry tối đa sáu lần với backoff 1, 2, 4, 8, 16 và 32 giây; nếu vẫn không xác nhận được,
+client giữ `upload_id`, cho phép kiểm tra lại hoặc hủy, và không tạo meeting.
+
+`GET /api/uploads/{id}` trả `failure_code` khi trạng thái là `failed`. Lỗi media có mã riêng:
+`duration_limit` (413, detail có `max_duration_seconds`) khác với giới hạn byte, còn
+`duration_mismatch` (422) báo duration khai báo của audio không khớp đáng kể với audio giải mã
+được. Với A/V, duration của container chỉ là provisional khi stream audio được chọn không có
+duration riêng; server vẫn giải mã đúng audio stream với giới hạn `max + 1` rồi kiểm tra duration
+đầu ra. Chỉ duration của selected audio có tính authoritative mới được so sánh với duration giải
+mã; audio-only có thể dùng duration container làm fallback authoritative.
+
 `GET /api/uploads/policy` trả thêm `chunk_bytes`. Giá trị mặc định là `67108864` byte (64 MiB).
 Client dùng giá trị này làm kích thước phần, nhưng mỗi request vẫn phải dùng offset server đã xác
 nhận. Sau lỗi mạng hoặc phản hồi `upload_busy`/`upload_interrupted`, client đọc lại trạng thái và
-thử lại phần hiện tại tối đa sáu lần với backoff mũ 1, 2, 4, 8, 16 và 32 giây (tổng cửa sổ 63
-giây); lỗi tạm thời của GET trạng thái dùng cùng lịch và giới hạn.
+thử lại phần hiện tại tối đa sáu lần với cùng backoff; lỗi tạm thời của GET trạng thái dùng cùng
+lịch và giới hạn.
+
+Client disconnect trong lúc ghi là một kết quả dự kiến: server drain thao tác ghi/fsync/commit
+đang sở hữu, trả 204 khi xử lý trực tiếp và giữ offset bền vững; cancellation thật sự vẫn được
+propagate để task owner không bị nuốt.
+
+Cleanup/startup chạy backfill hữu hạn (100 dòng mỗi lượt) để đổi filename của các upload `failed`
+cũ sang `removed-upload`, nhưng giữ nguyên `failure_code`. Filename của upload `ready` hoặc
+`consumed` không bị đổi; upload `ready` chưa gắn meeting tiếp tục nằm trong retention 24 giờ theo
+thiết kế. `meeting_date` chỉ nhận năm từ 1000 đến 9999.
 
 Mỗi yêu cầu tạo tác vụ mang request ID để retry HTTP do mất phản hồi trả lại cùng tác vụ đã nhận, không tạo thêm lần gọi model. Cùng request ID nhưng payload khác phải bị từ chối; retry không được trở thành tác vụ mới chỉ vì tác vụ cũ đã kết thúc. Đây khác tự gửi lại inference bị Q25 cấm. Ghi từ phiên bản cũ hoặc trạng thái đang khóa trả lỗi có mã phân biệt (`stale_version`, `notes_source_locked`, `system_busy`, `provider_in_use`); UI giữ bản nháp khi xung đột. Lỗi provider cần đăng nhập không được diễn giải thành mất cookie đăng nhập ứng dụng.
 

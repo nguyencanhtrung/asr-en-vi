@@ -156,6 +156,8 @@ async def test_stale_write_is_rejected_with_distinct_code_and_changes_nothing(cl
         ({"expected_metadata_version": 1, "title": "x" * 201}, "invalid_title"),
         ({"expected_metadata_version": 1, "meeting_date": "2026-02-30"}, "invalid_meeting_date"),
         ({"expected_metadata_version": 1, "meeting_date": "2026-1-5"}, "invalid_meeting_date"),
+        ({"expected_metadata_version": 1, "meeting_date": "0999-10-15"}, "invalid_meeting_date"),
+        ({"expected_metadata_version": 1, "meeting_date": "10000-10-15"}, "invalid_meeting_date"),
         (
             {"expected_metadata_version": 1, "meeting_date": "2026-10-15T00:00"},
             "invalid_meeting_date",

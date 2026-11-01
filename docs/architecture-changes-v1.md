@@ -976,7 +976,7 @@ Kiểm chứng: focused Node reducer tests, backend/provider guard và i18n test
 
 #### Follow-up
 
-- Root session chạy cumulative independent tester/reviewer; không chạy live account/model trong issue này.
+- Theo dõi trạng thái provider khi tác vụ kết thúc trong lúc hộp thoại vẫn mở; việc làm mới chỉ đọc metadata, không tự gửi inference.
 
 #### Liên kết issue/PR
 
@@ -989,6 +989,86 @@ Kiến trúc
 #### Tài liệu đích
 
 - `docs/release/runtime-v0.1.0.md` — provider lifecycle và reducer transition.
+
+### #85 — Làm rõ validation upload, giữ upload khi kết quả complete mơ hồ và ẩn danh row lỗi
+
+#### Vấn đề
+
+Một file media bị cắt vẫn được nhận khi duration khai báo lớn hơn nhiều duration giải mã được;
+`duration_limit` còn bị giao diện diễn giải như lỗi dung lượng. Firefox cũng có thể mất phản hồi
+`POST complete` trong lúc server vẫn kiểm tra, làm client xóa upload chưa biết kết quả. Các row
+`failed` cũ giữ filename gốc, và ngày có năm ngoài miền lịch của UI vẫn được nhận.
+
+#### Nguyên nhân đo được
+
+Issue #85 ghi nhận sáu lỗi hành vi và một quyết định giữ nguyên: file M4A cắt còn 60% byte vẫn
+trả HTTP 200; file im lặng dài 4 giờ 10 phút trả `413 duration_limit`; 4/5 lần đầu Firefox
+quan sát thấy complete thất bại trong thời gian thử nghiệm; có 7 traceback `ClientDisconnect`;
+32 row `failed` còn filename gốc; năm `0999` được nhận; và upload `ready` chưa gắn meeting giữ
+148 MB theo retention 24 giờ hoặc tới restart (giữ nguyên theo thiết kế).
+
+#### Thay đổi thiết kế
+
+- `media.probe_media` coi duration của container là provisional cho A/V nếu selected audio
+  không có duration riêng. `normalize_media` vẫn map đúng audio stream, giải mã với `max + 1`,
+  rồi áp giới hạn lên audio đã chuẩn hóa. Chỉ selected-audio duration authoritative mới được
+  so với duration giải mã (tolerance tối thiểu 2 giây hoặc 5%); audio-only được dùng container
+  duration làm fallback authoritative. Thêm regression WebM thật có video dài hơn audio.
+- API trả `duration_limit` với `max_duration_seconds` và tách `duration_mismatch`; UI có copy
+  tiếng Việt/Anh riêng cho duration, trạng thái đang kiểm tra, phục hồi complete và upload được
+  giữ lại.
+- Sau complete bị mất response hoặc lỗi mơ hồ, reducer GET trạng thái upload. `validating` được
+  poll mỗi giây không có deadline tổng ngắn; `ready` tạo meeting, `uploaded` complete lại,
+  `failed` cleanup. GET tạm thời retry sáu lần với backoff 1/2/4/8/16/32 giây; hết retry thì
+  giữ `uploadId`, cho kiểm tra lại hoặc hủy. Không DELETE khi trạng thái còn mơ hồ.
+- Client disconnect được xử lý như kết quả dự kiến: drain/commit offset bền vững và trả 204 ở
+  đường đi trực tiếp; cancellation thật sự vẫn propagate. Filename failed được đổi sang
+  `removed-upload` khi fail/delete/expiry và qua một truy vấn ẩn danh toàn bộ hàng lỗi cũ khi cleanup,
+  giữ nguyên `failure_code`; row `ready`/`consumed` giữ filename. Ngày giới hạn năm 1000–9999.
+- Giữ status `ready` retention 24 giờ hoặc startup như quan sát #7; không đổi thành xóa sớm.
+
+#### Số đo trước và sau
+
+| Chỉ số/hành vi | Trước | Sau |
+| --- | --- | --- |
+| M4A bị cắt trong fixture thật | accepted và có thể tạo meeting | rejected với `duration_mismatch` sau normalize |
+| A/V có container duration nhưng selected audio thiếu duration | dùng thời lượng container để giới hạn audio, có thể từ chối audio hợp lệ | container provisional; audio vẫn được decode/validate |
+| `duration_limit` trên UI | copy lỗi dung lượng, không nêu trần | copy nêu đúng trần, detail có `max_duration_seconds` |
+| Complete response mơ hồ | cleanup có thể DELETE upload | GET state; validating poll, uncertainty giữ upload |
+| Filename của failed row cũ | 32 row gốc không tự đổi | ẩn danh toàn bộ hàng lỗi cũ trong giao dịch, giữ diagnostics |
+| Năm cuộc họp | nhận `0999` | chỉ nhận 1000–9999 |
+| Upload ready chưa gắn meeting | giữ theo retention | giữ theo cùng retention; status 7 không đổi |
+
+Kiểm chứng: media/recording focused pytest, reducer/history Node tests, i18n checks và real-browser
+checks chạy trên Chromium và Firefox với media tổng hợp.
+
+#### Đánh đổi và phương án đã loại
+
+- Giữ upload khi complete mơ hồ dùng thêm poll và retention, nhưng tránh mất dữ liệu khi server đã
+  chuyển sang `ready`; đã loại DELETE ngay theo lỗi client.
+- Không dùng video/container duration để cắt hoặc so sánh A/V vì nó làm hỏng WebM/Matroska có
+  audio duration thiếu; chọn audio decode là authority sau normalize.
+- Ẩn danh toàn bộ hàng lỗi cũ bằng một truy vấn thay cho chờ thêm lượt cleanup hoặc xóa hàng, để giữ
+  diagnostics, audit và tên mà người dùng còn cần.
+
+#### Follow-up
+
+- Theo dõi kiểm tra media dài qua tunnel trên Firefox; nguyên nhân timeout ban đầu chưa được tái hiện xác định, còn luồng phục hồi đã có kiểm thử mất phản hồi.
+- Theo dõi telemetry nếu có để điều chỉnh retry/backoff sau khi có dữ liệu production.
+
+#### Liên kết issue/PR
+
+Issue #85.
+
+#### Tag
+
+Upload, media validation, recovery, privacy
+
+#### Tài liệu đích
+
+- `docs/backend-contract-v1.md` — upload state machine, duration contract, cleanup và date range.
+- `docs/frontend-design-v1.md` — validation recovery state/effects và UI transitions.
+- `docs/architecture-changes-v1.md` — mục này.
 
 ## 6. Mẫu mục mới
 

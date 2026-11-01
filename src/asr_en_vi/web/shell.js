@@ -102,6 +102,7 @@ function render(state) {
 
   setProp(retryUploadButton, "hidden", view.retryHidden);
   setProp(retryUploadButton, "disabled", view.retryDisabled);
+  setProp(retryUploadButton, "textContent", tr(view.retryLabel));
   setProp(cancelUploadButton, "hidden", view.cancelHidden);
   setProp(createButton, "disabled", view.createDisabled);
   setProp(createButton, "textContent", tr(view.createLabel));

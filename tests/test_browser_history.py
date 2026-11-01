@@ -109,14 +109,25 @@ def signed_in(live, request):
     """Factory for authenticated (context, page) pairs in a chosen timezone and clock.
 
     Headless Chromium hides scrollbars; parametrize this indirectly with True to draw them as a
-    desktop browser does.
+    desktop browser does.  Set ASR_BROWSER_ENGINE to select Firefox for browser checks.
     """
     with sync_playwright() as playwright:
-        chrome_path = os.environ.get("CHROME_BIN") or shutil.which("google-chrome")
-        launch = {"executable_path": chrome_path} if chrome_path else {}
-        if getattr(request, "param", False):
+        engine = os.environ.get("ASR_BROWSER_ENGINE", "chromium").lower()
+        if engine == "firefox":
+            browser_type = playwright.firefox
+            firefox_path = os.environ.get("ASR_FIREFOX_EXECUTABLE")
+            if not firefox_path:
+                pytest.fail("ASR_FIREFOX_EXECUTABLE is required for the Firefox browser gate")
+            launch = {"executable_path": firefox_path}
+        elif engine == "chromium":
+            browser_type = playwright.chromium
+            chrome_path = os.environ.get("CHROME_BIN") or shutil.which("google-chrome")
+            launch = {"executable_path": chrome_path} if chrome_path else {}
+        else:
+            pytest.fail(f"unsupported ASR_BROWSER_ENGINE: {engine}")
+        if getattr(request, "param", False) and engine == "chromium":
             launch["ignore_default_args"] = ["--hide-scrollbars"]
-        browser = playwright.chromium.launch(headless=True, **launch)
+        browser = browser_type.launch(headless=True, **launch)
 
         def make(
             timezone=TIMEZONE,

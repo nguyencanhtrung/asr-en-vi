@@ -109,6 +109,19 @@ export function validYear(text) {
   return year >= MIN_YEAR && year <= MAX_YEAR ? year : null;
 }
 
+export function validMeetingDate(text) {
+  if (text === "") return true;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (!match) return false;
+  const year = validYear(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (year === null || month < 1 || month > 12) return false;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day >= 1 && day <= days[month - 1];
+}
+
 export function meetingIdFromPathname(pathname) {
   const match = /^\/meetings\/([^/]+)\/?$/.exec(pathname || "");
   if (!match) return null;
@@ -489,7 +502,7 @@ function submitEditor(state, action) {
   const fail = (patch) => out({ ...state, editor: { ...editor, ...patch } });
   if (!title || Array.from(title).length > 200) return fail({ error: t("Tên cuộc họp phải có từ 1 đến 200 ký tự.") });
   // A half-typed date reads as "" but is not a deletion: only "Xóa ngày" or an empty field removes the date.
-  if (action.badInput) {
+  if (action.badInput || !validMeetingDate(editor.date)) {
     return fail({
       error: t("Ngày họp chưa đầy đủ hoặc không hợp lệ. Nhập đủ ngày, tháng, năm hoặc bấm “Xóa ngày” để bỏ ngày."),
       focusDate: editor.focusDate + 1,

@@ -21,6 +21,7 @@ from asr_en_vi.app import create_app
 from asr_en_vi.auth import AuthStore
 from asr_en_vi.config import Settings
 from asr_en_vi.media import MediaProcessingError
+from asr_en_vi.storage import initialize
 
 pytestmark = pytest.mark.anyio
 
@@ -183,6 +184,8 @@ async def test_corrupt_and_unsupported_uploads_fail_with_safe_codes_and_cleanup(
     assert failed.json()["detail"]["code"] == "invalid_media"
     state = await client.get(f"/api/uploads/{upload_id}")
     assert state.json()["status"] == "failed"
+    assert state.json()["failure_code"] == "invalid_media"
+    assert state.json()["filename"] == "removed-upload"
     assert not (settings.data_dir / "uploads" / f"{upload_id}.part").exists()
     assert not (settings.data_dir / "recordings" / f"{upload_id}.m4a").exists()
     assert str(settings.data_dir) not in failed.text
@@ -214,6 +217,8 @@ async def test_oversize_and_byte_mismatch_fail_before_media_processing(client, s
     assert mismatch.json()["detail"]["code"] == "size_mismatch"
     state = await client.get(f"/api/uploads/{upload_id}")
     assert state.json()["status"] == "failed"
+    assert state.json()["failure_code"] == "size_mismatch"
+    assert state.json()["filename"] == "removed-upload"
     assert not (settings.data_dir / "uploads" / f"{upload_id}.part").exists()
 
 
@@ -268,12 +273,12 @@ async def test_client_disconnect_is_propagated_after_upload_release(client, sett
         yield content[:32]
         raise ClientDisconnect
 
-    with pytest.raises(ClientDisconnect):
-        await client.put(
-            f"/api/uploads/{upload_id}/content",
-            headers={"Origin": settings.public_url},
-            content=disconnected_stream(),
-        )
+    disconnected = await client.put(
+        f"/api/uploads/{upload_id}/content",
+        headers={"Origin": settings.public_url},
+        content=disconnected_stream(),
+    )
+    assert disconnected.status_code == 204
 
     state = await client.get(f"/api/uploads/{upload_id}")
     assert state.json()["status"] == "receiving"
@@ -347,7 +352,7 @@ async def test_repeated_cancel_during_cleanup_preserves_committed_bytes(settings
         first.cancel()
         first.cancel()
         get_release.set()
-        with pytest.raises(ClientDisconnect):
+        with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(first, timeout=2)
 
         raw_path = settings.data_dir / "uploads" / f"{upload_id}.part"
@@ -961,6 +966,13 @@ async def test_startup_recovery_fails_unattached_uploads_and_keeps_consumed_audi
                 for stale_id in stale_ids
             ]
         assert statuses == ["failed", "failed", "failed"]
+        filenames = [
+            connection.execute(
+                "SELECT filename, failure_code FROM uploads WHERE id = ?", (stale_id,)
+            ).fetchone()
+            for stale_id in stale_ids
+        ]
+        assert filenames == [("removed-upload", "interrupted")] * 3
         async with AsyncClient(
             transport=ASGITransport(app=restarted), base_url=settings.public_url
         ) as client:
@@ -996,7 +1008,66 @@ async def test_new_upload_sweeps_stale_unattached_files(client, settings):
     assert replacement.status_code == 201
     stale_state = await client.get(f"/api/uploads/{stale_id}")
     assert stale_state.json()["status"] == "failed"
+    assert stale_state.json()["filename"] == "removed-upload"
+    assert stale_state.json()["failure_code"] == "expired"
     assert not stale_path.exists()
+
+
+@pytest.mark.parametrize("extra_failed_count", [0, 100])
+def test_startup_cleanup_backfills_legacy_failed_filenames_without_touching_live_names(
+    settings, extra_failed_count
+):
+    initialize(settings.data_dir)
+    legacy = recordings_module.create_upload(
+        settings.data_dir,
+        filename="legacy-original.wav",
+        size_bytes=8,
+        max_upload_bytes=settings.max_upload_bytes,
+    )
+    ready = recordings_module.create_upload(
+        settings.data_dir,
+        filename="still-ready.wav",
+        size_bytes=8,
+        max_upload_bytes=settings.max_upload_bytes,
+    )
+    consumed = recordings_module.create_upload(
+        settings.data_dir,
+        filename="still-consumed.wav",
+        size_bytes=8,
+        max_upload_bytes=settings.max_upload_bytes,
+    )
+    legacy_ids = [legacy["id"]]
+    for index in range(extra_failed_count):
+        upload = recordings_module.create_upload(
+            settings.data_dir,
+            filename=f"legacy-original-{index}.wav",
+            size_bytes=8,
+            max_upload_bytes=settings.max_upload_bytes,
+        )
+        legacy_ids.append(upload["id"])
+    with sqlite3.connect(settings.data_dir / "app.sqlite3") as connection:
+        connection.executemany(
+            "UPDATE uploads SET status = 'failed', failure_code = 'invalid_media' WHERE id = ?",
+            [(upload_id,) for upload_id in legacy_ids],
+        )
+        connection.execute("UPDATE uploads SET status = 'ready' WHERE id = ?", (ready["id"],))
+        connection.execute("UPDATE uploads SET status = 'consumed' WHERE id = ?", (consumed["id"],))
+
+    recordings_module.cleanup_stale_uploads(settings.data_dir)
+
+    legacy_state = recordings_module.get_upload(settings.data_dir, legacy["id"])
+    ready_state = recordings_module.get_upload(settings.data_dir, ready["id"])
+    consumed_state = recordings_module.get_upload(settings.data_dir, consumed["id"])
+    assert legacy_state["filename"] == "removed-upload"
+    assert legacy_state["failure_code"] == "invalid_media"
+    with sqlite3.connect(settings.data_dir / "app.sqlite3") as connection:
+        remaining = connection.execute(
+            "SELECT COUNT(*) FROM uploads WHERE status = 'failed' AND filename != ?",
+            ("removed-upload",),
+        ).fetchone()[0]
+    assert remaining == 0
+    assert ready_state["filename"] == "still-ready.wav"
+    assert consumed_state["filename"] == "still-consumed.wav"
 
 
 async def test_delete_cancels_active_validation_and_removes_artifacts(
@@ -1051,6 +1122,9 @@ async def test_delete_cancels_active_validation_and_removes_artifacts(
     assert deleted.json()["status"] == "failed"
     assert completed.status_code == 409
     assert completed.json()["detail"]["code"] == "media_processing_cancelled"
+    deleted_state = await client.get(f"/api/uploads/{upload_id}")
+    assert deleted_state.json()["filename"] == "removed-upload"
+    assert deleted_state.json()["failure_code"] == "deleted"
     assert not (settings.data_dir / "uploads" / f"{upload_id}.part").exists()
     assert not (settings.data_dir / "recordings" / f"{upload_id}.m4a").exists()
 
@@ -1136,6 +1210,8 @@ async def test_declared_duration_limit_is_enforced(tmp_path):
         )
         assert complete.status_code == 413
         assert complete.json()["detail"]["code"] == "duration_limit"
+    assert complete.json()["detail"]["max_duration_seconds"] == 1
+    assert "1 seconds" in complete.json()["detail"]["message"]
 
 
 async def test_meeting_details_validate_title_date_and_language(client, settings):
@@ -1146,6 +1222,8 @@ async def test_meeting_details_validate_title_date_and_language(client, settings
         {**base_payload, "title": "   "},
         {**base_payload, "title": "x" * 201},
         {**base_payload, "meeting_date": "2026-02-30"},
+        {**base_payload, "meeting_date": "0999-10-15"},
+        {**base_payload, "meeting_date": "10000-10-15"},
         {**base_payload, "language_hint": "fr"},
     ]
     for payload in invalids:

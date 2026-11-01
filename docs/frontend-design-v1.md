@@ -326,7 +326,7 @@ Mỗi pha thêm vào tài liệu này bảng state và chuyển trạng thái c�
 
 Core `shell-core.js` (`initialState`, `reduce`, `selectView`), view `shell.js`. Văn bản trong core là `{text, params}`, view dịch bằng `t()`.
 
-**Id chống response cũ** (trong state): `policyRequest` (tải chính sách), `runId` (một lượt upload: tạo slot, truyền, kiểm tra), `createRequest` (lưu cuộc họp). State upload còn có `uploadOffset` (byte đã commit), `uploadRetries` (số lần thử lại phần hiện tại) và `uploadStateRetries` (số lần thử lại GET trạng thái sau lỗi). Chính sách chuẩn hóa thành `chunkBytes`, mặc định 64 MiB. Mỗi effect `fetch`/`upload` mang id trong `meta`; action có id khác bị bỏ. Mở và đóng dialog tăng `policyRequest` và `runId`.
+**Id chống response cũ** (trong state): `policyRequest` (tải chính sách), `runId` (một lượt upload: tạo slot, truyền, kiểm tra), `createRequest` (lưu cuộc họp). State upload còn có `uploadOffset` (byte đã commit), `uploadRetries` (số lần thử lại phần hiện tại), `uploadStateRetries` (số lần thử lại GET trạng thái sau lỗi), `validationStateRetries` (số lần GET trạng thái validation bị lỗi tạm thời), `validationUncertain` (chưa xác nhận được trạng thái nhưng giữ upload) và `completionRecovery` (đang phục hồi sau phản hồi complete mơ hồ). Chính sách chuẩn hóa thành `chunkBytes`, mặc định 64 MiB. Mỗi effect `fetch`/`upload` mang id trong `meta`; action có id khác bị bỏ. Mở và đóng dialog tăng `policyRequest` và `runId`.
 
 **Trạng thái `phase`** (nhãn hiện ở `#state-label`, `data-state` của dialog):
 
@@ -336,14 +336,14 @@ Core `shell-core.js` (`initialState`, `reduce`, `selectView`), view `shell.js`. 
 | `selected` | file hợp lệ đã chọn, hoặc đang chuẩn bị slot upload | `file-selected`, bắt đầu lượt mới | tạo được nếu form hợp lệ |
 | `extracting` | trình duyệt tách audio khỏi video `.mp4`/`.mov`/`.webm`, có tiến độ; chưa có slot upload | `submit-requested` (sau khi dọn upload cũ) | khóa form; hiện nút hủy |
 | `uploading` | đang truyền byte, có tiến độ | `upload-created` | khóa form; hiện nút hủy |
-| `checking` | server kiểm tra file | `upload-sent` | khóa form; hiện nút hủy |
+| `checking` | server kiểm tra file, có thể kéo dài; client giữ upload khi response complete mơ hồ | `upload-sent`, phục hồi từ lỗi complete, `recheck` | khóa form; hiện nút hủy |
 | `ready` | server xác nhận `ready`, chưa lưu | `upload-completed`, `form-edited` sau lỗi tạo | tạo được |
 | `creating` | đang lưu cuộc họp | `submit-requested`, `upload-completed` | khóa form và nút đóng |
 | `saved` | đã lưu, đang chuyển trang | `meeting-created` | khóa |
 | `error` | lỗi (chính sách, file, upload, tạo) | các action lỗi | tùy cờ bên dưới |
 | `aborted` | người dùng hủy upload | `shell/upload-cancel-requested` | thử lại được |
 
-Cờ bổ sung: `checkingSince` (mốc `action.now` đầu tiên khi server kiểm tra; runner đóng dấu thời gian, reducer không đọc đồng hồ), `sendFile` (file mà upload gửi: chính file đã chọn, hoặc audio đã tách) và `notice` (kết quả bước tách, hiện ở `#upload-notice`), `starting` (đang dọn upload cũ và tạo slot; khóa form), `cancelling` (đã hủy, chờ dọn), `failure` (lỗi upload chờ dọn xong để báo), `serverReady`, `retryable`, `fileRefused` (server từ chối nội dung file: không thử lại cùng file), `createAttemptFailed`, `createUncertain` + `createRetryPayload` (tạo không rõ kết quả: gửi lại đúng payload để server khử trùng), `pendingCleanup` (upload dở chưa xóa được, thử lại ở lần chọn file hoặc lượt sau).
+Cờ bổ sung: `checkingSince` (mốc `action.now` đầu tiên khi server kiểm tra; runner đóng dấu thời gian, reducer không đọc đồng hồ), `sendFile` (file mà upload gửi: chính file đã chọn, hoặc audio đã tách) và `notice` (kết quả bước tách, hiện ở `#upload-notice`), `starting` (đang dọn upload cũ và tạo slot; khóa form), `cancelling` (đã hủy, chờ dọn), `failure` (lỗi upload chờ dọn xong để báo), `serverReady`, `retryable`, `fileRefused` (server từ chối nội dung file: không thử lại cùng file), `createAttemptFailed`, `createUncertain` + `createRetryPayload` (tạo không rõ kết quả: gửi lại đúng payload để server khử trùng), `pendingCleanup` (upload dở chưa xóa được, thử lại ở lần chọn file hoặc lượt sau), `validationUncertain` (GET trạng thái validation đã hết retry nhưng chưa kết luận; khóa file và giữ nút kiểm tra lại/hủy), `completionRecovery` (complete không xác nhận được; GET trạng thái trước khi quyết định) và `validationStateRetries` (tối đa sáu lần retry GET trạng thái với backoff 1/2/4/8/16/32 giây). Không có deadline tổng ngắn cho trạng thái `validating`.
 
 **Chuyển trạng thái** (`shell/` bỏ tiền tố trong cột sự kiện):
 
@@ -375,12 +375,20 @@ Cờ bổ sung: `checkingSince` (mốc `action.now` đầu tiên khi server ki�
 | `uploading` | `upload-state-failed` lỗi tạm thời | `uploading` | `schedule shell/upload-state-retry` với cùng backoff mũ và tối đa 6 lần; quá giới hạn thì dọn upload và báo lỗi |
 | `uploading` | `upload-failed` không thể tiếp tục hoặc `upload-state-failed` lỗi cuối | `error` sau khi dọn | DELETE upload |
 | `checking` | `upload-completed` ready | `ready` rồi `creating` ngay | `fetch shell/create` |
-| `checking` | `upload-completed` khác ready, `upload-completion-failed` | `error` sau khi dọn | DELETE upload |
-| `uploading`, `checking` | `upload-cancel-requested` hoặc đóng dialog | `aborted` sau khi dọn | `cancel shell/extract`, `cancel shell/upload`, `cancel shell/upload-state`, `cancel shell/upload-retry`, `cancel shell/upload-complete`, `cancel shell/upload-checking-clock`, DELETE upload (id vào `pendingCleanup` ngay, xóa khi DELETE được xác nhận) |
+| `checking` | `upload-completed` validating | `checking` | `fetch shell/upload-validation-state`, poll mỗi 1 giây; không đặt deadline tổng ngắn |
+| `checking` | `upload-completed` uploaded | `checking` | POST complete lại, chỉ vì GET đã xác nhận rõ trạng thái |
+| `checking` | `upload-completed` failed | `error` sau khi dọn | DELETE upload; hiện `failure_code` đã chuẩn hóa |
+| `checking` | `upload-completion-failed` là lỗi mạng/5xx/408/429 hoặc mất response | `checking` | `fetch shell/upload-validation-state`; không DELETE khi chưa biết server đã hoàn tất hay chưa |
+| `checking` | `upload-validation-state-loaded` ready | `ready` rồi `creating` ngay | `fetch shell/create` |
+| `checking` | `upload-validation-state-loaded` validating | `checking` | poll `shell/upload-validation-poll` mỗi 1 giây |
+| `checking` | `upload-validation-state-loaded` uploaded | `checking` | POST complete lại |
+| `checking` | `upload-validation-state-loaded` failed/receiving/trạng thái khác | `error` sau khi dọn | DELETE upload; không thử lại file đã failed |
+| `checking` | `upload-validation-state-failed` lỗi tạm thời | `checking` | retry tối đa sáu lần với backoff 1/2/4/8/16/32 giây; hết retry thì `error` + `validationUncertain`, giữ `uploadId`, cho kiểm tra lại hoặc hủy |
+| `uploading`, `checking` | `upload-cancel-requested` hoặc đóng dialog | `aborted` sau khi dọn | `cancel shell/extract`, `cancel shell/upload`, `cancel shell/upload-state`, `cancel shell/upload-retry`, `cancel shell/upload-complete`, `cancel shell/upload-validation-state`, `cancel shell/upload-validation-poll`, `cancel shell/upload-checking-clock`, DELETE upload (id vào `pendingCleanup` ngay, xóa khi DELETE được xác nhận) |
 | `uploading`, `checking` đang chờ DELETE của lỗi upload | `upload-cancel-requested` hoặc đóng dialog | `aborted` ngay; bỏ `failure`, kết quả hủy giữ nguyên khi DELETE cũ trả lời | |
 | `aborted` đang chờ DELETE (`cancelling`) | `upload-cancel-requested` | không đổi | |
 | `cancelling` | `dialog-close-requested` | đóng, state về ban đầu; DELETE đang chờ để id ở `pendingCleanup` | |
-| mở | `dialog-closed` (trình duyệt tự đóng dialog) | đóng, state về ban đầu | `cancel` mọi effect đang bay, DELETE upload (trừ khi tạo không rõ); đang `creating` thì chỉ hạ cờ `open`, lượt lưu vẫn chạy tiếp |
+| mở | `dialog-closed` (trình duyệt tự đóng dialog) | đóng, state về ban đầu | `cancel` mọi effect đang bay, DELETE upload (trừ khi tạo không rõ hoặc `validationUncertain`; upload chưa xác nhận được được giữ lại); đang `creating` thì chỉ hạ cờ `open`, lượt lưu vẫn chạy tiếp |
 | đóng | `dialog-closed` | không đổi | |
 | không bận | `multiple-files-dropped` | `error` (lỗi file) | |
 | bất kỳ | kết quả lượt cũ (`runId` khác) | không đổi | |

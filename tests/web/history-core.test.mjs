@@ -21,6 +21,7 @@ import {
   selectEditor,
   selectHeading,
   selectSidebar,
+  validMeetingDate,
   validYear,
 } from "../../src/asr_en_vi/web/history-core.js";
 
@@ -658,6 +659,10 @@ test("the editor refuses an empty or too long name, a half-typed date and a lock
   env.dispatch("editor-submitted", { title: "New", date: "", badInput: true });
   assert.match(text(env.state().editor.error), /chưa đầy đủ/);
   assert.equal(env.state().editor.focusDate, 1);
+  env.dispatch("editor-submitted", { title: "New", date: "0999-04-05", badInput: false });
+  assert.match(text(env.state().editor.error), /chưa đầy đủ/);
+  assert.equal(validMeetingDate("1000-02-29"), false);
+  assert.equal(validMeetingDate("1000-02-28"), true);
   env.dispatch("notes-source-lock-reported", { meetingId: "m1", locked: true, known: true });
   env.dispatch("editor-submitted", { title: "New", date: "2025-04-05", badInput: false });
   assert.match(text(env.state().editor.error), /đang bị khóa/);

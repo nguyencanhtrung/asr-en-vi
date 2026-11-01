@@ -212,7 +212,7 @@
               <div class="field-group">
                 <label for="edit-date">Ngày họp <span class="optional-mark">Tùy chọn</span></label>
                 <div class="edit-date-row">
-                  <input id="edit-date" type="date" />
+                  <input id="edit-date" type="date" min="1000-01-01" max="9999-12-31" />
                   <button class="text-button" id="edit-clear-date" type="button">Xóa ngày</button>
                 </div>
               </div>
@@ -564,7 +564,7 @@
               <div class="field-row">
                 <div class="field-group date-field">
                   <label for="meeting-date-input">Ngày họp <span class="optional-mark">Tùy chọn</span></label>
-                  <input id="meeting-date-input" name="meeting_date" type="date" />
+                  <input id="meeting-date-input" name="meeting_date" type="date" min="1000-01-01" max="9999-12-31" />
                 </div>
                 <fieldset class="field-group language-field">
                   <legend>Gợi ý ngôn ngữ <span class="required-mark">*</span></legend>

@@ -289,6 +289,53 @@ def test_one_button_uploads_checks_and_creates_in_order(live, signed_in, media_t
     assert (saved["title"], saved["language_hint"]) == ("Quarterly plan", "en")
 
 
+def test_lost_complete_response_reconciles_ready_upload_without_deleting_it(
+    live, signed_in, media_tools
+):
+    context, page = signed_in()
+    requests = _track_requests(page)
+    completed_ids = []
+    recovery = []
+
+    def lose_response(route):
+        response = route.fetch()
+        assert response.status == 200
+        completed_ids.append(urlsplit(route.request.url).path.split("/")[3])
+        page.locator("#cancel-upload").focus()
+        route.abort()
+
+    def observe_recovery(route):
+        if route.request.method == "GET" and completed_ids:
+            recovery.append(
+                page.evaluate("""() => ({
+                focus: document.activeElement.id,
+                phase: document.querySelector('#meeting-dialog').dataset.state,
+                status: document.querySelector('#workflow-state').textContent
+            })""")
+            )
+        route.continue_()
+
+    page.route("**/api/uploads/*/complete", lose_response)
+    page.route("**/api/uploads/*", observe_recovery)
+    _fill_and_create(page, "Lost response.wav", language="vi", auto=False)
+    meeting_id = _meeting_id(page)
+    expect(page.locator("#meeting-title")).to_have_text("Lost response")
+    assert recovery == [
+        {
+            "focus": "cancel-upload",
+            "phase": "checking",
+            "status": "Đang xác minh upload sau khi phản hồi hoàn tất bị gián đoạn.",
+        }
+    ]
+    assert page.evaluate("document.activeElement.tagName") == "BODY"
+    upload_path = f"/api/uploads/{completed_ids[0]}"
+    assert _count(requests, "GET", upload_path) == 1
+    assert _count(requests, "POST", f"{upload_path}/complete") == 1
+    assert _count(requests, "DELETE", upload_path) == 0
+    assert _count(requests, "POST", "/api/meetings") == 1
+    assert _meeting_json(context, live, meeting_id)["language_hint"] == "vi"
+
+
 @pytest.mark.upload_chunk_bytes(4096)
 def test_browser_uploads_sequential_chunks_and_recovers_after_a_failed_request(
     live, signed_in, media_tools

@@ -31,6 +31,7 @@ MAX_PROBE_JSON_BYTES = 1024 * 1024
 COMMAND_TIMEOUT_SECONDS = 6 * 60 * 60
 PROBE_TIMEOUT_SECONDS = 60
 LOCAL_PROTOCOLS = "file,pipe,crypto,data"
+DECODE_DURATION_TOLERANCE_SECONDS = 2.0
 
 
 class MediaProcessingError(RuntimeError):
@@ -46,6 +47,8 @@ class MediaProbe:
     duration_seconds: float
     codec_name: str
     stream_index: int
+    declared_duration_seconds: float | None = None
+    duration_is_authoritative: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,14 +203,23 @@ def probe_media(path: Path, *, max_duration_seconds: int) -> MediaProbe:
         raise MediaProcessingError("unsupported_codec")
 
     format_info = document.get("format")
-    duration = _parse_duration(selected.get("duration"))
+    declared_duration = _parse_duration(selected.get("duration"))
+    duration = declared_duration
+    has_non_audio_stream = any(stream.get("codec_type") != "audio" for stream in streams)
+    duration_is_authoritative = declared_duration is not None or not has_non_audio_stream
     if duration is None and isinstance(format_info, dict):
         duration = _parse_duration(format_info.get("duration"))
     if duration is None:
         raise MediaProcessingError("invalid_media")
-    if duration > max_duration_seconds:
+    if duration_is_authoritative and duration > max_duration_seconds:
         raise MediaProcessingError("duration_limit")
-    return MediaProbe(duration, codec_name.lower(), stream_index)
+    return MediaProbe(
+        duration,
+        codec_name.lower(),
+        stream_index,
+        declared_duration if duration_is_authoritative else None,
+        duration_is_authoritative,
+    )
 
 
 def normalize_media(
@@ -263,4 +275,9 @@ def normalize_media(
     normalized = probe_media(output_path, max_duration_seconds=max_duration_seconds)
     if normalized.codec_name != OUTPUT_CODEC:
         raise MediaProcessingError("conversion_failed")
+    declared_duration = source.declared_duration_seconds
+    if declared_duration is not None:
+        tolerance = max(DECODE_DURATION_TOLERANCE_SECONDS, declared_duration * 0.05)
+        if normalized.duration_seconds + tolerance < declared_duration:
+            raise MediaProcessingError("duration_mismatch")
     return MediaProbe(normalized.duration_seconds, source.codec_name, source.stream_index)
