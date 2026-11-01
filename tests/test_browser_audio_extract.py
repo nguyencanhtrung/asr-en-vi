@@ -212,7 +212,8 @@ def test_fallback_notice_is_visible_while_the_original_uploads(live, signed_in, 
     # Hold the upload so the dialog stays on screen with the notice.
     release = []
     page.route(
-        re.compile(r".*/api/uploads/[0-9a-f]+/content$"), lambda route: release.append(route)
+        re.compile(r".*/api/uploads/[0-9a-f]+/content(?:\?.*)?$"),
+        lambda route: release.append(route),
     )
     seen = _create(page, video)
     notice = page.locator("#upload-notice")

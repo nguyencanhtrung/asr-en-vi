@@ -43,15 +43,20 @@ FIXED_NOW = "2026-10-17T10:00:00+14:00"
 
 
 class LiveServer:
-    def __init__(self, tmp_path):
+    def __init__(self, tmp_path, *, upload_chunk_bytes=None):
         probe = socket.socket()
         probe.bind(("127.0.0.1", 0))
         self.port = probe.getsockname()[1]
         probe.close()
         self.url = f"http://127.0.0.1:{self.port}"
-        self.settings = Settings(
-            data_dir=tmp_path / "data", auth_dir=tmp_path / "auth", public_url=self.url
-        )
+        settings = {
+            "data_dir": tmp_path / "data",
+            "auth_dir": tmp_path / "auth",
+            "public_url": self.url,
+        }
+        if upload_chunk_bytes is not None:
+            settings["upload_chunk_bytes"] = upload_chunk_bytes
+        self.settings = Settings(**settings)
         self.server = None
         self.thread = None
 
@@ -86,10 +91,12 @@ class LiveServer:
 
 
 @pytest.fixture
-def live(tmp_path):
+def live(tmp_path, request):
     if os.environ.get("ASR_RUN_BROWSER_TESTS") != "1":
         pytest.skip("set ASR_RUN_BROWSER_TESTS=1 to run the real-browser history tests")
-    server = LiveServer(tmp_path)
+    marker = request.node.get_closest_marker("upload_chunk_bytes")
+    chunk_bytes = marker.args[0] if marker and marker.args else None
+    server = LiveServer(tmp_path, upload_chunk_bytes=chunk_bytes)
     server.start()
     try:
         yield server

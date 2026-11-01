@@ -6,7 +6,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 
 def _migrate_v2(connection: sqlite3.Connection) -> None:
@@ -524,6 +524,14 @@ def _migrate_v12(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v13(connection: sqlite3.Connection) -> None:
+    """Track the last upload chunk committed to durable storage."""
+    connection.execute(
+        "ALTER TABLE uploads ADD COLUMN received_bytes INTEGER NOT NULL DEFAULT 0 "
+        "CHECK(received_bytes >= 0 AND received_bytes <= declared_size)"
+    )
+
+
 def database_path(data_dir: Path) -> Path:
     return Path(data_dir) / "app.sqlite3"
 
@@ -639,6 +647,9 @@ def initialize(data_dir: Path) -> Path:
         if current_version < 12:
             _migrate_v12(connection)
             connection.execute("INSERT INTO schema_migrations(version) VALUES (12)")
+        if current_version < 13:
+            _migrate_v13(connection)
+            connection.execute("INSERT INTO schema_migrations(version) VALUES (13)")
         connection.commit()
     finally:
         connection.close()

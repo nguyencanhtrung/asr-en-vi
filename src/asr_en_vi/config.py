@@ -13,6 +13,7 @@ CHATGPT_CALLBACK_PATH = "/auth/chatgpt/callback"
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost"})
 DEFAULT_MAX_UPLOAD_BYTES = 4 * 1024**3
 DEFAULT_MAX_RECORDING_SECONDS = 4 * 60 * 60
+DEFAULT_UPLOAD_CHUNK_BYTES = 64 * 1024**2
 DEFAULT_ASR_GPU_MODEL_PATH = Path("/models/whisper-large-v3")
 DEFAULT_ASR_CPU_MODEL_PATH = Path("/models/whisper-small")
 DEFAULT_DIARIZATION_MODEL_PATH = Path("/models/speaker-diarization-community-1")
@@ -100,6 +101,7 @@ class Settings:
     public_url: str = DEFAULT_PUBLIC_URL
     cookie_secure: bool = False
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
+    upload_chunk_bytes: int = DEFAULT_UPLOAD_CHUNK_BYTES
     max_recording_seconds: int = DEFAULT_MAX_RECORDING_SECONDS
     asr_model_path: Path | None = None
     asr_device: str = "auto"
@@ -137,6 +139,14 @@ class Settings:
         )
         if isinstance(self.max_upload_bytes, bool) or self.max_upload_bytes < 1:
             raise ValueError("max_upload_bytes must be a positive integer")
+        if (
+            isinstance(self.upload_chunk_bytes, bool)
+            or self.upload_chunk_bytes < 1
+            or self.upload_chunk_bytes > DEFAULT_UPLOAD_CHUNK_BYTES
+        ):
+            raise ValueError(
+                f"upload_chunk_bytes must be between 1 and {DEFAULT_UPLOAD_CHUNK_BYTES}"
+            )
         if isinstance(self.max_recording_seconds, bool) or self.max_recording_seconds < 1:
             raise ValueError("max_recording_seconds must be a positive integer")
         if self.asr_device not in ASR_DEVICES:
@@ -160,6 +170,9 @@ class Settings:
             cookie_secure=_bool_from_env("ASR_COOKIE_SECURE", False),
             max_upload_bytes=_positive_int_from_env(
                 "ASR_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES
+            ),
+            upload_chunk_bytes=_positive_int_from_env(
+                "ASR_UPLOAD_CHUNK_BYTES", DEFAULT_UPLOAD_CHUNK_BYTES
             ),
             max_recording_seconds=_positive_int_from_env(
                 "ASR_MAX_RECORDING_SECONDS", DEFAULT_MAX_RECORDING_SECONDS

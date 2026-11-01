@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import dataclasses
 import io
 import json
@@ -288,11 +289,125 @@ def test_one_button_uploads_checks_and_creates_in_order(live, signed_in, media_t
     assert (saved["title"], saved["language_hint"]) == ("Quarterly plan", "en")
 
 
+@pytest.mark.upload_chunk_bytes(4096)
+def test_browser_uploads_sequential_chunks_and_recovers_after_a_failed_request(
+    live, signed_in, media_tools
+):
+    context, page = signed_in()
+    requests = _track_requests(page)
+    source = _wav_bytes()
+    chunks = []
+    failed = False
+
+    page.expose_function(
+        "recordUploadChunk",
+        lambda offset, payload: chunks.append((int(offset), base64.b64decode(payload))),
+    )
+    page.evaluate(
+        """
+        (() => {
+          const open = XMLHttpRequest.prototype.open;
+          const send = XMLHttpRequest.prototype.send;
+          XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+            this.__uploadUrl = url;
+            return open.call(this, method, url, ...rest);
+          };
+          XMLHttpRequest.prototype.send = function (body) {
+            if (body instanceof Blob && this.__uploadUrl.includes('/content?offset=')) {
+              const offset = new URL(this.__uploadUrl, location.href).searchParams.get('offset');
+              const reader = new FileReader();
+              reader.onload = () => window.recordUploadChunk(
+                offset, String(reader.result).split(',')[1]
+              );
+              reader.readAsDataURL(body);
+            }
+            return send.call(this, body);
+          };
+        })()
+        """
+    )
+
+    def abort_once(route):
+        nonlocal failed
+        if not failed:
+            failed = True
+            route.abort("connectionfailed")
+        else:
+            route.continue_()
+
+    page.route("**/api/uploads/*/content**", abort_once)
+    dialog = _open_dialog(page)
+    page.locator("#recording-file").set_input_files(
+        {"name": "Chunked.wav", "mimeType": "audio/wav", "buffer": source}
+    )
+    page.locator('input[name="language_hint"][value="en"]').check()
+    page.locator("#auto-transcribe").set_checked(False)
+    dialog.get_by_role("button", name="Tạo cuộc họp").click()
+    expect(dialog).to_have_attribute("data-state", "uploading", timeout=10_000)
+    page.locator("#cancel-upload").focus()
+    expect(page.locator("#state-label")).to_have_text("Đang tải lên", timeout=10_000)
+    assert page.evaluate("document.activeElement?.id") == "cancel-upload"
+
+    meeting_id = _meeting_id(page)
+    page.unroute("**/api/uploads/*/content**")
+    page.wait_for_timeout(100)
+    by_offset = {}
+    for offset, body in chunks:
+        by_offset.setdefault(offset, body)
+        assert len(body) <= 4096
+    assert len(by_offset) >= 3
+    ordered_offsets = sorted(by_offset, key=int)
+    assert ordered_offsets == list(range(0, len(source), 4096))
+    assert b"".join(by_offset[offset] for offset in ordered_offsets) == source
+    assert _meeting_json(context, live, meeting_id)["title"] == "Chunked"
+
+    chunked_audio = context.request.get(f"{live.url}/api/meetings/{meeting_id}/audio")
+    assert chunked_audio.status == 200
+    chunked_audio_bytes = chunked_audio.body()
+
+    baseline_policy = {
+        "extensions": ["wav"],
+        "max_size_bytes": 4 * 1024**3,
+        "max_duration_seconds": 4 * 60 * 60,
+        "chunk_bytes": len(source),
+    }
+    page.route(
+        "**/api/uploads/policy",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(baseline_policy),
+        ),
+    )
+    try:
+        baseline_before = len(requests)
+        baseline_dialog = _open_dialog(page)
+        page.locator("#recording-file").set_input_files(
+            {"name": "Chunked.wav", "mimeType": "audio/wav", "buffer": source}
+        )
+        page.locator('input[name="language_hint"][value="en"]').check()
+        page.locator("#auto-transcribe").set_checked(False)
+        baseline_dialog.get_by_role("button", name="Tạo cuộc họp").click()
+        baseline_id = _meeting_id(page, meeting_id)
+        baseline_content_requests = [
+            item
+            for item in requests[baseline_before:]
+            if item[0] == "PUT" and item[1].endswith("/content")
+        ]
+        assert len(baseline_content_requests) == 1
+    finally:
+        page.unroute("**/api/uploads/policy")
+
+    baseline_audio = context.request.get(f"{live.url}/api/meetings/{baseline_id}/audio")
+    assert baseline_audio.status == 200
+    assert baseline_audio.body() == chunked_audio_bytes
+
+
 def test_cancel_keeps_the_form_and_retry_reruns_the_whole_flow(live, signed_in, media_tools):
     context, page = signed_in()
     requests = _track_requests(page)
     held = []
-    page.route("**/api/uploads/*/content", lambda route: held.append(route))
+    page.route("**/api/uploads/*/content**", lambda route: held.append(route))
     dialog = _open_dialog(page)
     page.locator("#recording-file").set_input_files(_recording("Retro.wav", real=True))
     page.locator("#meeting-name").fill("Retro quý 4")
@@ -313,7 +428,7 @@ def test_cancel_keeps_the_form_and_retry_reruns_the_whole_flow(live, signed_in, 
     retry = dialog.get_by_role("button", name="Tải lại từ đầu")
     expect(retry).to_be_enabled()
 
-    page.unroute("**/api/uploads/*/content")
+    page.unroute("**/api/uploads/*/content**")
     retry.click()
     meeting_id = _meeting_id(page)  # retry ran upload, check and create
     saved = _meeting_json(context, live, meeting_id)
@@ -332,9 +447,16 @@ def test_retry_stays_disabled_while_the_form_is_invalid(live, signed_in, media_t
     page.locator("#recording-file").set_input_files(_recording("Retry gate.wav", real=True))
     page.locator('input[name="language_hint"][value="en"]').check()
     if how == "failure":
-        page.route("**/api/uploads/*/content", lambda route: route.abort("connectionfailed"))
+        page.route(
+            "**/api/uploads/*/content**",
+            lambda route: route.fulfill(
+                status=403,
+                content_type="application/json",
+                body='{"detail": {"code": "invalid_media", "message": "Test upload refusal"}}',
+            ),
+        )
     else:
-        page.route("**/api/uploads/*/content", lambda route: None)  # the upload just hangs
+        page.route("**/api/uploads/*/content**", lambda route: None)  # the upload just hangs
     dialog.get_by_role("button", name="Tạo cuộc họp").click()
     if how == "cancel":
         expect(dialog).to_have_attribute("data-state", "uploading", timeout=10_000)
@@ -423,17 +545,24 @@ def test_state_labels_are_vietnamese_and_never_technical_codes(live, signed_in, 
     retry = dialog.get_by_role("button", name="Tải lại từ đầu")
     cancel = dialog.get_by_role("button", name="Hủy tải lên")
 
-    page.route("**/api/uploads/*/content", lambda route: route.abort("connectionfailed"))
+    page.route(
+        "**/api/uploads/*/content**",
+        lambda route: route.fulfill(
+            status=403,
+            content_type="application/json",
+            body='{"detail": {"code": "invalid_media", "message": "Test upload refusal"}}',
+        ),
+    )
     create.click()
     expect_state("error", "Có lỗi")
-    page.unroute("**/api/uploads/*/content")
+    page.unroute("**/api/uploads/*/content**")
 
-    page.route("**/api/uploads/*/content", lambda route: None)
+    page.route("**/api/uploads/*/content**", lambda route: None)
     retry.click()
     expect_state("uploading", "Đang tải lên")
     cancel.click()
     expect_state("aborted", "Đã hủy")
-    page.unroute("**/api/uploads/*/content")
+    page.unroute("**/api/uploads/*/content**")
 
     page.route("**/api/uploads/*/complete", lambda route: None)
     retry.click()

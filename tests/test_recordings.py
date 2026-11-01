@@ -10,9 +10,10 @@ import wave
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from media_tools import require_media_tools
-from starlette.requests import ClientDisconnect
+from starlette.requests import ClientDisconnect, Request
 
 from asr_en_vi import recordings as recordings_module
 from asr_en_vi import routes as routes_module
@@ -91,6 +92,7 @@ async def test_wav_upload_normalizes_attaches_idempotently_and_keeps_date_empty(
     ]
     assert policy.json()["max_size_bytes"] == 4 * 1024**3
     assert policy.json()["max_duration_seconds"] == 4 * 60 * 60
+    assert policy.json()["chunk_bytes"] == 64 * 1024**2
     assert policy.json()["output"] == {
         "container": "m4a",
         "audio_codec": "aac",
@@ -200,13 +202,13 @@ async def test_oversize_and_byte_mismatch_fail_before_media_processing(client, s
     created = await client.post(
         "/api/uploads",
         headers={"Origin": settings.public_url},
-        json={"filename": "short.wav", "size_bytes": len(content) + 1},
+        json={"filename": "short.wav", "size_bytes": len(content)},
     )
     upload_id = created.json()["id"]
     mismatch = await client.put(
         f"/api/uploads/{upload_id}/content",
         headers={"Origin": settings.public_url},
-        content=content,
+        content=content + b"x",
     )
     assert mismatch.status_code == 400
     assert mismatch.json()["detail"]["code"] == "size_mismatch"
@@ -215,7 +217,7 @@ async def test_oversize_and_byte_mismatch_fail_before_media_processing(client, s
     assert not (settings.data_dir / "uploads" / f"{upload_id}.part").exists()
 
 
-async def test_interrupted_upload_stream_is_failed_and_removed(client, settings):
+async def test_interrupted_upload_stream_keeps_the_last_committed_chunk(client, settings):
     await _authorize(client, settings)
     content = _wav_bytes()
     created = await client.post(
@@ -236,13 +238,23 @@ async def test_interrupted_upload_stream_is_failed_and_removed(client, settings)
     )
     assert interrupted.status_code == 400
     assert interrupted.json()["detail"]["code"] == "upload_interrupted"
+    assert interrupted.json()["detail"]["received_bytes"] == 0
 
     state = await client.get(f"/api/uploads/{upload_id}")
-    assert state.json()["status"] == "failed"
-    assert not (settings.data_dir / "uploads" / f"{upload_id}.part").exists()
+    assert state.json()["status"] == "receiving"
+    assert state.json()["received_bytes"] == 0
+    raw_path = settings.data_dir / "uploads" / f"{upload_id}.part"
+    assert raw_path.read_bytes() == b""
+    resumed = await client.put(
+        f"/api/uploads/{upload_id}/content?offset=0",
+        headers={"Origin": settings.public_url},
+        content=content,
+    )
+    assert resumed.status_code == 200
+    assert resumed.json()["status"] == "uploaded"
 
 
-async def test_client_disconnect_is_propagated_after_upload_cleanup(client, settings):
+async def test_client_disconnect_is_propagated_after_upload_release(client, settings):
     await _authorize(client, settings)
     content = _wav_bytes()
     created = await client.post(
@@ -264,8 +276,538 @@ async def test_client_disconnect_is_propagated_after_upload_cleanup(client, sett
         )
 
     state = await client.get(f"/api/uploads/{upload_id}")
+    assert state.json()["status"] == "receiving"
+    assert state.json()["received_bytes"] == 0
+    resumed = await client.put(
+        f"/api/uploads/{upload_id}/content?offset=0",
+        headers={"Origin": settings.public_url},
+        content=content,
+    )
+    assert resumed.status_code == 200
+    assert resumed.json()["status"] == "uploaded"
+
+
+async def test_repeated_cancel_during_cleanup_preserves_committed_bytes(settings, monkeypatch):
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        upload = recordings_module.create_upload(
+            settings.data_dir,
+            filename="cancel-at-commit.wav",
+            size_bytes=8,
+            max_upload_bytes=settings.max_upload_bytes,
+        )
+        upload_id = upload["id"]
+        endpoint = next(
+            route.endpoint
+            for route in app.routes
+            if getattr(route, "path", "") == "/api/uploads/{upload_id}/content"
+        )
+        real_finish = routes_module.finish_upload
+        real_get = routes_module.get_upload_received_bytes
+        get_entered = threading.Event()
+        get_release = threading.Event()
+
+        def slow_get(*args, **kwargs):
+            get_entered.set()
+            assert get_release.wait(5)
+            return real_get(*args, **kwargs)
+
+        def commit_then_disconnect(*args, **kwargs):
+            real_finish(*args, **kwargs)
+            raise ClientDisconnect
+
+        monkeypatch.setattr(routes_module, "get_upload_received_bytes", slow_get)
+        monkeypatch.setattr(routes_module, "finish_upload", commit_then_disconnect)
+
+        async def receive():
+            return {"type": "http.request", "body": b"abcd", "more_body": False}
+
+        first = asyncio.create_task(
+            endpoint(
+                upload_id,
+                Request(
+                    {
+                        "type": "http",
+                        "method": "PUT",
+                        "path": "/probe",
+                        "headers": [],
+                        "query_string": b"",
+                    },
+                    receive,
+                ),
+                offset=0,
+            )
+        )
+        for _ in range(200):
+            if get_entered.is_set():
+                break
+            await asyncio.sleep(0.01)
+        else:
+            pytest.fail("cleanup did not read the durable offset")
+        first.cancel()
+        first.cancel()
+        get_release.set()
+        with pytest.raises(ClientDisconnect):
+            await asyncio.wait_for(first, timeout=2)
+
+        raw_path = settings.data_dir / "uploads" / f"{upload_id}.part"
+        assert recordings_module.get_upload(settings.data_dir, upload_id)["received_bytes"] == 4
+        assert raw_path.read_bytes() == b"abcd"
+        monkeypatch.setattr(routes_module, "finish_upload", real_finish)
+
+        async def receive_resume():
+            return {"type": "http.request", "body": b"efgh", "more_body": False}
+
+        resumed_request = Request(
+            {"type": "http", "method": "PUT", "path": "/probe", "headers": [], "query_string": b""},
+            receive_resume,
+        )
+        resumed = await endpoint(upload_id, resumed_request, offset=4)
+        assert resumed["status"] == "uploaded"
+        assert raw_path.read_bytes() == b"abcdefgh"
+
+
+async def test_cancel_during_writer_acquisition_releases_the_guard(settings, monkeypatch):
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        upload = recordings_module.create_upload(
+            settings.data_dir,
+            filename="cancel-during-acquisition.wav",
+            size_bytes=4,
+            max_upload_bytes=settings.max_upload_bytes,
+        )
+        upload_id = upload["id"]
+        endpoint = next(
+            route.endpoint
+            for route in app.routes
+            if getattr(route, "path", "") == "/api/uploads/{upload_id}/content"
+        )
+        real_begin = routes_module.begin_upload
+        begin_entered = threading.Event()
+        begin_release = threading.Event()
+
+        def slow_begin(*args, **kwargs):
+            result = real_begin(*args, **kwargs)
+            begin_entered.set()
+            assert begin_release.wait(5)
+            return result
+
+        monkeypatch.setattr(routes_module, "begin_upload", slow_begin)
+
+        async def receive():
+            return {"type": "http.request", "body": b"abcd", "more_body": False}
+
+        first = asyncio.create_task(
+            endpoint(
+                upload_id,
+                Request(
+                    {
+                        "type": "http",
+                        "method": "PUT",
+                        "path": "/probe",
+                        "headers": [],
+                        "query_string": b"",
+                    },
+                    receive,
+                ),
+                offset=0,
+            )
+        )
+        assert await asyncio.to_thread(begin_entered.wait, 2)
+        first.cancel()
+        first.cancel()
+        begin_release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(first, timeout=2)
+
+        resumed = await endpoint(
+            upload_id,
+            Request(
+                {
+                    "type": "http",
+                    "method": "PUT",
+                    "path": "/probe",
+                    "headers": [],
+                    "query_string": b"",
+                },
+                receive,
+            ),
+            offset=0,
+        )
+        assert resumed["status"] == "uploaded"
+
+
+async def test_cancel_during_durable_commit_waits_before_releasing_writer(settings, monkeypatch):
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        upload = recordings_module.create_upload(
+            settings.data_dir,
+            filename="cancel-inflight.wav",
+            size_bytes=8,
+            max_upload_bytes=settings.max_upload_bytes,
+        )
+        upload_id = upload["id"]
+        endpoint = next(
+            route.endpoint
+            for route in app.routes
+            if getattr(route, "path", "") == "/api/uploads/{upload_id}/content"
+        )
+        real_finish = routes_module.finish_upload
+        entered = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+
+        def slow_finish(*args, **kwargs):
+            entered.set()
+            assert release.wait(5)
+            try:
+                return real_finish(*args, **kwargs)
+            finally:
+                finished.set()
+
+        monkeypatch.setattr(routes_module, "finish_upload", slow_finish)
+
+        async def receive():
+            return {"type": "http.request", "body": b"abcd", "more_body": False}
+
+        first = asyncio.create_task(
+            endpoint(
+                upload_id,
+                Request(
+                    {
+                        "type": "http",
+                        "method": "PUT",
+                        "path": "/probe",
+                        "headers": [],
+                        "query_string": b"",
+                    },
+                    receive,
+                ),
+                offset=0,
+            )
+        )
+        assert await asyncio.to_thread(entered.wait, 2)
+        first.cancel()
+        await asyncio.sleep(0)
+        assert not first.done()
+        first.cancel()
+        await asyncio.sleep(0)
+        assert not first.done()
+
+        async def retry_receive():
+            return {"type": "http.request", "body": b"efgh", "more_body": False}
+
+        retry = asyncio.create_task(
+            endpoint(
+                upload_id,
+                Request(
+                    {
+                        "type": "http",
+                        "method": "PUT",
+                        "path": "/probe",
+                        "headers": [],
+                        "query_string": b"",
+                    },
+                    retry_receive,
+                ),
+                offset=0,
+            )
+        )
+        with pytest.raises(HTTPException) as error:
+            await asyncio.wait_for(retry, timeout=2)
+        assert error.value.status_code == 409
+        assert error.value.detail["code"] == "upload_busy"
+        assert not finished.is_set()
+
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(first, timeout=2)
+        assert finished.is_set()
+
+        raw_path = settings.data_dir / "uploads" / f"{upload_id}.part"
+        assert recordings_module.get_upload(settings.data_dir, upload_id)["received_bytes"] == 4
+        assert raw_path.read_bytes() == b"abcd"
+
+        async def receive_resume():
+            return {"type": "http.request", "body": b"efgh", "more_body": False}
+
+        resumed = await endpoint(
+            upload_id,
+            Request(
+                {
+                    "type": "http",
+                    "method": "PUT",
+                    "path": "/probe",
+                    "headers": [],
+                    "query_string": b"",
+                },
+                receive_resume,
+            ),
+            offset=4,
+        )
+        assert resumed["status"] == "uploaded"
+        assert raw_path.read_bytes() == b"abcdefgh"
+
+
+async def test_repeated_cancel_after_commit_preserves_offset_and_writer_guard(
+    settings, monkeypatch
+):
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        upload = recordings_module.create_upload(
+            settings.data_dir,
+            filename="cancel-after-commit.wav",
+            size_bytes=8,
+            max_upload_bytes=settings.max_upload_bytes,
+        )
+        upload_id = upload["id"]
+        endpoint = next(
+            route.endpoint
+            for route in app.routes
+            if getattr(route, "path", "") == "/api/uploads/{upload_id}/content"
+        )
+        real_finish = routes_module.finish_upload
+        finish_entered = threading.Event()
+        finish_committed = threading.Event()
+        finish_release = threading.Event()
+        first_finish = True
+
+        def slow_finish(*args, **kwargs):
+            nonlocal first_finish
+            finish_entered.set()
+            result = real_finish(*args, **kwargs)
+            if first_finish:
+                first_finish = False
+                finish_committed.set()
+                assert finish_release.wait(5)
+            return result
+
+        monkeypatch.setattr(routes_module, "finish_upload", slow_finish)
+
+        async def receive():
+            return {"type": "http.request", "body": b"abcd", "more_body": False}
+
+        first = asyncio.create_task(
+            endpoint(
+                upload_id,
+                Request(
+                    {
+                        "type": "http",
+                        "method": "PUT",
+                        "path": "/probe",
+                        "headers": [],
+                        "query_string": b"",
+                    },
+                    receive,
+                ),
+                offset=0,
+            )
+        )
+        assert await asyncio.to_thread(finish_entered.wait, 2)
+        assert await asyncio.to_thread(finish_committed.wait, 2)
+        first.cancel()
+        first.cancel()
+
+        async def retry_receive():
+            return {"type": "http.request", "body": b"efgh", "more_body": False}
+
+        retry = asyncio.create_task(
+            endpoint(
+                upload_id,
+                Request(
+                    {
+                        "type": "http",
+                        "method": "PUT",
+                        "path": "/probe",
+                        "headers": [],
+                        "query_string": b"",
+                    },
+                    retry_receive,
+                ),
+                offset=4,
+            )
+        )
+        with pytest.raises(HTTPException) as error:
+            await asyncio.wait_for(retry, timeout=2)
+        assert error.value.status_code == 409
+        assert error.value.detail["code"] == "upload_busy"
+        assert error.value.detail["received_bytes"] == 4
+
+        finish_release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(first, timeout=2)
+
+        raw_path = settings.data_dir / "uploads" / f"{upload_id}.part"
+        state = recordings_module.get_upload(settings.data_dir, upload_id)
+        assert state["status"] == "receiving"
+        assert state["received_bytes"] == 4
+        assert raw_path.read_bytes() == b"abcd"
+
+        async def receive_resume():
+            return {"type": "http.request", "body": b"efgh", "more_body": False}
+
+        resumed = await endpoint(
+            upload_id,
+            Request(
+                {
+                    "type": "http",
+                    "method": "PUT",
+                    "path": "/probe",
+                    "headers": [],
+                    "query_string": b"",
+                },
+                receive_resume,
+            ),
+            offset=4,
+        )
+        assert resumed["status"] == "uploaded"
+        assert raw_path.read_bytes() == b"abcdefgh"
+
+
+async def test_chunked_upload_requires_the_durable_received_offset(client, settings):
+    await _authorize(client, settings)
+    content = _wav_bytes()
+    created = await client.post(
+        "/api/uploads",
+        headers={"Origin": settings.public_url},
+        json={"filename": "chunked.wav", "size_bytes": len(content)},
+    )
+    upload_id = created.json()["id"]
+    first = await client.put(
+        f"/api/uploads/{upload_id}/content?offset=0",
+        headers={"Origin": settings.public_url},
+        content=content[:32],
+    )
+    assert first.status_code == 200
+    assert first.json() == {
+        "id": upload_id,
+        "status": "receiving",
+        "size_bytes": len(content),
+        "received_bytes": 32,
+    }
+    mismatch = await client.put(
+        f"/api/uploads/{upload_id}/content?offset=0",
+        headers={"Origin": settings.public_url},
+        content=content[:32],
+    )
+    assert mismatch.status_code == 409
+    assert mismatch.json()["detail"] == {
+        "code": "offset_mismatch",
+        "message": "Resume from received_bytes=32.",
+        "received_bytes": 32,
+    }
+    state = await client.get(f"/api/uploads/{upload_id}")
+    assert state.json()["status"] == "receiving"
+    assert state.json()["received_bytes"] == 32
+    middle = await client.put(
+        f"/api/uploads/{upload_id}/content?offset=32",
+        headers={"Origin": settings.public_url},
+        content=content[32:64],
+    )
+    assert middle.status_code == 200
+    assert middle.json()["status"] == "receiving"
+    assert middle.json()["received_bytes"] == 64
+    final = await client.put(
+        f"/api/uploads/{upload_id}/content?offset=64",
+        headers={"Origin": settings.public_url},
+        content=content[64:],
+    )
+    assert final.status_code == 200
+    assert final.json()["status"] == "uploaded"
+    assert (settings.data_dir / "uploads" / f"{upload_id}.part").read_bytes() == content
+
+
+async def test_resume_truncates_uncommitted_raw_bytes_before_appending(client, settings):
+    await _authorize(client, settings)
+    content = _wav_bytes()
+    created = await client.post(
+        "/api/uploads",
+        headers={"Origin": settings.public_url},
+        json={"filename": "stale-bytes.wav", "size_bytes": len(content)},
+    )
+    upload_id = created.json()["id"]
+    first = await client.put(
+        f"/api/uploads/{upload_id}/content?offset=0",
+        headers={"Origin": settings.public_url},
+        content=content[:32],
+    )
+    assert first.status_code == 200
+    raw_path = settings.data_dir / "uploads" / f"{upload_id}.part"
+    raw_path.write_bytes(content + b"uncommitted-junk")
+
+    resumed = await client.put(
+        f"/api/uploads/{upload_id}/content?offset=32",
+        headers={"Origin": settings.public_url},
+        content=content[32:],
+    )
+    assert resumed.status_code == 200
+    assert resumed.json()["status"] == "uploaded"
+    assert raw_path.read_bytes() == content
+
+
+async def test_empty_chunk_is_rejected_without_advancing_upload(client, settings):
+    await _authorize(client, settings)
+    content = _wav_bytes()
+    created = await client.post(
+        "/api/uploads",
+        headers={"Origin": settings.public_url},
+        json={"filename": "empty-chunk.wav", "size_bytes": len(content)},
+    )
+    upload_id = created.json()["id"]
+    empty = await client.put(
+        f"/api/uploads/{upload_id}/content?offset=0",
+        headers={"Origin": settings.public_url},
+        content=b"",
+    )
+    assert empty.status_code == 400
+    assert empty.json()["detail"]["code"] == "size_mismatch"
+    state = await client.get(f"/api/uploads/{upload_id}")
     assert state.json()["status"] == "failed"
+    assert state.json()["received_bytes"] == 0
     assert not (settings.data_dir / "uploads" / f"{upload_id}.part").exists()
+
+
+async def test_concurrent_content_requests_keep_the_single_writer_guard(client, settings):
+    await _authorize(client, settings)
+    content = _wav_bytes()
+    created = await client.post(
+        "/api/uploads",
+        headers={"Origin": settings.public_url},
+        json={"filename": "concurrent.wav", "size_bytes": len(content)},
+    )
+    upload_id = created.json()["id"]
+    stream_started = asyncio.Event()
+    release_stream = asyncio.Event()
+
+    async def held_stream():
+        yield content[:32]
+        stream_started.set()
+        await release_stream.wait()
+        yield content[32:]
+
+    first = asyncio.create_task(
+        client.put(
+            f"/api/uploads/{upload_id}/content?offset=0",
+            headers={"Origin": settings.public_url},
+            content=held_stream(),
+        )
+    )
+    await asyncio.wait_for(stream_started.wait(), timeout=2)
+    second = await client.put(
+        f"/api/uploads/{upload_id}/content?offset=0",
+        headers={"Origin": settings.public_url},
+        content=content,
+    )
+    assert second.status_code == 409
+    assert second.json()["detail"] == {
+        "code": "upload_busy",
+        "message": "Another upload content request is already running.",
+        "received_bytes": 0,
+    }
+    release_stream.set()
+    completed = await asyncio.wait_for(first, timeout=2)
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "uploaded"
 
 
 async def test_range_head_and_unsatisfiable_range_are_exact(client, settings):
@@ -513,7 +1055,9 @@ async def test_delete_cancels_active_validation_and_removes_artifacts(
     assert not (settings.data_dir / "recordings" / f"{upload_id}.m4a").exists()
 
 
-async def test_upload_idle_timeout_fails_and_cleans_partial_file(client, settings, monkeypatch):
+async def test_upload_idle_timeout_releases_the_upload_and_preserves_progress(
+    client, settings, monkeypatch
+):
     await _authorize(client, settings)
     content = _wav_bytes()
     created = await client.post(
@@ -522,15 +1066,22 @@ async def test_upload_idle_timeout_fails_and_cleans_partial_file(client, setting
         json={"filename": "stalled.wav", "size_bytes": len(content)},
     )
     upload_id = created.json()["id"]
+    committed = await client.put(
+        f"/api/uploads/{upload_id}/content?offset=0",
+        headers={"Origin": settings.public_url},
+        content=content[:32],
+    )
+    assert committed.status_code == 200
+    assert committed.json()["received_bytes"] == 32
     monkeypatch.setattr(routes_module, "_UPLOAD_IDLE_TIMEOUT_SECONDS", 0.02)
 
     async def stalled_stream():
-        yield content[:32]
+        yield content[32:64]
         await asyncio.Event().wait()
 
     timed_out = await asyncio.wait_for(
         client.put(
-            f"/api/uploads/{upload_id}/content",
+            f"/api/uploads/{upload_id}/content?offset=32",
             headers={"Origin": settings.public_url},
             content=stalled_stream(),
         ),
@@ -539,9 +1090,19 @@ async def test_upload_idle_timeout_fails_and_cleans_partial_file(client, setting
 
     assert timed_out.status_code == 408
     assert timed_out.json()["detail"]["code"] == "upload_timeout"
+    assert timed_out.json()["detail"]["received_bytes"] == 32
     state = await client.get(f"/api/uploads/{upload_id}")
-    assert state.json()["status"] == "failed"
-    assert not (settings.data_dir / "uploads" / f"{upload_id}.part").exists()
+    assert state.json()["status"] == "receiving"
+    assert state.json()["received_bytes"] == 32
+    raw_path = settings.data_dir / "uploads" / f"{upload_id}.part"
+    assert raw_path.read_bytes() == content[:32]
+    resumed = await client.put(
+        f"/api/uploads/{upload_id}/content?offset=32",
+        headers={"Origin": settings.public_url},
+        content=content[32:],
+    )
+    assert resumed.status_code == 200
+    assert resumed.json()["status"] == "uploaded"
 
 
 async def test_declared_duration_limit_is_enforced(tmp_path):

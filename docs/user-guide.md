@@ -167,6 +167,7 @@ Restart and recreate keep the volumes. A new Compose project makes a new token.
 | `ASR_PUBLIC_URL`            | A specific loopback URL.                                                |
 | `ASR_COOKIE_SECURE`         | Default `false` for HTTP. Set `true` behind a local TLS terminator. |
 | `ASR_MAX_UPLOAD_BYTES`      | Upload limit. Default 4 GiB.                                            |
+| `ASR_UPLOAD_CHUNK_BYTES`    | Maximum browser upload request size. Default 64 MiB.                   |
 | `ASR_MAX_RECORDING_SECONDS` | Duration limit. Default 4 hours.                                        |
 
 ### Access token
@@ -251,13 +252,23 @@ checks codec and duration with FFmpeg and stores an app-managed M4A/AAC copy. Yo
 source file after the upload.
 
 For `mp4`, `mov` and `webm` videos, the browser first cuts the audio track out of the file (a
-stream copy, no re-encoding) and uploads only that audio. A one-hour meeting video then uploads as
-about 65 MiB of audio (at a 160 kbit/s source bitrate) instead of the whole video, which keeps it
-under the roughly 100 MB request limit of tunnels such as Cloudflare. Audio at a higher bitrate, or
-longer than about 1.4 hours at 160 kbit/s, can still exceed that limit. The step shows as **Extracting audio**, and **Cancel** works in
-it. If the browser cannot do it (an unsupported audio codec, no audio track, an old browser), the
-workspace uploads the original file and says so below the status line. The meeting is the same
-either way. Only AAC audio in `mp4`/`mov` and Opus audio in `webm` are copied.
+stream copy, no re-encoding). It then uploads that audio in sequential requests. Each request is
+at most 64 MiB by default, so a Cloudflare Tunnel request-body limit near 100 MB does not block a
+long file. The browser reports cumulative progress, retries a failed part up to six times with
+exponential delays of 1, 2, 4, 8, 16 and 32 seconds (a bounded 63-second window), and resumes
+from the byte count that the server confirms. A temporary failure while reading that byte count is
+retried with the same bounded window without deleting the upload. Audio at a higher bitrate still uses more
+total bandwidth. The app duration limit remains 4 hours. The step shows as **Extracting audio**,
+and **Cancel** works in it. If the browser cannot extract audio (an unsupported audio codec, no
+audio track, or an old browser), the workspace uploads the original file in the same sequential
+parts and says so below the status line. The meeting is the same either way. Only AAC audio in
+`mp4`/`mov` and Opus audio in `webm` are copied.
+
+Browser extraction keeps the extracted audio in memory before it starts the chunk upload. A local
+one-hour measurement produced 67,177,975 upload bytes and increased Chromium RSS by 759,345,152
+bytes. A linear four-hour estimate is about 268,711,900 upload bytes. A product limit or a
+streaming extraction target is still needed before the app can promise four-hour video imports on
+memory-constrained browsers.
 
 In **New meeting**, **Create meeting** uploads the file and creates the meeting. The name comes
 from the file name until you type one. The language hint is only metadata. The runner always
