@@ -17,6 +17,9 @@
   --player-height: 64px;
   --player-clearance: 8px;
   --player-gap: 12px;
+  --sidebar-padding-bottom: 18px;
+  --sidebar-footer-height: 55px;
+  --sidebar-footer-clearance: 8px;
 }
 
 * {
@@ -85,7 +88,10 @@ textarea:focus-visible {
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: thin;
-  padding: 22px 16px 18px;
+  padding: 22px 16px var(--sidebar-padding-bottom);
+  scroll-padding-bottom: calc(
+    var(--sidebar-footer-height) + var(--sidebar-padding-bottom) + var(--sidebar-footer-clearance)
+  );
   border-right: 1px solid var(--hairline);
   background: var(--surface-subtle);
   overscroll-behavior: contain;
@@ -218,7 +224,7 @@ textarea:focus-visible {
   z-index: 1;
   display: flex;
   flex-shrink: 0;
-  min-height: 55px;
+  min-height: var(--sidebar-footer-height);
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -1548,6 +1554,7 @@ textarea:focus-visible {
     flex-direction: row;
     align-items: center;
     overflow-y: visible;
+    scroll-padding-bottom: 0;
     gap: 15px;
     padding: 10px 14px;
     border-right: 0;

@@ -32,6 +32,7 @@ COMMAND_TIMEOUT_SECONDS = 6 * 60 * 60
 PROBE_TIMEOUT_SECONDS = 60
 LOCAL_PROTOCOLS = "file,pipe,crypto,data"
 DECODE_DURATION_TOLERANCE_SECONDS = 2.0
+ESTIMATED_DURATION_FORMATS = frozenset({"aac", "adts", "mp3"})
 
 
 class MediaProcessingError(RuntimeError):
@@ -155,6 +156,14 @@ def _parse_duration(value: object) -> float | None:
     return result
 
 
+def _has_estimated_duration_format(format_name: object) -> bool:
+    if not isinstance(format_name, str):
+        return False
+    return any(
+        name.strip().lower() in ESTIMATED_DURATION_FORMATS for name in format_name.split(",")
+    )
+
+
 def probe_media(path: Path, *, max_duration_seconds: int) -> MediaProbe:
     """Inspect one supported audio stream and enforce its codec and duration policy."""
     executable = shutil.which("ffprobe")
@@ -168,7 +177,7 @@ def probe_media(path: Path, *, max_duration_seconds: int) -> MediaProbe:
             "-protocol_whitelist",
             LOCAL_PROTOCOLS,
             "-show_entries",
-            "format=duration:stream=index,codec_type,codec_name,duration:stream_disposition=default",
+            "format=format_name,duration:stream=index,codec_type,codec_name,duration:stream_disposition=default",
             "-of",
             "json",
             str(path),
@@ -203,10 +212,13 @@ def probe_media(path: Path, *, max_duration_seconds: int) -> MediaProbe:
         raise MediaProcessingError("unsupported_codec")
 
     format_info = document.get("format")
+    format_name = format_info.get("format_name") if isinstance(format_info, dict) else None
     declared_duration = _parse_duration(selected.get("duration"))
     duration = declared_duration
     has_non_audio_stream = any(stream.get("codec_type") != "audio" for stream in streams)
-    duration_is_authoritative = declared_duration is not None or not has_non_audio_stream
+    duration_is_authoritative = not _has_estimated_duration_format(format_name) and (
+        declared_duration is not None or not has_non_audio_stream
+    )
     if duration is None and isinstance(format_info, dict):
         duration = _parse_duration(format_info.get("duration"))
     if duration is None:

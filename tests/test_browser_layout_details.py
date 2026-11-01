@@ -68,6 +68,8 @@ def _layout_rectangles(page):
             })(),
             sidebarOverflowY: getComputedStyle(sidebar).overflowY,
             sidebarScrollRange: sidebar.scrollHeight - sidebar.clientHeight,
+            positiveTabIndexCount: [...document.querySelectorAll("[tabindex]")]
+              .filter((element) => element.tabIndex > 0).length,
             gridColumns: grid,
           };
         }"""
@@ -193,6 +195,7 @@ def test_layout_matrix_and_keyboard_order(live, signed_in, tmp_path):
                 assert metrics["domOrder"]
                 assert metrics["wordmark"] == "ASR EN VI"
                 assert metrics["formErrorTabIndex"] == "-1"
+                assert metrics["positiveTabIndexCount"] == 0
                 if width == 360:
                     assert metrics["actions"]["bottom"] <= metrics["launchers"]["top"] + 0.5
                     page.locator(".theme-toggle").focus()
@@ -312,3 +315,55 @@ def test_layout_matrix_and_keyboard_order(live, signed_in, tmp_path):
 
     evidence_path = _write_evidence(engine, evidence, evidence_dir)
     assert evidence_path.is_file()
+
+
+def test_last_calendar_day_full_focus_outline_clears_sticky_footer(live, signed_in):
+    for title in ("August one", "August two", "August three"):
+        seed_meeting(live.settings.data_dir, title, "2026-08-31")
+
+    for theme in ("light", "dark"):
+        context, page = signed_in(
+            color_scheme=theme,
+            viewport={"width": 1024, "height": 768},
+            reduced_motion="reduce",
+        )
+        try:
+            page.goto(f"{live.url}/", wait_until="networkidle")
+            expect(page.locator("#recent-list a")).to_have_count(3)
+            month = page.locator("#mini-calendar .cal-month")
+            month.select_option("7")
+            year = page.locator("#mini-calendar .cal-year")
+            year.fill("2026")
+            year.press("Enter")
+
+            first_day = page.locator('#mini-calendar .cal-day[data-date="2026-08-01"]')
+            first_day.focus()
+            for _ in range(30):
+                page.keyboard.press("ArrowRight")
+            day = page.locator('#mini-calendar .cal-day[data-date="2026-08-31"]')
+            expect(day).to_be_focused()
+            metrics = day.evaluate(
+                """element => {
+                  const box = element.getBoundingClientRect();
+                  const footer = document.querySelector('.sidebar-footer').getBoundingClientRect();
+                  const sidebar = document.querySelector('.sidebar');
+                  const style = getComputedStyle(element);
+                  const outlineWidth = parseFloat(style.outlineWidth) || 0;
+                  const outlineOffset = parseFloat(style.outlineOffset) || 0;
+                  return {
+                    active: element === document.activeElement,
+                    focusVisible: style.outlineStyle === 'solid',
+                    bottom: box.bottom,
+                    outlineBottom: box.bottom + outlineWidth + outlineOffset,
+                    footerTop: footer.top,
+                    footerHeight: footer.height,
+                    sidebarPaddingBottom: getComputedStyle(sidebar).paddingBottom,
+                    sidebarScrollPaddingBottom: getComputedStyle(sidebar).scrollPaddingBottom,
+                  };
+                }"""
+            )
+            assert metrics["active"]
+            assert metrics["focusVisible"]
+            assert metrics["outlineBottom"] <= metrics["footerTop"] + 0.5, metrics
+        finally:
+            context.close()

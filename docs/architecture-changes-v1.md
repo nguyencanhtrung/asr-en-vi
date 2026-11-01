@@ -1190,3 +1190,32 @@ Kiểm thử hai tab giữ bản nháp của tab nhận khi tab phát lưu rồi
 Nguồn: Issue #86; `tests/test_browser_history.py`, `tests/web/channel.test.mjs`, `tests/web/history-core.test.mjs`, `tests/web/notes-core.test.mjs`, `tests/web/task-core.test.mjs`, `tests/web/transcript-core.test.mjs`.
 
 Đọc notes được gộp theo object cuộc họp mới từ server: các lần vẽ lại cùng context vẫn cập nhật trạng thái local nhưng không mở thêm request. Thông báo từ tab khác đi qua history rồi tới notes; thông báo local của mutation dùng đường đọc trực tiếp. Regression browser đếm đúng một lần đọc thay vì sáu, đồng thời giữ bản nháp. Cả poll transcription và notes đều xử lý payload 401 của workspace bằng effect chuyển tới `/access`, không xóa bản nháp, pending request hoặc trạng thái worker. 401 có cấu trúc của provider không kích hoạt điều hướng này.
+
+### #85, #86 — Phân biệt thời lượng ước lượng và giữ vòng focus trên footer
+
+#### Vấn đề và nguyên nhân đo được
+
+MP3 VBR không có Xing/VBRI có thể được ffprobe ước lượng duration từ bitrate dù stream trả về trường duration. Khi coi số này là metadata khai báo, một file đầy đủ 120 giây có estimate lớn hơn 150 giây bị từ chối. Ở sidebar 1024×768 có ba cuộc họp gần đây, footer sticky cũng che một phần ngày 31/8/2026 đang focus: outline bottom 710,95 px vượt footer top 694,41 px.
+
+#### Thay đổi thiết kế
+
+Server dùng `format_name` thực từ ffprobe để coi MP3 và raw AAC/ADTS là provisional; không dùng đuôi file và không tăng dung sai mismatch. M4A vẫn giữ kiểm tra metadata so với audio đã decode. Bước decode vẫn giới hạn `max + 1`, và duration của audio đầu ra quyết định giới hạn thực.
+
+Sidebar dùng token chung cho chiều cao footer và phần scroll padding, cộng padding đáy cùng khoảng hở focus; mobile đặt scroll padding này về 0. Không đổi kích thước rail, nội dung footer hoặc thứ tự Tab.
+
+#### Trước và sau, với điều kiện kiểm tra
+
+| Trường hợp | Trước | Sau |
+| --- | --- | --- |
+| MP3 VBR 120 giây, không Xing, estimate >150 giây, policy 150 giây | bị từ chối | decode 119–121 giây và chấp nhận |
+| Cùng MP3, policy 90 giây | từ chối theo duration ước lượng | từ chối `duration_limit` sau decode có giới hạn |
+| M4A 180 giây bị giữ lại 60% byte | từ chối theo metadata/audio lệch | tiếp tục từ chối |
+| Focus ngày 31/8, 3 recent, 1024×768 | outline bottom vượt footer top khoảng 16,55 px | full outline bottom ≤ footer top +0,5 px trong kiểm tra Chromium/Firefox, light/dark |
+
+Nguồn: `tests/test_media.py`, `tests/test_browser_layout_details.py`; fixture media được tạo trong thư mục tạm của test.
+
+#### Đánh đổi, phương án đã loại và follow-up
+
+MP3/raw AAC không dùng duration ước lượng để phát hiện phần thiếu; decode có giới hạn vẫn bảo vệ policy thời lượng. Loại phương án nới dung sai toàn bộ vì sẽ làm yếu kiểm tra M4A bị cắt. Scroll padding giữ nguyên cách cuộn/sidebar thay vì che bớt nội dung hoặc đổi thứ tự keyboard. Không có follow-up bắt buộc.
+
+Issue #85, #86. Tag: kiến trúc, accessibility. Tài liệu đích: `docs/backend-contract-v1.md`, `docs/frontend-design-v1.md`.

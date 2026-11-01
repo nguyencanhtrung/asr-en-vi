@@ -12,8 +12,10 @@ from media_tools import require_media_tools
 from asr_en_vi import media
 
 
-def _probe_result(streams: list[dict], duration: str = "2.0") -> media._CommandResult:
-    document = {"streams": streams, "format": {"duration": duration}}
+def _probe_result(
+    streams: list[dict], duration: str = "2.0", format_name: str = "wav"
+) -> media._CommandResult:
+    document = {"streams": streams, "format": {"duration": duration, "format_name": format_name}}
     return media._CommandResult(0, json.dumps(document).encode(), False)
 
 
@@ -129,6 +131,82 @@ def test_probe_keeps_video_container_duration_provisional_when_audio_duration_is
     assert result.duration_seconds == 120.0
     assert result.declared_duration_seconds is None
     assert result.duration_is_authoritative is False
+
+
+@pytest.mark.parametrize("format_name", ["mp3", "aac"])
+def test_probe_treats_estimated_packet_duration_as_provisional(monkeypatch, tmp_path, format_name):
+    monkeypatch.setattr(media.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        media,
+        "_run_bounded",
+        lambda argv, **kwargs: _probe_result(
+            [
+                {
+                    "index": 0,
+                    "codec_type": "audio",
+                    "codec_name": "mp3" if format_name == "mp3" else "aac",
+                    "duration": "228.98",
+                    "disposition": {"default": 1},
+                }
+            ],
+            duration="228.98",
+            format_name=format_name,
+        ),
+    )
+
+    result = media.probe_media(tmp_path / "looks-like-m4a.m4a", max_duration_seconds=150)
+
+    assert result.duration_seconds == 228.98
+    assert result.declared_duration_seconds is None
+    assert result.duration_is_authoritative is False
+
+
+def test_vbr_mp3_without_xing_is_limited_after_decode(tmp_path):
+    require_media_tools()
+    source = tmp_path / "no-xing-vbr.mp3"
+    accepted_output = tmp_path / "accepted.m4a"
+    limited_output = tmp_path / "limited.m4a"
+    subprocess.run(
+        [
+            shutil.which("ffmpeg"),
+            "-nostdin",
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=r=44100:cl=mono:d=60",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=f=440:d=60",
+            "-filter_complex",
+            "concat=n=2:v=0:a=1",
+            "-c:a",
+            "libmp3lame",
+            "-q:a",
+            "2",
+            "-write_xing",
+            "0",
+            str(source),
+        ],
+        check=True,
+        timeout=60,
+    )
+
+    source_probe = media.probe_media(source, max_duration_seconds=150)
+    assert source_probe.duration_seconds > 150
+    assert source_probe.duration_is_authoritative is False
+    assert source_probe.declared_duration_seconds is None
+
+    accepted = media.normalize_media(source, accepted_output, max_duration_seconds=150)
+    assert 119 <= accepted.duration_seconds <= 121
+
+    with pytest.raises(media.MediaProcessingError) as error:
+        media.normalize_media(source, limited_output, max_duration_seconds=90)
+
+    assert error.value.code == "duration_limit"
 
 
 def test_real_webm_with_longer_video_than_audio_validates_selected_audio(tmp_path):

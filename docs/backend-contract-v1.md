@@ -126,7 +126,11 @@ client giữ `upload_id`, cho phép kiểm tra lại hoặc hủy, và không t�
 được. Với A/V, duration của container chỉ là provisional khi stream audio được chọn không có
 duration riêng; server vẫn giải mã đúng audio stream với giới hạn `max + 1` rồi kiểm tra duration
 đầu ra. Chỉ duration của selected audio có tính authoritative mới được so sánh với duration giải
-mã; audio-only có thể dùng duration container làm fallback authoritative.
+mã; audio-only có thể dùng duration container làm fallback authoritative. Riêng định dạng
+`mp3`, `aac`/ADTS được nhận diện bằng `format_name` của ffprobe, duration có thể là ước lượng
+bitrate nên luôn là provisional, kể cả khi stream có trường duration. Không dùng ước lượng này
+để từ chối sớm hoặc kết luận file bị cắt. Server vẫn decode tối đa `max + 1` và áp giới hạn lên
+audio đầu ra thực; đuôi tên file không quyết định độ tin cậy của duration.
 
 `GET /api/uploads/policy` trả thêm `chunk_bytes`. Giá trị mặc định là `67108864` byte (64 MiB).
 Client dùng giá trị này làm kích thước phần, nhưng mỗi request vẫn phải dùng offset server đã xác

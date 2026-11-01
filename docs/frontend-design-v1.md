@@ -79,6 +79,11 @@ Nút **Cuộc họp mới** ở đầu vùng duyệt là điểm vào tạo cu�
 
 Tìm kiếm theo tên trên toàn bộ lịch sử, không chỉ ba mục gần đây; hiện kết quả hoặc trạng thái không tìm thấy. Lịch là cách chính để duyệt các cuộc họp cũ theo thời gian, tránh buộc người dùng cuộn một danh sách gần đây dài.
 
+Ở desktop, footer giữ trong vùng nhìn khi sidebar cuộn. `scroll-padding-bottom` của sidebar
+dành chỗ cho chiều cao footer, padding đáy và khoảng hở vòng focus; hiện tương ứng 55 + 18 + 8 px.
+Điều hướng bàn phím tới hàng ngày cuối tháng phải giữ trọn vòng focus phía trên footer. Trên mobile,
+sidebar tĩnh không dành khoảng cuộn này.
+
 Footer căn giữa theo chiều dọc: **chỉ biểu tượng GitHub**, phía dưới là **Version &lt;phiên bản&gt;**, ví dụ `Version 1.0`. Không có dòng “Mã nguồn …”. Icon dẫn tới [repository](https://github.com/nguyencanhtrung/asr-en-vi); dòng version dẫn tới [releases](https://github.com/nguyencanhtrung/asr-en-vi/releases). Cả hai chỉ mở trang bên ngoài khi người dùng chọn.
 
 Icon GitHub phải có tên truy cập và tooltip dù không có text hiển thị. Version phản ánh bản ứng dụng thực tế; dùng **Version dev** khi chưa có version phát hành. `1.0` là ví dụ định dạng, không phải số release đã được công bố. Tên sản phẩm, URL repository và version lấy từ metadata dùng chung.
