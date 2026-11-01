@@ -134,7 +134,7 @@ h1 {
   width: 100%;
   min-height: 3rem;
   padding: 0 2.8rem 0 0.8rem;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   outline: none;
   background: var(--surface);

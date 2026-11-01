@@ -5,7 +5,7 @@
   min-height: 34px;
   margin: 0 0 18px;
   padding: 0 10px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--surface-subtle);
   color: var(--text);
@@ -65,6 +65,11 @@
   color: var(--danger);
 }
 
+.recent-link[aria-current="page"] .link-date,
+.recent-link:hover .link-date {
+  color: var(--ink-2);
+}
+
 .recent-link[aria-current="page"] {
   border-color: var(--line-strong);
   background: var(--accent-soft);
@@ -115,7 +120,7 @@
 .cal-year,
 .cal-undated,
 .cal-more {
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--surface-subtle);
   color: var(--text);
@@ -134,7 +139,7 @@
 .cal-today:hover,
 .cal-undated:hover,
 .cal-more:hover {
-  border-color: var(--line-strong);
+  border-color: var(--control-border);
   background: var(--surface);
 }
 
@@ -201,7 +206,7 @@
 }
 
 .cal-day.is-outside {
-  color: var(--line-strong);
+  color: var(--ink-3);
 }
 
 .cal-day.is-today {
@@ -559,7 +564,7 @@
   width: 100%;
   min-height: 40px;
   padding: 9px 11px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--surface-subtle);
   color: var(--text);

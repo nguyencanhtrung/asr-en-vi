@@ -108,13 +108,14 @@
   --surface-raised: #ffffff;
   --ink: #1c1c21;
   --ink-2: #52525b;
-  --ink-3: #70707c;
+  --ink-3: #6b6b77;
   --accent: #8e2433;
   --accent-hover: #741b29;
   --accent-soft: #f3e4e6;
   --accent-contrast: #fffafa;
   --hairline: #e5e2dc;
   --line-strong: #cbc6bd;
+  --control-border: #858078;
   --code-bg: #f2f0eb;
   --success: #226442;
   --success-soft: #e5f1e9;
@@ -145,6 +146,7 @@
   --accent-contrast: #2a1117;
   --hairline: #2a2a33;
   --line-strong: #3d3d48;
+  --control-border: #777783;
   --code-bg: #1f1f28;
   --success: #86c9a4;
   --success-soft: #1b3327;
@@ -176,6 +178,12 @@ input,
 select,
 textarea {
   font-family: var(--font-sans);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--ink-3);
+  opacity: 1;
 }
 
 h1,

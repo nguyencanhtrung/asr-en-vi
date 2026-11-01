@@ -1152,7 +1152,7 @@ textarea:focus-visible {
 }
 
 .selected-file-copy span {
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-family: var(--font-mono);
   font-size: 9px;
 }
@@ -1202,7 +1202,7 @@ textarea:focus-visible {
   width: 100%;
   min-height: 39px;
   padding: 0 11px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--surface-subtle);
   color: var(--ink);
@@ -1246,7 +1246,7 @@ textarea:focus-visible {
   align-items: center;
   gap: 7px;
   padding: 0 9px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--surface-subtle);
   color: var(--ink-2);
@@ -1256,7 +1256,7 @@ textarea:focus-visible {
 }
 
 .language-option:has(input:checked) {
-  border-color: var(--line-strong);
+  border-color: var(--control-border);
   background: var(--accent-soft);
   color: var(--accent);
 }
@@ -1803,7 +1803,7 @@ textarea:focus-visible {
 .transcription-language-control select {
   min-height: 34px;
   padding: 6px 9px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--surface-subtle);
   color: var(--ink);
@@ -2045,7 +2045,7 @@ textarea:focus-visible {
   width: 100%;
   min-width: 0;
   padding: 8px 9px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--surface-subtle);
   color: var(--ink);
@@ -2147,7 +2147,7 @@ textarea:focus-visible {
   min-width: 0;
   min-height: 34px;
   padding: 6px 9px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--surface-subtle);
   color: var(--ink);
@@ -2405,7 +2405,7 @@ textarea:focus-visible {
   max-width: 150px;
   min-height: 28px;
   padding: 3px 22px 3px 7px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--surface-subtle);
   color: var(--ink);
@@ -2455,7 +2455,7 @@ textarea:focus-visible {
   width: 100%;
   min-height: 76px;
   padding: 8px 9px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--surface-subtle);
   color: var(--ink);
