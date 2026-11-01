@@ -4,23 +4,22 @@
 
 **Mục đích.** Tổng kết các tối ưu và thay đổi kiến trúc/thiết kế kể từ đợt nghiệm thu #16 (image build từ revision `151f3e4`, xem [báo cáo nghiệm thu](acceptance-report-v1.md)). Tài liệu sống theo giai đoạn phát triển; các mục đã được tách theo tag vào hồ sơ `docs/release/` cho #17. Số `#NN` là issue hoặc PR của repo trên GitHub.
 
-**Quy tắc.**
+## Documentation policy
 
-1. Mỗi PR có tối ưu hoặc thay đổi thiết kế thêm một mục mới, hoặc cập nhật mục đã có, ngay trong PR đó (giai đoạn documentation của issue), theo mẫu ở mục 6. Việc chưa có PR nằm ở mục 5 và chuyển thành mục đầy đủ trong PR của nó.
-2. Mỗi mục tự đủ nghĩa: nêu bối cảnh cần thiết trong một dòng thay vì "xem mục trên"; chỉ liên kết sang mục khác để tra cứu thêm.
-3. Mọi số có nguồn công khai (issue, PR hoặc tài liệu trong repo), ghi ngay dưới bảng. Nguồn lệch nhau thì dùng số đo mới nhất và ghi một dòng chênh lệch.
-4. Không ghi nội dung cuộc họp, thông tin xác thực, đường dẫn cá nhân, bằng chứng riêng tư hay chi tiết công cụ phát triển.
+The [release process](release/process.md) defines checks and evidence reuse for new releases.
+The former rule to copy entries by tag applied to the v0.1.0 dossier only.
 
-**Bảng tách khi release (#17).** Mỗi mục có một hoặc nhiều tag. Khi release, mục chuyển nguyên sang tài liệu đích của từng tag của nó. Cần tag mới thì thêm một hàng vào bảng này trong PR đầu tiên dùng tag đó.
+1. Record each new design change in its PR.
+2. Update the affected design or operating document.
+3. Link detailed measurements from their original report.
+4. Record the measured revision and configuration with each result.
+5. Place the source link beside each measurement.
+6. Keep private data outside public reports.
 
-| Tag | Nội dung | Tài liệu đích (mục) |
-| --- | --- | --- |
-| Hiệu năng | thời gian, bộ nhớ, thông lượng; lần đo lại tiêu chí nghiệm thu | `docs/release/performance-v0.1.0.md`; tài liệu thiết kế/contract/nghiệm thu giữ liên kết tới hồ sơ này |
-| Kiến trúc | ranh giới module, luồng dữ liệu, vòng đời tác vụ | `docs/release/runtime-v0.1.0.md`; tài liệu thiết kế/contract/nghiệm thu giữ liên kết tới hồ sơ này |
-| Quyền riêng tư | dữ liệu hoặc kết nối ra ngoài máy, telemetry | `docs/release/privacy-v0.1.0.md`; tài liệu thiết kế/contract/nghiệm thu giữ liên kết tới hồ sơ này |
-| Notes | pipeline tạo notes: chia/hợp nhất, ngân sách, phục hồi, prompt | `docs/release/notes-v0.1.0.md`; tài liệu thiết kế/contract/nghiệm thu giữ liên kết tới hồ sơ này |
-
-Bảng mốc AC-13 đã chuyển vào báo cáo nghiệm thu; việc còn mở đã chuyển vào release notes. Các mục bên dưới giữ liên kết để truy vết.
+Release notes contain user changes, upgrade actions, and known limitations.
+They link evidence instead of copying this history.
+A release does not require every historical benchmark.
+The [historical summaries](release/README.md#read-historical-evidence) retain links to the original v0.1.0 reports.
 
 ## 2. Chuỗi xử lý và chỗ mỗi thay đổi tác động
 
