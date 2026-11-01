@@ -12,6 +12,7 @@ import pytest
 from asr_en_vi.chatgpt import (
     ACCESS_REFRESH_MARGIN_SECONDS,
     DIRECT_SCOPE,
+    NOTES_HTTP_READ_TIMEOUT_SECONDS,
     NOTES_HTTP_TOTAL_TIMEOUT_SECONDS,
     ChatGPTError,
     ChatGPTProvider,
@@ -224,6 +225,65 @@ def test_invalid_first_result_gets_one_bounded_repair_on_the_pinned_account(tmp_
         )
         assert len(call.prompt.encode("utf-8")) + schema_bytes + 1_024 <= 35_000
     assert provider.store._read().get("last_diagnostic") is None
+
+
+def test_notes_progress_reports_pipeline_stages_without_replacing_coverage(tmp_path):
+    adapter = NotesOnlyAdapter([json.dumps(_valid_document())])
+    provider = _provider(tmp_path, adapter)
+    progress = []
+    coverage = []
+
+    result = provider.generate_notes_document(
+        snapshot=_snapshot(),
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+        on_progress=progress.append,
+        on_coverage=coverage.append,
+    )
+
+    assert result["overview"]
+    assert [event["stage"] for event in progress] == [
+        "preparing_source",
+        "generating",
+        "generating",
+    ]
+    assert progress[1]["current"] == 0 and progress[1]["total"] == 1
+    assert progress[-1]["current"] == 1 and progress[-1]["total"] == 1
+    assert all(set(event) <= {"stage", "current", "total", "unit"} for event in progress)
+    assert coverage and coverage[0]["provider_calls"] == 1
+    assert NOTES_HTTP_READ_TIMEOUT_SECONDS < 300
+
+
+def test_chunk_progress_is_before_each_call_and_after_each_validated_chunk(tmp_path, monkeypatch):
+    from asr_en_vi import notes_document
+
+    monkeypatch.setattr(notes_document, "MAX_PRIMARY_PROMPT_BYTES", 20_000)
+    progress = []
+    observations = []
+    adapter = NotesOnlyAdapter()
+
+    def respond(prompt, _max_output_bytes):
+        # The adapter is entered immediately before provider inference. A chunk must still be
+        # pending at that point; a total-sized event here would falsely announce completion.
+        observations.append(("SOURCE_JSON:\n" in prompt, [dict(event) for event in progress]))
+        return _document_for_prompt(prompt)
+
+    adapter.responder = respond
+    provider = _provider(tmp_path, adapter)
+    provider.generate_notes_document(
+        snapshot=_chunked_snapshot(),
+        connection_version=7,
+        model="gpt-6.1-sol",
+        reasoning_effort="high",
+        on_progress=progress.append,
+    )
+
+    chunk_calls = [events for is_chunk, events in observations if is_chunk]
+    assert len(chunk_calls) >= 2
+    assert [events[-1]["current"] for events in chunk_calls[:2]] == [0, 1]
+    chunk_events = [event for event in progress if event["stage"] == "chunking"]
+    assert chunk_events[-1] == {"stage": "chunking", "current": 2, "total": 2, "unit": "chunks"}
 
 
 def test_vietnamese_generation_localizes_chunk_repair_reduction_and_final_prompts(tmp_path):

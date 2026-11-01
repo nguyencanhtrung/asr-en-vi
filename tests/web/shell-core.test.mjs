@@ -240,6 +240,8 @@ test("one button: cleans, creates the upload, uploads with progress, checks, the
   Object.assign(env.xhrs[0], { status: 204, responseText: "" });
   env.xhrs[0].onload();
   assert.equal(env.state().phase, "checking");
+  assert.equal(env.state().progress.indeterminate, true);
+  assert.equal(env.state().progress.percent, null);
   await env.answer(env.is("POST", "/u1/complete"), 200, { status: "ready" });
   assert.equal(env.state().phase, "creating");
   const create = env.calls.find((c) => c.url === "/api/meetings");
@@ -282,9 +284,24 @@ test("chunked upload sends sequential slices, resumes a failed chunk, and keeps 
   assert.deepEqual(env.xhrs[3].body, { start: 8, end: 10, size: 2 });
   finishChunk(env.xhrs[3], 10);
   assert.equal(env.state().phase, "checking");
-  assert.equal(env.state().progress.percent, 100);
+  assert.equal(env.state().progress.indeterminate, true);
+  assert.equal(env.state().progress.percent, null);
   await env.answer(env.is("POST", "/complete"), 200, { status: "ready" });
   assert.equal(env.state().phase, "creating");
+});
+
+test("server-side checking stays indeterminate and reports elapsed time", async () => {
+  const env = setup();
+  await uploading(env);
+  Object.assign(env.xhrs[0], { status: 204, responseText: "" });
+  env.xhrs[0].onload();
+  const runId = env.state().runId;
+  env.store.dispatch({ type: "shell/upload-checking-tick", meta: { runId }, now: 1_000 });
+  assert.equal(env.state().progress.indeterminate, true);
+  assert.equal(env.state().progress.percent, null);
+  env.store.dispatch({ type: "shell/upload-checking-tick", meta: { runId }, now: 5_250 });
+  assert.equal(env.state().progress.text.params.seconds, 4);
+  assert.equal(env.state().progress.text.params.size.fmt, "bytes");
 });
 
 test("auto-transcribe off writes no handoff; toggling stores the choice", async () => {

@@ -232,6 +232,10 @@ def test_progress_follows_the_existing_poll_without_new_requests(live, signed_in
     expect(page.get_by_role("progressbar", name="Chuẩn bị nhận dạng người nói")).to_be_visible(
         timeout=8_000
     )
+    assert page.locator("#task-progress-bar").evaluate(
+        "el => [el.hasAttribute('value'), el.matches(':indeterminate')]"
+    ) == [False, True]
+    expect(percent).to_be_empty()
     window = time.monotonic() - started
 
     task_poll = f"/api/tasks/{task_id}"
@@ -494,7 +498,10 @@ def test_progress_bar_is_drawn_in_forced_colors(live, signed_in):
         ("preparing_source", ("done", "current", "upcoming", "upcoming")),
         ("generating_notes", ("done", "done", "current", "upcoming")),
         ("generating", ("done", "done", "current", "upcoming")),
+        ("chunking", ("done", "done", "current", "upcoming")),
+        ("merging", ("done", "done", "current", "upcoming")),
         ("repairing", ("done", "done", "current", "upcoming")),
+        ("rendering", ("done", "done", "current", "upcoming")),
         ("publishing", ("done", "done", "done", "current")),
         ("saving", ("done", "done", "done", "current")),
     ],

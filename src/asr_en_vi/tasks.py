@@ -158,6 +158,15 @@ def _task_summary(row: sqlite3.Row) -> dict[str, object]:
         "completed_at": row["completed_at"],
         "updated_at": row["updated_at"],
     }
+    summary["progress"] = (
+        {
+            "current": max(0, int(row["progress_current"])),
+            "total": row["progress_total"],
+            "unit": row["progress_unit"],
+        }
+        if isinstance(row["progress_unit"], str) and row["progress_unit"]
+        else None
+    )
     if row["kind"] == "notes":
         summary["output_language"] = row["notes_output_language"]
         summary["provider"] = row["notes_provider"]
@@ -378,18 +387,37 @@ def update_task_progress(
     elapsed_seconds: float,
     transcript_end_seconds: float,
     segment_count: int,
+    progress_current: int | None = None,
+    progress_total: int | None = None,
+    progress_unit: str | None = None,
+    clear_progress: bool = False,
 ) -> bool:
+    progress_sql = ""
+    progress_values: tuple[object, ...] = ()
+    if clear_progress:
+        progress_sql = ", progress_current = 0, progress_total = NULL, progress_unit = NULL"
+    elif progress_unit is not None:
+        current = max(0, progress_current if isinstance(progress_current, int) else 0)
+        total = (
+            max(current, progress_total)
+            if isinstance(progress_total, int) and progress_total >= 0
+            else None
+        )
+        progress_sql = ", progress_current = ?, progress_total = ?, progress_unit = ?"
+        progress_values = (current, total, progress_unit)
     with _connect(data_dir) as connection, connection:
         cursor = connection.execute(
             "UPDATE tasks SET stage = ?, elapsed_seconds = ?, "
             "transcript_end_seconds = MAX(transcript_end_seconds, ?), segment_count = ?, "
-            "heartbeat_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP "
+            "heartbeat_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP"
+            f"{progress_sql} "
             "WHERE id = ? AND owner_id = ? AND status = 'running'",
             (
                 stage,
                 max(0.0, elapsed_seconds),
                 max(0.0, transcript_end_seconds),
                 max(0, segment_count),
+                *progress_values,
                 task_id,
                 owner_id,
             ),

@@ -842,6 +842,10 @@ test("the progress bar is indeterminate without a recording length and never rea
   assert.equal(view({ audio_duration_seconds: 100, transcript_end_seconds: 99.8 }).percent, 99);
   assert.equal(view({ audio_duration_seconds: 100, transcript_end_seconds: 130 }).percent, 100);
   assert.equal(view({ audio_duration_seconds: 100, transcript_end_seconds: -5 }).percent, 0);
+  assert.deepEqual(
+    view({ stage: "diarizing", audio_duration_seconds: 100, transcript_end_seconds: 99.8 }),
+    { known: false, fraction: 0, percent: null },
+  );
   assert.equal(selectTask(initialState, { id: "m", language: "en", task: task("t", "failed") }).progress, null);
 });
 

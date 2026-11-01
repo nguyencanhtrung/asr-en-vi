@@ -191,7 +191,7 @@ function formValuesAreValid(form) {
   return Boolean(title && Array.from(title).length <= 200 && ["en", "vi"].includes(form.language) && dateIsValid);
 }
 
-const NO_PROGRESS = { visible: false, percent: 0, text: "0%" };
+const NO_PROGRESS = { visible: false, indeterminate: false, percent: 0, text: "0%" };
 const BUSY_PHASES = ["extracting", "uploading", "checking", "creating"];
 const CANCELLABLE_PHASES = ["extracting", "uploading", "checking"];
 const DEFAULT_UPLOAD_CHUNK_BYTES = 64 * 1024 * 1024;
@@ -223,6 +223,7 @@ export const initialState = {
   uploadOffset: 0, // bytes durably committed by the server before the current chunk
   uploadRetries: 0, // automatic retries already used for the current chunk
   uploadStateRetries: 0, // recovery GET retries already used after a failed upload request
+  checkingSince: null, // clock value stamped by the first server-checking tick
   notice: null, // result of the extraction step, shown beside the validation line
   runId: 0, // id of the latest upload run; replies of other runs are stale
   starting: false, // cleaning old uploads and creating the new upload slot
@@ -486,9 +487,23 @@ function uploadProgress(state, offset, loaded) {
   const percent = total > 0 ? Math.min(100, Math.round((cumulative / total) * 100)) : 0;
   return {
     visible: true,
+    indeterminate: false,
     percent,
     text: `${percent}%`,
     cumulative,
+  };
+}
+
+function checkingProgress(state, elapsedSeconds) {
+  const size = bytes(state.sendFile?.size ?? state.uploadOffset ?? 0);
+  const seconds = Number.isFinite(elapsedSeconds) ? Math.max(0, Math.floor(elapsedSeconds)) : null;
+  return {
+    visible: true,
+    indeterminate: true,
+    percent: null,
+    text: seconds === null
+      ? t("Đang kiểm tra · đã truyền {size}.", { size })
+      : t("Đang kiểm tra · đã truyền {size} · {seconds} giây.", { size, seconds }),
   };
 }
 
@@ -498,20 +513,29 @@ function startUploadCompletion(state) {
       ...state,
       uploadOffset: state.sendFile.size,
       uploadRetries: 0,
+      checkingSince: null,
       phase: "checking",
       workflow: t("Đã truyền xong byte. Máy chủ đang kiểm tra định dạng, thời lượng và nội dung file."),
       validation: t("Đang kiểm tra file trên máy chủ. Đây là bước xác nhận file, không phải tiến độ xử lý transcript."),
-      progress: { visible: true, percent: 100, text: "100%" },
+      progress: checkingProgress(state, null),
     },
-    effects: [{
-      type: "fetch",
-      key: "shell/upload-complete",
-      url: `/api/uploads/${encodeURIComponent(state.uploadId)}/complete`,
-      init: jsonRequest("POST", {}),
-      ok: "shell/upload-completed",
-      error: "shell/upload-completion-failed",
-      meta: { runId: state.runId },
-    }],
+    effects: [
+      {
+        type: "fetch",
+        key: "shell/upload-complete",
+        url: `/api/uploads/${encodeURIComponent(state.uploadId)}/complete`,
+        init: jsonRequest("POST", {}),
+        ok: "shell/upload-completed",
+        error: "shell/upload-completion-failed",
+        meta: { runId: state.runId },
+      },
+      {
+        type: "schedule",
+        key: "shell/upload-checking-clock",
+        delay: 0,
+        action: { type: "shell/upload-checking-tick", meta: { runId: state.runId } },
+      },
+    ],
   };
 }
 
@@ -531,10 +555,11 @@ function uploadFailureMessage(failure, cleaned) {
 // An upload step failed: the old upload is cleaned first, then the message says whether that worked.
 function failUpload(state, failure) {
   const base = { ...state, starting: false, serverReady: false, failure };
-  if (!state.uploadId) return finishFailure(base, true);
+  const cancelClock = { type: "cancel", key: "shell/upload-checking-clock" };
+  if (!state.uploadId) return { ...finishFailure(base, true), effects: [cancelClock] };
   return {
     state: { ...base, uploadId: null, pendingCleanup: withItem(state.pendingCleanup, state.uploadId), failure: { ...failure, uploadId: state.uploadId } },
-    effects: [cleanupEffect(state.uploadId, "failure")],
+    effects: [cancelClock, cleanupEffect(state.uploadId, "failure")],
   };
 }
 
@@ -566,7 +591,7 @@ function cancelUpload(state) {
     failure: null,
     pendingCleanup: state.uploadId ? withItem(state.pendingCleanup, state.uploadId) : state.pendingCleanup,
   };
-  const effects = ["extract", "upload", "upload-state", "upload-retry", "upload-complete"].map((name) => ({ type: "cancel", key: `shell/${name}` }));
+  const effects = ["extract", "upload", "upload-state", "upload-retry", "upload-complete", "upload-checking-clock"].map((name) => ({ type: "cancel", key: `shell/${name}` }));
   if (!state.uploadId) return { ...finishCancel(base, true), effects }; // an extraction in flight has no upload id
   return { state: base, effects: [...effects, cleanupEffect(state.uploadId, "cancel")] };
 }
@@ -625,7 +650,7 @@ function startCreate(state) {
       phase: "creating",
       workflow: t("Đang lưu cuộc họp và metadata."),
     },
-    effects: [{
+    effects: [{ type: "cancel", key: "shell/upload-checking-clock" }, {
       type: "fetch",
       key: "shell/create",
       url: "/api/meetings",
@@ -728,7 +753,7 @@ function closeDialog(state) {
   if (!state.open || state.phase === "creating" || state.starting) return same(state);
   // A cancel still waiting for its DELETE does not hold the dialog: close leaves that id pending.
   if (!state.cancelling && CANCELLABLE_PHASES.includes(state.phase)) return cancelUpload(state);
-  const effects = [{ type: "cancel", key: "shell/policy" }];
+  const effects = [{ type: "cancel", key: "shell/policy" }, { type: "cancel", key: "shell/upload-checking-clock" }];
   if (!state.createUncertain && state.uploadId) effects.push(cleanupEffect(state.uploadId, "close"));
   return { state: fresh(state, { open: false }), effects };
 }
@@ -738,7 +763,7 @@ function dialogClosed(state) {
   if (!state.open) return same(state);
   // A save in flight finishes and navigates; only the open flag follows the dialog.
   if (state.phase === "creating") return set(state, { open: false });
-  const effects = ["policy", "extract", "upload-create", "upload", "upload-state", "upload-retry", "upload-complete"].map((name) => ({ type: "cancel", key: `shell/${name}` }));
+  const effects = ["policy", "extract", "upload-create", "upload", "upload-state", "upload-retry", "upload-complete", "upload-checking-clock"].map((name) => ({ type: "cancel", key: `shell/${name}` }));
   const leftover = state.createUncertain ? null : state.uploadId;
   if (leftover) effects.push(cleanupEffect(leftover, "close"));
   const pendingCleanup = leftover ? withItem(state.pendingCleanup, leftover) : state.pendingCleanup;
@@ -853,7 +878,8 @@ export function reduce(state, action) {
         workflow: t("Đang tải file lên theo từng phần byte; tiến độ là của cả file."),
         uploadOffset: 0,
         uploadRetries: 0,
-        progress: { visible: true, percent: 0, text: "0%" },
+        checkingSince: null,
+        progress: { visible: true, indeterminate: false, percent: 0, text: "0%" },
       }, 0, 0);
     }
     case "shell/upload-create-failed":
@@ -977,6 +1003,23 @@ export function reduce(state, action) {
         progress: { ...progress, text: t("{size} đã gửi", { size: bytes(progress.cumulative) }) },
       });
     }
+    case "shell/upload-checking-tick": {
+      if (!live(state, action.meta) || state.phase !== "checking") return same(state);
+      const now = Number(action.now);
+      const started = Number.isFinite(state.checkingSince)
+        ? state.checkingSince
+        : (Number.isFinite(now) ? now : null);
+      const elapsed = Number.isFinite(now) && Number.isFinite(started) ? Math.max(0, now - started) / 1000 : null;
+      return {
+        state: { ...state, checkingSince: started, progress: checkingProgress(state, elapsed) },
+        effects: [{
+          type: "schedule",
+          key: "shell/upload-checking-clock",
+          delay: 1_000,
+          action: { type: "shell/upload-checking-tick", meta: { runId: state.runId } },
+        }],
+      };
+    }
     case "shell/upload-sent": {
       if (!live(state, action.meta) || state.phase !== "uploading") return same(state);
       const body = action.response.body;
@@ -1008,7 +1051,8 @@ export function reduce(state, action) {
         ...state,
         serverReady: true,
         retryable: false,
-        progress: { visible: true, percent: 100, text: "100%" },
+        checkingSince: null,
+        progress: { visible: true, indeterminate: false, percent: 100, text: "100%" },
         validation: t("File đã qua kiểm tra và sẵn sàng tạo cuộc họp."),
         phase: "ready",
         workflow: t("File đã sẵn sàng. Bạn có thể tạo cuộc họp."),

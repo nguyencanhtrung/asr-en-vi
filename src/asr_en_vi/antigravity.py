@@ -1365,6 +1365,7 @@ class AntigravityProvider:
         reasoning_effort: str,
         output_language: str = "en",
         on_coverage: Callable[[dict[str, Any]], None] | None = None,
+        on_progress: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Generate and validate notes using only the account and model pinned at acceptance."""
         if not isinstance(model, str) or not _SAFE_ID.fullmatch(model):
@@ -1455,6 +1456,7 @@ class AntigravityProvider:
                     413, "notes_synthesis_limit_exceeded", message
                 ),
                 on_coverage=on_coverage,
+                on_progress=on_progress,
                 provider="antigravity",
                 model=model,
             )

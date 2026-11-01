@@ -39,7 +39,10 @@ const TASK_STEP_OF_STAGE = {
   preparing_source: 1,
   generating: 2,
   generating_notes: 2,
+  chunking: 2,
+  merging: 2,
   repairing: 2,
+  rendering: 2,
   publishing: 3,
   saving: 3,
 };
@@ -1721,10 +1724,33 @@ function taskView(state, data) {
   const taskFailure = errorMessageForCode(task.error_code, undefined, provider);
   if (taskFailure && !["failed", "interrupted"].includes(task.status)) status = [status, " ", taskFailure];
   const stopping = task.status === "stopping" || data.canceling;
+  const progress = task.progress && typeof task.progress === "object" ? task.progress : null;
+  const progressCurrent = Number.isSafeInteger(progress?.current) && progress.current >= 0 ? progress.current : null;
+  const progressTotal = Number.isSafeInteger(progress?.total) && progress.total >= progressCurrent ? progress.total : null;
+  let progressText = "";
+  if (progress && task.stage === "preparing_source") progressText = t("Đang chuẩn bị transcript cho notes.");
+  else if (progress && task.stage === "generating") progressText = progressTotal === null
+    ? t("Đang tạo notes.")
+    : t("Đang tạo notes · đã xong {current}/{total} lượt.", { current: progressCurrent ?? 0, total: progressTotal });
+  else if (progress && task.stage === "chunking") progressText = progressTotal === null
+    ? t("Đang xử lý các phần transcript · đã xong {current}.", { current: progressCurrent ?? 0 })
+    : t("Đang xử lý transcript · đã xong {current}/{total} phần.", { current: progressCurrent ?? 0, total: progressTotal });
+  else if (progress && task.stage === "merging") progressText = t("Đang hợp nhất notes · đã xong {current} lượt.", { current: progressCurrent ?? 0 });
+  else if (progress && task.stage === "repairing") progressText = progressTotal === null
+    ? t("Đang sửa phản hồi notes · lượt {current}.", { current: progressCurrent ?? 0 })
+    : t("Đang sửa phản hồi notes · đã xong {current}/{total} lượt.", { current: progressCurrent ?? 0, total: progressTotal });
+  else if (progress && task.stage === "rendering") progressText = t("Đang hoàn thiện notes.");
+  const workerChecking = active && task.worker_state === "checking-worker";
+  if (workerChecking) {
+    status = task.status === "accepted"
+      ? t("Đang kiểm tra worker trước khi bắt đầu xử lý notes.")
+      : t("Đang kiểm tra worker vì heartbeat tác vụ notes đã cũ.");
+  }
   return {
     status,
     elapsed: t("Đã chạy {n} giây", { n: Math.max(0, Number(task.elapsed_seconds) || 0).toFixed(1) }),
     providerModel: [name, task.model, effort].filter(Boolean),
+    progress: workerChecking ? "" : progressText,
     steps: [0, 1, 2, 3].map((index) => stepView(task, reached, index)),
     // A run first seen after it ended has no known step, so say only how it ended.
     end: { hidden: !ended || reached !== undefined, state: ended && reached === undefined ? task.status : "", label: ended && reached === undefined ? TASK_STATE_LABELS[task.status] : "" },

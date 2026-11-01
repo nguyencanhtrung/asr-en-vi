@@ -31,6 +31,39 @@ def _emit(event: dict[str, Any]) -> None:
     print(json.dumps(event, ensure_ascii=False, allow_nan=False, separators=(",", ":")), flush=True)
 
 
+def _emit_progress(event: dict[str, Any]) -> None:
+    """Forward only bounded notes-stage measurements from the provider-neutral pipeline."""
+    allowed_stages = {
+        "preparing_source",
+        "generating",
+        "chunking",
+        "merging",
+        "repairing",
+        "rendering",
+    }
+    allowed_units = {"phase", "calls", "chunks", "repairs", "recoveries"}
+    stage = event.get("stage")
+    current = event.get("current")
+    total = event.get("total")
+    unit = event.get("unit")
+    if (
+        not isinstance(stage, str)
+        or stage not in allowed_stages
+        or isinstance(current, bool)
+        or not isinstance(current, int)
+        or current < 0
+        or (
+            total is not None
+            and (isinstance(total, bool) or not isinstance(total, int) or total < current)
+        )
+        or not isinstance(unit, str)
+        or unit not in allowed_units
+    ):
+        raise ValueError("invalid notes progress event")
+    payload = {"type": "progress", "stage": stage, "current": current, "total": total, "unit": unit}
+    _emit(payload)
+
+
 def run_notes_task(data_dir: Path, task_id: str, owner_id: str) -> int:
     provider_label = "The notes provider"
     stage = "starting_notes"
@@ -86,13 +119,16 @@ def run_notes_task(data_dir: Path, task_id: str, owner_id: str) -> int:
             reasoning_effort=task["notes_reasoning_effort"],
             output_language=task["notes_output_language"],
             on_coverage=coverage.update,
+            on_progress=_emit_progress,
         )
+        _emit_progress({"stage": "rendering", "current": 0, "total": 1, "unit": "phase"})
         markdown = render_markdown(
             document, snapshot, output_language=task["notes_output_language"]
         )
         citations = build_citations(
             document, snapshot, output_language=task["notes_output_language"]
         )
+        _emit_progress({"stage": "rendering", "current": 1, "total": 1, "unit": "phase"})
         _emit(
             {"type": "result", "markdown": markdown, "coverage": coverage, "citations": citations}
         )

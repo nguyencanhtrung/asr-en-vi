@@ -93,6 +93,7 @@ def test_notes_runner_uses_the_durable_language_pin_for_provider_and_render(
 
         def generate_notes_document(self, **kwargs):
             provider_calls.append(kwargs)
+            kwargs["on_progress"]({"stage": "chunking", "current": 1, "total": 2, "unit": "chunks"})
             kwargs["on_coverage"](_COVERAGE)
             return {"schema_version": 1}
 
@@ -111,7 +112,15 @@ def test_notes_runner_uses_the_durable_language_pin_for_provider_and_render(
     monkeypatch.setattr(notes_runner, "build_citations", cite)
 
     assert notes_runner.run_notes_task(data_dir, accepted["id"], "notes-runner-language-owner") == 0
-    output = json.loads(capsys.readouterr().out.splitlines()[-1])
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    output = events[-1]
+    assert {
+        "type": "progress",
+        "stage": "chunking",
+        "current": 1,
+        "total": 2,
+        "unit": "chunks",
+    } in events
     assert output == {
         "type": "result",
         "markdown": "## Tổng quan\n\nBản tóm tắt.\n",

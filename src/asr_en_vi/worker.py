@@ -420,7 +420,19 @@ def _run_child(
                 break
 
             if now - last_progress_write >= TASK_PROGRESS_INTERVAL_SECONDS:
-                stage, transcript_end, segment_count = progress()
+                progress_values = progress()
+                if len(progress_values) == 3:
+                    stage, transcript_end, segment_count = progress_values
+                    progress_current = progress_total = progress_unit = None
+                else:
+                    (
+                        stage,
+                        transcript_end,
+                        segment_count,
+                        progress_current,
+                        progress_total,
+                        progress_unit,
+                    ) = progress_values
                 if not update_task_progress(
                     settings.data_dir,
                     task_id,
@@ -429,6 +441,9 @@ def _run_child(
                     elapsed_seconds=now - task_started,
                     transcript_end_seconds=transcript_end,
                     segment_count=segment_count,
+                    progress_current=progress_current,
+                    progress_total=progress_total,
+                    progress_unit=progress_unit,
                 ):
                     result["stop_reason"] = "ownership_lost"
                     break
@@ -535,6 +550,9 @@ def _run_notes_task(
         "coverage": None,
         "citations": None,
         "error": None,
+        "progress_current": None,
+        "progress_total": None,
+        "progress_unit": None,
     }
 
     def finish_failure(code: str, message: str) -> None:
@@ -558,6 +576,36 @@ def _run_notes_task(
         event_type = event["type"]
         if event_type == "stage" and event.get("stage") == "generating_notes":
             state["stage"] = "generating_notes"
+            return True
+        if event_type == "progress":
+            stage = event.get("stage")
+            current = event.get("current")
+            total = event.get("total")
+            unit = event.get("unit")
+            if (
+                stage
+                not in {
+                    "preparing_source",
+                    "generating",
+                    "chunking",
+                    "merging",
+                    "repairing",
+                    "rendering",
+                }
+                or isinstance(current, bool)
+                or not isinstance(current, int)
+                or current < 0
+                or (
+                    total is not None
+                    and (isinstance(total, bool) or not isinstance(total, int) or total < current)
+                )
+                or unit not in {"phase", "calls", "chunks", "repairs", "recoveries"}
+            ):
+                return False
+            state["stage"] = stage
+            state["progress_current"] = current
+            state["progress_total"] = total
+            state["progress_unit"] = unit
             return True
         if event_type == "result" and state["markdown"] is None:
             markdown = event.get("markdown")
@@ -598,6 +646,7 @@ def _run_notes_task(
             elapsed_seconds=0,
             transcript_end_seconds=0,
             segment_count=int(task["segment_count"]),
+            clear_progress=True,
         ):
             _finish_after_child_stop(settings, task_id, owner_id, stop_event, 0)
             return
@@ -609,7 +658,14 @@ def _run_notes_task(
             _notes_command(task, owner_id, settings.data_dir),
             stop_event,
             started,
-            lambda: (state["stage"], 0.0, int(task["segment_count"])),
+            lambda: (
+                state["stage"],
+                0.0,
+                int(task["segment_count"]),
+                state["progress_current"],
+                state["progress_total"],
+                state["progress_unit"],
+            ),
             on_event,
             deadline=deadline,
         )
@@ -647,6 +703,7 @@ def _run_notes_task(
             elapsed_seconds=elapsed,
             transcript_end_seconds=0,
             segment_count=int(task["segment_count"]),
+            clear_progress=True,
         ):
             _finish_after_child_stop(settings, task_id, owner_id, stop_event, elapsed)
             return
@@ -694,8 +751,8 @@ def _run_task(
         "diarization_error": None,
     }
 
-    def progress() -> tuple[str, float, int]:
-        return state["stage"], state["latest_segment_end"], len(state["segments"])
+    def progress() -> tuple[str, float, int, None, None, None]:
+        return state["stage"], state["latest_segment_end"], len(state["segments"]), None, None, None
 
     def finish_error(code: str, message: str) -> None:
         if phase == "diarization":

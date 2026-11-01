@@ -455,7 +455,9 @@ export const selectRequestBusy = (state) => state.start !== null;
 // The bar is the share of the recording already transcribed; without a usable duration it is indeterminate.
 function progressOf(task) {
   const duration = Number(task.audio_duration_seconds);
-  const known = Number.isFinite(duration) && duration > 0;
+  // Transcript timing describes ASR only. Diarization, alignment and publication do not
+  // have a trustworthy share-of-audio denominator, so they stay visibly indeterminate.
+  const known = task.stage === "transcribing" && Number.isFinite(duration) && duration > 0;
   const fraction = known ? Math.min(1, Math.max(0, Number(task.transcript_end_seconds) || 0) / duration) : 0;
   // Rounding must not announce 100% before the last second is transcribed.
   const percent = fraction >= 1 ? 100 : Math.min(99, Math.round(fraction * 100));

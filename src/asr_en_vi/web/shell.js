@@ -86,7 +86,8 @@ function render(state) {
   setProp(formError, "textContent", message);
   setProp(formError, "hidden", !message);
   setProp(transferProgress, "hidden", !state.progress.visible);
-  setProp(uploadProgress, "value", state.progress.percent);
+  if (state.progress.indeterminate) uploadProgress.removeAttribute("value");
+  else setProp(uploadProgress, "value", state.progress.percent);
   setProp(uploadProgressValue, "textContent", tr(state.progress.text));
   setProp(selectedFile, "hidden", !state.file);
   setProp(selectedFileName, "textContent", state.file ? state.file.name : "");
@@ -121,6 +122,7 @@ const run = createRunner({
   XMLHttpRequest,
   storage: { local: () => window.localStorage, session: () => window.sessionStorage },
   navigate: (url) => window.location.assign(url),
+  now: () => Date.now(),
   // The extractor (and the vendored library behind it) loads on the first video, not with the page.
   extract: async (file, options) => (await import("./audio-extract.js")).extractAudio(file, options),
 });

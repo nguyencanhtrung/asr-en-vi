@@ -6,7 +6,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 
 def _migrate_v2(connection: sqlite3.Connection) -> None:
@@ -532,6 +532,19 @@ def _migrate_v13(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v14(connection: sqlite3.Connection) -> None:
+    """Persist bounded notes-pipeline progress independently of transcript timing."""
+    connection.execute(
+        "ALTER TABLE tasks ADD COLUMN progress_current INTEGER NOT NULL DEFAULT 0 "
+        "CHECK(progress_current >= 0)"
+    )
+    connection.execute(
+        "ALTER TABLE tasks ADD COLUMN progress_total INTEGER "
+        "CHECK(progress_total IS NULL OR progress_total >= 0)"
+    )
+    connection.execute("ALTER TABLE tasks ADD COLUMN progress_unit TEXT")
+
+
 def database_path(data_dir: Path) -> Path:
     return Path(data_dir) / "app.sqlite3"
 
@@ -650,6 +663,9 @@ def initialize(data_dir: Path) -> Path:
         if current_version < 13:
             _migrate_v13(connection)
             connection.execute("INSERT INTO schema_migrations(version) VALUES (13)")
+        if current_version < 14:
+            _migrate_v14(connection)
+            connection.execute("INSERT INTO schema_migrations(version) VALUES (14)")
         connection.commit()
     finally:
         connection.close()

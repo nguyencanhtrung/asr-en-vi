@@ -50,6 +50,7 @@ const els = {
   steps: $("#notes-steps"),
   elapsed: $("#notes-task-elapsed"),
   providerModel: $("#notes-task-provider-model"),
+  progress: $("#notes-task-progress"),
   error: $("#notes-error"),
   errorMessage: $("#notes-error-message"),
   savedWork: $("#notes-saved-work"),
@@ -242,6 +243,7 @@ function renderTask(view) {
   setProp(end.firstElementChild, "textContent", tr(task.end.label));
   setProp(els.elapsed, "textContent", tr(task.elapsed));
   setProp(els.providerModel, "textContent", task.providerModel.map(tr).join(" · "));
+  setProp(els.progress, "textContent", tr(task.progress));
   setProp(els.cancel, "hidden", task.cancelHidden);
   setProp(els.cancel, "disabled", task.cancelDisabled);
   setProp(els.cancel, "textContent", tr(task.cancelLabel));

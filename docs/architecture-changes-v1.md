@@ -880,6 +880,66 @@ Hiệu năng; Kiến trúc; Quyền riêng tư
 
 Các kết quả chưa đạt và follow-up nằm trong [release notes](release/notes-v1.md).
 
+### #83 — Tiến độ và trạng thái task phản ánh đúng giai đoạn
+
+#### Vấn đề
+
+Issue #83 ghi nhận thanh ASR báo 99–100% trong diarization, upload không có số đo khi server kiểm tra, notes dài không cho biết chunk/merge, busy notes chờ khóa provider, heartbeat cũ vẫn được diễn giải là worker đang chạy, và read timeout 300 giây giữ nguồn bị khóa quá lâu. Đây là các biểu hiện của số đo không cùng mẫu số hoặc trạng thái chưa được phản ánh kịp thời.
+
+#### Nguyên nhân đo được
+
+`task-core.js` dùng `transcript_end_seconds / audio_duration_seconds` cho mọi stage; notes chỉ có `on_coverage` sau kết quả hợp lệ; nhận notes lấy provider operation lock trước khi kiểm tra processing slot; ChatGPT đặt read timeout notes ở 300 giây. `compose.yaml` giữ `restart: unless-stopped`, nhưng Docker coi container bị dừng thủ công là ngoại lệ của restart policy.
+
+Nguồn: issue #83, `tests/test_browser_task_progress.py`, `tests/test_notes_provider.py`, `tests/test_notes_worker.py`.
+
+#### Thay đổi thiết kế
+
+- Thanh transcript chỉ determinate trong stage `transcribing`; diarization và các stage sau dùng thanh indeterminate.
+- Upload chuyển sang thanh indeterminate trong lúc `POST /complete` kiểm tra server, kèm byte đã truyền và đồng hồ elapsed được stamp bởi reducer runner.
+- Notes pipeline phát callback progress allowlist riêng với coverage final-only: `preparing_source`, `generating`, `chunking`, `merging`, `repairing`, `rendering`. Chunk chỉ tăng sau validation thành công; merge/recovery để `total` trống khi tổng số lượt chưa biết. Task lưu các số đo trong migration schema 14 và UI notes hiển thị stage/count.
+- Nhận notes kiểm tra processing slot nhanh trước provider operation lock, nhưng vẫn kiểm tra lại trong transaction. Notes UI ưu tiên `checking-worker` khi heartbeat active task đã cũ.
+- HTTPX notes read timeout là 60 giây, còn total timeout mỗi lượt gọi 900 giây và deadline toàn tác vụ 3600 giây; không retry inference khi mất mạng.
+- Không đổi restart policy hoặc thêm watchdog. Compose vẫn dùng `unless-stopped`; quy trình kiểm chứng recovery phải làm process worker crash để container thoát bất thường, sau đó startup recovery đánh dấu task dở `interrupted`. Không dùng `docker kill -s KILL` như bằng chứng container tự restart, vì [Docker ghi rõ manual stop suppresses restart policy](https://docs.docker.com/engine/containers/start-containers-automatically/).
+
+#### Số đo trước và sau
+
+| | Trước | Sau |
+| --- | --- | --- |
+| ASR bar trong diarization | 99–100% dù còn xử lý | indeterminate, không ETA giả |
+| Server upload checking | 38–81 giây không có số | indeterminate + byte đã truyền + elapsed khi có clock |
+| Notes chunk/merge | chỉ elapsed/provider/model | stage + chunk count hoàn tất; merge count hoàn tất; recovery count là số lượt bắt đầu, total indeterminate khi động |
+| Busy notes admission | 5,0–5,1 giây trong bằng chứng issue | focused regression trả lời dưới 1 giây khi slot đã biết bận |
+| Notes silent read | 300 giây read timeout | 60 giây read inactivity, 900 giây mỗi lượt gọi; 3600 giây toàn tác vụ |
+
+Điều kiện đo sau: interpreter hiện có của workspace, `PYTHONPATH` trỏ source/test helpers, test offline/fake provider; browser chạy với `ASR_RUN_BROWSER_TESTS=1`. Không có live provider, model hoặc Docker socket trong phạm vi issue này.
+
+Nguồn: issue #83; `tests/test_notes.py`, `tests/test_notes_provider.py`, `tests/test_notes_worker.py`, `tests/test_chatgpt_provider.py`, `tests/web/*.test.mjs`, `tests/test_browser_task_progress.py`. Read timeout semantics: [HTTPX timeouts](https://www.python-httpx.org/advanced/timeouts/).
+
+#### Đánh đổi và phương án đã loại
+
+- Dùng stage/count thật và để `total` indeterminate cho reduction động: giữ thông tin hữu ích mà không dựng tổng giả.
+- Giảm read inactivity xuống 60 giây nhưng giữ total mỗi lượt gọi 900 giây và toàn tác vụ 3600 giây: mất mạng im lặng được báo sớm, còn lượt reasoning dài vẫn có ngân sách tổng.
+- Kiểm tra slot trước provider lock và lặp lại trong transaction: busy refusal nhanh nhưng vẫn giữ tính đúng khi hai request chạy đồng thời; nếu slot bận, đọc lại idempotency để nhận ra request giống hệt vừa được chấp nhận.
+- Giữ `unless-stopped` và recovery trong worker: phân biệt crash process với manual stop theo semantics của Docker; loại watchdog host/container vì vượt phạm vi và dễ che khuất lỗi vận hành.
+
+#### Follow-up
+
+- Khi chạy nghiệm thu Docker thật, inject process crash của worker (không manual-stop container), xác nhận container restart và task chuyển `interrupted` sau startup recovery.
+- Nếu cần hiển thị phần trăm merge, pipeline phải cung cấp một tổng đã chứng minh được; không suy ra từ `MAX_REDUCTION_CALLS`.
+
+#### Liên kết issue/PR
+
+Issue #83; liên quan #82 và #118.
+
+#### Tag
+
+Kiến trúc | Notes | Hiệu năng
+
+#### Tài liệu đích
+
+- `docs/release/runtime-v0.1.0.md` — worker heartbeat/recovery.
+- `docs/release/notes-v0.1.0.md` — notes progress/timeout.
+
 ## 6. Mẫu mục mới
 
 Mục mới sao chép mẫu dưới đây và giữ nguyên tên các heading, để việc tách theo tag không phải viết lại.

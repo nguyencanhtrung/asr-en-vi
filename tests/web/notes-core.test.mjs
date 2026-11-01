@@ -295,6 +295,18 @@ test("notes provider codes localize start refusals and persisted output-size fai
   assert.doesNotMatch(antigravityStatus, /ChatGPT/);
 });
 
+test("a stale worker heartbeat takes precedence over the running provider message", async () => {
+  const env = setup();
+  await opened(env, { task: {
+    ...TASK, worker_state: "checking-worker", stage: "chunking",
+    progress: { current: 1, total: 3, unit: "chunks" },
+  } });
+  const status = text(selectView(env.state()).task.status);
+  assert.match(status, /Đang kiểm tra worker/);
+  assert.doesNotMatch(status, /đang tạo notes/);
+  assert.equal(selectView(env.state()).task.progress, "");
+});
+
 test("a pending request found in storage on reload is verified, not replaced", async () => {
   const env = setup();
   const stored = JSON.stringify({ request_id: "req-stored-0001", output_language: "vi", provider: "chatgpt" });
