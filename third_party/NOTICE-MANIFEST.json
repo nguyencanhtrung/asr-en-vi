@@ -381,7 +381,7 @@
       "status": "collected",
       "url": "https://polyformproject.org/licenses/noncommercial/1.0.0",
       "validated": true,
-      "version": "0.1.2"
+      "version": "0.1.3"
     },
     {
       "actual_sha256": "15e84d7e2e7ab90fcef598b29cdf9cb9a97c0f9ddb459ad65ecd02c65f570d76",
@@ -3506,21 +3506,21 @@
           "bytes": 87298,
           "expected_sha256": null,
           "hash_pinned": false,
-          "path": "/tmp/asr-issue17-bundle/cargo-crates/unicode_categories-0.1.2.crate",
-          "url": "https://crates.io/api/v1/crates/unicode_categories/0.1.2/download",
+          "path": "/tmp/asr-issue17-bundle/cargo-crates/unicode_categories-0.1.1.crate",
+          "url": "https://crates.io/api/v1/crates/unicode_categories/0.1.1/download",
           "validated": false
         },
         "license_expression": "MIT OR Apache-2.0",
         "license_file_count": 2,
         "name": "unicode_categories",
-        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/unicode_categories-0.1.2/NOTICE.txt",
-        "purl": "pkg:cargo/unicode_categories@0.1.2",
+        "notice_path": "third_party/notices/tokenizers/0.23.3/rust/unicode_categories-0.1.1/NOTICE.txt",
+        "purl": "pkg:cargo/unicode_categories@0.1.1",
         "spdx_identifiers": [
           "Apache-2.0",
           "MIT"
         ],
         "status": "collected",
-        "version": "0.1.2"
+        "version": "0.1.1"
       },
       {
         "cargo_archive": {

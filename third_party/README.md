@@ -14,7 +14,7 @@ System copyright files remain in `/usr/share/doc`; OMP notices remain in
 For each loaded platform image, run:
 
 ```sh
-python3 scripts/prepare-release-bundle.py IMAGE --version 0.1.2 --output /tmp/release-sources
+python3 scripts/prepare-release-bundle.py IMAGE --version 0.1.3 --output /tmp/release-sources
 ```
 
 This checks the image version and GNU runtime replacements, inventories installed

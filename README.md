@@ -94,7 +94,7 @@ default address is `http://127.0.0.1:8765`), then connect ChatGPT or Google from
 header.
 
 To install a release, check out its tag and run `./scripts/start.sh --pull` with a versioned
-`ASR_IMAGE` such as `ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.2`, or `--source` to build it.
+`ASR_IMAGE` such as `ghcr.io/nguyencanhtrung/asr-en-vi:v0.1.3`, or `--source` to build it.
 After setup, `--offline` starts without network access. See
 [Install a release](docs/user-guide.md#install-a-release).
 
