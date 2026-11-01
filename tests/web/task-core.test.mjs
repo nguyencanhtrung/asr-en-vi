@@ -196,11 +196,25 @@ test("a task that failed is not polled and its error and diagnostic command are 
   assert.equal(error.diagnostic.id, id);
 });
 
-test("an unknown error code shows the server text and no diagnostic; a task id that is not hex gets no command", () => {
+test("persisted transcription failures use localized codes instead of raw worker text", () => {
+  const view = (code, error_message) => selectTask(initialState, {
+    id: "m1",
+    language: "vi",
+    generation: false,
+    generationLanguage: null,
+    blocked: false,
+    task: task("b".repeat(32), "failed", { error_code: code, error_message }),
+  });
+  assert.equal(text(view("transcription_failed", "Local transcription failed. Check the worker logs and try again.").error.message), "Chép lời local thất bại. Kiểm tra log của worker rồi thử lại.");
+  assert.equal(text(view("runner_protocol_error", "The local transcription runner did not return a complete result.").error.message), "Runner chép lời local không trả về kết quả hoàn chỉnh.");
+  assert.equal(text(view("worker_unavailable", "The processing worker is unavailable.").error.message), "Worker chép lời chưa sẵn sàng.");
+});
+
+test("an unknown error code uses a safe fallback and no diagnostic; an unsafe task id gets no command", () => {
   const view = (shown) => selectTask(initialState, shown);
   const base = { id: "m1", language: "en", generation: false, generationLanguage: null, blocked: false };
   const unknown = view({ ...base, task: task("b".repeat(32), "failed", { error_code: "odd", error_message: "Safe fallback." }) });
-  assert.equal(unknown.error.message, "Safe fallback.");
+  assert.equal(text(unknown.error.message), "Tác vụ chưa hoàn tất.");
   assert.equal(unknown.error.diagnostic, null);
   const unsafe = view({ ...base, task: task("../x", "failed", { error_code: "publication_failed" }) });
   assert.equal(unsafe.error.diagnostic, null);
@@ -360,7 +374,7 @@ test("a start the server refuses (4xx) drops the request id and offers a new req
   await env.answer((r) => r.url === "/api/tasks", 409, { detail: { code: "system_busy", message: "Busy." } });
   assert.equal(env.task().pending, null);
   assert.equal(env.stored.has(requestStorageKey("m1")), false);
-  assert.equal(text(env.view().error.message), "Busy. Bấm lại để gửi một yêu cầu mới.");
+  assert.equal(text(env.view().error.message), "Máy đang bận vì một tác vụ khác đang chạy. Bấm lại để gửi một yêu cầu mới.");
 
   env.send("task/start-clicked", { requestId: "q2" });
   assert.equal(env.sent("/api/tasks")[1].body.request_id, "q2");
@@ -380,7 +394,7 @@ test("a refused automatic start names the reason; a manual one shows the server 
 
   env.send("task/start-clicked", { requestId: "q2" });
   await env.answer((r) => r.url === "/api/tasks", 409, { detail: { code: "worker_unavailable", message: "Server text." } });
-  assert.equal(text(env.view().error.message), "Server text. Bấm lại để gửi một yêu cầu mới.");
+  assert.equal(text(env.view().error.message), "Worker chép lời chưa sẵn sàng. Bấm lại để gửi một yêu cầu mới.");
 });
 
 test("a start answer that is not a task is a failed start that can be verified", async () => {
@@ -520,7 +534,7 @@ test("a cancel the server refuses shows its text and re-enables the button", asy
   const env = await opened(meeting("m1", {}, { task: task("t1", "running") }));
   env.send("task/cancel-clicked");
   await env.answer((r) => r.url === "/api/tasks/t1/cancel", 409, { detail: "Too late." });
-  assert.equal(text(env.view().error.message), "Too late.");
+  assert.equal(text(env.view().error.message), "Dữ liệu đã thay đổi hoặc đang được sử dụng. Hãy tải lại rồi thử lại.");
   assert.equal(env.view().error.visible, true);
   assert.equal(env.view().cancelDisabled, false);
   assert.equal(env.history().meeting.transcription.task.status, "running");
@@ -807,7 +821,7 @@ test("a refusal hides the diagnostic details but not the failed task's text once
   env.send("task/start-clicked", { requestId: "q1" });
   await env.answer((r) => r.url === "/api/tasks", 409, { detail: "Busy." });
   assert.equal(env.view().error.diagnostic, null);
-  assert.equal(text(env.view().error.message), "Busy. Bấm lại để gửi một yêu cầu mới.");
+  assert.equal(text(env.view().error.message), "Dữ liệu đã thay đổi hoặc đang được sử dụng. Hãy tải lại rồi thử lại. Bấm lại để gửi một yêu cầu mới.");
 });
 
 // ---- selectors ----
@@ -1008,10 +1022,10 @@ test("a 500 is not definitive and a 499 is", async () => {
   assert.equal(dropped.task().pending, null);
 });
 
-test("an automatic start refused with a code that is not known shows the server text", async () => {
+test("an automatic start refused with an unknown code uses a safe status fallback", async () => {
   const env = await opened(meeting("m1"), { stored: { [autoStartStorageKey("m1")]: "1" } });
   await env.answer((r) => r.url === "/api/tasks", 409, { detail: { code: "toString", message: "Server text." } });
-  assert.equal(text(env.view().error.message), "Server text. Bấm lại để gửi một yêu cầu mới.");
+  assert.equal(text(env.view().error.message), "Dữ liệu đã thay đổi hoặc đang được sử dụng. Hãy tải lại rồi thử lại. Bấm lại để gửi một yêu cầu mới.");
 });
 
 test("a cancel answered 2xx with a body that is not a task is a failed cancel", async () => {

@@ -257,6 +257,44 @@ test("a refused run clears the pending request and names the provider's reason; 
   assert.equal(other.waiting(other.is("POST", "/notes-runs"))[0].body.request_id, "req-aaaa-0001");
 });
 
+test("notes provider codes localize start refusals and persisted output-size failures", async () => {
+  const refused = setup();
+  await opened(refused);
+  refused.dispatch("start-clicked", { requestId: "req-aaaa-0001" });
+  await refused.answer(refused.is("POST", "/notes-runs"), 409, {
+    detail: { code: "provider_busy", message: "Another ChatGPT operation is still running. Try again shortly." },
+  });
+  assert.match(text(notes(refused).runError), /ChatGPT đang bận với một thao tác/);
+  assert.doesNotMatch(text(notes(refused).runError), /Another ChatGPT operation/);
+
+  const failed = setup();
+  await opened(failed, {
+    task: {
+      ...TASK,
+      status: "failed",
+      error_code: "provider_output_too_large",
+      error_message: "ChatGPT's response exceeded the allowed output size.",
+    },
+  });
+  const status = text(selectView(failed.state()).task.status);
+  assert.match(status, /Phản hồi của ChatGPT vượt quá kích thước đầu ra cho phép/);
+  assert.doesNotMatch(status, /ChatGPT's response exceeded/);
+
+  const antigravity = setup();
+  await opened(antigravity, {
+    task: {
+      ...TASK,
+      provider: "antigravity",
+      status: "failed",
+      error_code: "provider_output_too_large",
+      error_message: "Google Antigravity's response exceeded the allowed output size.",
+    },
+  });
+  const antigravityStatus = text(selectView(antigravity.state()).task.status);
+  assert.match(antigravityStatus, /Google Antigravity/);
+  assert.doesNotMatch(antigravityStatus, /ChatGPT/);
+});
+
 test("a pending request found in storage on reload is verified, not replaced", async () => {
   const env = setup();
   const stored = JSON.stringify({ request_id: "req-stored-0001", output_language: "vi", provider: "chatgpt" });

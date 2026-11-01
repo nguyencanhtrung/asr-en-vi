@@ -2292,7 +2292,7 @@ function renderTranscription(transcription) {
       running: t("Đang chép lời bằng model local. Tác vụ tiếp tục nếu bạn đóng tab."),
       stopping: t("Đang dừng và thu hồi runner. Slot chỉ được nhường sau khi runner đã kết thúc."),
       succeeded: t("Transcript đã được lưu hoàn chỉnh. Kết quả của lần chép lời là transcript_only."),
-      failed: task.error_message || t("Tác vụ thất bại. Transcript hoàn chỉnh trước đó vẫn được giữ."),
+      failed: view.error.message || t("Tác vụ thất bại. Transcript hoàn chỉnh trước đó vẫn được giữ."),
       canceled: t("Đã hủy sau khi runner dừng. Transcript hoàn chỉnh trước đó vẫn được giữ."),
       interrupted: t("Worker đã dừng giữa tác vụ. Không tự chạy lại; hãy bấm để thử lại."),
     };

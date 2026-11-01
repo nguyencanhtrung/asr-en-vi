@@ -7,6 +7,7 @@ import {
   canSubmit,
   initialState,
   reduce,
+  responseMessage,
   selectView,
 } from "../../src/asr_en_vi/web/shell-core.js";
 
@@ -22,6 +23,18 @@ const CHUNKED_FILE = {
     return { start, end, size: end - start };
   },
 };
+
+test("server error details are resolved by code instead of leaking raw English", () => {
+  assert.deepEqual(
+    responseMessage(422, {
+      detail: {
+        code: "invalid_media",
+        message: "The uploaded file is corrupt or cannot be read.",
+      },
+    }),
+    { text: "File không đạt yêu cầu. Hãy kiểm tra định dạng, thời lượng và nội dung file." },
+  );
+});
 
 // Real store and runner over fakes: requests wait in `calls` until a test answers them.
 function setup() {

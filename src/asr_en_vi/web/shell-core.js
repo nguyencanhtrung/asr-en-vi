@@ -48,15 +48,79 @@ function formatDuration(seconds) {
   return t("{n} giây", { n: seconds });
 }
 
-// A string is the server's own detail; a t() result is ours.
-export function responseMessage(status, payload) {
-  const rawDetail = payload && payload.detail;
-  const detail = typeof rawDetail === "string"
-    ? rawDetail.trim()
-    : rawDetail && typeof rawDetail.message === "string"
-      ? rawDetail.message.trim()
-      : "";
-  if (detail) return detail;
+const SERVER_ERROR_MESSAGES = {
+  invalid_media: t("File không đạt yêu cầu. Hãy kiểm tra định dạng, thời lượng và nội dung file."),
+  meeting_not_found: t("Không có cuộc họp này."),
+  stale_version: t("Dữ liệu đã thay đổi. Hãy tải lại rồi thử lại."),
+  meeting_task_active: t("Cuộc họp còn tác vụ đang chạy. Hãy đợi tác vụ hoàn tất rồi thử lại."),
+  system_busy: t("Máy đang bận vì một tác vụ khác đang chạy."),
+  processing_unavailable: t("Slot xử lý của máy chưa sẵn sàng."),
+  worker_unavailable: t("Worker chép lời chưa sẵn sàng."),
+  transcription_failed: t("Chép lời local thất bại. Kiểm tra log của worker rồi thử lại."),
+  runner_protocol_error: t("Runner chép lời local không trả về kết quả hoàn chỉnh."),
+  recording_unavailable: t("Worker không còn truy cập được bản ghi. Hãy tải lại cuộc họp rồi thử lại."),
+  publication_failed: t("Không thể lưu transcript hoàn chỉnh. Kiểm tra bộ nhớ lưu trữ rồi thử lại."),
+  notes_publication_failed: t("Không thể lưu notes hoàn chỉnh. Kiểm tra bộ nhớ lưu trữ rồi thử lại."),
+  notes_runner_protocol_error: t("Worker notes không trả về kết quả hoàn chỉnh."),
+  notes_timeout: t("Tạo notes mất quá nhiều thời gian và đã được dừng. Hãy thử lại."),
+  notes_failed: t("Tạo notes thất bại. Kiểm tra log của worker rồi thử lại."),
+  notes_source_locked: t("Nguồn đang được dùng để tạo notes. Chỉnh sửa transcript, người nói và ngày họp tạm thời bị khóa."),
+  provider_busy: (provider) => provider
+    ? t("{provider} đang bận với một thao tác khác. Hãy đợi một chút rồi thử lại.", { provider: providerName(provider) })
+    : t("Một thao tác của nhà cung cấp đang chạy. Hãy đợi một chút rồi thử lại."),
+  provider_disconnected: (provider) => t("{provider} chưa được kết nối. Hãy kết nối lại trước khi tạo notes.", { provider: providerName(provider) }),
+  reconnect_required: (provider) => t("{provider} cần được kết nối lại trước khi tạo notes.", { provider: providerName(provider) }),
+  provider_unavailable: (provider) => t("{provider} tạm thời không khả dụng.", { provider: providerName(provider) }),
+  provider_quota: (provider) => t("{provider} đã hết hạn mức sử dụng. Hãy kiểm tra mức sử dụng gói.", { provider: providerName(provider) }),
+  provider_output_too_large: (provider) => t("Phản hồi của {provider} vượt quá kích thước đầu ra cho phép.", { provider: providerName(provider) }),
+  provider_stream_too_large: (provider) => t("Phản hồi của {provider} vượt quá kích thước truyền cho phép.", { provider: providerName(provider) }),
+  provider_stream_line_too_large: (provider) => t("Một dòng phản hồi của {provider} vượt quá kích thước cho phép.", { provider: providerName(provider) }),
+  provider_invalid_stream: (provider) => t("{provider} trả về phản hồi không đúng định dạng.", { provider: providerName(provider) }),
+  provider_invalid_response: (provider) => t("{provider} trả về phản hồi không hợp lệ.", { provider: providerName(provider) }),
+  provider_timeout: (provider) => t("{provider} không phản hồi trong thời gian cho phép.", { provider: providerName(provider) }),
+  provider_request_too_large: (provider) => t("Transcript vượt quá giới hạn an toàn cho yêu cầu notes của {provider}.", { provider: providerName(provider) }),
+  notes_request_too_large: (provider) => t("Transcript vượt quá giới hạn an toàn cho yêu cầu notes của {provider}.", { provider: providerName(provider) }),
+  notes_context_budget_exceeded: (provider) => t("Transcript vượt quá giới hạn an toàn cho yêu cầu notes của {provider}.", { provider: providerName(provider) }),
+  notes_token_budget_exceeded: (provider) => t("{provider} hết hạn mức token trước khi hoàn tất notes. Không có notes mới được lưu.", { provider: providerName(provider) }),
+  notes_content_filtered: (provider) => t("{provider} dừng tạo notes vì bộ lọc nội dung. Không có notes mới được lưu.", { provider: providerName(provider) }),
+  notes_incomplete: (provider) => t("{provider} chưa hoàn tất câu trả lời notes. Không có notes mới được lưu.", { provider: providerName(provider) }),
+  notes_invalid_output: (provider) => t("{provider} trả về notes không hợp lệ. Không có notes mới được lưu.", { provider: providerName(provider) }),
+  notes_synthesis_limit_exceeded: (provider) => t("Transcript vượt quá giới hạn tổng hợp notes của {provider}.", { provider: providerName(provider) }),
+  subscription_sharing_usage_limit_exceeded: t("Gói ChatGPT đã chạm giới hạn sử dụng. Hãy kiểm tra Cài đặt → Mức sử dụng."),
+  subscription_sharing_user_not_eligible: t("Gói ChatGPT hiện không dùng được cho tài khoản, workspace hoặc yêu cầu này."),
+  subscription_sharing_route_not_supported: t("Gói ChatGPT hiện không dùng được cho tài khoản, workspace hoặc yêu cầu này."),
+  subscription_sharing_unsupported_capability: t("ChatGPT không hỗ trợ yêu cầu này với model đã chọn."),
+  chatpass_v2_scope_not_authorized: t("Tài khoản chưa cấp quyền dùng gói ChatGPT. Hãy kết nối lại và cấp quyền cần thiết."),
+  chatpass_v2_invalid_authorization_context: t("Cấu hình cấp quyền ChatGPT không hợp lệ. Hãy kiểm tra cấu hình kết nối trước khi đăng nhập lại."),
+  scope_not_authorized: t("Tài khoản chưa cấp quyền dùng gói ChatGPT. Hãy kết nối lại và cấp quyền cần thiết."),
+  model_unavailable: (provider) => t("Model đã chọn không khả dụng với {provider}. Hãy chọn model khác.", { provider: providerName(provider) }),
+  model_not_available: (provider) => t("Model đã chọn không khả dụng với {provider}. Hãy chọn model khác.", { provider: providerName(provider) }),
+  invalid_model: (provider) => t("Model đã chọn không khả dụng với {provider}. Hãy chọn model khác.", { provider: providerName(provider) }),
+};
+
+function providerName(provider) {
+  return provider === "antigravity" ? "Google Antigravity" : provider === "chatgpt" ? "ChatGPT" : t("nhà cung cấp");
+}
+
+function detailOf(payload) {
+  const detail = payload && (payload.detail ?? payload.error);
+  return detail && typeof detail === "object" && !Array.isArray(detail) ? detail : null;
+}
+
+export function responseCode(status, payload) {
+  const detail = detailOf(payload);
+  return typeof detail?.code === "string" && detail.code ? detail.code : `HTTP_${status}`;
+}
+
+export function errorMessageForCode(code, status, provider) {
+  if (typeof code === "string" && Object.hasOwn(SERVER_ERROR_MESSAGES, code)) {
+    const message = SERVER_ERROR_MESSAGES[code];
+    return typeof message === "function" ? message(provider) : message;
+  }
+  if (code === "provider_http_error" && [400, 422].includes(status)) {
+    return t("{provider} đã từ chối yêu cầu. Hãy kiểm tra model đã chọn hoặc quyền truy cập.", { provider: providerName(provider) });
+  }
+  if (status === undefined || status === null || status <= 0) return null;
   if (status === 401) return t("Phiên truy cập không còn hợp lệ. Hãy mở lại link trong terminal.");
   if (status === 403) return t("Yêu cầu bị từ chối. Hãy tải lại workspace rồi thử lại.");
   if (status === 404) return t("Không tìm thấy dữ liệu yêu cầu.");
@@ -66,6 +130,12 @@ export function responseMessage(status, payload) {
   if (status === 422) return t("File không đạt yêu cầu. Hãy kiểm tra định dạng, thời lượng và nội dung file.");
   if (status >= 500) return t("Máy chủ chưa thể hoàn tất yêu cầu. Hãy thử lại sau.");
   return t("Máy chủ chưa thể hoàn tất yêu cầu. Hãy kiểm tra thông tin rồi thử lại.");
+}
+
+// Server detail text is never UI copy: the stable code selects a localized message, and an
+// unknown code falls back to a localized status message rather than exposing raw provider text.
+export function responseMessage(status, payload, provider) {
+  return errorMessageForCode(responseCode(status, payload), status, provider);
 }
 
 function policyField(policy, names) {
@@ -252,7 +322,7 @@ const NETWORK = t("Không kết nối được với máy chủ trên máy này.
 // A runner error as the reducer reasons about it: an HTTP answer (api, status, body) or a failed transport.
 // fallback is the text for a failure that carries no message at all.
 function failureOf(error, fallback) {
-  if (error.status !== undefined) return { api: true, status: error.status, body: error.body, message: responseMessage(error.status, error.body) };
+  if (error.status !== undefined) return { api: true, status: error.status, body: error.body, code: responseCode(error.status, error.body), message: responseMessage(error.status, error.body) };
   if (error.kind === "network") return { api: false, kind: error.kind, message: t("Mất kết nối trong lúc truyền file.") };
   if (error.kind === "timeout") return { api: false, kind: error.kind, message: t("Thời gian truyền file đã hết.") };
   if (error.kind === "aborted") return { api: false, kind: error.kind, message: t("Đã hủy lượt truyền file.") };
@@ -569,7 +639,7 @@ function startCreate(state) {
 
 function createFailed(state, failure, payload) {
   const definite = failure.api && failure.status >= 400 && failure.status < 500;
-  const code = failure.api && failure.body && failure.body.detail ? failure.body.detail.code : "";
+  const code = failure.code || "";
   if (definite && code === "upload_not_ready") {
     return set(state, {
       serverReady: false,
@@ -792,8 +862,7 @@ export function reduce(state, action) {
     case "shell/upload-failed": {
       if (!live(state, action.meta) || state.phase !== "uploading") return same(state);
       const failure = failureOf(action.error, t("Máy chủ chưa thể nhận file."));
-      const detail = failure.body?.detail;
-      const code = detail && typeof detail === "object" ? detail.code : "";
+      const code = failure.code || "";
       const resumable =
         failure.kind !== "aborted"
         && (!failure.api

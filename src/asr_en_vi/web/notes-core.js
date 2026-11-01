@@ -11,6 +11,8 @@
 // `href`, `origin`, `hidden`, `mode`); history.js commands, the clipboard, the download and
 // history.replaceState leave as `call` effects.
 
+import { errorMessageForCode, responseCode, responseMessage } from "./shell-core.js";
+
 export const VIEW_MODE_KEY = "asr-en-vi:notes-view-mode";
 export const ACTIVE_TASK_STATES = ["accepted", "running", "stopping"];
 const PROVIDER_IDS = ["chatgpt", "antigravity"];
@@ -72,6 +74,18 @@ const FAILURE_MESSAGES = {
   provider_unavailable: (name) => t("{name} tạm thời không khả dụng.", { name }),
   provider_invalid_response: (name) => t("{name} dừng mà không trả về kết quả dùng được nên không có notes mới nào được lưu.", { name }),
   provider_timeout: (name) => t("{name} không phản hồi kịp thời gian.", { name }),
+  provider_output_too_large: (name) => t("Phản hồi của {name} vượt quá kích thước đầu ra cho phép.", { name }),
+  provider_stream_too_large: (name) => t("Phản hồi của {name} vượt quá kích thước truyền cho phép.", { name }),
+  provider_request_too_large: (name) => t("Transcript vượt quá giới hạn an toàn cho yêu cầu notes của {name}.", { name }),
+  notes_request_too_large: (name) => t("Transcript vượt quá giới hạn an toàn cho yêu cầu notes của {name}.", { name }),
+  notes_context_budget_exceeded: (name) => t("Transcript vượt quá giới hạn an toàn cho yêu cầu notes của {name}.", { name }),
+  notes_token_budget_exceeded: (name) => t("{name} hết hạn mức token trước khi hoàn tất notes. Không có notes mới được lưu.", { name }),
+  notes_content_filtered: (name) => t("{name} dừng tạo notes vì bộ lọc nội dung. Không có notes mới được lưu.", { name }),
+  notes_incomplete: (name) => t("{name} chưa hoàn tất câu trả lời notes. Không có notes mới được lưu.", { name }),
+  notes_runner_protocol_error: (name) => t("Worker notes của {name} không trả về kết quả hoàn chỉnh.", { name }),
+  notes_timeout: (name) => t("Tạo notes bằng {name} mất quá nhiều thời gian và đã được dừng. Hãy thử lại.", { name }),
+  notes_failed: (name) => t("Tạo notes bằng {name} thất bại. Kiểm tra log của worker rồi thử lại.", { name }),
+  notes_publication_failed: (name) => t("Không thể lưu notes của {name} hoàn chỉnh. Kiểm tra bộ nhớ lưu trữ rồi thử lại.", { name }),
   notes_invalid_output: (name) => t("{name} trả về notes không hợp lệ, kể cả sau một lần sửa tự động.", { name }),
   provider_in_use: (name) => t("{name} đang được một tác vụ notes khác sử dụng.", { name }),
   notes_model_unselected: (name) => t("Chưa chọn model cho {name}.", { name }),
@@ -85,13 +99,15 @@ export const pendingRequestStorageKey = (meetingId) => `asr-en-vi:notes-request-
 export const outputLanguageStorageKey = (meetingId) => `asr-en-vi:notes-output-language:${meetingId}`;
 
 function providerLabel(provider) {
-  return PROVIDER_LABELS[provider] || PROVIDER_LABELS.chatgpt;
+  return PROVIDER_LABELS[provider] || t("nhà cung cấp");
 }
 
-// Returns "" when the code has no dedicated copy, so callers fall back to the server text.
+// Returns "" when the code has no dedicated copy; callers then use a safe local fallback.
 export function failureMessage(code, provider) {
   const build = FAILURE_MESSAGES[code];
-  return build ? [build(providerLabel(provider)), " ", NEXT_STEP] : "";
+  if (build) return [build(providerLabel(provider)), " ", NEXT_STEP];
+  const shared = errorMessageForCode(code, undefined, provider);
+  return shared ? [shared, " ", NEXT_STEP] : "";
 }
 
 function formatSeconds(value) {
@@ -123,24 +139,12 @@ function safeFilename(value) {
 
 const object = (value) => (value && typeof value === "object" ? value : null);
 
-function errorMessage(payload, status) {
-  const detail = payload && payload.detail;
-  if (typeof detail === "string" && detail.trim()) return detail.trim();
-  if (detail && typeof detail.message === "string" && detail.message.trim()) return detail.message.trim();
-  if (status === 401) return t("Phiên truy cập không còn hợp lệ. Hãy mở lại workspace.");
-  if (status === 403) return t("Yêu cầu notes bị từ chối.");
-  if (status === 404) return t("Không tìm thấy notes hoặc nguồn transcript đã lưu.");
-  if (status === 409) return t("Dữ liệu đã thay đổi. Hãy tải bản mới nhất rồi thử lại.");
-  if (status >= 500) return t("Máy chủ chưa thể hoàn tất yêu cầu notes.");
-  return t("Máy chủ chưa thể hoàn tất yêu cầu notes.");
-}
-
 // A runner error {message, status?, body?} as the old NotesApiError: a failed transfer has no status.
-function apiError(error) {
+function apiError(error, provider) {
   const status = Number.isInteger(error && error.status) ? error.status : 0;
   if (!status) return { message: t("Không kết nối được với máy chủ trên máy này."), status: 0, payload: null };
   const payload = object(error.body);
-  return { message: errorMessage(payload, status), status, payload };
+  return { code: responseCode(status, payload), message: responseMessage(status, payload, provider), status, payload };
 }
 
 const isDefinitive = (error) => error.status >= 400 && error.status < 500;
@@ -1024,7 +1028,7 @@ function preferenceSaved(state, action) {
 
 function preferenceFailed(state, action) {
   if (action.meta.id !== state.choice.saveId) return out(state);
-  const error = apiError(action.error);
+  const error = apiError(action.error, action.meta.provider);
   return out(patchChoice(state, {
     message: t("Chưa lưu được lựa chọn: {error} Lựa chọn đã lưu trước đó vẫn được giữ.", { error: error.message || t("lỗi không xác định") }),
     localProvider: null,
@@ -1104,10 +1108,9 @@ function startRejected(state, meta, error) {
   const { meetingId } = meta;
   const definitive = isDefinitive(error);
   let result = definitive ? clearPending(state, meetingId) : out(state);
-  const detail = error.payload && error.payload.detail;
-  const mapped = definitive && detail && typeof detail === "object" ? failureMessage(detail.code, meta.provider) : "";
+  const mapped = definitive ? failureMessage(error.code, meta.provider) : "";
   result = then(result, (s) => out(patchNotes(s, meetingId, {
-    runError: mapped || error.message || t("Không thể xác nhận yêu cầu notes."),
+    runError: mapped || errorMessageForCode(error.code, error.status, meta.provider) || error.message || t("Không thể xác nhận yêu cầu notes."),
     runErrorUncertain: !definitive,
     actionMessage: "",
   })));
@@ -1495,7 +1498,8 @@ function response(state, action) {
 
 function requestFailed(state, action) {
   const { meta } = action;
-  const error = apiError(action.error);
+  const task = meta.op === "cancel" ? entryOf(state, meta.meetingId)?.task : null;
+  const error = apiError(action.error, meta.provider || task?.provider);
   switch (meta.op) {
     case "read":
       if (meta.id !== state.readId || meta.meetingId !== state.meetingId || (meta.poll !== null && meta.poll !== state.poll.token)) return out(state);
@@ -1693,14 +1697,15 @@ function stepView(task, reached, index) {
 
 function taskView(state, data) {
   const task = data.task;
-  const provider = PROVIDER_IDS.includes(task.provider) ? task.provider : "chatgpt";
+  const provider = task.provider;
+  const providerId = PROVIDER_IDS.includes(provider) ? provider : "";
   const name = providerLabel(provider);
   const active = isActiveStatus(task.status);
   const ended = ["failed", "canceled", "interrupted"].includes(task.status);
   const reached = state.taskSteps[task.id];
-  const effort = provider === "antigravity"
+  const effort = providerId === "antigravity"
     ? t("mức suy nghĩ {effort}", { effort: effortLabel(task.reasoning_effort === "medium" ? "medium" : "high") })
-    : (provider === "chatgpt" && task.reasoning_effort && task.reasoning_effort !== "default" ? `effort ${task.reasoning_effort}` : "");
+    : (providerId === "chatgpt" && task.reasoning_effort && task.reasoning_effort !== "default" ? `effort ${task.reasoning_effort}` : "");
   let status;
   if (task.status === "accepted") status = t("Tác vụ đã được nhận. Worker sẽ bắt đầu xử lý notes.");
   else if (task.status === "running") status = t("{taskProviderName} đang tạo notes. Tác vụ tiếp tục ở worker nếu bạn mở cuộc họp khác.", { taskProviderName: name });
@@ -1708,12 +1713,13 @@ function taskView(state, data) {
   else if (task.status === "succeeded") status = t("Notes đã được lưu. Chọn revision bên dưới để xem hoặc sửa.");
   else if (task.status === "failed") {
     status = failureMessage(task.error_code, provider)
-      || task.error_message
+      || errorMessageForCode(task.error_code, undefined, provider)
       || t("Tác vụ notes bằng {provider} thất bại. {next}", { provider: name, next: NEXT_STEP });
   } else if (task.status === "canceled") status = t("Worker đã xác nhận hủy tác vụ notes.");
   else if (task.status === "interrupted") status = t("Worker đã dừng giữa tác vụ notes. Không tự chạy lại.");
   else status = t("Đang đọc trạng thái tác vụ notes.");
-  if (task.error_message && !["failed", "interrupted"].includes(task.status)) status = [status, ` ${task.error_message}`];
+  const taskFailure = errorMessageForCode(task.error_code, undefined, provider);
+  if (taskFailure && !["failed", "interrupted"].includes(task.status)) status = [status, " ", taskFailure];
   const stopping = task.status === "stopping" || data.canceling;
   return {
     status,

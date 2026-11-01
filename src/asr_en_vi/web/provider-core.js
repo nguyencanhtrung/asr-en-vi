@@ -11,6 +11,7 @@
 // with the real t(). A param is a primitive, a t() result, a timestamp() marker, or an array of those.
 
 import { combine } from "./store.js";
+import { errorMessageForCode } from "./shell-core.js";
 
 const t = (text, params) => (params ? { text, params } : { text });
 const fill = (message, params) => ({ ...message, params });
@@ -65,8 +66,10 @@ const REQUEST_ERRORS = {
   invalid_reasoning_effort: t("Mức suy luận này không được mô hình đã chọn hỗ trợ."),
 };
 
-function defaultError(code, status) {
-  if (Object.hasOwn(REQUEST_ERRORS, code)) return REQUEST_ERRORS[code];
+function defaultError(code, status, provider) {
+  if (Object.hasOwn(REQUEST_ERRORS, code) && provider !== "antigravity") return REQUEST_ERRORS[code];
+  const shared = errorMessageForCode(code, status, provider);
+  if (shared) return shared;
   if (status === 401) return t("Phiên truy cập không gian làm việc không còn hợp lệ. Hãy mở lại liên kết trong terminal.");
   if (status === 403) return t("ChatGPT đã từ chối yêu cầu. Hãy kiểm tra quyền truy cập tài khoản rồi thử lại.");
   if (status === 404) return t("Không tìm thấy phiên hoặc dữ liệu yêu cầu.");
@@ -77,25 +80,27 @@ function defaultError(code, status) {
 }
 
 // A server string is kept only when it is Vietnamese; our own t() result is kept as it is.
-function localizedError(code, message, status) {
+function localizedError(code, message, status, provider) {
+  const shared = errorMessageForCode(code, status, provider);
+  if (shared) return shared;
   if (typeof message === "string" && VIETNAMESE.test(message)) return message;
   if (message && typeof message === "object") return message;
-  return defaultError(code, status);
+  return defaultError(code, status, provider);
 }
 
 // Runner error {message, status?, body?} -> {code, message, status}.
-function requestError(error) {
+function requestError(error, provider) {
   if (error.status === undefined) return { code: "NETWORK_ERROR", message: REQUEST_ERRORS.NETWORK_ERROR, status: 0 };
   const status = error.status;
   const payload = error.body && typeof error.body === "object" ? error.body : null;
   const detail = payload && (payload.detail || payload.error);
   if (detail && typeof detail === "object") {
     const code = typeof detail.code === "string" ? detail.code : `HTTP_${status}`;
-    return { code, message: localizedError(code, detail.message, status), status };
+    return { code, message: localizedError(code, detail.message, status, provider), status };
   }
   const code = `HTTP_${status}`;
   const text = typeof detail === "string" && detail.trim() ? detail.trim() : "";
-  return { code, message: localizedError(code, text, status), status };
+  return { code, message: localizedError(code, text, status, provider), status };
 }
 
 const GENERIC_ERROR = { code: "CONNECTION_ERROR" }; // a 2xx reply that is not the expected JSON object
@@ -364,12 +369,13 @@ const persist = (d, login) =>
 
 function errorText(d, error) {
   const code = (error && error.code) || "CONNECTION_ERROR";
-  if (d.errorStyle === "chatgpt") return localizedError(code, error && error.message, error && error.status);
+  if (d.errorStyle === "chatgpt") return localizedError(code, error && error.message, error && error.status, d.id);
   const known = Object.hasOwn(d.errors, error?.code) ? d.errors[error.code] : null;
   if (known) return known;
+  if (code === "NETWORK_ERROR") return REQUEST_ERRORS.NETWORK_ERROR;
   if (error && error.status === 429) return d.errors.provider_quota;
   if (error && error.status >= 500) return d.copy.serverError;
-  return (error && error.message) || d.copy.otherError;
+  return errorMessageForCode(code, error && error.status, d.id) || d.copy.otherError;
 }
 
 function showError(d, s, error, retryPoll = false) {
@@ -912,7 +918,7 @@ function reduceProvider(d, state, action) {
     case "provider/request-failed": {
       if (meta.op === "header") return headerLoaded(d, state, action.type === "provider/response" ? action.response.body : null);
       if (meta.provider !== d.id) return done(state);
-      return action.type === "provider/response" ? onResponse(d, state, meta, action.response.body, action.now) : onFailure(d, state, meta, requestError(action.error), action.now);
+      return action.type === "provider/response" ? onResponse(d, state, meta, action.response.body, action.now) : onFailure(d, state, meta, requestError(action.error, d.id), action.now);
     }
     default:
       break;

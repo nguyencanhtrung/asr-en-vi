@@ -16,7 +16,7 @@
 // ({pathname, search, hash, tab}: the address and the tab its history entry remembers), `booted` carries `today`
 // and the calendar actions carry the day they mean.
 
-import { responseMessage } from "./shell-core.js";
+import { responseCode, responseMessage } from "./shell-core.js";
 
 const t = (text, params) => (params ? { text, params } : { text });
 
@@ -297,8 +297,7 @@ const meetingPath = (id) => `/meetings/${encodeURIComponent(id)}`;
 const NETWORK = t("Không kết nối được với máy chủ trên máy này.");
 export function failureOf(error, fallback = NETWORK) {
   if (error && error.status !== undefined) {
-    const detail = error.body && error.body.detail;
-    return { api: true, status: error.status, message: responseMessage(error.status, error.body), code: (detail && detail.code) || "" };
+    return { api: true, status: error.status, message: responseMessage(error.status, error.body), code: responseCode(error.status, error.body) };
   }
   return { api: false, message: error && error.message ? NETWORK : fallback, code: "" };
 }

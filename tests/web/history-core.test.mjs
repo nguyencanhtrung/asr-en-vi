@@ -15,6 +15,7 @@ import {
   mergeTranscription,
   monthGrid,
   reduce,
+  failureOf,
   selectCalendar,
   selectDeletion,
   selectEditor,
@@ -445,6 +446,21 @@ test("a load that fails shows the error with the server's words; a network failu
   assert.equal(text(s.loadError).startsWith("Không kết nối được với máy chủ trên máy này."), true);
 });
 
+test("an API error code in the alternate error envelope stays localized", () => {
+  const failure = failureOf({
+    status: 409,
+    body: {
+      error: {
+        code: "notes_source_locked",
+        message: "This transcript is locked while notes are being generated.",
+      },
+    },
+  });
+  assert.equal(failure.code, "notes_source_locked");
+  assert.match(text(failure.message), /Nguồn đang được dùng để tạo notes/);
+  assert.doesNotMatch(text(failure.message), /This transcript is locked/);
+});
+
 test("a load whose body is not a meeting is an error", async () => {
   const env = await booted("/");
   env.dispatch("meeting-requested", { meetingId: "m1" });
@@ -690,12 +706,13 @@ test("a second save while one is in flight is ignored", async () => {
   assert.equal(selectEditor(env.state()).cancelDisabled, true);
 });
 
-test("a save that fails shows the server's words and frees the editor, keeping the draft", async () => {
+test("a save that fails uses a safe localized fallback and frees the editor, keeping the draft", async () => {
   const env = await editing();
   env.dispatch("editor-submitted", { title: "A", date: "2025-03-04", badInput: false });
   await env.answer(PATCH("m1"), 422, { detail: "Tên không hợp lệ." });
   let s = env.state();
-  assert.equal(s.editor.error, "Tên không hợp lệ.");
+  assert.equal(text(s.editor.error), "File không đạt yêu cầu. Hãy kiểm tra định dạng, thời lượng và nội dung file.");
+  assert.doesNotMatch(text(s.editor.error), /Tên không hợp lệ/);
   assert.equal(s.editor.busy, false);
   assert.equal(s.editor.title, "A");
   env.dispatch("editor-submitted", { title: "A", date: "2025-03-04", badInput: false });

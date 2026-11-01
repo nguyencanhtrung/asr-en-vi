@@ -13,7 +13,7 @@
 // User-visible text is data: t(text, params) here only keeps the Vietnamese source string, and the view translates it.
 
 import { ACTIVE_TASK_STATES, LANGUAGES, failureOf } from "./history-core.js";
-import { AUTO_TRANSCRIBE_HANDOFF_PREFIX } from "./shell-core.js";
+import { AUTO_TRANSCRIBE_HANDOFF_PREFIX, errorMessageForCode } from "./shell-core.js";
 
 const t = (text, params) => (params ? { text, params } : { text });
 
@@ -477,12 +477,12 @@ export function selectTask(state, shown) {
   const refusal = state.error && shown && state.error.meetingId === shown.id ? state.error.message : null;
   const failed = Boolean(task && ["failed", "interrupted"].includes(task.status));
   const code = task && typeof task.error_code === "string" ? task.error_code : "";
-  const knownCode = Object.hasOwn(TASK_ERROR_MESSAGES, code) ? TASK_ERROR_MESSAGES[code] : "";
+  const knownCode = Object.hasOwn(TASK_ERROR_MESSAGES, code) ? TASK_ERROR_MESSAGES[code] : errorMessageForCode(code);
   let message = "";
   if (refusal) message = refusal;
-  else if (failed) message = knownCode || task.error_message || t("Tác vụ chưa hoàn tất.");
+  else if (failed) message = knownCode || t("Tác vụ chưa hoàn tất.");
   const command = diagnosticCommand(task);
-  const diagnostic = !refusal && knownCode && command ? { code, id: task.id, command } : null;
+  const diagnostic = !refusal && Object.hasOwn(TASK_ERROR_MESSAGES, code) && command ? { code, id: task.id, command } : null;
   const pending = shown ? pendingFor(state, shown.id) : null;
   const notice = state.notice && shown && state.notice.meetingId === shown.id ? state.notice.kind : null;
   const how = state.copy && task && state.copy.taskId === task.id ? state.copy.how : null;
