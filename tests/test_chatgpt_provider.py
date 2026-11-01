@@ -15,8 +15,11 @@ from fake_chatgpt import FakeChatGPTAdapter
 from asr_en_vi.chatgpt import (
     DIRECT_SCOPE,
     DYNAMIC_CLIENT_ID,
+    NOTES_HTTP_READ_TIMEOUT_SECONDS,
+    NOTES_HTTP_TOTAL_TIMEOUT_SECONDS,
     REQUESTED_SCOPES,
     ChatGPTError,
+    ChatGPTHTTPAdapter,
     ChatGPTProvider,
     ProviderStore,
 )
@@ -645,6 +648,18 @@ def test_missing_callback_does_not_disable_local_app_but_blocks_provider_login(t
     with pytest.raises(ChatGPTError) as failure:
         provider.start_login()
     assert failure.value.code == "callback_not_configured"
+
+
+def test_notes_http_client_bounds_silent_reads_but_keeps_long_task_budget():
+    import httpx
+
+    adapter = ChatGPTHTTPAdapter(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200))
+    )
+    with adapter._client(read_timeout=NOTES_HTTP_READ_TIMEOUT_SECONDS) as client:
+        assert client.timeout.read == NOTES_HTTP_READ_TIMEOUT_SECONDS
+    assert NOTES_HTTP_READ_TIMEOUT_SECONDS < NOTES_HTTP_TOTAL_TIMEOUT_SECONDS
+    assert NOTES_HTTP_TOTAL_TIMEOUT_SECONDS == 900.0
 
 
 @pytest.mark.parametrize(

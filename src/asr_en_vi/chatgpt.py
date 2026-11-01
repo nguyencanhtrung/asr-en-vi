@@ -69,7 +69,9 @@ HTTP_READ_TIMEOUT_SECONDS = 15.0
 HTTP_WRITE_TIMEOUT_SECONDS = 5.0
 HTTP_POOL_TIMEOUT_SECONDS = 5.0
 HTTP_TOTAL_TIMEOUT_SECONDS = 30.0
-NOTES_HTTP_READ_TIMEOUT_SECONDS = 300.0
+# HTTPX applies this to inactivity while waiting for the next response chunk. The
+# per-call total budget remains 900 seconds; a silent connection must fail sooner.
+NOTES_HTTP_READ_TIMEOUT_SECONDS = 60.0
 NOTES_HTTP_TOTAL_TIMEOUT_SECONDS = 900.0
 OPERATION_LOCK_TIMEOUT_SECONDS = 5.0
 # Wire framing repeats IDs and metadata per delta; it is separate from text size.
@@ -2191,6 +2193,7 @@ class ChatGPTProvider:
         reasoning_effort: str,
         output_language: str = "en",
         on_coverage: Callable[[dict[str, Any]], None] | None = None,
+        on_progress: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Generate and validate notes using only the account and model pinned at acceptance."""
         validate_reasoning_effort(model, reasoning_effort)
@@ -2300,6 +2303,7 @@ class ChatGPTProvider:
                     413, "notes_synthesis_limit_exceeded", message
                 ),
                 on_coverage=on_coverage,
+                on_progress=on_progress,
                 provider="chatgpt",
                 model=model,
             )

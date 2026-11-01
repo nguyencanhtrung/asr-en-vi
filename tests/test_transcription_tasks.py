@@ -413,6 +413,27 @@ def test_server_computes_stale_worker_state_for_active_task(tmp_path):
     assert stale["worker_state"] == "checking-worker"
 
 
+def test_task_summary_exposes_bounded_pipeline_progress_without_audio_ratio(tmp_path):
+    data_dir, model_dir, (meeting_id,) = _task_store(tmp_path)
+    task = _accept(data_dir, model_dir, meeting_id, "progress-summary-0001")
+    claimed = claim_next_task(data_dir, owner_id="progress-owner")
+    assert claimed and claimed["id"] == task["id"]
+    assert update_task_progress(
+        data_dir,
+        task["id"],
+        owner_id="progress-owner",
+        stage="chunking",
+        elapsed_seconds=4.0,
+        transcript_end_seconds=10.0,
+        segment_count=2,
+        progress_current=2,
+        progress_total=5,
+        progress_unit="chunks",
+    )
+    summary = transcription_state(data_dir, meeting_id)["task"]
+    assert summary["progress"] == {"current": 2, "total": 5, "unit": "chunks"}
+
+
 def test_concurrent_acceptance_claims_only_one_global_slot(tmp_path):
     data_dir, model_dir, meetings = _task_store(tmp_path, meeting_count=2)
     barrier = threading.Barrier(2)

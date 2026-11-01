@@ -21,6 +21,7 @@ from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
 from asr_en_vi.config import Settings
 from asr_en_vi.media import ALLOWED_EXTENSIONS, OUTPUT_BITRATE, OUTPUT_CODEC
 from asr_en_vi.meeting_deletion import MeetingDeletionError, delete_meeting
+from asr_en_vi.notes import has_active_notes_task
 from asr_en_vi.notes_routes import install_notes_routes
 from asr_en_vi.recordings import (
     RecordingError,
@@ -104,8 +105,7 @@ async def _owned_thread_call(
 
 async def _owned_cleanup_call(function: Any, *args: Any, **kwargs: Any) -> Any:
     """Drain cleanup work even when another cancellation arrives during cleanup."""
-    result, _ = await _owned_thread_call(function, *args, _capture_cancel=True, **kwargs)
-    return result
+    return await _owned_thread_call(function, *args, _capture_cancel=True, **kwargs)
 
 
 async def _begin_upload_owned(data_dir: Path, upload_id: str, offset: int) -> tuple[Path, int, int]:
@@ -118,7 +118,9 @@ async def _begin_upload_owned(data_dir: Path, upload_id: str, offset: int) -> tu
         _capture_cancel=True,
     )
     if cancelled:
-        await _owned_cleanup_call(release_upload, data_dir, upload_id)
+        _, release_cancelled = await _owned_cleanup_call(release_upload, data_dir, upload_id)
+        if release_cancelled:
+            raise asyncio.CancelledError
         raise asyncio.CancelledError
     return result
 
@@ -377,7 +379,12 @@ def install_routes(
     async def list_providers() -> dict[str, Any]:
         def load_providers() -> dict[str, Any]:
             chatgpt = chatgpt_provider.get_providers()
-            return {"providers": [*chatgpt["providers"], antigravity_provider.provider_view()]}
+            providers = [*chatgpt["providers"], antigravity_provider.provider_view()]
+            for provider in providers:
+                in_use = has_active_notes_task(settings.data_dir, provider=provider["id"])
+                provider["in_use"] = in_use
+                provider["in_use_reason"] = "notes" if in_use else None
+            return {"providers": providers}
 
         return await provider_json(load_providers)
 
@@ -517,12 +524,12 @@ def install_routes(
         except RecordingError as error:
             _raise_recording_error(error)
 
-    @app.put("/api/uploads/{upload_id}/content")
+    @app.put("/api/uploads/{upload_id}/content", response_model=None)
     async def upload_content(
         upload_id: str,
         request: Request,
         offset: int | None = Query(default=None, ge=0),
-    ) -> dict[str, object]:
+    ) -> dict[str, object] | Response:
         requested_offset = 0 if offset is None else offset
         try:
             raw_path, declared_size, committed_size = await _begin_upload_owned(
@@ -537,6 +544,7 @@ def install_routes(
         received_size = committed_size
         cleanup_size = committed_size
         stream_interrupted = False
+        cleanup_cancelled = False
         try:
             flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
             descriptor = os.open(raw_path, flags)
@@ -609,29 +617,43 @@ def install_routes(
             if file_handle is not None:
                 if interrupted and not durable_committed:
                     try:
+                        durable_offset, was_cancelled = await _owned_cleanup_call(
+                            get_upload_received_bytes,
+                            settings.data_dir,
+                            upload_id,
+                        )
+                        cleanup_cancelled = cleanup_cancelled or was_cancelled
                         cleanup_size = max(
                             committed_size,
                             min(
                                 declared_size,
-                                await _owned_cleanup_call(
-                                    get_upload_received_bytes,
-                                    settings.data_dir,
-                                    upload_id,
-                                ),
+                                durable_offset,
                             ),
                         )
+                    except asyncio.CancelledError:
+                        cleanup_cancelled = True
+                        cleanup_size = committed_size
                     except BaseException:
                         cleanup_size = committed_size
                     try:
-                        await _owned_cleanup_call(os.ftruncate, file_handle.fileno(), cleanup_size)
-                        await _owned_cleanup_call(os.fsync, file_handle.fileno())
+                        _, was_cancelled = await _owned_cleanup_call(
+                            os.ftruncate, file_handle.fileno(), cleanup_size
+                        )
+                        cleanup_cancelled = cleanup_cancelled or was_cancelled
+                        _, was_cancelled = await _owned_cleanup_call(os.fsync, file_handle.fileno())
+                        cleanup_cancelled = cleanup_cancelled or was_cancelled
                     except OSError:
                         pass
-                await _owned_cleanup_call(file_handle.close)
+                _, was_cancelled = await _owned_cleanup_call(file_handle.close)
+                cleanup_cancelled = cleanup_cancelled or was_cancelled
                 file_handle = None
+            if cleanup_cancelled:
+                raise asyncio.CancelledError from None
             if interrupted:
-                if isinstance(error, (asyncio.CancelledError, ClientDisconnect)):
+                if isinstance(error, asyncio.CancelledError):
                     raise
+                if isinstance(error, ClientDisconnect):
+                    return Response(status_code=204)
                 if isinstance(error, RecordingError):
                     _raise_recording_error(error)
                 raise HTTPException(
@@ -661,10 +683,16 @@ def install_routes(
         finally:
             try:
                 if file_handle is not None:
-                    await _owned_thread_call(file_handle.close)
+                    _, was_cancelled = await _owned_cleanup_call(file_handle.close)
+                    cleanup_cancelled = cleanup_cancelled or was_cancelled
             finally:
                 if writer_owned:
-                    await _owned_cleanup_call(release_upload, settings.data_dir, upload_id)
+                    _, was_cancelled = await _owned_cleanup_call(
+                        release_upload, settings.data_dir, upload_id
+                    )
+                    cleanup_cancelled = cleanup_cancelled or was_cancelled
+            if cleanup_cancelled:
+                raise asyncio.CancelledError
         return {
             "id": upload_id,
             "status": status,

@@ -306,7 +306,7 @@ function statusOpen(state, shown, descriptor) {
 function report(state, shown, target, message, isError = false) {
   const reachable = statusTarget(shown, target);
   const sameMeeting = !target || !shown || !shown.meeting || target.meetingId === shown.id;
-  const next = { ...state, notice: sameMeeting ? message : SAVED, noticeRev: state.noticeRev + 1 };
+  const next = { ...state, notice: isError || sameMeeting ? message : SAVED, noticeRev: state.noticeRev + 1 };
   return reachable && reachable.kind !== "speaker-assignment" ? emit(next, { op: "status", target: reachable, text: message, error: isError }) : next;
 }
 

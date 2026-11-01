@@ -293,7 +293,7 @@ test("a second save while one is on the wire is ignored, and so is a save for a 
   assert.equal(env.pending().length, 0, "a row of another transcript, or one that is gone, is not saved");
 });
 
-test("a failed save keeps the editor open and the draft, and reports the server's words", async () => {
+test("a failed save keeps the editor open and uses a safe localized fallback", async () => {
   const env = await setup();
   await openEditorOn(env, "s1");
   env.ops();
@@ -311,7 +311,8 @@ test("a failed save keeps the editor open and the draft, and reports the server'
 
   env.send("transcript/segment-saved", textSave());
   await env.answer(PATCH_TEXT, 400, { detail: "Đoạn quá dài." });
-  assert.equal(env.notice(), "Đoạn quá dài.");
+  assert.equal(env.notice(), "Máy chủ chưa thể hoàn tất yêu cầu. Hãy kiểm tra thông tin rồi thử lại.");
+  assert.doesNotMatch(env.notice(), /Đoạn quá dài/);
 });
 
 test("a 409 marks the draft and puts the reload beside the open editor", async () => {
@@ -365,6 +366,8 @@ test("a 409 whose editor is gone shows the notice in the panel", async () => {
   assert.equal(env.t().mutation, null);
   assert.equal(env.t().editing, null);
   assert.equal(text(env.t().error.message), "Transcript đã thay đổi. Bản nháp vẫn được giữ để xem lại.");
+  assert.match(env.notice(), /Transcript đã thay đổi/);
+  assert.notEqual(env.notice(), "Thay đổi transcript đã hoàn tất.");
 });
 
 // ---- the stale answer ----
@@ -397,6 +400,7 @@ test("an answer after the user left for another meeting settles the write withou
   assert.equal(env.notice(), "Thay đổi transcript đã hoàn tất.", "the shared line does not carry the old meeting's words");
   assert.equal(env.t().focus.sameMeeting, false);
   assert.equal(hasUnsavedDrafts(env.t()), false, "the saved text is not kept as a draft");
+  assert.ok(env.calls.some(([name, meetingId, reason]) => name === "meeting.change" && meetingId === "m1" && reason === "transcript"));
 });
 
 test("the same answer reaches the fresher copy of the meeting a poll or a refresh installed meanwhile", async () => {
@@ -509,8 +513,8 @@ test("clearing a speaker name asks for the default name and a failure keeps the 
   await env.answer((r) => r.method === "PATCH", 500, { detail: "Lỗi máy chủ." });
   assert.equal(env.t().renaming.speakerId, "A");
   assert.equal(draftOf(env.t().drafts, "g2", "speakerName", "A").value, "");
-  assert.equal(env.notice(), "Lỗi máy chủ.");
-  assert.equal(text(env.named("status").at(-1).text), "Lỗi máy chủ.");
+  assert.equal(env.notice(), "Máy chủ chưa thể hoàn tất yêu cầu. Hãy thử lại sau.");
+  assert.equal(text(env.named("status").at(-1).text), "Máy chủ chưa thể hoàn tất yêu cầu. Hãy thử lại sau.");
 });
 
 test("a speaker name conflict marks the draft; the rename form shows the reload", async () => {
@@ -639,7 +643,7 @@ test("a failed speaker choice is forgotten and the select goes back; a conflict 
   await env.answer(PATCH_SPEAKER, 500, { detail: "Lỗi." });
   assert.equal(draftOf(env.t().drafts, "g2", "speakerAssignment", "s1"), null);
   assert.deepEqual(env.named("assignment-failed").map((op) => op.conflict), [false]);
-  assert.deepEqual([env.t().error.message, env.t().error.reloadLatest], ["Lỗi.", false]);
+  assert.deepEqual([text(env.t().error.message), env.t().error.reloadLatest], ["Máy chủ chưa thể hoàn tất yêu cầu. Hãy thử lại sau.", false]);
   env.send("transcript/assignment-chosen", ASSIGN());
   await env.answer(PATCH_SPEAKER, 409, { detail: { code: "assignment_version_changed" } });
   assert.equal(draftOf(env.t().drafts, "g2", "speakerAssignment", "s1").conflictCode, "assignment_version_changed");

@@ -27,6 +27,7 @@ _UPLOAD_KEY_RE = re.compile(r"uploads/[0-9a-f]{32}\.part\Z")
 _AUDIO_KEY_RE = re.compile(r"recordings/[0-9a-f]{32}\.m4a\Z")
 _FILENAME_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 STALE_UPLOAD_SECONDS = 24 * 60 * 60
+REDACTED_UPLOAD_FILENAME = "removed-upload"
 
 
 class RecordingError(RuntimeError):
@@ -45,6 +46,14 @@ class RecordingError(RuntimeError):
         self.code = code
         self.message = message
         self.details = details or {}
+
+
+def _backfill_failed_filenames(connection: sqlite3.Connection) -> None:
+    """Remove all legacy failed names without waiting for another upload or restart."""
+    connection.execute(
+        "UPDATE uploads SET filename = ? WHERE status = 'failed' AND filename != ?",
+        (REDACTED_UPLOAD_FILENAME, REDACTED_UPLOAD_FILENAME),
+    )
 
 
 @contextmanager
@@ -109,6 +118,7 @@ def cleanup_stale_uploads(data_dir: Path, *, max_age_seconds: int = STALE_UPLOAD
     modifier = f"-{max_age_seconds} seconds"
     with _connect(data_dir) as connection, connection:
         connection.execute("BEGIN IMMEDIATE")
+        _backfill_failed_filenames(connection)
         rows = connection.execute(
             "SELECT id, raw_key, managed_key FROM uploads "
             "WHERE status IN ('receiving', 'uploaded', 'validating', 'ready') "
@@ -118,9 +128,9 @@ def cleanup_stale_uploads(data_dir: Path, *, max_age_seconds: int = STALE_UPLOAD
         for row in rows:
             connection.execute(
                 "UPDATE uploads SET status = 'failed', content_started = 0, "
-                "failure_code = 'expired' WHERE id = ? "
+                "failure_code = 'expired', filename = ? WHERE id = ? "
                 "AND status IN ('receiving', 'uploaded', 'validating', 'ready')",
-                (row["id"],),
+                (REDACTED_UPLOAD_FILENAME, row["id"]),
             )
     for row in rows:
         _unlink_key(data_dir, row["raw_key"])
@@ -140,6 +150,8 @@ def _upload_summary(row: sqlite3.Row, *, meeting_id: str | None = None) -> dict[
     }
     if row["duration_seconds"] is not None:
         summary["duration_seconds"] = row["duration_seconds"]
+    if row["failure_code"] is not None:
+        summary["failure_code"] = row["failure_code"]
     if row["status"] in {"ready", "consumed"}:
         summary["content_type"] = OUTPUT_CONTENT_TYPE
     if meeting_id is not None:
@@ -321,12 +333,13 @@ def fail_upload(data_dir: Path, upload_id: str, *, code: str) -> None:
         row = connection.execute(
             "SELECT status, raw_key, managed_key FROM uploads WHERE id = ?", (upload_id,)
         ).fetchone()
-        if row is None or row["status"] in {"ready", "consumed"}:
+        if row is None or row["status"] in {"failed", "ready", "consumed"}:
             return
         connection.execute(
-            "UPDATE uploads SET status = 'failed', content_started = 0, failure_code = ? "
-            "WHERE id = ? AND status NOT IN ('ready', 'consumed')",
-            (code, upload_id),
+            "UPDATE uploads SET status = 'failed', content_started = 0, failure_code = ?, "
+            "filename = ? "
+            "WHERE id = ? AND status NOT IN ('failed', 'ready', 'consumed')",
+            (code, REDACTED_UPLOAD_FILENAME, upload_id),
         )
         raw_key = row["raw_key"]
         managed_key = row["managed_key"]
@@ -334,7 +347,9 @@ def fail_upload(data_dir: Path, upload_id: str, *, code: str) -> None:
     _unlink_key(data_dir, managed_key)
 
 
-def _media_error(error: MediaProcessingError) -> RecordingError:
+def _media_error(
+    error: MediaProcessingError, *, max_duration_seconds: int | None = None
+) -> RecordingError:
     messages = {
         "media_tool_unavailable": (503, "Audio validation tools are unavailable."),
         "media_processing_timeout": (422, "Audio processing timed out. Try a shorter recording."),
@@ -343,13 +358,27 @@ def _media_error(error: MediaProcessingError) -> RecordingError:
         "invalid_media": (422, "The uploaded file is corrupt or cannot be read."),
         "missing_audio_stream": (422, "The uploaded file does not contain an audio stream."),
         "unsupported_codec": (415, "The audio codec is not supported. Choose another file."),
-        "duration_limit": (413, "The recording exceeds the maximum audio duration."),
+        "duration_limit": (
+            413,
+            (
+                f"The recording exceeds the configured maximum duration of "
+                f"{max_duration_seconds} seconds."
+                if max_duration_seconds is not None
+                else "The recording exceeds the configured maximum audio duration."
+            ),
+        ),
+        "duration_mismatch": (422, "The uploaded audio is truncated or has an invalid duration."),
         "conversion_failed": (422, "The audio could not be converted. Choose another file."),
     }
     status_code, message = messages.get(
         error.code, (422, "The uploaded file could not be processed.")
     )
-    return RecordingError(status_code, error.code, message)
+    details = (
+        {"max_duration_seconds": max_duration_seconds}
+        if error.code == "duration_limit" and max_duration_seconds is not None
+        else None
+    )
+    return RecordingError(status_code, error.code, message, details=details)
 
 
 def _upload_validation_cancelled(data_dir: Path, upload_id: str) -> bool:
@@ -434,7 +463,7 @@ def complete_upload(
     except MediaProcessingError as error:
         fail_upload(data_dir, upload_id, code=error.code)
         _unlink_key(data_dir, managed_key)
-        raise _media_error(error) from None
+        raise _media_error(error, max_duration_seconds=max_duration_seconds) from None
     except BaseException as error:
         if not ready_committed:
             fail_upload(data_dir, upload_id, code="storage_failed")
@@ -481,8 +510,8 @@ def delete_upload(data_dir: Path, upload_id: str) -> dict[str, object]:
         managed_key = row["managed_key"]
         connection.execute(
             "UPDATE uploads SET status = 'failed', content_started = 0, "
-            "failure_code = 'deleted' WHERE id = ?",
-            (upload_id,),
+            "failure_code = 'deleted', filename = ? WHERE id = ?",
+            (REDACTED_UPLOAD_FILENAME, upload_id),
         )
     _unlink_key(data_dir, raw_key)
     _unlink_key(data_dir, managed_key)
@@ -506,6 +535,8 @@ def _validate_date(meeting_date: object) -> str | None:
                 400, "invalid_meeting_date", "Use a valid YYYY-MM-DD meeting date."
             ) from None
         if parsed_date.isoformat() != meeting_date:
+            raise RecordingError(400, "invalid_meeting_date", "Use a YYYY-MM-DD meeting date.")
+        if not 1000 <= parsed_date.year <= 9999:
             raise RecordingError(400, "invalid_meeting_date", "Use a YYYY-MM-DD meeting date.")
     return meeting_date
 
@@ -820,9 +851,11 @@ def recover_recordings(data_dir: Path) -> None:
         with connection:
             connection.execute(
                 "UPDATE uploads SET status = 'failed', content_started = 0, "
-                "failure_code = 'interrupted' "
-                "WHERE status IN ('receiving', 'uploaded', 'validating', 'ready')"
+                "failure_code = 'interrupted', filename = ? "
+                "WHERE status IN ('receiving', 'uploaded', 'validating', 'ready')",
+                (REDACTED_UPLOAD_FILENAME,),
             )
+            _backfill_failed_filenames(connection)
         rows = connection.execute("SELECT status, raw_key, managed_key FROM uploads").fetchall()
         referenced_audio = {
             row["managed_key"] for row in rows if row["status"] == "consumed" and row["managed_key"]

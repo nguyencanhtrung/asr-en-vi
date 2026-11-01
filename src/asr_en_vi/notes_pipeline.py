@@ -148,6 +148,7 @@ def generate_notes_document(
     invalid_output_error: Callable[[dict[str, Any]], Exception],
     limit_error: Callable[[str], Exception],
     on_coverage: Callable[[dict[str, Any]], None] | None = None,
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
     provider: str | None = None,
     model: str | None = None,
 ) -> dict[str, Any]:
@@ -159,7 +160,8 @@ def generate_notes_document(
     `invalid_output_error` receives bounded diagnostics only.
     `on_coverage` gets the coverage manifest, with the accepted call of every planned request
     and the call and recovery counts, only after the final document is valid, so it never
-    describes a partial run.
+    describes a partial run. `on_progress` receives only bounded stage/count measurements and
+    is independent from that final-only coverage callback.
     """
     output_language = nd.validate_output_language(output_language)
     single_budget = nd.notes_budget(provider, model)
@@ -185,6 +187,12 @@ def generate_notes_document(
     repair_used = False
     output_recoveries = 0
     last_successful_response: tuple[int, str, str] | None = None
+
+    def progress(stage: str, current: int, total: int | None, unit: str) -> None:
+        if on_progress is not None:
+            on_progress({"stage": stage, "current": current, "total": total, "unit": unit})
+
+    progress("preparing_source", 1, 1, "phase")
 
     def request(
         prompt: str,
@@ -362,6 +370,7 @@ def generate_notes_document(
                 lowered = next(recoveries, None)
                 if lowered is None:
                     raise
+                progress("repairing", max(0, output_recoveries - 1), None, "recoveries")
                 attempt, sent = "recovery", lowered
                 continue
             provider_call_index = call_count
@@ -372,6 +381,8 @@ def generate_notes_document(
                     max_output_bytes=max_output_bytes,
                 )
                 last_successful_response = (provider_call_index, attempt, raw_output)
+                if attempt == "recovery":
+                    progress("repairing", output_recoveries, None, "recoveries")
                 return validated
             except (nd.NotesDocumentError, TypeError) as validation_error:
                 # OMP ignores the response cap, so its overflow is a size failure here.
@@ -392,6 +403,7 @@ def generate_notes_document(
                         response_limit=max_output_bytes,
                     ) from None
                 repair_used = True
+                progress("repairing", 0, 1, "repairs")
                 try:
                     bounded_repair_prompt = repair_prompt(raw_output)
                 except (nd.NotesDocumentError, TypeError, AttributeError):
@@ -421,6 +433,7 @@ def generate_notes_document(
                         max_output_bytes=max_output_bytes,
                     )
                     last_successful_response = (repair_call_index, "repair", repaired_output)
+                    progress("repairing", 1, 1, "repairs")
                     return validated
                 except (nd.NotesDocumentError, TypeError) as repair_error:
                     raise invalid_output(
@@ -473,6 +486,7 @@ def generate_notes_document(
         source_ids = nd._unique_source_ids(
             tuple(segment["id"] for segment in projected_snapshot["segments"])
         )
+        progress("generating", 0, 1, "calls")
         document = request_document(
             nd.build_prompt(
                 projected_snapshot,
@@ -494,12 +508,15 @@ def generate_notes_document(
             ),
             budget=single_budget,
         )
+        document = restore_final_document(document, stage="single")
+        progress("generating", 1, 1, "calls")
         coverage["chunks"][0]["provider_call_index"] = call_count
-        return finish(restore_final_document(document, stage="single"))
+        return finish(document)
 
     summaries: list[dict[str, Any]] = []
     previous_document: dict[str, Any] | None = None
     for index, chunk in enumerate(plan.chunks, start=1):
+        progress("chunking", index - 1, len(plan.chunks), "chunks")
         projected_chunk = projection.project_chunk(chunk)
         source_ids = nd._unique_source_ids(
             tuple(segment["id"] for segment in projected_chunk["segments"])
@@ -540,6 +557,7 @@ def generate_notes_document(
             repair_prompt=repair_chunk,
             budget=synthesis_budget,
         )
+        progress("chunking", index, len(plan.chunks), "chunks")
         coverage["chunks"][index - 1]["provider_call_index"] = call_count
         if previous_document is not None:
             # The previous chunk read the overlap in full, so its items win over repeats.
@@ -576,8 +594,9 @@ def generate_notes_document(
         nonlocal reduction_calls
         if reduction_calls >= nd.MAX_REDUCTION_CALLS:
             raise limit_error("This transcript exceeds the bounded notes reduction limit.")
+        progress("merging", reduction_calls, None, "calls")
         reduction_calls += 1
-        return request_document(
+        result = request_document(
             reduction_prompt(group, final=False),
             nd._prompt_citation_scope(projected_snapshot, group),
             max_output_bytes=nd.MAX_REDUCTION_OUTPUT_BYTES,
@@ -587,6 +606,8 @@ def generate_notes_document(
             ),
             budget=synthesis_budget,
         )
+        progress("merging", reduction_calls, None, "calls")
+        return result
 
     def document_bytes(document: dict[str, Any]) -> int:
         return len(json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
@@ -606,6 +627,7 @@ def generate_notes_document(
         if final_prompt is not None:
             if reduction_calls >= nd.MAX_REDUCTION_CALLS:
                 raise limit_error("This transcript exceeds the bounded notes reduction limit.")
+            progress("merging", reduction_calls, None, "calls")
             reduction_calls += 1
             final_document = request_document(
                 final_prompt,
@@ -617,7 +639,9 @@ def generate_notes_document(
                 ),
                 budget=synthesis_budget,
             )
-            return finish(restore_final_document(final_document, stage="final"))
+            final_document = restore_final_document(final_document, stage="final")
+            progress("merging", reduction_calls, None, "calls")
+            return finish(final_document)
 
         # Merge neighbours in source order. When two summaries leave no room for each other, the
         # larger one is compacted alone and the other moves on, so none is dropped or cut.

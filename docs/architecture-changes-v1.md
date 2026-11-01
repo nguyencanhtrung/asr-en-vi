@@ -880,6 +880,196 @@ Hiệu năng; Kiến trúc; Quyền riêng tư
 
 Các kết quả chưa đạt và follow-up nằm trong [release notes](release/notes-v1.md).
 
+### #83 — Tiến độ và trạng thái task phản ánh đúng giai đoạn
+
+#### Vấn đề
+
+Issue #83 ghi nhận thanh ASR báo 99–100% trong diarization, upload không có số đo khi server kiểm tra, notes dài không cho biết chunk/merge, busy notes chờ khóa provider, heartbeat cũ vẫn được diễn giải là worker đang chạy, và read timeout 300 giây giữ nguồn bị khóa quá lâu. Đây là các biểu hiện của số đo không cùng mẫu số hoặc trạng thái chưa được phản ánh kịp thời.
+
+#### Nguyên nhân đo được
+
+`task-core.js` dùng `transcript_end_seconds / audio_duration_seconds` cho mọi stage; notes chỉ có `on_coverage` sau kết quả hợp lệ; nhận notes lấy provider operation lock trước khi kiểm tra processing slot; ChatGPT đặt read timeout notes ở 300 giây. `compose.yaml` giữ `restart: unless-stopped`, nhưng Docker coi container bị dừng thủ công là ngoại lệ của restart policy.
+
+Nguồn: issue #83, `tests/test_browser_task_progress.py`, `tests/test_notes_provider.py`, `tests/test_notes_worker.py`.
+
+#### Thay đổi thiết kế
+
+- Thanh transcript chỉ determinate trong stage `transcribing`; diarization và các stage sau dùng thanh indeterminate.
+- Upload chuyển sang thanh indeterminate trong lúc `POST /complete` kiểm tra server, kèm byte đã truyền và đồng hồ elapsed được stamp bởi reducer runner.
+- Notes pipeline phát callback progress allowlist riêng với coverage final-only: `preparing_source`, `generating`, `chunking`, `merging`, `repairing`, `rendering`. Chunk chỉ tăng sau validation thành công; merge/recovery để `total` trống khi tổng số lượt chưa biết. Task lưu các số đo trong migration schema 14 và UI notes hiển thị stage/count.
+- Nhận notes kiểm tra processing slot nhanh trước provider operation lock, nhưng vẫn kiểm tra lại trong transaction. Notes UI ưu tiên `checking-worker` khi heartbeat active task đã cũ.
+- HTTPX notes read timeout là 60 giây, còn total timeout mỗi lượt gọi 900 giây và deadline toàn tác vụ 3600 giây; không retry inference khi mất mạng.
+- Không đổi restart policy hoặc thêm watchdog. Compose vẫn dùng `unless-stopped`; quy trình kiểm chứng recovery phải làm process worker crash để container thoát bất thường, sau đó startup recovery đánh dấu task dở `interrupted`. Không dùng `docker kill -s KILL` như bằng chứng container tự restart, vì [Docker ghi rõ manual stop suppresses restart policy](https://docs.docker.com/engine/containers/start-containers-automatically/).
+
+#### Số đo trước và sau
+
+| | Trước | Sau |
+| --- | --- | --- |
+| ASR bar trong diarization | 99–100% dù còn xử lý | indeterminate, không ETA giả |
+| Server upload checking | 38–81 giây không có số | indeterminate + byte đã truyền + elapsed khi có clock |
+| Notes chunk/merge | chỉ elapsed/provider/model | stage + chunk count hoàn tất; merge count hoàn tất; recovery count là số lượt bắt đầu, total indeterminate khi động |
+| Busy notes admission | 5,0–5,1 giây trong bằng chứng issue | focused regression trả lời dưới 1 giây khi slot đã biết bận |
+| Notes silent read | 300 giây read timeout | 60 giây read inactivity, 900 giây mỗi lượt gọi; 3600 giây toàn tác vụ |
+
+Điều kiện đo sau: interpreter hiện có của workspace, `PYTHONPATH` trỏ source/test helpers, test offline/fake provider; browser chạy với `ASR_RUN_BROWSER_TESTS=1`. Không có live provider, model hoặc Docker socket trong phạm vi issue này.
+
+Nguồn: issue #83; `tests/test_notes.py`, `tests/test_notes_provider.py`, `tests/test_notes_worker.py`, `tests/test_chatgpt_provider.py`, `tests/web/*.test.mjs`, `tests/test_browser_task_progress.py`. Read timeout semantics: [HTTPX timeouts](https://www.python-httpx.org/advanced/timeouts/).
+
+#### Đánh đổi và phương án đã loại
+
+- Dùng stage/count thật và để `total` indeterminate cho reduction động: giữ thông tin hữu ích mà không dựng tổng giả.
+- Giảm read inactivity xuống 60 giây nhưng giữ total mỗi lượt gọi 900 giây và toàn tác vụ 3600 giây: mất mạng im lặng được báo sớm, còn lượt reasoning dài vẫn có ngân sách tổng. Lượt reasoning hợp lệ cũng có thể bị dừng nếu provider không gửi chunk nào trong 60 giây; timeout không tự chứng minh mất mạng.
+- Kiểm tra slot trước provider lock và lặp lại trong transaction: busy refusal nhanh nhưng vẫn giữ tính đúng khi hai request chạy đồng thời; nếu slot bận, đọc lại idempotency để nhận ra request giống hệt vừa được chấp nhận.
+- Giữ `unless-stopped` và recovery trong worker: phân biệt crash process với manual stop theo semantics của Docker; loại watchdog host/container vì vượt phạm vi và dễ che khuất lỗi vận hành.
+
+#### Follow-up
+
+- Khi chạy nghiệm thu Docker thật, inject process crash của worker (không manual-stop container), xác nhận container restart và task chuyển `interrupted` sau startup recovery.
+- Nếu cần hiển thị phần trăm merge, pipeline phải cung cấp một tổng đã chứng minh được; không suy ra từ `MAX_REDUCTION_CALLS`.
+
+#### Liên kết issue/PR
+
+Issue #83; liên quan #82 và #118.
+
+#### Tag
+
+Kiến trúc | Notes | Hiệu năng
+
+#### Tài liệu đích
+
+- `docs/release/runtime-v0.1.0.md` — worker heartbeat/recovery.
+- `docs/release/notes-v0.1.0.md` — notes progress/timeout.
+
+### #84 — Giữ provider đang dùng và làm rõ các chuyển trạng thái kết nối
+
+#### Vấn đề
+
+Trong lúc một notes task đang dùng một provider, UI có thể không biết provider nào bị ghim; catalog `409 provider_in_use` bị diễn giải như lỗi unavailable. Antigravity ngắt kết nối ngay không có xác nhận, notes yêu cầu kết nối lại khi model đã lưu chỉ bị thiếu, và copy lỗi busy/disconnected/network không phân biệt đủ.
+
+#### Nguyên nhân đo được
+
+`GET /api/providers` chưa trả metadata active-task; reducer provider chung chưa khóa mutation theo metadata hoặc giữ badge/account khi catalog bị từ chối. Antigravity dùng descriptor không xác nhận disconnect, notes gộp trạng thái connected-missing-model vào nhánh connect, và lỗi HTTP typed 503 bị coi là chưa biết kết quả như mọi lỗi 5xx.
+
+#### Thay đổi thiết kế
+
+- Route thêm `in_use`/`in_use_reason: "notes"` từ cùng active-task guard dùng cho server mutation; chỉ provider được task ghim bị khóa, provider còn lại vẫn list/save/disconnect được.
+- Provider core khóa model, effort, save, verify và disconnect của provider in-use, hiển thị lý do qua status có `aria-describedby`; catalog `provider_in_use` giữ status, account, badge và model đã biết. Dedicated provider copy được ưu tiên trước fallback HTTP nhưng vẫn giữ copy recovery riêng của server khi có.
+- Cả ChatGPT và Antigravity đều có xác nhận disconnect. Antigravity chỉ báo xóa credential local/OMP; phản hồi không được diễn giải thành remote Google revocation. `provider_disconnected` yêu cầu connect, `reconnect_required` mới yêu cầu reconnect; `provider_unavailable` không khẳng định Internet bị ngắt, còn transport loss giữ mã network riêng.
+- Notes tách `configure` khỏi `connect`: provider connected nhưng model saved không có/không usable mở choice hiện có và focus model, không tự chọn model. Typed provider/worker admission refusals là definitive kể cả khi HTTP 503; lỗi transport/timeout mơ hồ vẫn giữ pending để verify.
+
+#### Số đo trước và sau
+
+| | Trước | Sau |
+| --- | --- | --- |
+| Metadata provider đang được notes task dùng | không có trong `/api/providers` | `in_use` + `in_use_reason` theo provider |
+| Antigravity disconnect | click trực tiếp, không xác nhận | xác nhận, focus keep/confirm, local-only result |
+| Connected + saved model không dùng được | action yêu cầu kết nối | action `configure`, mở/focus model choice |
+| Provider unavailable copy | có thể khẳng định nguyên nhân | cause-neutral, khuyên kiểm tra Internet/thử lại |
+
+Kiểm chứng: focused Node reducer tests, backend/provider guard và i18n tests, cùng browser regressions cho confirmation, catalog refusal, recovery copy và model focus; không dùng live provider/inference.
+
+#### Đánh đổi và phương án đã loại
+
+- Metadata là advisory cho UI; server guard vẫn là authority, nên race giữa status read và mutation không mở thêm quyền.
+- Giữ model/account/badge cũ khi catalog bị `provider_in_use` có thể để catalog stale, nhưng bảo toàn trạng thái kết nối và model đã lưu cho tới khi task kết thúc.
+- Dùng một confirmation flow chung với copy local-only cho Antigravity, không mô phỏng remote revocation semantics mà OMP không chứng minh được.
+
+#### Follow-up
+
+- Theo dõi trạng thái provider khi tác vụ kết thúc trong lúc hộp thoại vẫn mở; việc làm mới chỉ đọc metadata, không tự gửi inference.
+
+#### Liên kết issue/PR
+
+Issue #84.
+
+#### Tag
+
+Kiến trúc
+
+#### Tài liệu đích
+
+- `docs/release/runtime-v0.1.0.md` — provider lifecycle và reducer transition.
+
+### #85 — Làm rõ validation upload, giữ upload khi kết quả complete mơ hồ và ẩn danh row lỗi
+
+#### Vấn đề
+
+Một file media bị cắt vẫn được nhận khi duration khai báo lớn hơn nhiều duration giải mã được;
+`duration_limit` còn bị giao diện diễn giải như lỗi dung lượng. Firefox cũng có thể mất phản hồi
+`POST complete` trong lúc server vẫn kiểm tra, làm client xóa upload chưa biết kết quả. Các row
+`failed` cũ giữ filename gốc, và ngày có năm ngoài miền lịch của UI vẫn được nhận.
+
+#### Nguyên nhân đo được
+
+Issue #85 ghi nhận sáu lỗi hành vi và một quyết định giữ nguyên: file M4A cắt còn 60% byte vẫn
+trả HTTP 200; file im lặng dài 4 giờ 10 phút trả `413 duration_limit`; 4/5 lần đầu Firefox
+quan sát thấy complete thất bại trong thời gian thử nghiệm; có 7 traceback `ClientDisconnect`;
+32 row `failed` còn filename gốc; năm `0999` được nhận; và upload `ready` chưa gắn meeting giữ
+148 MB theo retention 24 giờ hoặc tới restart (giữ nguyên theo thiết kế).
+
+#### Thay đổi thiết kế
+
+- `media.probe_media` coi duration của container là provisional cho A/V nếu selected audio
+  không có duration riêng. `normalize_media` vẫn map đúng audio stream, giải mã với `max + 1`,
+  rồi áp giới hạn lên audio đã chuẩn hóa. Chỉ selected-audio duration authoritative mới được
+  so với duration giải mã (tolerance tối thiểu 2 giây hoặc 5%); audio-only được dùng container
+  duration làm fallback authoritative. Thêm regression WebM thật có video dài hơn audio.
+- API trả `duration_limit` với `max_duration_seconds` và tách `duration_mismatch`; UI có copy
+  tiếng Việt/Anh riêng cho duration, trạng thái đang kiểm tra, phục hồi complete và upload được
+  giữ lại.
+- Sau complete bị mất response hoặc lỗi mơ hồ, reducer GET trạng thái upload. `validating` được
+  poll mỗi giây không có deadline tổng ngắn; `ready` tạo meeting, `uploaded` complete lại,
+  `failed` cleanup. GET tạm thời retry sáu lần với backoff 1/2/4/8/16/32 giây; hết retry thì
+  giữ `uploadId`, cho kiểm tra lại hoặc hủy. Không DELETE khi trạng thái còn mơ hồ.
+- Client disconnect được xử lý như kết quả dự kiến: drain/commit offset bền vững và trả 204 ở
+  đường đi trực tiếp; cancellation thật sự vẫn propagate. Filename failed được đổi sang
+  `removed-upload` khi fail/delete/expiry và qua một truy vấn ẩn danh toàn bộ hàng lỗi cũ khi cleanup,
+  giữ nguyên `failure_code`; row `ready`/`consumed` giữ filename. Ngày giới hạn năm 1000–9999.
+- Giữ status `ready` retention 24 giờ hoặc startup như quan sát #7; không đổi thành xóa sớm.
+
+#### Số đo trước và sau
+
+| Chỉ số/hành vi | Trước | Sau |
+| --- | --- | --- |
+| M4A bị cắt trong fixture thật | accepted và có thể tạo meeting | rejected với `duration_mismatch` sau normalize |
+| A/V có container duration nhưng selected audio thiếu duration | dùng thời lượng container để giới hạn audio, có thể từ chối audio hợp lệ | container provisional; audio vẫn được decode/validate |
+| `duration_limit` trên UI | copy lỗi dung lượng, không nêu trần | copy nêu đúng trần, detail có `max_duration_seconds` |
+| Complete response mơ hồ | cleanup có thể DELETE upload | GET state; validating poll, uncertainty giữ upload |
+| Filename của failed row cũ | 32 row gốc không tự đổi | ẩn danh toàn bộ hàng lỗi cũ trong giao dịch, giữ diagnostics |
+| Năm cuộc họp | nhận `0999` | chỉ nhận 1000–9999 |
+| Upload ready chưa gắn meeting | giữ theo retention | giữ theo cùng retention; status 7 không đổi |
+
+Kiểm chứng: media/recording focused pytest, reducer/history Node tests, i18n checks và real-browser
+checks chạy trên Chromium và Firefox với media tổng hợp.
+
+#### Đánh đổi và phương án đã loại
+
+- Giữ upload khi complete mơ hồ dùng thêm poll và retention, nhưng tránh mất dữ liệu khi server đã
+  chuyển sang `ready`; đã loại DELETE ngay theo lỗi client.
+- Không dùng video/container duration để cắt hoặc so sánh A/V vì nó làm hỏng WebM/Matroska có
+  audio duration thiếu; chọn audio decode là authority sau normalize.
+- Ẩn danh toàn bộ hàng lỗi cũ bằng một truy vấn thay cho chờ thêm lượt cleanup hoặc xóa hàng, để giữ
+  diagnostics, audit và tên mà người dùng còn cần.
+
+#### Follow-up
+
+- Theo dõi kiểm tra media dài qua tunnel trên Firefox; nguyên nhân timeout ban đầu chưa được tái hiện xác định, còn luồng phục hồi đã có kiểm thử mất phản hồi.
+- Theo dõi telemetry nếu có để điều chỉnh retry/backoff sau khi có dữ liệu production.
+
+#### Liên kết issue/PR
+
+Issue #85.
+
+#### Tag
+
+Upload, media validation, recovery, privacy
+
+#### Tài liệu đích
+
+- `docs/backend-contract-v1.md` — upload state machine, duration contract, cleanup và date range.
+- `docs/frontend-design-v1.md` — validation recovery state/effects và UI transitions.
+- `docs/architecture-changes-v1.md` — mục này.
+
 ## 6. Mẫu mục mới
 
 Mục mới sao chép mẫu dưới đây và giữ nguyên tên các heading, để việc tách theo tag không phải viết lại.
@@ -932,3 +1122,100 @@ Issue #<n>, PR #<n>; liên quan #<n>.
 
 - <tệp và mục sẽ nhận nội dung khi release>
 ````
+
+### #86 — Chi tiết giao diện nhỏ: thứ tự điều khiển, rail và focus
+
+#### Vấn đề
+
+Ở viewport 360 px, thứ tự vẽ của header khác thứ tự Tab; ba cuộc họp gần đây đẩy Version khỏi vùng nhìn thấy ở desktop ngắn; vòng focus của transcript có thể nằm dưới player dính; wordmark hiển thị dấu `/` dù tên sản phẩm là ASR EN VI.
+
+#### Nguyên nhân đo được
+
+Header dùng thứ tự DOM khác với hàng provider được xếp lại bằng CSS; rail không giữ footer trong vùng nhìn khi nội dung cần cuộn; `scroll-padding-top` bằng đúng 64 px của player, không chừa khoảng cho outline; wordmark chứa separator không thuộc tên hiển thị.
+
+Nguồn: Issue #86 và kiểm thử layout browser của sản phẩm.
+
+#### Thay đổi thiết kế
+
+Header đặt nhóm hành động trước nhóm trạng thái provider trong DOM và giữ cùng thứ tự ở desktop/mobile. Footer rail sticky trên nền rail, vẫn cho phép cuộn nội bộ danh sách và lịch. Vùng transcript dùng `scroll-padding-top` bằng chiều cao player cộng 8 px; `#form-error` có `tabindex="-1"` để luồng lỗi có thể focus mà vẫn giữ nguyên ID/alert. Wordmark workspace hiển thị đúng `ASR EN VI`; accessible name của liên kết brand không đổi. Chiều rộng rail giữ 236 px desktop và 208 px ở breakpoint hẹp.
+
+#### Số đo trước và sau
+
+Kiểm thử trên Chromium và Firefox, light/dark, viewport 360×844, 1024×768 và 1280×800; transcript focus dùng 24 đoạn đã lưu.
+
+| Chỉ số | Trước | Sau |
+| --- | --- | --- |
+| Thứ tự DOM/visual của header ở 360 px | lệch | trùng; EN → Lịch → tạo → OpenAI → Google |
+| Version với 3 cuộc họp ở 1024×768 và 1280×800 | có thể dưới mép nhìn | nhìn thấy; rail vẫn cuộn nội bộ |
+| Scroll padding của transcript | 64 px | 72 px (64 + 8 px clearance) |
+| Wordmark nhìn thấy | `ASR / EN VI` | `ASR EN VI` |
+
+Nguồn: `tests/test_browser_layout_details.py`, Issue #86.
+
+#### Đánh đổi và phương án đã loại
+
+- Sticky footer giữ Version trong vùng thao tác mà không ẩn recent/calendar; phần còn lại của rail vẫn cuộn nội bộ.
+- Đổi thứ tự markup thay vì dùng tabindex dương hoặc chỉ xếp lại bằng CSS, để thứ tự keyboard và thứ tự vẽ có cùng nguồn.
+
+#### Follow-up
+
+- Không có thay đổi sản phẩm ngoài phạm vi layout của Issue #86.
+
+#### Liên kết issue/PR
+
+Issue #86.
+
+#### Tag
+
+Kiến trúc
+
+#### Tài liệu đích
+
+- `docs/architecture-changes-v1.md` — mục này.
+
+### #86 — Đồng bộ dữ liệu cuộc họp và phản hồi theo trạng thái
+
+#### Vấn đề và thiết kế
+
+Tab khác không biết revision hoặc khóa nguồn mới cho tới khi tải lại. Các mutation đã được server xác nhận nay phát thông báo gồm ID cuộc họp và loại thay đổi qua `BroadcastChannel`; store `meetingChanges` chuyển dữ liệu này thành effect đọc lại trạng thái chính thức. Receiver không phát lại thông báo. ID cuộc họp của mutation vẫn được dùng nếu tab phát đã điều hướng sang cuộc họp khác, vì kết quả lưu thuộc cuộc họp nguồn.
+
+Reducer tiếp tục giữ bản nháp, selection và conflict khi cài dữ liệu mới. Notes chỉ phát khi revision hoặc khóa nguồn đổi, không phát theo mỗi tick tiến độ. Cách này tránh echo và giữ nhịp poll hiện có; thông báo giữa các tab chỉ là gợi ý đọc lại, server vẫn quyết định quyền ghi. Trình duyệt không có BroadcastChannel tiếp tục dùng cơ chế đọc và kiểm tra version hiện có.
+
+HTTP 401 với payload middleware `{detail: "Authentication required"}` dừng poll và chuyển tới `/access`, thay vì báo mất mạng rồi thử lại vô hạn. Lỗi 401 có code của provider vẫn đi theo luồng khôi phục kết nối provider. Thông báo thành công/hủy dựa trên transcript thực đã lưu; mutation bị từ chối không báo thành công ở live region. Trường ngày bị khóa có lý do và `aria-describedby`; lỗi upload mới được đưa vào vùng nhìn thấy một lần; các liên kết lịch có tiêu đề đầy đủ.
+
+#### Kiểm chứng và đánh đổi
+
+Kiểm thử hai tab giữ bản nháp của tab nhận khi tab phát lưu rồi chuyển cuộc họp; một thông báo được phát, không echo. Các regression reducer kiểm tra workspace/provider 401, mutation bị từ chối và lý do khóa. `docs/frontend-design-v1.md` ghi đúng rail 236 px/208 px. BroadcastChannel không thay thế kiểm tra version ở server và không cung cấp đồng bộ giữa thiết bị.
+
+Nguồn: Issue #86; `tests/test_browser_history.py`, `tests/web/channel.test.mjs`, `tests/web/history-core.test.mjs`, `tests/web/notes-core.test.mjs`, `tests/web/task-core.test.mjs`, `tests/web/transcript-core.test.mjs`.
+
+Đọc notes được gộp theo object cuộc họp mới từ server: các lần vẽ lại cùng context vẫn cập nhật trạng thái local nhưng không mở thêm request. Thông báo từ tab khác đi qua history rồi tới notes; thông báo local của mutation dùng đường đọc trực tiếp. Regression browser đếm đúng một lần đọc thay vì sáu, đồng thời giữ bản nháp. Cả poll transcription và notes đều xử lý payload 401 của workspace bằng effect chuyển tới `/access`, không xóa bản nháp, pending request hoặc trạng thái worker. 401 có cấu trúc của provider không kích hoạt điều hướng này.
+
+### #85, #86 — Phân biệt thời lượng ước lượng và giữ vòng focus trên footer
+
+#### Vấn đề và nguyên nhân đo được
+
+MP3 VBR không có Xing/VBRI có thể được ffprobe ước lượng duration từ bitrate dù stream trả về trường duration. Khi coi số này là metadata khai báo, một file đầy đủ 120 giây có estimate lớn hơn 150 giây bị từ chối. Ở sidebar 1024×768 có ba cuộc họp gần đây, footer sticky cũng che một phần ngày 31/8/2026 đang focus: outline bottom 710,95 px vượt footer top 694,41 px.
+
+#### Thay đổi thiết kế
+
+Server dùng `format_name` thực từ ffprobe để coi MP3 và raw AAC/ADTS là provisional; không dùng đuôi file và không tăng dung sai mismatch. M4A vẫn giữ kiểm tra metadata so với audio đã decode. Bước decode vẫn giới hạn `max + 1`, và duration của audio đầu ra quyết định giới hạn thực.
+
+Sidebar dùng token chung cho chiều cao footer và phần scroll padding, cộng padding đáy cùng khoảng hở focus; mobile đặt scroll padding này về 0. Không đổi kích thước rail, nội dung footer hoặc thứ tự Tab.
+
+#### Trước và sau, với điều kiện kiểm tra
+
+| Trường hợp | Trước | Sau |
+| --- | --- | --- |
+| MP3 VBR 120 giây, không Xing, estimate >150 giây, policy 150 giây | bị từ chối | decode 119–121 giây và chấp nhận |
+| Cùng MP3, policy 90 giây | từ chối theo duration ước lượng | từ chối `duration_limit` sau decode có giới hạn |
+| M4A 180 giây bị giữ lại 60% byte | từ chối theo metadata/audio lệch | tiếp tục từ chối |
+| Focus ngày 31/8, 3 recent, 1024×768 | outline bottom vượt footer top khoảng 16,55 px | full outline bottom ≤ footer top +0,5 px trong kiểm tra Chromium/Firefox, light/dark |
+
+Nguồn: `tests/test_media.py`, `tests/test_browser_layout_details.py`; fixture media được tạo trong thư mục tạm của test.
+
+#### Đánh đổi, phương án đã loại và follow-up
+
+MP3/raw AAC không dùng duration ước lượng để phát hiện phần thiếu; decode có giới hạn vẫn bảo vệ policy thời lượng. Loại phương án nới dung sai toàn bộ vì sẽ làm yếu kiểm tra M4A bị cắt. Scroll padding giữ nguyên cách cuộn/sidebar thay vì che bớt nội dung hoặc đổi thứ tự keyboard. Không có follow-up bắt buộc.
+
+Issue #85, #86. Tag: kiến trúc, accessibility. Tài liệu đích: `docs/backend-contract-v1.md`, `docs/frontend-design-v1.md`.

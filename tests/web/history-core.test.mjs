@@ -15,11 +15,13 @@ import {
   mergeTranscription,
   monthGrid,
   reduce,
+  failureOf,
   selectCalendar,
   selectDeletion,
   selectEditor,
   selectHeading,
   selectSidebar,
+  validMeetingDate,
   validYear,
 } from "../../src/asr_en_vi/web/history-core.js";
 
@@ -445,6 +447,21 @@ test("a load that fails shows the error with the server's words; a network failu
   assert.equal(text(s.loadError).startsWith("Không kết nối được với máy chủ trên máy này."), true);
 });
 
+test("an API error code in the alternate error envelope stays localized", () => {
+  const failure = failureOf({
+    status: 409,
+    body: {
+      error: {
+        code: "notes_source_locked",
+        message: "This transcript is locked while notes are being generated.",
+      },
+    },
+  });
+  assert.equal(failure.code, "notes_source_locked");
+  assert.match(text(failure.message), /Nguồn đang được dùng để tạo notes/);
+  assert.doesNotMatch(text(failure.message), /This transcript is locked/);
+});
+
 test("a load whose body is not a meeting is an error", async () => {
   const env = await booted("/");
   env.dispatch("meeting-requested", { meetingId: "m1" });
@@ -642,6 +659,10 @@ test("the editor refuses an empty or too long name, a half-typed date and a lock
   env.dispatch("editor-submitted", { title: "New", date: "", badInput: true });
   assert.match(text(env.state().editor.error), /chưa đầy đủ/);
   assert.equal(env.state().editor.focusDate, 1);
+  env.dispatch("editor-submitted", { title: "New", date: "0999-04-05", badInput: false });
+  assert.match(text(env.state().editor.error), /chưa đầy đủ/);
+  assert.equal(validMeetingDate("1000-02-29"), false);
+  assert.equal(validMeetingDate("1000-02-28"), true);
   env.dispatch("notes-source-lock-reported", { meetingId: "m1", locked: true, known: true });
   env.dispatch("editor-submitted", { title: "New", date: "2025-04-05", badInput: false });
   assert.match(text(env.state().editor.error), /đang bị khóa/);
@@ -656,6 +677,7 @@ test("the lock disables the date and the save only while the date differs from t
   env.dispatch("notes-source-lock-reported", { meetingId: "m1", locked: true, known: true });
   let editor = selectEditor(env.state());
   assert.equal(editor.dateDisabled, true);
+  assert.match(text(editor.status), /Nguồn đang được dùng để tạo notes/);
   assert.equal(editor.clearDisabled, true);
   assert.equal(editor.saveDisabled, false);
   env.dispatch("editor-edited", { date: "" });
@@ -690,12 +712,13 @@ test("a second save while one is in flight is ignored", async () => {
   assert.equal(selectEditor(env.state()).cancelDisabled, true);
 });
 
-test("a save that fails shows the server's words and frees the editor, keeping the draft", async () => {
+test("a save that fails uses a safe localized fallback and frees the editor, keeping the draft", async () => {
   const env = await editing();
   env.dispatch("editor-submitted", { title: "A", date: "2025-03-04", badInput: false });
   await env.answer(PATCH("m1"), 422, { detail: "Tên không hợp lệ." });
   let s = env.state();
-  assert.equal(s.editor.error, "Tên không hợp lệ.");
+  assert.equal(text(s.editor.error), "File không đạt yêu cầu. Hãy kiểm tra định dạng, thời lượng và nội dung file.");
+  assert.doesNotMatch(text(s.editor.error), /Tên không hợp lệ/);
   assert.equal(s.editor.busy, false);
   assert.equal(s.editor.title, "A");
   env.dispatch("editor-submitted", { title: "A", date: "2025-03-04", badInput: false });
@@ -735,6 +758,7 @@ test("opening another meeting while a save is in flight orphans it", async () =>
   await env.answer(PATCH("m1"), 200, meeting("m1", { title: "A", metadata_version: 4 }));
   assert.equal(env.state().meeting.title, "Meeting m1");
   assert.equal(env.state().view, "loading");
+  assert.ok(env.calls.some(([name, meetingId, reason]) => name === "meeting.change" && meetingId === "m1" && reason === "metadata"));
 });
 
 test("a calendar detour keeps the editor, and the save result still lands", async () => {

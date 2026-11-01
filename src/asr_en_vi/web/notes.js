@@ -2,7 +2,7 @@
 // All state and rules live in notes-core.js (contract: docs/adr/0010-frontend-reducer-core.md).
 // Commands to history.js leave as `call` effects (the registry below); what it announces (the channel's
 // meeting context, the provider choice, popstate, ...) comes in as actions.
-import { meetingContext as meetingChannel, providerChoice } from "./channel.js";
+import { meetingChanges, meetingContext as meetingChannel, providerChoice } from "./channel.js";
 import { meetingHistory } from "./history.js";
 import { setAttr, setProp, tr } from "./shell.js";
 import { createRunner, createStore } from "./store.js";
@@ -50,6 +50,7 @@ const els = {
   steps: $("#notes-steps"),
   elapsed: $("#notes-task-elapsed"),
   providerModel: $("#notes-task-provider-model"),
+  progress: $("#notes-task-progress"),
   error: $("#notes-error"),
   errorMessage: $("#notes-error-message"),
   savedWork: $("#notes-saved-work"),
@@ -218,6 +219,10 @@ function renderChoice(view) {
   setProp(els.plan, "hidden", choice.planHidden);
   setProp(els.choice, "hidden", choice.hidden);
   setAttr(els.change, "aria-expanded", String(choice.expanded));
+  if (choice.focus > 0 && !choice.hidden && !choice.modelDisabled) {
+    els.model.focus({ preventScroll: true });
+    dispatch({ type: "notes/choice-focus-handled" });
+  }
 }
 
 function renderTask(view) {
@@ -242,6 +247,7 @@ function renderTask(view) {
   setProp(end.firstElementChild, "textContent", tr(task.end.label));
   setProp(els.elapsed, "textContent", tr(task.elapsed));
   setProp(els.providerModel, "textContent", task.providerModel.map(tr).join(" · "));
+  setProp(els.progress, "textContent", tr(task.progress));
   setProp(els.cancel, "hidden", task.cancelHidden);
   setProp(els.cancel, "disabled", task.cancelDisabled);
   setProp(els.cancel, "textContent", tr(task.cancelLabel));
@@ -364,6 +370,7 @@ const run = createRunner({
   fetch: (url, init) => fetch(url, init),
   setTimeout: (callback, delay) => window.setTimeout(callback, delay),
   clearTimeout: (id) => window.clearTimeout(id),
+  navigate: (url) => window.location.assign(url),
   storage: { local: () => window.localStorage, session: () => window.sessionStorage },
   calls: {
     "history.setNotesSourceLock": meetingHistory.setNotesSourceLock,
@@ -375,6 +382,7 @@ const run = createRunner({
     "history.refreshMeeting": meetingHistory.refreshMeeting,
     "history.seekNotesSource": async (source) => meetingHistory.seekNotesSource(source),
     "history.playRecording": async () => meetingHistory.playRecording(),
+    "meeting.change": meetingHistory.publishMeetingChange,
     replaceUrl: (url) => window.history.replaceState(window.history.state, "", url),
     copy: (text) => navigator.clipboard.writeText(text),
     download: (filename, text) => {
@@ -425,6 +433,7 @@ function newRequestId() {
 els.start.addEventListener("click", (event) => {
   // The header launcher already opens Connections at its own provider's section.
   if (event.currentTarget.dataset.action === "connect") $(`#launcher-${selectedProvider(store.getState(), null)}`).click();
+  else if (event.currentTarget.dataset.action === "configure") dispatch({ type: "notes/configure-clicked" });
   else dispatch({ type: "notes/start-clicked", requestId: newRequestId() });
 });
 els.change.addEventListener("click", () => dispatch({ type: "notes/change-toggled" }));
@@ -437,6 +446,13 @@ els.openTranscript.addEventListener("click", () => dispatch({ type: "notes/open-
 els.reload.addEventListener("click", () => dispatch({ type: "notes/choice-reload-clicked" }));
 // Connections saved a model or changed a provider status: reload before a new run can start.
 providerChoice.subscribe(() => dispatch({ type: "notes/provider-choice-changed" }));
+meetingChanges.subscribe((detail) => {
+  // Remote hints refresh history first; its authoritative context triggers the notes read.
+  // Only local transcript/metadata writes need the direct notes refresh here.
+  if (detail?.local && typeof detail.meetingId === "string" && detail.meetingId) {
+    dispatch({ type: "notes/meeting-change-received", meetingId: detail.meetingId });
+  }
+});
 els.language.addEventListener("change", (event) => dispatch({ type: "notes/language-chosen", language: event.currentTarget.value }));
 els.provider.addEventListener("change", (event) => dispatch({ type: "notes/provider-picked", provider: event.currentTarget.value }));
 els.model.addEventListener("change", (event) => dispatch({ type: "notes/model-picked", model: event.currentTarget.value }));

@@ -11,6 +11,8 @@
 // `href`, `origin`, `hidden`, `mode`); history.js commands, the clipboard, the download and
 // history.replaceState leave as `call` effects.
 
+import { errorMessageForCode, isWorkspaceAuthenticationFailure, responseCode, responseMessage } from "./shell-core.js";
+
 export const VIEW_MODE_KEY = "asr-en-vi:notes-view-mode";
 export const ACTIVE_TASK_STATES = ["accepted", "running", "stopping"];
 const PROVIDER_IDS = ["chatgpt", "antigravity"];
@@ -37,7 +39,10 @@ const TASK_STEP_OF_STAGE = {
   preparing_source: 1,
   generating: 2,
   generating_notes: 2,
+  chunking: 2,
+  merging: 2,
   repairing: 2,
+  rendering: 2,
   publishing: 3,
   saving: 3,
 };
@@ -63,17 +68,29 @@ const PROVIDER_LABELS = { chatgpt: "ChatGPT", antigravity: "Google Antigravity" 
 const NEXT_STEP = t("Hệ thống không tự đổi nhà cung cấp, tài khoản hay model. Bạn có thể chọn nhà cung cấp hoặc model khác rồi bắt đầu một lần chạy mới.");
 // Each entry names the pinned provider; the operator decides what to do next.
 const FAILURE_MESSAGES = {
-  provider_disconnected: (name) => t("{name} chưa được kết nối. Hãy kết nối lại trong phần Kết nối.", { name }),
+  provider_disconnected: (name) => t("{name} chưa được kết nối. Hãy kết nối trong phần Kết nối.", { name }),
   reconnect_required: (name) => t("{name} cần được kết nối lại trước khi tạo notes.", { name }),
   connection_changed: (name) => t("Kết nối {name} đã đổi trong lúc chạy nên tác vụ dừng lại.", { name }),
   provider_quota: (name) => t("{name} đã hết hạn mức sử dụng.", { name }),
   model_unavailable: (name) => t("Model đã chọn không dùng được với {name}; gói hiện tại có thể không bao gồm model này.", { name }),
   thinking_level_unavailable: (name) => t("{name} không áp dụng được mức suy nghĩ đã chọn; tác vụ đã dừng trước khi gửi yêu cầu tiếp theo.", { name }),
-  provider_unavailable: (name) => t("{name} tạm thời không khả dụng.", { name }),
+  provider_unavailable: (name) => t("{name} tạm thời không khả dụng. Hãy kiểm tra kết nối Internet rồi thử lại.", { name }),
   provider_invalid_response: (name) => t("{name} dừng mà không trả về kết quả dùng được nên không có notes mới nào được lưu.", { name }),
   provider_timeout: (name) => t("{name} không phản hồi kịp thời gian.", { name }),
+  provider_output_too_large: (name) => t("Phản hồi của {name} vượt quá kích thước đầu ra cho phép.", { name }),
+  provider_stream_too_large: (name) => t("Phản hồi của {name} vượt quá kích thước truyền cho phép.", { name }),
+  provider_request_too_large: (name) => t("Transcript vượt quá giới hạn an toàn cho yêu cầu notes của {name}.", { name }),
+  notes_request_too_large: (name) => t("Transcript vượt quá giới hạn an toàn cho yêu cầu notes của {name}.", { name }),
+  notes_context_budget_exceeded: (name) => t("Transcript vượt quá giới hạn an toàn cho yêu cầu notes của {name}.", { name }),
+  notes_token_budget_exceeded: (name) => t("{name} hết hạn mức token trước khi hoàn tất notes. Không có notes mới được lưu.", { name }),
+  notes_content_filtered: (name) => t("{name} dừng tạo notes vì bộ lọc nội dung. Không có notes mới được lưu.", { name }),
+  notes_incomplete: (name) => t("{name} chưa hoàn tất câu trả lời notes. Không có notes mới được lưu.", { name }),
+  notes_runner_protocol_error: (name) => t("Worker notes của {name} không trả về kết quả hoàn chỉnh.", { name }),
+  notes_timeout: (name) => t("Tạo notes bằng {name} mất quá nhiều thời gian và đã được dừng. Hãy thử lại.", { name }),
+  notes_failed: (name) => t("Tạo notes bằng {name} thất bại. Kiểm tra log của worker rồi thử lại.", { name }),
+  notes_publication_failed: (name) => t("Không thể lưu notes của {name} hoàn chỉnh. Kiểm tra bộ nhớ lưu trữ rồi thử lại.", { name }),
   notes_invalid_output: (name) => t("{name} trả về notes không hợp lệ, kể cả sau một lần sửa tự động.", { name }),
-  provider_in_use: (name) => t("{name} đang được một tác vụ notes khác sử dụng.", { name }),
+  provider_in_use: (name) => t("{name} đang được một tác vụ notes khác sử dụng. Hãy đợi tác vụ hoàn tất trước khi đổi model, kiểm tra hoặc ngắt kết nối.", { name }),
   notes_model_unselected: (name) => t("Chưa chọn model cho {name}.", { name }),
   notes_preference_changed: () => t("Lựa chọn nhà cung cấp hoặc model đã đổi ở nơi khác nên yêu cầu chưa được gửi. Hãy xác nhận lại nhà cung cấp và model đang hiển thị rồi bấm tạo notes lần nữa."),
   login_in_progress: (name) => t("Phiên đăng nhập {name} đang chờ. Hãy hoàn tất hoặc hủy đăng nhập trước khi tạo notes; hệ thống chưa đổi gì.", { name }),
@@ -85,13 +102,15 @@ export const pendingRequestStorageKey = (meetingId) => `asr-en-vi:notes-request-
 export const outputLanguageStorageKey = (meetingId) => `asr-en-vi:notes-output-language:${meetingId}`;
 
 function providerLabel(provider) {
-  return PROVIDER_LABELS[provider] || PROVIDER_LABELS.chatgpt;
+  return PROVIDER_LABELS[provider] || t("nhà cung cấp");
 }
 
-// Returns "" when the code has no dedicated copy, so callers fall back to the server text.
+// Returns "" when the code has no dedicated copy; callers then use a safe local fallback.
 export function failureMessage(code, provider) {
-  const build = FAILURE_MESSAGES[code];
-  return build ? [build(providerLabel(provider)), " ", NEXT_STEP] : "";
+  const build = Object.hasOwn(FAILURE_MESSAGES, code) ? FAILURE_MESSAGES[code] : null;
+  if (build) return [build(providerLabel(provider)), " ", NEXT_STEP];
+  const shared = errorMessageForCode(code, undefined, provider);
+  return shared ? [shared, " ", NEXT_STEP] : "";
 }
 
 function formatSeconds(value) {
@@ -123,27 +142,29 @@ function safeFilename(value) {
 
 const object = (value) => (value && typeof value === "object" ? value : null);
 
-function errorMessage(payload, status) {
-  const detail = payload && payload.detail;
-  if (typeof detail === "string" && detail.trim()) return detail.trim();
-  if (detail && typeof detail.message === "string" && detail.message.trim()) return detail.message.trim();
-  if (status === 401) return t("Phiên truy cập không còn hợp lệ. Hãy mở lại workspace.");
-  if (status === 403) return t("Yêu cầu notes bị từ chối.");
-  if (status === 404) return t("Không tìm thấy notes hoặc nguồn transcript đã lưu.");
-  if (status === 409) return t("Dữ liệu đã thay đổi. Hãy tải bản mới nhất rồi thử lại.");
-  if (status >= 500) return t("Máy chủ chưa thể hoàn tất yêu cầu notes.");
-  return t("Máy chủ chưa thể hoàn tất yêu cầu notes.");
-}
-
 // A runner error {message, status?, body?} as the old NotesApiError: a failed transfer has no status.
-function apiError(error) {
+function apiError(error, provider) {
   const status = Number.isInteger(error && error.status) ? error.status : 0;
   if (!status) return { message: t("Không kết nối được với máy chủ trên máy này."), status: 0, payload: null };
   const payload = object(error.body);
-  return { message: errorMessage(payload, status), status, payload };
+  return { code: responseCode(status, payload), message: responseMessage(status, payload, provider), status, payload };
 }
 
-const isDefinitive = (error) => error.status >= 400 && error.status < 500;
+const DEFINITIVE_ADMISSION_CODES = new Set([
+  "meeting_task_active",
+  "notes_source_locked",
+  "provider_busy",
+  "provider_disconnected",
+  "provider_in_use",
+  "reconnect_required",
+  "worker_unavailable",
+  "processing_unavailable",
+  "system_busy",
+  "notes_model_unselected",
+  "notes_preference_changed",
+  "login_in_progress",
+]);
+const isDefinitive = (error) => (error.status >= 400 && error.status < 500) || DEFINITIVE_ADMISSION_CODES.has(error.code);
 
 function unwrappedNotesPayload(payload) {
   return payload && payload.notes && typeof payload.notes === "object" ? payload.notes : payload;
@@ -578,6 +599,7 @@ export const initialState = {
     saveId: 0,
     message: "",
     open: false, // "Đổi…" is showing the selects and the description of what is sent
+    focus: 0, // one-shot focus request for the model select
   },
   notes: {}, // meeting id -> EMPTY_NOTES shape
   drafts: {}, // revision id -> { value, baselineMarkdown, expectedEditVersion, conflict }
@@ -739,7 +761,19 @@ function needsConnection(state, data, provider, readiness, pending) {
     && !pending
     && !activeTask(data)
     && !(data && data.starting)
-    && (choice.status[provider] !== "connected" || !readiness.ready || !readiness.model);
+    && choice.status[provider] !== "connected";
+}
+
+function needsModelChoice(state, data, provider, readiness, pending) {
+  const choice = state.choice;
+  const models = catalogModels(state, provider);
+  return choice.loaded
+    && !pending
+    && !activeTask(data)
+    && !(data && data.starting)
+    && choice.status[provider] === "connected"
+    && models !== null
+    && (!readiness.ready || !readiness.model);
 }
 
 function selectedRevision(state) {
@@ -815,9 +849,9 @@ const patchDraft = (state, revisionId, patch) => ({
 
 // ---- polling and reading ----
 
-function readNotes(state, meetingId, poll = null) {
+function readNotes(state, meetingId, poll = null, broadcast = false) {
   const id = state.readId + 1;
-  return out({ ...state, readId: id }, [request(`notes/read/${id}`, notesEndpoint(meetingId), "GET", undefined, "read", { id, meetingId, poll })]);
+  return out({ ...state, readId: id }, [request(`notes/read/${id}`, notesEndpoint(meetingId), "GET", undefined, "read", { id, meetingId, poll, broadcast })]);
 }
 
 function stopPolling(state) {
@@ -847,8 +881,27 @@ function savePending(state, meetingId, pending) {
 }
 
 const lockEffect = (meetingId, locked, known) => call("history.setNotesSourceLock", [meetingId, locked, known]);
+const meetingChangeEffect = (meetingId, reason) => call("meeting.change", [meetingId, reason]);
 
-function installNotes(state, meetingId, parsed) {
+function revisionsChanged(before, parsed) {
+  if (before.revisions.length !== parsed.revisions.length) return true;
+  return before.revisions.some((revision, index) => {
+    const next = parsed.revisions[index];
+    return !next
+      || revision.id !== next.id
+      || revision.edit_version !== next.edit_version
+      || revision.markdown !== next.markdown
+      || revision.source_state !== next.source_state;
+  });
+}
+
+function notesChanged(before, parsed) {
+  return before.sourceLockKnown !== true
+    || before.sourceLocked !== parsed.sourceLocked
+    || revisionsChanged(before, parsed);
+}
+
+function installNotes(state, meetingId, parsed, broadcast = false) {
   const before = entryOf(state, meetingId);
   const wasActive = activeTask(before);
   let result = out(patchNotes(state, meetingId, { revisions: parsed.revisions, task: parsed.task }));
@@ -873,6 +926,7 @@ function installNotes(state, meetingId, parsed) {
     result = then(result, (s) => clearPending(s, meetingId));
   }
   result.effects.push(lockEffect(meetingId, parsed.sourceLocked, true));
+  if (broadcast && notesChanged(before, parsed)) result.effects.push(meetingChangeEffect(meetingId, "notes"));
   return then(result, (s) => startPolling(s, meetingId, entryOf(s, meetingId).task));
 }
 
@@ -1024,7 +1078,7 @@ function preferenceSaved(state, action) {
 
 function preferenceFailed(state, action) {
   if (action.meta.id !== state.choice.saveId) return out(state);
-  const error = apiError(action.error);
+  const error = apiError(action.error, action.meta.provider);
   return out(patchChoice(state, {
     message: t("Chưa lưu được lựa chọn: {error} Lựa chọn đã lưu trước đó vẫn được giữ.", { error: error.message || t("lỗi không xác định") }),
     localProvider: null,
@@ -1097,6 +1151,7 @@ function startAccepted(state, action) {
     starting: false,
   })));
   result.effects.push(lockEffect(meetingId, locked, true));
+  result.effects.push(meetingChangeEffect(meetingId, "notes"));
   return then(result, (s) => (locked ? startPolling(s, meetingId, task) : readNotes(s, meetingId)));
 }
 
@@ -1104,10 +1159,9 @@ function startRejected(state, meta, error) {
   const { meetingId } = meta;
   const definitive = isDefinitive(error);
   let result = definitive ? clearPending(state, meetingId) : out(state);
-  const detail = error.payload && error.payload.detail;
-  const mapped = definitive && detail && typeof detail === "object" ? failureMessage(detail.code, meta.provider) : "";
+  const mapped = definitive ? failureMessage(error.code, meta.provider) : "";
   result = then(result, (s) => out(patchNotes(s, meetingId, {
-    runError: mapped || error.message || t("Không thể xác nhận yêu cầu notes."),
+    runError: mapped || errorMessageForCode(error.code, error.status, meta.provider) || error.message || t("Không thể xác nhận yêu cầu notes."),
     runErrorUncertain: !definitive,
     actionMessage: "",
   })));
@@ -1135,7 +1189,9 @@ function cancelAnswered(state, action) {
   if (parsed.error) return cancelFailed(state, action.meta, { message: parsed.error });
   const { task } = parsed;
   const next = patchNotes(state, meetingId, { task, runError: "", canceling: false });
-  return isActiveStatus(task.status) ? startPolling(next, meetingId, task) : readNotes(next, meetingId);
+  const result = isActiveStatus(task.status) ? startPolling(next, meetingId, task) : readNotes(next, meetingId);
+  result.effects.push(meetingChangeEffect(meetingId, "notes"));
+  return result;
 }
 
 function cancelFailed(state, meta, error) {
@@ -1177,7 +1233,7 @@ function saveAnswered(state, action) {
   const data = entryOf(state, meetingId);
   let next = patchNotes(state, meetingId, { revisions: replaceRevision(data, saved) });
   next = patchDraft(next, revisionId, { value: saved.markdown, baselineMarkdown: saved.markdown, expectedEditVersion: saved.edit_version, conflict: null });
-  return out(doneSaving(next, meetingId, revisionId, { runError: "", actionMessage: t("Markdown đã được lưu.") }));
+  return out(doneSaving(next, meetingId, revisionId, { runError: "", actionMessage: t("Markdown đã được lưu.") }), [meetingChangeEffect(meetingId, "notes")]);
 }
 
 function saveFailed(state, action) {
@@ -1453,7 +1509,9 @@ function meetingContext(state, action) {
   const data = entryOf(result.state, meetingId);
   result.effects.push(lockEffect(meetingId, data.sourceLocked, data.sourceLockKnown));
   result = then(result, (s) => adoptStored(s, meetingId, action.stored || {}));
-  result = then(result, (s) => readNotes(s, meetingId));
+  // Several render paths can publish the same installed meeting. Read once per new
+  // authoritative context; repeated paints still update local state and lock effects.
+  if (changed || previousMeeting !== meeting) result = then(result, (s) => readNotes(s, meetingId));
   if (changed || !result.state.choice.loaded) result = then(result, (s) => loadChoice(s, meetingId));
   return then(result, (s) => handleLocation(s, action.href));
 }
@@ -1467,7 +1525,7 @@ function response(state, action) {
       if (meta.id !== state.readId || meta.meetingId !== state.meetingId || (meta.poll !== null && meta.poll !== state.poll.token)) return out(state);
       const parsed = parseNotes(meta.meetingId, object(action.response.body));
       return parsed
-        ? installNotes(state, meta.meetingId, parsed)
+        ? installNotes(state, meta.meetingId, parsed, Boolean(meta.broadcast))
         : readFailed(state, meta.meetingId, meta.poll, t("Máy chủ không trả về trạng thái notes theo API đã công bố."));
     }
     case "choice-providers":
@@ -1495,7 +1553,20 @@ function response(state, action) {
 
 function requestFailed(state, action) {
   const { meta } = action;
-  const error = apiError(action.error);
+  if (isWorkspaceAuthenticationFailure(action.error?.status, action.error?.body)) {
+    const meetingId = state.meetingId || meta.meetingId;
+    const next = meetingId ? patchNotes(state, meetingId, {
+      runError: t("Phiên làm việc đã hết. Đang chuyển đến trang đăng nhập."),
+      runErrorUncertain: false,
+    }) : state;
+    const stopped = stopPolling(next);
+    return out(stopped.state, [
+      ...stopped.effects,
+      { type: "navigate", key: "notes/session-ended", url: "/access" },
+    ]);
+  }
+  const task = meta.op === "cancel" ? entryOf(state, meta.meetingId)?.task : null;
+  const error = apiError(action.error, meta.provider || task?.provider);
   switch (meta.op) {
     case "read":
       if (meta.id !== state.readId || meta.meetingId !== state.meetingId || (meta.poll !== null && meta.poll !== state.poll.token)) return out(state);
@@ -1544,14 +1615,20 @@ function transition(state, action) {
     case "notes/poll-due": {
       const next = { ...state, poll: { ...state.poll, scheduled: false } };
       if (action.token !== next.poll.token || action.meetingId !== next.meetingId || !activeTask(entryOf(next, action.meetingId))) return out(next);
-      return readNotes(next, action.meetingId, action.token);
+      return readNotes(next, action.meetingId, action.token, true);
     }
+    case "notes/meeting-change-received":
+      return action.meetingId === state.meetingId ? readNotes(state, state.meetingId) : out(state);
     case "notes/start-clicked":
       return startNotes(state, action.requestId);
     case "notes/cancel-clicked":
       return cancelNotes(state);
     case "notes/change-toggled":
       return out(patchChoice(state, { open: !state.choice.open }));
+    case "notes/configure-clicked":
+      return out(patchChoice(state, { open: true, focus: state.choice.focus + 1 }));
+    case "notes/choice-focus-handled":
+      return out(patchChoice(state, { focus: 0 }));
     case "notes/choice-reload-clicked":
     case "notes/provider-choice-changed":
       return state.meetingId ? loadChoice(state, state.meetingId) : out(state);
@@ -1693,14 +1770,15 @@ function stepView(task, reached, index) {
 
 function taskView(state, data) {
   const task = data.task;
-  const provider = PROVIDER_IDS.includes(task.provider) ? task.provider : "chatgpt";
+  const provider = task.provider;
+  const providerId = PROVIDER_IDS.includes(provider) ? provider : "";
   const name = providerLabel(provider);
   const active = isActiveStatus(task.status);
   const ended = ["failed", "canceled", "interrupted"].includes(task.status);
   const reached = state.taskSteps[task.id];
-  const effort = provider === "antigravity"
+  const effort = providerId === "antigravity"
     ? t("mức suy nghĩ {effort}", { effort: effortLabel(task.reasoning_effort === "medium" ? "medium" : "high") })
-    : (provider === "chatgpt" && task.reasoning_effort && task.reasoning_effort !== "default" ? `effort ${task.reasoning_effort}` : "");
+    : (providerId === "chatgpt" && task.reasoning_effort && task.reasoning_effort !== "default" ? `effort ${task.reasoning_effort}` : "");
   let status;
   if (task.status === "accepted") status = t("Tác vụ đã được nhận. Worker sẽ bắt đầu xử lý notes.");
   else if (task.status === "running") status = t("{taskProviderName} đang tạo notes. Tác vụ tiếp tục ở worker nếu bạn mở cuộc họp khác.", { taskProviderName: name });
@@ -1708,17 +1786,41 @@ function taskView(state, data) {
   else if (task.status === "succeeded") status = t("Notes đã được lưu. Chọn revision bên dưới để xem hoặc sửa.");
   else if (task.status === "failed") {
     status = failureMessage(task.error_code, provider)
-      || task.error_message
+      || errorMessageForCode(task.error_code, undefined, provider)
       || t("Tác vụ notes bằng {provider} thất bại. {next}", { provider: name, next: NEXT_STEP });
   } else if (task.status === "canceled") status = t("Worker đã xác nhận hủy tác vụ notes.");
   else if (task.status === "interrupted") status = t("Worker đã dừng giữa tác vụ notes. Không tự chạy lại.");
   else status = t("Đang đọc trạng thái tác vụ notes.");
-  if (task.error_message && !["failed", "interrupted"].includes(task.status)) status = [status, ` ${task.error_message}`];
+  const taskFailure = errorMessageForCode(task.error_code, undefined, provider);
+  if (taskFailure && !["failed", "interrupted"].includes(task.status)) status = [status, " ", taskFailure];
   const stopping = task.status === "stopping" || data.canceling;
+  const progress = task.progress && typeof task.progress === "object" ? task.progress : null;
+  const progressCurrent = Number.isSafeInteger(progress?.current) && progress.current >= 0 ? progress.current : null;
+  const progressTotal = Number.isSafeInteger(progress?.total) && progress.total >= progressCurrent ? progress.total : null;
+  let progressText = "";
+  if (progress && task.stage === "preparing_source") progressText = t("Đang chuẩn bị transcript cho notes.");
+  else if (progress && task.stage === "generating") progressText = progressTotal === null
+    ? t("Đang tạo notes.")
+    : t("Đang tạo notes · đã xong {current}/{total} lượt.", { current: progressCurrent ?? 0, total: progressTotal });
+  else if (progress && task.stage === "chunking") progressText = progressTotal === null
+    ? t("Đang xử lý các phần transcript · đã xong {current}.", { current: progressCurrent ?? 0 })
+    : t("Đang xử lý transcript · đã xong {current}/{total} phần.", { current: progressCurrent ?? 0, total: progressTotal });
+  else if (progress && task.stage === "merging") progressText = t("Đang hợp nhất notes · đã xong {current} lượt.", { current: progressCurrent ?? 0 });
+  else if (progress && task.stage === "repairing") progressText = progressTotal === null
+    ? t("Đang sửa phản hồi notes · lượt {current}.", { current: progressCurrent ?? 0 })
+    : t("Đang sửa phản hồi notes · đã xong {current}/{total} lượt.", { current: progressCurrent ?? 0, total: progressTotal });
+  else if (progress && task.stage === "rendering") progressText = t("Đang hoàn thiện notes.");
+  const workerChecking = active && task.worker_state === "checking-worker";
+  if (workerChecking) {
+    status = task.status === "accepted"
+      ? t("Đang kiểm tra worker trước khi bắt đầu xử lý notes.")
+      : t("Đang kiểm tra worker vì heartbeat tác vụ notes đã cũ.");
+  }
   return {
     status,
     elapsed: t("Đã chạy {n} giây", { n: Math.max(0, Number(task.elapsed_seconds) || 0).toFixed(1) }),
     providerModel: [name, task.model, effort].filter(Boolean),
+    progress: workerChecking ? "" : progressText,
     steps: [0, 1, 2, 3].map((index) => stepView(task, reached, index)),
     // A run first seen after it ended has no known step, so say only how it ended.
     end: { hidden: !ended || reached !== undefined, state: ended && reached === undefined ? task.status : "", label: ended && reached === undefined ? TASK_STATE_LABELS[task.status] : "" },
@@ -1761,7 +1863,12 @@ function choiceView(state, data, pending) {
     });
   }
   // The plan line belongs to the open choice, except when the action cannot simply run and it says why.
-  const stuck = needsConnection(state, data, provider, readiness, pending) || (!choice.loaded && !choice.loading && !pending);
+  const configure = needsModelChoice(state, data, provider, readiness, pending);
+  const catalogBlocked = Boolean(choice.catalogErrors[provider]);
+  const stuck = needsConnection(state, data, provider, readiness, pending)
+    || configure
+    || catalogBlocked
+    || (!choice.loaded && !choice.loading && !pending);
   return {
     provider,
     readiness,
@@ -1775,6 +1882,8 @@ function choiceView(state, data, pending) {
     reloadHidden: choice.loaded || !state.meetingId,
     reloadDisabled: choice.loading,
     message: choice.message,
+    configure,
+    focus: choice.focus,
     policy: t("Ngày họp, lời thoại, mốc thời gian và tên người nói được gửi tới {name} bằng model đã chọn. Với nguồn dài, các bản tóm tắt trung gian cũng được gửi để tổng hợp notes. File audio/video, tên cuộc họp và thông tin tài khoản không được gửi.", { name }),
     hidden: !choice.open,
     expanded: choice.open,
@@ -1880,9 +1989,11 @@ export function selectView(state) {
   const choice = choiceView(state, data, pending);
   const { provider, readiness } = choice;
   const connect = needsConnection(state, data, provider, readiness, pending);
+  const configure = choice.configure;
   const revisions = data ? data.revisions : [];
   let runLabel;
   if (connect) runLabel = t("Kết nối {provider} để tạo notes", { provider: providerLabel(provider) });
+  else if (configure) runLabel = t("Chọn hoặc đổi model để tạo notes.");
   else if (data && data.starting) runLabel = t("Đang gửi yêu cầu…");
   else if (pending) runLabel = t("Xác minh yêu cầu notes");
   else {
@@ -1919,10 +2030,10 @@ export function selectView(state) {
     languageDisabled: Boolean(wait || (data && data.starting) || activeTask(data) || pending),
     choice,
     run: {
-      action: connect ? "connect" : "start",
-      describedBy: connect ? "notes-run-plan" : "notes-status",
-      disabled: !connect && !canStartNotes(state),
-      title: !connect && wait ? waitMessage : "",
+      action: connect ? "connect" : configure ? "configure" : "start",
+      describedBy: connect || configure ? "notes-run-plan" : "notes-status",
+      disabled: !connect && !configure && !canStartNotes(state),
+      title: !connect && !configure && wait ? waitMessage : "",
       label: runLabel,
       inToolbar: Boolean(selectedRevision(state)),
     },

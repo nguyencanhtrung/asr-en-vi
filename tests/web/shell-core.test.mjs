@@ -6,9 +6,18 @@ import {
   AUTO_TRANSCRIBE_HANDOFF_PREFIX,
   canSubmit,
   initialState,
+  isWorkspaceAuthenticationFailure,
   reduce,
+  responseMessage,
   selectView,
 } from "../../src/asr_en_vi/web/shell-core.js";
+
+test("workspace authentication failure is exact and does not classify provider 401 details", () => {
+  assert.equal(isWorkspaceAuthenticationFailure(401, { detail: "Authentication required" }), true);
+  assert.equal(isWorkspaceAuthenticationFailure(401, { detail: { code: "reconnect_required" } }), false);
+  assert.equal(isWorkspaceAuthenticationFailure(401, { detail: "authentication required" }), false);
+  assert.equal(isWorkspaceAuthenticationFailure(403, { detail: "Authentication required" }), false);
+});
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const reply = (status, body) => ({ ok: status < 400, status, text: async () => JSON.stringify(body) });
@@ -22,6 +31,22 @@ const CHUNKED_FILE = {
     return { start, end, size: end - start };
   },
 };
+
+test("server error details are resolved by code instead of leaking raw English", () => {
+  assert.deepEqual(
+    responseMessage(422, {
+      detail: {
+        code: "invalid_media",
+        message: "The uploaded file is corrupt or cannot be read.",
+      },
+    }),
+    { text: "File không đạt yêu cầu. Hãy kiểm tra định dạng, thời lượng và nội dung file." },
+  );
+  assert.deepEqual(
+    responseMessage(413, { detail: { code: "duration_limit", max_duration_seconds: 14_400 } }),
+    { text: "File vượt giới hạn thời lượng {duration}. Hãy chọn bản ghi ngắn hơn.", params: { duration: { text: "{n} giờ", params: { n: 4 } } } },
+  );
+});
 
 // Real store and runner over fakes: requests wait in `calls` until a test answers them.
 function setup() {
@@ -207,6 +232,8 @@ test("form validation gates the one button", async () => {
   assert.equal(canSubmit(env.state()), false);
   edit({ date: "2026-1-2" });
   assert.equal(canSubmit(env.state()), false);
+  edit({ date: "0999-10-28" });
+  assert.equal(canSubmit(env.state()), false);
   edit({ date: "2026-10-28" });
   assert.equal(canSubmit(env.state()), true);
 });
@@ -227,6 +254,8 @@ test("one button: cleans, creates the upload, uploads with progress, checks, the
   Object.assign(env.xhrs[0], { status: 204, responseText: "" });
   env.xhrs[0].onload();
   assert.equal(env.state().phase, "checking");
+  assert.equal(env.state().progress.indeterminate, true);
+  assert.equal(env.state().progress.percent, null);
   await env.answer(env.is("POST", "/u1/complete"), 200, { status: "ready" });
   assert.equal(env.state().phase, "creating");
   const create = env.calls.find((c) => c.url === "/api/meetings");
@@ -269,9 +298,24 @@ test("chunked upload sends sequential slices, resumes a failed chunk, and keeps 
   assert.deepEqual(env.xhrs[3].body, { start: 8, end: 10, size: 2 });
   finishChunk(env.xhrs[3], 10);
   assert.equal(env.state().phase, "checking");
-  assert.equal(env.state().progress.percent, 100);
+  assert.equal(env.state().progress.indeterminate, true);
+  assert.equal(env.state().progress.percent, null);
   await env.answer(env.is("POST", "/complete"), 200, { status: "ready" });
   assert.equal(env.state().phase, "creating");
+});
+
+test("server-side checking stays indeterminate and reports elapsed time", async () => {
+  const env = setup();
+  await uploading(env);
+  Object.assign(env.xhrs[0], { status: 204, responseText: "" });
+  env.xhrs[0].onload();
+  const runId = env.state().runId;
+  env.store.dispatch({ type: "shell/upload-checking-tick", meta: { runId }, now: 1_000 });
+  assert.equal(env.state().progress.indeterminate, true);
+  assert.equal(env.state().progress.percent, null);
+  env.store.dispatch({ type: "shell/upload-checking-tick", meta: { runId }, now: 5_250 });
+  assert.equal(env.state().progress.text.params.seconds, 4);
+  assert.equal(env.state().progress.text.params.size.fmt, "bytes");
 });
 
 test("auto-transcribe off writes no handoff; toggling stores the choice", async () => {
@@ -538,6 +582,84 @@ test("cancel while the server checks the file drops the late completion", async 
   await env.answer(env.is("DELETE", "/u1"), 204, {});
   assert.equal(env.state().phase, "aborted");
   assert.equal(env.calls.some((c) => c.url === "/api/meetings"), false);
+});
+
+test("a lost completion response checks the upload before deciding, without deleting it", async () => {
+  const env = setup();
+  await uploading(env);
+  doneXhr(env.xhrs[0]);
+  const complete = env.calls.find((c) => c.url.endsWith("/complete"));
+  complete.reject(new TypeError("connection lost"));
+  await tick();
+  assert.equal(env.state().phase, "checking");
+  assert.equal(env.state().completionRecovery, true);
+  assert.equal(env.calls.some((c) => c.method === "DELETE"), false);
+  await env.answer(env.is("GET", "/u1"), 200, { status: "ready", received_bytes: 500 });
+  assert.equal(env.state().phase, "creating");
+  assert.equal(env.state().serverReady, true);
+  await env.answer(env.is("POST", "/api/meetings"), 201, { meeting: { id: "m-recovered" } });
+  assert.deepEqual(env.navigated, ["/meetings/m-recovered"]);
+  assert.equal(env.calls.some((c) => c.method === "DELETE"), false);
+});
+
+test("validation can stay pending, retries completion only after uploaded, and caps transport retries", async () => {
+  const env = setup();
+  await uploading(env);
+  doneXhr(env.xhrs[0]);
+  await env.answer(env.is("POST", "/complete"), 200, { status: "validating" });
+  assert.equal(env.state().phase, "checking");
+  await env.runNextTimer(); // checking clock
+  await env.runNextTimer(); // validation poll
+  await env.answer(env.is("GET", "/u1"), 200, { status: "validating", received_bytes: 500 });
+  assert.equal(env.state().phase, "checking");
+  await env.runNextTimer();
+  await env.runNextTimer();
+  await env.answer(env.is("GET", "/u1"), 200, { status: "uploaded", received_bytes: 500 });
+  assert.equal(env.calls.filter((c) => c.url.endsWith("/complete")).length, 2);
+  await env.answer(env.is("POST", "/complete"), 200, { status: "ready" });
+  assert.equal(env.state().phase, "creating");
+
+  const lost = setup();
+  await uploading(lost);
+  doneXhr(lost.xhrs[0]);
+  lost.calls.find((c) => c.url.endsWith("/complete")).reject(new TypeError("down"));
+  await tick();
+  for (let retry = 0; retry <= 6; retry += 1) {
+    const status = lost.calls.find((c) => !c.done && c.method === "GET" && c.url.endsWith("/u1"));
+    assert.ok(status, `missing validation GET ${retry}`);
+    status.done = true;
+    status.reject(new TypeError("down"));
+    await tick();
+    if (retry < 6) {
+      while (!lost.calls.some((c) => !c.done && c.method === "GET" && c.url.endsWith("/u1"))) {
+        await lost.runNextTimer();
+      }
+    }
+  }
+  assert.equal(lost.state().phase, "error");
+  assert.equal(lost.state().validationUncertain, true);
+  assert.equal(lost.state().uploadId, "u1");
+  assert.equal(lost.calls.some((c) => c.method === "DELETE"), false);
+  lost.store.dispatch({ type: "shell/submit-requested" });
+  assert.equal(lost.state().phase, "checking");
+  assert.equal(lost.calls.filter((c) => c.method === "GET" && c.url.endsWith("/u1")).length, 8);
+});
+
+test("cancel during validation recovery aborts polls and ignores a late status reply", async () => {
+  const env = setup();
+  await uploading(env);
+  doneXhr(env.xhrs[0]);
+  env.calls.find((c) => c.url.endsWith("/complete")).reject(new TypeError("lost"));
+  await tick();
+  const status = env.calls.find((c) => !c.done && c.method === "GET" && c.url.endsWith("/u1"));
+  env.store.dispatch({ type: "shell/upload-cancel-requested" });
+  assert.equal(status.init.signal.aborted, true);
+  await env.answer(env.is("DELETE", "/u1"), 204, {});
+  assert.equal(env.state().phase, "aborted");
+  status.resolve(reply(200, { status: "ready" }));
+  await tick();
+  assert.equal(env.state().phase, "aborted");
+  assert.equal(env.state().serverReady, false);
 });
 
 test("closing during upload cancels it instead of closing; a failed cleanup is remembered and retried", async () => {

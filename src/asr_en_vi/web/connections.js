@@ -22,6 +22,7 @@ const els = {
   message: document.querySelector("#connection-message"),
   error: document.querySelector("#connection-error"),
   errorMessage: document.querySelector("#connection-error-message"),
+  mutationReason: document.querySelector("#connection-mutation-reason"),
   retryPoll: document.querySelector("#connection-retry-poll"),
   signIn: document.querySelector("#connection-sign-in"),
   pendingActions: document.querySelector("#connection-pending-actions"),
@@ -73,6 +74,10 @@ export function renderSection(section, d, s) {
   setProp(section.message, "textContent", tr(s.message));
   setProp(section.error, "hidden", !s.error);
   setProp(section.errorMessage, "textContent", s.error ? tr(s.error.text) : "");
+  if (section.mutationReason) {
+    setProp(section.mutationReason, "hidden", !view.mutationReason);
+    setProp(section.mutationReason, "textContent", tr(view.mutationReason));
+  }
   if (section.retryPoll) {
     setAttr(section.error, "data-code", s.error ? s.error.code : "");
     setProp(section.retryPoll, "hidden", !(s.error && s.error.retryPoll));
@@ -87,11 +92,28 @@ export function renderSection(section, d, s) {
   setProp(section.effortSelect, "disabled", view.effortDisabled);
   setProp(section.modelSave, "disabled", view.saveDisabled);
   setProp(section.verify, "disabled", view.verifyDisabled);
+  const describedBy = view.mutationReason ? section.mutationReason?.id : "";
+  for (const element of [section.modelSelect, section.effortSelect, section.modelSave, section.verify, section.disconnectTrigger, section.disconnectConfirmButton]) {
+    if (!element) continue;
+    if (element.dataset.baseDescribedBy === undefined) element.dataset.baseDescribedBy = element.getAttribute("aria-describedby") || "";
+    const ids = [element.dataset.baseDescribedBy, describedBy].filter(Boolean).join(" ");
+    if (ids) setAttr(element, "aria-describedby", ids);
+    else element.removeAttribute("aria-describedby");
+  }
   setAttr(section.modelStatus, "data-state", s.modelStatus.state);
   setProp(section.modelStatus, "textContent", tr(s.modelStatus.text));
   setAttr(section.verificationResult, "data-state", s.verifyResult.state);
   setProp(section.verificationResult, "textContent", tr(s.verifyResult.text));
   setProp(section.disconnect, "hidden", view.disconnectHidden);
+  if (section.disconnectConfirm) setProp(section.disconnectConfirm, "hidden", !s.confirming);
+  if (section.disconnectTrigger) {
+    setProp(section.disconnectTrigger, "hidden", s.confirming);
+    setProp(section.disconnectTrigger, "disabled", view.disconnectDisabled);
+  }
+  if (section.disconnectConfirmButton) {
+    setProp(section.disconnectConfirmButton, "disabled", view.disconnectDisabled);
+    setProp(section.disconnectConfirmButton, "textContent", tr(view.disconnectLabel));
+  }
   return view;
 }
 
@@ -112,11 +134,6 @@ function render(state) {
   if (s.loginCopy) setProp(els.pendingCopy, "textContent", tr(s.loginCopy));
   setProp(els.pendingActions, "hidden", view.pendingHidden);
   setProp(els.cancelSignIn, "disabled", view.cancelDisabled);
-  setProp(els.disconnectConfirm, "hidden", !s.confirming);
-  setProp(els.disconnectTrigger, "hidden", s.confirming);
-  setProp(els.disconnectTrigger, "disabled", view.disconnectDisabled);
-  setProp(els.disconnectConfirmButton, "disabled", view.disconnectDisabled);
-  setProp(els.disconnectConfirmButton, "textContent", tr(view.disconnectLabel));
   if (s.ui) {
     const focus = { "focus:sign-in": els.signIn, "focus:disconnect-confirm": els.disconnectConfirmButton, "focus:disconnect-trigger": els.disconnectTrigger }[s.ui];
     if (focus) focus.focus();

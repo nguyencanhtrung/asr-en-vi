@@ -218,13 +218,11 @@ def test_missing_saved_model_requires_an_explicit_choice(live, signed_in):
     expect(page.locator("#notes-model")).to_have_value("")
     expect(page.locator("#notes-run-plan")).to_contain_text("model-that-was-removed")
     expect(page.locator("#notes-run-plan")).to_contain_text("không tự chọn thay")
-    expect(page.locator("#notes-start")).to_have_text("Kết nối Google Antigravity để tạo notes")
-    # Pressing it connects; it cannot start a run while the model is missing.
+    expect(page.locator("#notes-start")).to_have_text("Chọn hoặc đổi model để tạo notes.")
+    # The provider is connected; the action opens the existing choice surface and focuses its model.
     page.locator("#notes-start").click()
-    expect(page.locator("#connections-dialog")).to_be_visible()
-    page.keyboard.press("Escape")
-    expect(page.locator("#connections-dialog")).to_be_hidden()
-    page.locator("#notes-change").click()
+    expect(page.locator("#notes-choice")).to_be_visible()
+    expect(page.locator("#notes-model")).to_be_focused()
     page.locator("#notes-model").select_option(ANTIGRAVITY_MODEL)
     expect(page.locator("#notes-preference-status")).to_contain_text("lần chạy tiếp theo")
     expect(page.locator("#notes-start")).to_have_text(

@@ -109,14 +109,25 @@ def signed_in(live, request):
     """Factory for authenticated (context, page) pairs in a chosen timezone and clock.
 
     Headless Chromium hides scrollbars; parametrize this indirectly with True to draw them as a
-    desktop browser does.
+    desktop browser does.  Set ASR_BROWSER_ENGINE to select Firefox for browser checks.
     """
     with sync_playwright() as playwright:
-        chrome_path = os.environ.get("CHROME_BIN") or shutil.which("google-chrome")
-        launch = {"executable_path": chrome_path} if chrome_path else {}
-        if getattr(request, "param", False):
+        engine = os.environ.get("ASR_BROWSER_ENGINE", "chromium").lower()
+        if engine == "firefox":
+            browser_type = playwright.firefox
+            firefox_path = os.environ.get("ASR_FIREFOX_EXECUTABLE")
+            if not firefox_path:
+                pytest.fail("ASR_FIREFOX_EXECUTABLE is required for the Firefox browser gate")
+            launch = {"executable_path": firefox_path}
+        elif engine == "chromium":
+            browser_type = playwright.chromium
+            chrome_path = os.environ.get("CHROME_BIN") or shutil.which("google-chrome")
+            launch = {"executable_path": chrome_path} if chrome_path else {}
+        else:
+            pytest.fail(f"unsupported ASR_BROWSER_ENGINE: {engine}")
+        if getattr(request, "param", False) and engine == "chromium":
             launch["ignore_default_args"] = ["--hide-scrollbars"]
-        browser = playwright.chromium.launch(headless=True, **launch)
+        browser = browser_type.launch(headless=True, **launch)
 
         def make(
             timezone=TIMEZONE,
@@ -832,9 +843,7 @@ def test_delete_ui_keeps_unrelated_404_visible(live, browser_context):
     _confirm_meeting_deletion(page, "Unrelated 404 deletion target")
 
     expect(page.locator("#meeting-delete-error")).to_be_visible()
-    expect(page.locator("#meeting-delete-error")).to_have_text(
-        "The requested deletion target was not found."
-    )
+    expect(page.locator("#meeting-delete-error")).to_have_text("Không tìm thấy dữ liệu yêu cầu.")
     expect(page.locator("#meeting-title")).to_have_text("Unrelated 404 deletion target")
     expect(page.locator("#recent-list a")).to_have_count(1)
     assert context.request.get(f"{live.url}/api/meetings/{meeting_id}").status == 200
@@ -884,7 +893,7 @@ def test_delete_ui_guides_active_task_cancel_and_wait(live, browser_context, tmp
             503,
             "storage_unavailable",
             "Storage service is temporarily unavailable.",
-            "Storage service is temporarily unavailable.",
+            "Máy chủ chưa thể hoàn tất yêu cầu. Hãy thử lại sau.",
         ),
     ],
 )
@@ -1248,10 +1257,14 @@ def test_sidebar_fits_beside_a_classic_scrollbar_and_still_scrolls(live, signed_
         assert metrics["monthWidth"] >= metrics["monthWanted"] - 0.5, metrics
         assert metrics["pickRight"] <= metrics["calendarRight"] + 0.5, metrics
 
-        # It still scrolls by itself, down to the footer.
-        expect(page.locator(".version-link")).not_to_be_in_viewport()
+        # The footer stays visible while the calendar/list still scroll independently.
+        expect(page.locator(".version-link")).to_be_in_viewport()
+        before_scroll = page.locator(".sidebar").evaluate("el => el.scrollTop")
         page.mouse.move(40, height // 2)
         page.mouse.wheel(0, 2000)
+        page.wait_for_function(
+            "before => document.querySelector('.sidebar').scrollTop > before", arg=before_scroll
+        )
         expect(page.locator(".version-link")).to_be_in_viewport()
 
 
@@ -1399,7 +1412,7 @@ def test_diarization_error_shows_sanitized_copyable_diagnostic_command(live, bro
     edit_segment(page)
     page.locator(".segment-speaker-select").select_option("SPEAKER_01")
     expect(page.locator("#transcript-mutation-error-message")).to_have_text(
-        "Không thể lưu người nói."
+        "Máy chủ chưa thể hoàn tất yêu cầu. Hãy thử lại sau."
     )
     expect(page.locator("#transcription-error-message")).to_have_text(
         "Không thể giải mã bản ghi. Tải lại file âm thanh hợp lệ rồi thử lại."
@@ -1436,7 +1449,7 @@ def test_diarization_error_shows_sanitized_copyable_diagnostic_command(live, bro
     )
     page.get_by_role("button", name="Chạy lại bản ghi").click()
     expect(page.locator("#transcription-error-message")).to_contain_text(
-        "Không thể gửi lại tác vụ."
+        "Máy chủ chưa thể hoàn tất yêu cầu. Hãy thử lại sau."
     )
     expect(page.locator("#task-diagnostic-details")).to_be_hidden()
     expect(page.locator("#task-diagnostic-command-wrap")).to_be_hidden()
@@ -1447,7 +1460,7 @@ def test_diarization_error_shows_sanitized_copyable_diagnostic_command(live, bro
             ("Safe fallback.", task_id),
         )
     page.reload(wait_until="domcontentloaded")
-    expect(page.locator("#transcription-error-message")).to_have_text("Safe fallback.")
+    expect(page.locator("#transcription-error-message")).to_have_text("Tác vụ chưa hoàn tất.")
     expect(page.locator("#task-diagnostic-details")).to_be_hidden()
     expect(page.locator("#task-diagnostic-command-wrap")).to_be_hidden()
 
@@ -1847,6 +1860,77 @@ def test_slow_save_never_repaints_after_navigating_elsewhere(live, browser_conte
     page.get_by_role("button", name="Quay lại notes").click()
     expect(page.locator("#meeting-title")).to_have_text("B renamed")
     expect(page.locator("#meeting-edit")).to_be_hidden()
+
+
+def test_delayed_transcript_save_notifies_other_tab_after_origin_navigation_and_keeps_draft(
+    live, browser_context
+):
+    context, page_a = browser_context
+    other_id = seed_meeting(live.settings.data_dir, "Other tab destination", "2026-10-13")
+    meeting_id, _generation_id = open_reading_meeting(live, page_a, title="Shared transcript")
+    page_b = open_page(context, live, f"/meetings/{meeting_id}")
+    expect(page_b.locator(".segment-edit-button").first).to_be_enabled()
+
+    # Tab B has a dirty draft that must survive the authoritative refresh caused by A.
+    row_b = page_b.locator(".transcript-segment").first
+    editor_b = edit_segment(page_b)
+    editor_b.fill("Draft kept in B")
+
+    observed = page_b.context.new_page()
+    observed.goto(f"{live.url}/", wait_until="domcontentloaded")
+    observed.evaluate(
+        """() => {
+          window.__meetingChangeMessages = [];
+          const channel = new BroadcastChannel('asr-en-vi:meeting-changes');
+          channel.addEventListener('message', event =>
+            window.__meetingChangeMessages.push(event.data));
+        }"""
+    )
+
+    # Tab A confirms the write only after the user has moved to another meeting.
+    held = hold_first(
+        page_a,
+        rf"/api/meetings/{meeting_id}/transcript-segments/[^/]+/text$",
+        "PATCH",
+    )
+    row_a = page_a.locator(".transcript-segment").first
+    edit_segment(page_a)
+    row_a.locator(".segment-text-editor").fill("Saved from A")
+    row_a.get_by_role("button", name="Lưu đoạn").click()
+    deadline = time.monotonic() + 10
+    while not held and time.monotonic() < deadline:
+        page_a.wait_for_timeout(25)
+    assert held, "the transcript save did not reach the hold point"
+
+    page_a.locator("#recent-list a").filter(has_text="Other tab destination").click()
+    page_a.wait_for_url(f"{live.url}/meetings/{other_id}")
+    expect(page_a.locator("#meeting-title")).to_have_text("Other tab destination")
+    page_b.wait_for_load_state("networkidle")
+    receiver_notes_reads = []
+    page_b.on(
+        "request",
+        lambda request: (
+            receiver_notes_reads.append(request.url)
+            if request.method == "GET"
+            and request.url == f"{live.url}/api/meetings/{meeting_id}/notes"
+            else None
+        ),
+    )
+    held[0].continue_()
+
+    expect(row_b.locator(".segment-text-editor")).to_have_value("Draft kept in B", timeout=10_000)
+    expect(row_b.locator(".transcript-draft-review")).to_contain_text(
+        "Bản mới nhất đã lưu: Saved from A", timeout=10_000
+    )
+    page_b.wait_for_load_state("networkidle")
+    assert len(receiver_notes_reads) == 1, "one hint must cause one authoritative notes read"
+    row_b.get_by_role("button", name="Hủy").click()
+    expect(row_b.locator(".segment-draft-mark")).to_have_text("Bản nháp chưa lưu")
+    messages = observed.evaluate("window.__meetingChangeMessages")
+    assert len(messages) == 1, "the receiver's authoritative read must not echo-broadcast"
+    assert messages[0]["meetingId"] == meeting_id
+    observed.close()
+    page_b.close()
 
 
 def test_slow_conflict_lookup_never_repaints_after_navigating_elsewhere(live, browser_context):
@@ -2748,9 +2832,11 @@ def test_delayed_text_and_name_errors_target_replacement_statuses(live, browser_
             content_type="application/json",
             body=json.dumps({"detail": {"message": fulfill_error}}),
         )
-        expect(replacement).to_have_text(fulfill_error)
+        expect(replacement).to_have_text("Máy chủ chưa thể hoàn tất yêu cầu. Hãy thử lại sau.")
         expect(page.locator("#transcript-mutation-status")).to_be_visible()
-        expect(page.locator("#transcript-mutation-status")).to_have_text(fulfill_error)
+        expect(page.locator("#transcript-mutation-status")).to_have_text(
+            "Máy chủ chưa thể hoàn tất yêu cầu. Hãy thử lại sau."
+        )
 
     text = edit_segment(page)
     text.fill("Delayed text failure.")

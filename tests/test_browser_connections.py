@@ -706,10 +706,35 @@ def test_google_button_opens_dialog_at_antigravity_and_tracks_its_status(browser
     assert_landed_on_antigravity(page)
     expect(page.locator("#antigravity-status")).to_have_text("Đã kết nối")
 
-    page.get_by_role("button", name="Ngắt kết nối Antigravity").click()
+    page.locator("#antigravity-disconnect").click()
+    expect(page.locator("#antigravity-disconnect-confirm")).to_be_visible()
+    expect(page.locator("#antigravity-disconnect-confirm-button")).to_have_text("Ngắt kết nối")
+    expect(page.locator("#antigravity-disconnect-confirm-button")).to_be_focused()
+    page.locator("#antigravity-disconnect-keep").click()
+    expect(page.locator("#antigravity-disconnect-confirm")).to_be_hidden()
+    assert not any(
+        method == "DELETE" and path == "/api/providers/antigravity/connection"
+        for method, path, _ in api.calls
+    )
+
+    page.locator("#antigravity-disconnect").click()
+    expect(page.locator("#antigravity-disconnect-confirm-button")).to_be_focused()
+    page.locator("#antigravity-disconnect-confirm-button").click()
     expect(google).to_have_attribute("data-state", "disconnected")
     expect(google).to_have_attribute("aria-label", "Kết nối Google: chưa kết nối")
     expect(openai).to_have_attribute("data-state", "disconnected")
+    expect(page.locator("#antigravity-message")).to_contain_text("vô hiệu hóa credential OMP")
+    expect(page.locator("#antigravity-sign-in")).to_be_focused()
+    assert (
+        len(
+            [
+                call
+                for call in api.calls
+                if call[0] == "DELETE" and call[1] == "/api/providers/antigravity/connection"
+            ]
+        )
+        == 1
+    )
 
     page.keyboard.press("Escape")
     expect(page.locator("#connections-dialog")).to_be_hidden()
@@ -771,7 +796,8 @@ def test_slow_page_load_status_cannot_overwrite_state_read_through_the_dialog(br
 
     # The user opens the dialog and disconnects both providers while that read is pending.
     open_connection_dialog(page, "#launcher-antigravity")
-    page.get_by_role("button", name="Ngắt kết nối Antigravity").click()
+    page.locator("#antigravity-disconnect").click()
+    page.locator("#antigravity-disconnect-confirm-button").click()
     expect(google).to_have_attribute("data-state", "disconnected")
     page.get_by_role("button", name="Ngắt kết nối ChatGPT").click()
     page.get_by_role("button", name="Ngắt kết nối", exact=True).click()
@@ -879,7 +905,9 @@ def test_antigravity_login_catalog_verification_and_disconnect(browser_runtime):
         {"model": "gemini-3-pro-high"},
     ) in api.calls
 
-    page.get_by_role("button", name="Ngắt kết nối Antigravity").click()
+    page.locator("#antigravity-disconnect").click()
+    expect(page.locator("#antigravity-disconnect-confirm")).to_be_visible()
+    page.locator("#antigravity-disconnect-confirm-button").click()
     expect(page.locator("#antigravity-status")).to_have_text("Chưa kết nối")
     expect(page.locator("#antigravity-message")).to_contain_text("vô hiệu hóa credential OMP")
     context.close()

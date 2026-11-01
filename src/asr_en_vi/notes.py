@@ -178,6 +178,15 @@ def _existing_task(
     return _task_summary(row)
 
 
+def _processing_slot_is_busy(data_dir: Path) -> bool:
+    """Read the global slot without taking a provider operation lock."""
+    with _connect_read_only(data_dir) as connection:
+        row = connection.execute(
+            "SELECT active_task_id FROM processing_slot WHERE slot_id = 1"
+        ).fetchone()
+    return row is not None and row["active_task_id"] is not None
+
+
 def has_active_notes_task(
     data_dir: Path, *, meeting_id: str | None = None, provider: str | None = None
 ) -> bool:
@@ -371,6 +380,19 @@ def accept_notes_task(
         return existing
     if not worker_ready:
         raise TaskError(503, "worker_unavailable", "The processing worker is unavailable.")
+
+    # A known global busy state is definitive and must not wait behind a provider's
+    # cross-process operation lock. The transaction below repeats this check for races.
+    if _processing_slot_is_busy(data_dir):
+        # An identical request may have claimed the slot since the first lookup.
+        existing = _existing_task(data_dir, normalized_request_id, request_hash, meeting_id)
+        if existing is not None:
+            return existing
+        raise TaskError(
+            409,
+            "system_busy",
+            "Another task owns the processing slot. Wait for it to finish.",
+        )
 
     provider.assert_notes_acceptable()
     # Acceptance and account changes share this cross-process lock. Lock order is

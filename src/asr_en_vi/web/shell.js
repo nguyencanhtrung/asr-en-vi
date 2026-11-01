@@ -83,10 +83,20 @@ function render(state) {
 
   setProp(fileError, "textContent", tr(state.fileError));
   const message = tr(state.formError);
+  const previousMessage = formError.textContent;
+  const wasVisible = !formError.hidden;
   setProp(formError, "textContent", message);
   setProp(formError, "hidden", !message);
+  if (message) {
+    formError.setAttribute("tabindex", "-1");
+    if (!wasVisible || previousMessage !== message) {
+      formError.focus({ preventScroll: true });
+      if (typeof formError.scrollIntoView === "function") formError.scrollIntoView({ block: "nearest" });
+    }
+  }
   setProp(transferProgress, "hidden", !state.progress.visible);
-  setProp(uploadProgress, "value", state.progress.percent);
+  if (state.progress.indeterminate) uploadProgress.removeAttribute("value");
+  else setProp(uploadProgress, "value", state.progress.percent);
   setProp(uploadProgressValue, "textContent", tr(state.progress.text));
   setProp(selectedFile, "hidden", !state.file);
   setProp(selectedFileName, "textContent", state.file ? state.file.name : "");
@@ -101,6 +111,7 @@ function render(state) {
 
   setProp(retryUploadButton, "hidden", view.retryHidden);
   setProp(retryUploadButton, "disabled", view.retryDisabled);
+  setProp(retryUploadButton, "textContent", tr(view.retryLabel));
   setProp(cancelUploadButton, "hidden", view.cancelHidden);
   setProp(createButton, "disabled", view.createDisabled);
   setProp(createButton, "textContent", tr(view.createLabel));
@@ -121,6 +132,7 @@ const run = createRunner({
   XMLHttpRequest,
   storage: { local: () => window.localStorage, session: () => window.sessionStorage },
   navigate: (url) => window.location.assign(url),
+  now: () => Date.now(),
   // The extractor (and the vendored library behind it) loads on the first video, not with the page.
   extract: async (file, options) => (await import("./audio-extract.js")).extractAudio(file, options),
 });

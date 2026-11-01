@@ -57,16 +57,18 @@ Trạng thái điều phối: `accepted` → `running` → `succeeded`, `failed`
 - Pipeline recording: kiểm tra/chuẩn bị audio → ASR/diarization → công bố transcript đầy đủ → notes nếu đã chọn chạy bước này. Các bước GPU chạy lần lượt; dữ liệu transcript còn dở không thay current generation.
 - Nếu từ đầu provider chưa dùng được và chạy chép lời trước, tác vụ kết thúc với phạm vi kết quả `transcript_only`; UI ghi rõ chưa có notes. Đây không phải tác vụ notes đang chờ. Nếu đã bắt đầu bước notes nhưng nó thất bại, tác vụ báo lỗi dù transcript đã hoàn tất vẫn dùng được.
 - Pipeline notes: tạo snapshot/khóa → chia/trích/hợp nhất khi cần → kiểm tra/sửa một lượt tối đa → render → lưu notes mới. Chỉ công bố notes hoàn chỉnh qua giao dịch sau khi kiểm tra lại ownership và trạng thái hủy.
+- Tiến độ notes là dữ liệu đo được riêng với thời lượng audio: payload task có `progress` dạng `{current, total, unit}` khi pipeline đã có số đếm. `chunking` chỉ tăng `current` sau khi chunk được provider trả về và validation thành công; `merging` có số lượt đã hoàn tất nhưng `total` để trống vì số lượt phụ thuộc vào kích thước summary; sửa có tổng đã biết ghi số lượt đã hoàn tất; recovery có tổng chưa biết ghi số lượt bắt đầu và UI không gọi chúng là hoàn tất. `on_coverage` vẫn là manifest cuối cùng, không dùng làm đồng hồ tiến độ.
 - Hoàn tất và hủy cạnh tranh qua trạng thái DB: tác vụ đã commit hoàn tất không bị đổi thành canceled; tác vụ đã nhận hủy không được công bố một kết quả đến muộn thành notes mới.
 - Hủy subprocess phải thu hồi cả nhóm tiến trình con do tác vụ sở hữu. Hủy cloud chấm dứt request/client local và bỏ kết quả đến muộn; không giả định nhà cung cấp đã hoàn lại quota hay dừng toàn bộ công việc phía họ.
 - Mất heartbeat không chứng minh runner đã dừng. Trong khi chưa xác nhận, giữ slot và báo đang kiểm tra worker; không chỉ hết hạn heartbeat là chạy một tác vụ GPU mới. Sau restart/recovery đã loại bỏ runner cũ, đánh dấu tác vụ dở `interrupted`, mở khóa và cho người dùng chủ động chạy lại.
+- Khi đọc task active, `worker_state: "checking-worker"` được tính lại từ heartbeat và UI notes phải ưu tiên thông báo đang kiểm tra worker thay vì nói inference vẫn tiếp tục. Nhận notes kiểm tra idempotency trước; nếu processing slot đã có chủ, đọc lại idempotency để xử lý request giống hệt vừa được chấp nhận rồi mới từ chối nhanh `system_busy`; giao dịch sau provider lock vẫn kiểm tra lại để xử lý race.
 - Đóng tab, đổi token truy cập ứng dụng hoặc polling lỗi không làm thay đổi ownership/tác vụ. Không tự xử lý lại khi worker trở lại; tác vụ notes mới từ transcript đã lưu khác với chạy lại từ đầu bản ghi.
 
-Worker quản lý các runtime bằng tiến trình/request riêng có deadline và đường hủy. Ngưỡng heartbeat, deadline model, thời gian chờ dừng và thời hạn auth là cấu hình vận hành cần đo; mục tiêu 30 phút cho bản ghi hai giờ không tự trở thành hard timeout làm hủy kết quả đang tiến triển. Theo Q25, không tự gửi lại inference khi lỗi mạng, kể cả chưa nhận được kết quả; tắt các cơ chế resend tương ứng trong SDK/harness. Giữ kết quả hoàn tất và kết thúc lỗi để người dùng chủ động tạo tác vụ mới. Lượt sửa Q18 chỉ áp dụng cho đầu ra đã nhận đầy đủ nhưng không hợp lệ, không dùng để gửi lại request mất phản hồi.
+Worker quản lý các runtime bằng tiến trình/request riêng có deadline và đường hủy. Notes ChatGPT dùng HTTPX read timeout 60 giây cho khoảng im lặng giữa các chunk, trong total budget mỗi lượt gọi 900 giây và deadline toàn tác vụ 3600 giây; [HTTPX mô tả read timeout là thời gian chờ một chunk dữ liệu](https://www.python-httpx.org/advanced/timeouts/), không phải giới hạn tổng thời lượng. Theo Q25, không tự gửi lại inference khi lỗi mạng, kể cả chưa nhận được kết quả; tắt các cơ chế resend tương ứng trong SDK/harness. Giữ kết quả hoàn tất và kết thúc lỗi để người dùng chủ động tạo tác vụ mới. Lượt sửa Q18 chỉ áp dụng cho đầu ra đã nhận đầy đủ nhưng không hợp lệ, không dùng để gửi lại request mất phản hồi.
 
 ## 4. API và cập nhật UI
 
-Chọn HTTP JSON cho thao tác và polling trạng thái khi có tác vụ; chu kỳ ban đầu khoảng một giây, có điều chỉnh khi tab ẩn/mất mạng. Polling chỉ đọc DB, không gọi model để hỏi tiến độ. UI hiển thị giai đoạn, lượng audio/đoạn đã xử lý khi có số đo và trạng thái hủy. Thanh tiến độ chép lời chỉ lấy `transcript_end_seconds` chia cho `audio_duration_seconds` từ lần poll tác vụ hiện có, giới hạn ở 100 % và không xác định khi thiếu thời lượng; các giai đoạn sau chép lời không có phần trăm riêng và UI không tạo ETA giả. Danh sách bước tạo notes chỉ ánh xạ các `stage` hiện có (`accepted`, `starting`/`starting_notes`, `generating_notes`, `publishing`); vì backend ghi đè `stage` khi tác vụ lỗi, bị hủy hoặc gián đoạn, trình duyệt nhớ bước cuối đã thấy trong phiên để đánh dấu bước đó. Sau reconnect lấy trạng thái hiện tại, không phát lại lệnh tạo tác vụ. Có thể thay transport tiến độ sau mà không đổi vòng đời tác vụ.
+Chọn HTTP JSON cho thao tác và polling trạng thái khi có tác vụ; chu kỳ ban đầu khoảng một giây, có điều chỉnh khi tab ẩn/mất mạng. Polling chỉ đọc DB, không gọi model để hỏi tiến độ. UI hiển thị giai đoạn, lượng audio/đoạn đã xử lý khi có số đo và trạng thái hủy. Thanh tiến độ chép lời chỉ lấy `transcript_end_seconds` chia cho `audio_duration_seconds` từ lần poll tác vụ hiện có, giới hạn ở 100 % và không xác định khi thiếu thời lượng; trong diarization/alignment/publication không tạo phần trăm hay ETA giả. Bước kiểm tra upload sau khi truyền đủ byte cũng là indeterminate và chỉ hiển thị byte đã truyền cùng thời gian kiểm tra đã đo. Danh sách bước tạo notes ánh xạ `accepted`, `starting`/`starting_notes`, `preparing_source`, `generating`/`generating_notes`, `chunking`, `merging`, `repairing`, `rendering` và `publishing`; vì backend ghi đè `stage` khi tác vụ lỗi, bị hủy hoặc gián đoạn, trình duyệt nhớ bước cuối đã thấy trong phiên để đánh dấu bước đó. Sau reconnect lấy trạng thái hiện tại, không phát lại lệnh tạo tác vụ. Có thể thay transport tiến độ sau mà không đổi vòng đời tác vụ.
 
 | Endpoint dự kiến | Hành vi |
 | --- | --- |
@@ -109,12 +111,41 @@ commit trước khi ghi phần mới. Server chỉ cập nhật `received_bytes`
 | Hai yêu cầu content cùng lúc | `409`, `detail.code: "upload_busy"`, detail có `received_bytes`; chỉ writer đầu tiên được ghi |
 
 Client không gọi endpoint hoàn tất trước khi `received_bytes == size_bytes`. Sau đó,
-`POST /api/uploads/{id}/complete` kiểm tra media và chuyển upload sang `ready`.
+`POST /api/uploads/{id}/complete` chuyển upload sang `validating` trước khi kiểm tra media; khi
+thành công nó chuyển sang `ready`. Nếu phản hồi POST bị mất, timeout hoặc là lỗi 5xx/408/429,
+đó là kết quả chưa biết: client không được DELETE upload mà phải đọc `GET /api/uploads/{id}`.
+Trạng thái `ready` tiếp tục tạo meeting, `validating` được poll mỗi giây không có deadline tổng
+ngắn, `uploaded` chỉ được POST complete lại khi client biết chắc trạng thái đó, còn
+`failed`/`receiving` hoặc trạng thái khác phải đi qua cleanup có chủ đích. GET trạng thái tạm thời
+được retry tối đa sáu lần với backoff 1, 2, 4, 8, 16 và 32 giây; nếu vẫn không xác nhận được,
+client giữ `upload_id`, cho phép kiểm tra lại hoặc hủy, và không tạo meeting.
+
+`GET /api/uploads/{id}` trả `failure_code` khi trạng thái là `failed`. Lỗi media có mã riêng:
+`duration_limit` (413, detail có `max_duration_seconds`) khác với giới hạn byte, còn
+`duration_mismatch` (422) báo duration khai báo của audio không khớp đáng kể với audio giải mã
+được. Với A/V, duration của container chỉ là provisional khi stream audio được chọn không có
+duration riêng; server vẫn giải mã đúng audio stream với giới hạn `max + 1` rồi kiểm tra duration
+đầu ra. Chỉ duration của selected audio có tính authoritative mới được so sánh với duration giải
+mã; audio-only có thể dùng duration container làm fallback authoritative. Riêng định dạng
+`mp3`, `aac`/ADTS được nhận diện bằng `format_name` của ffprobe, duration có thể là ước lượng
+bitrate nên luôn là provisional, kể cả khi stream có trường duration. Không dùng ước lượng này
+để từ chối sớm hoặc kết luận file bị cắt. Server vẫn decode tối đa `max + 1` và áp giới hạn lên
+audio đầu ra thực; đuôi tên file không quyết định độ tin cậy của duration.
+
 `GET /api/uploads/policy` trả thêm `chunk_bytes`. Giá trị mặc định là `67108864` byte (64 MiB).
 Client dùng giá trị này làm kích thước phần, nhưng mỗi request vẫn phải dùng offset server đã xác
 nhận. Sau lỗi mạng hoặc phản hồi `upload_busy`/`upload_interrupted`, client đọc lại trạng thái và
-thử lại phần hiện tại tối đa sáu lần với backoff mũ 1, 2, 4, 8, 16 và 32 giây (tổng cửa sổ 63
-giây); lỗi tạm thời của GET trạng thái dùng cùng lịch và giới hạn.
+thử lại phần hiện tại tối đa sáu lần với cùng backoff; lỗi tạm thời của GET trạng thái dùng cùng
+lịch và giới hạn.
+
+Client disconnect trong lúc ghi là một kết quả dự kiến: server drain thao tác ghi/fsync/commit
+đang sở hữu, trả 204 khi xử lý trực tiếp và giữ offset bền vững; cancellation thật sự vẫn được
+propagate để task owner không bị nuốt.
+
+Cleanup/startup chạy backfill hữu hạn (100 dòng mỗi lượt) để đổi filename của các upload `failed`
+cũ sang `removed-upload`, nhưng giữ nguyên `failure_code`. Filename của upload `ready` hoặc
+`consumed` không bị đổi; upload `ready` chưa gắn meeting tiếp tục nằm trong retention 24 giờ theo
+thiết kế. `meeting_date` chỉ nhận năm từ 1000 đến 9999.
 
 Mỗi yêu cầu tạo tác vụ mang request ID để retry HTTP do mất phản hồi trả lại cùng tác vụ đã nhận, không tạo thêm lần gọi model. Cùng request ID nhưng payload khác phải bị từ chối; retry không được trở thành tác vụ mới chỉ vì tác vụ cũ đã kết thúc. Đây khác tự gửi lại inference bị Q25 cấm. Ghi từ phiên bản cũ hoặc trạng thái đang khóa trả lỗi có mã phân biệt (`stale_version`, `notes_source_locked`, `system_busy`, `provider_in_use`); UI giữ bản nháp khi xung đột. Lỗi provider cần đăng nhập không được diễn giải thành mất cookie đăng nhập ứng dụng.
 
@@ -146,9 +177,11 @@ Renderer không ghi liên kết hay timestamp vào Markdown. Cùng đoạn mã d
 
 ChatGPT dùng direct SIWC, OMP RPC dành cho Antigravity; model và provider cố định trong mỗi tác vụ. Dùng store riêng của bản cài, giữ định danh đăng ký/host và phiên qua restart. UI chỉ nhận trạng thái kết nối, thông tin tài khoản cần hiển thị và URL/code của luồng auth; không nhận credential inference/refresh. Không mount cấu hình coding cá nhân của người dùng vào runner.
 
+**Hợp đồng trạng thái provider (#84).** `GET /api/providers` trả thêm `in_use` và `in_use_reason` cho từng provider. Backend tính hai trường từ cùng truy vấn active notes task dùng để bảo vệ mutation: provider đang được task `accepted`/`running`/`stopping` ghim có `in_use: true`, `in_use_reason: "notes"`; provider khác vẫn `false`/`null`. `GET /api/providers/{provider}/models` có thể trả `409 provider_in_use`; đây là từ chối tải catalog, không phải mất kết nối, nên client giữ status/account/model đã biết. Các endpoint mutation vẫn phải dùng server guard; metadata chỉ giúp UI khóa đúng provider.
+
 Q27 cho chọn provider + model trước khi chạy, chọn sẵn lựa chọn gần nhất và hiển thị rõ. Danh sách model dựa trên kết nối và khả năng adapter; catalog không chứng minh quyền inference hoặc quota. Model đã nhớ không còn dùng được phải báo để người dùng chọn lại, không tự chọn model thay thế. Tác vụ lưu provider/model ID thực dùng, không đọc lại preference giữa các chunk/hợp nhất. Thay preference khi đang chạy chỉ áp dụng cho lần chạy sau.
 
-OMP runner chỉ nhận prompt và các chức năng cần cho inference; tắt tools/extensions/skills/MCP, tự nạp ngữ cảnh dự án và auto-compaction. Phải kiểm chứng các cờ/cấu hình, logging và đường ghi của bản OMP được pin. Đăng nhập là luồng riêng có thể hủy/hết hạn; không chiếm slot model chỉ để chờ người dùng. Với Antigravity, đoạn đổi credential (từ `adapter.login` đến lúc ghi trạng thái) giữ khóa thao tác liên tiến trình, cùng khóa với lúc nhận tác vụ và lúc runner chạy, và kiểm tra lại guard tác vụ đang chạy sau khi lấy khóa (`provider_in_use`); nên đăng nhập không thể thay tài khoản giữa lúc chạy, và nhận tác vụ khi còn phiên đăng nhập chờ bị từ chối (`login_in_progress`). Bắt đầu đăng nhập mới sẽ hủy phiên chờ cũ; trong lúc phiên đăng nhập giữ khóa, liệt kê/kiểm tra model và ngắt kết nối trả `provider_busy`. Tác vụ đã gắn provider/account version chặn login, logout, liệt kê/kiểm tra model và đổi model Antigravity của chính provider đó (`provider_in_use`); provider còn lại vẫn dùng được bình thường trong lúc chạy. Runner chỉ kiểm tra provider còn kết nối đúng connection version đã ghim (`provider_disconnected`, `reconnect_required`, `connection_changed`), không so với preference hiện tại. Mỗi lần gọi Antigravity là một tiến trình OMP mới (không giữ hội thoại), cùng nhóm tiến trình với runner nên hủy nhóm runner dừng cả OMP; external revoke vẫn có thể làm tác vụ lỗi, không tự chọn tài khoản khác.
+OMP runner chỉ nhận prompt và các chức năng cần cho inference; tắt tools/extensions/skills/MCP, tự nạp ngữ cảnh dự án và auto-compaction. Phải kiểm chứng các cờ/cấu hình, logging và đường ghi của bản OMP được pin. Đăng nhập là luồng riêng có thể hủy/hết hạn; không chiếm slot model chỉ để chờ người dùng. Với Antigravity, đoạn đổi credential (từ `adapter.login` đến lúc ghi trạng thái) giữ khóa thao tác liên tiến trình, cùng khóa với lúc nhận tác vụ và lúc runner chạy, và kiểm tra lại guard tác vụ đang chạy sau khi lấy khóa (`provider_in_use`); nên đăng nhập không thể thay tài khoản giữa lúc chạy, và nhận tác vụ khi còn phiên đăng nhập chờ bị từ chối (`login_in_progress`). Bắt đầu đăng nhập mới sẽ hủy phiên chờ cũ; trong lúc phiên đăng nhập giữ khóa, liệt kê/kiểm tra model và ngắt kết nối trả `provider_busy`. Tác vụ đã gắn provider/account version chặn login, logout, liệt kê/kiểm tra model và đổi model Antigravity của chính provider đó (`provider_in_use`); provider còn lại vẫn dùng được bình thường trong lúc chạy. Runner chỉ kiểm tra provider còn kết nối đúng connection version đã ghim (`provider_disconnected`, `reconnect_required`, `connection_changed`), không so với preference hiện tại. `provider_disconnected` yêu cầu kết nối; chỉ `reconnect_required` mới nói cần kết nối lại. `provider_unavailable` không chứng minh nguyên nhân mất Internet; UI giữ copy cause-neutral và chỉ khuyên kiểm tra Internet/thử lại, còn lỗi transport local giữ mã mất kết nối riêng. Ngắt kết nối Antigravity trả trạng thái local-only; không diễn giải `remote_revocation_confirmed` như quyền Google bị thu hồi. Mỗi lần gọi Antigravity là một tiến trình OMP mới (không giữ hội thoại), cùng nhóm tiến trình với runner nên hủy nhóm runner dừng cả OMP; external revoke vẫn có thể làm tác vụ lỗi, không tự chọn tài khoản khác.
 
 Audio bền được tách khỏi audio tạm đã chuẩn hóa cho model. Chuẩn codec lưu/phát, định dạng upload và giới hạn dung lượng/thời lượng phải được xác định với file thật; repo hiện chỉ có dữ liệu prototype. Chưa có kết quả chứng minh decode, playback hoặc model xử lý bản hai giờ.
 

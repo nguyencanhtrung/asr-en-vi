@@ -39,7 +39,7 @@
                 <path d="M8 22v-4m6 10V12m6 18V10m6 20V14m6 16V18" />
               </svg>
             </span>
-            <span class="brand-wordmark">ASR <span>/</span> EN VI</span>
+            <span class="brand-wordmark">ASR EN VI</span>
           </a>
           <button class="theme-toggle" type="button" data-theme-toggle aria-label="Chuyển giao diện">
             <svg class="theme-icon theme-icon-moon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -101,6 +101,16 @@
       <main class="workspace" id="workspace">
         <header class="workspace-header">
           <h1 class="visually-hidden" id="page-title" tabindex="-1">Cuộc họp</h1>
+          <div class="header-actions">
+            <button class="lang-toggle" type="button" data-lang-toggle>EN</button>
+            <button class="secondary-button header-calendar" id="open-calendar" type="button">Lịch</button>
+            <button class="primary-button header-create" type="button" data-open-meeting-dialog>
+              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path d="M10 4v12M4 10h12" />
+              </svg>
+              <span>Cuộc họp mới</span>
+            </button>
+          </div>
           <div class="connection-launchers">
             <button
               class="secondary-button connection-launcher"
@@ -123,16 +133,6 @@
             >
               <span class="connection-launcher-dot" aria-hidden="true"></span>
               <span class="connection-launcher-name">Google</span>
-            </button>
-          </div>
-          <div class="header-actions">
-            <button class="lang-toggle" type="button" data-lang-toggle>EN</button>
-            <button class="secondary-button header-calendar" id="open-calendar" type="button">Lịch</button>
-            <button class="primary-button header-create" type="button" data-open-meeting-dialog>
-              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                <path d="M10 4v12M4 10h12" />
-              </svg>
-              <span>Cuộc họp mới</span>
             </button>
           </div>
         </header>
@@ -212,7 +212,7 @@
               <div class="field-group">
                 <label for="edit-date">Ngày họp <span class="optional-mark">Tùy chọn</span></label>
                 <div class="edit-date-row">
-                  <input id="edit-date" type="date" />
+                  <input id="edit-date" type="date" min="1000-01-01" max="9999-12-31" />
                   <button class="text-button" id="edit-clear-date" type="button">Xóa ngày</button>
                 </div>
               </div>
@@ -315,6 +315,7 @@
               <p class="notes-task-meta">
                 <span id="notes-task-elapsed"></span>
                 <span id="notes-task-provider-model"></span>
+                <span id="notes-task-progress"></span>
               </p>
             </div>
             <div class="notes-error" id="notes-error" role="alert" hidden>
@@ -563,7 +564,7 @@
               <div class="field-row">
                 <div class="field-group date-field">
                   <label for="meeting-date-input">Ngày họp <span class="optional-mark">Tùy chọn</span></label>
-                  <input id="meeting-date-input" name="meeting_date" type="date" />
+                  <input id="meeting-date-input" name="meeting_date" type="date" min="1000-01-01" max="9999-12-31" />
                 </div>
                 <fieldset class="field-group language-field">
                   <legend>Gợi ý ngôn ngữ <span class="required-mark">*</span></legend>
@@ -594,7 +595,7 @@
               <p class="validation-state" id="upload-notice" aria-live="polite"></p>
               <p class="create-guidance" id="create-guidance">Chọn file, nhập tên và chọn ngôn ngữ để tiếp tục.</p>
             </section>
-            <p class="form-error" id="form-error" role="alert" hidden></p>
+            <p class="form-error" id="form-error" role="alert" tabindex="-1" hidden></p>
           </div>
 
           <footer class="dialog-actions">
@@ -670,6 +671,7 @@
             </dl>
 
             <p class="connection-message" id="connection-message" role="status" aria-live="polite"></p>
+            <p class="connection-mutation-status" id="connection-mutation-reason" role="status" aria-live="polite" hidden></p>
             <div class="connection-error" id="connection-error" role="alert" hidden>
               <span id="connection-error-message"></span>
               <button class="text-button" id="connection-retry-poll" type="button" hidden>Kiểm tra trạng thái lại</button>
@@ -747,6 +749,7 @@
               </div>
             </dl>
             <p class="connection-message" id="antigravity-message" role="status" aria-live="polite"></p>
+            <p class="connection-mutation-status" id="antigravity-mutation-reason" role="status" aria-live="polite" hidden></p>
             <div class="connection-error" id="antigravity-error" role="alert" hidden>
               <span id="antigravity-error-message"></span>
             </div>
@@ -763,21 +766,30 @@
               </form>
               <button class="text-button" id="antigravity-cancel" type="button">Hủy đăng nhập</button>
             </div>
-            <button class="text-button connection-disconnect-trigger" id="antigravity-disconnect" type="button" hidden>Ngắt kết nối Antigravity</button>
+            <div class="connection-disconnect" id="antigravity-disconnect-wrap" hidden>
+              <button class="text-button connection-disconnect-trigger" id="antigravity-disconnect" type="button">Ngắt kết nối Antigravity</button>
+              <div class="connection-disconnect-confirm" id="antigravity-disconnect-confirm" hidden>
+                <p>Thao tác này xóa credential Antigravity đã lưu trong workspace. Quyền Google từ xa không bị thu hồi.</p>
+                <div class="connection-disconnect-actions">
+                  <button class="secondary-button" id="antigravity-disconnect-keep" type="button">Giữ kết nối</button>
+                  <button class="primary-button" id="antigravity-disconnect-confirm-button" type="button">Ngắt kết nối</button>
+                </div>
+              </div>
+            </div>
           </section>
 
           <section class="connection-section connection-model-section" id="antigravity-model-section" aria-labelledby="antigravity-model-title" hidden>
             <div class="connection-section-heading"><h3 id="antigravity-model-title">Mô hình Antigravity</h3></div>
             <form id="antigravity-model-form">
               <label for="antigravity-model">Mô hình dùng cho ghi chú cuộc họp</label>
-              <select id="antigravity-model" disabled><option value="">Đang tải mô hình khả dụng</option></select>
+              <select id="antigravity-model" aria-describedby="antigravity-model-help" disabled><option value="">Đang tải mô hình khả dụng</option></select>
               <label for="antigravity-effort">Mức suy nghĩ</label>
-              <select id="antigravity-effort" disabled>
+              <select id="antigravity-effort" aria-describedby="antigravity-effort-help" disabled>
                 <option value="high">High</option>
                 <option value="medium">Medium</option>
               </select>
-              <p class="connection-help">High đầy đủ hơn nhưng chậm hơn (khoảng 7–10 phút cho cuộc họp 1 giờ). Medium nhanh hơn nhưng có thể bỏ sót việc cần làm.</p>
-              <p class="connection-help">Catalog chỉ cho biết model xuất hiện với tài khoản. Hãy chạy kiểm tra tổng hợp để xác nhận model thực sự tạo được đầu ra.</p>
+              <p class="connection-help" id="antigravity-effort-help">High đầy đủ hơn nhưng chậm hơn (khoảng 7–10 phút cho cuộc họp 1 giờ). Medium nhanh hơn nhưng có thể bỏ sót việc cần làm.</p>
+              <p class="connection-help" id="antigravity-model-help">Catalog chỉ cho biết model xuất hiện với tài khoản. Hãy chạy kiểm tra tổng hợp để xác nhận model thực sự tạo được đầu ra.</p>
               <p class="connection-model-status" id="antigravity-model-status" role="status" aria-live="polite"></p>
               <button class="primary-button" id="antigravity-model-save" type="submit" disabled>Lưu mô hình Antigravity</button>
             </form>

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -159,6 +161,91 @@ def test_acceptance_freezes_source_pins_account_and_locks_only_its_meeting(tmp_p
         text="The lock released after the task stopped.",
     )
     assert changed["source_version"] == 2
+
+
+def test_busy_notes_refusal_does_not_wait_for_provider_operation_lock(tmp_path):
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, _segment_ids = seed_completed_transcript(data_dir)
+    provider = StubNotesProvider()
+    accepted = accept_notes_task(
+        data_dir,
+        provider=provider,
+        meeting_id=meeting_id,
+        request_id="busy-notes-first",
+        expected_generation_id=generation_id,
+        expected_source_version=1,
+        expected_metadata_version=1,
+        worker_ready=True,
+    )
+    ready = threading.Event()
+    release = threading.Event()
+
+    def hold_provider_lock():
+        with provider.store.operation():
+            ready.set()
+            release.wait(timeout=5)
+
+    holder = threading.Thread(target=hold_provider_lock)
+    holder.start()
+    assert ready.wait(timeout=2)
+    started = time.monotonic()
+    try:
+        with pytest.raises(TaskError) as refused:
+            accept_notes_task(
+                data_dir,
+                provider=provider,
+                meeting_id=meeting_id,
+                request_id="busy-notes-second",
+                expected_generation_id=generation_id,
+                expected_source_version=1,
+                expected_metadata_version=1,
+                worker_ready=True,
+            )
+    finally:
+        release.set()
+        holder.join(timeout=2)
+    assert refused.value.code == "system_busy"
+    assert time.monotonic() - started < 1.0
+    assert accepted["status"] == "accepted"
+
+
+@pytest.mark.parametrize("output_language", ["en", "vi"])
+def test_busy_precheck_rechecks_a_request_accepted_after_initial_lookup(
+    tmp_path, monkeypatch, output_language
+):
+    from asr_en_vi import notes
+
+    data_dir = tmp_path / "data"
+    meeting_id, generation_id, _ = seed_completed_transcript(data_dir)
+    lookup = notes._existing_task
+    raced = {}
+
+    def accept_between_reads(*args):
+        existing = lookup(*args)
+        if not raced:
+            raced["started"] = True
+            raced["task"] = _accept(
+                data_dir, meeting_id, generation_id, request_id="notes-race-request"
+            )
+        return existing
+
+    monkeypatch.setattr(notes, "_existing_task", accept_between_reads)
+    kwargs = dict(
+        provider=StubNotesProvider(),
+        meeting_id=meeting_id,
+        request_id="notes-race-request",
+        expected_generation_id=generation_id,
+        expected_source_version=1,
+        expected_metadata_version=1,
+        worker_ready=True,
+        output_language=output_language,
+    )
+    if output_language == "en":
+        assert accept_notes_task(data_dir, **kwargs)["id"] == raced["task"]["id"]
+    else:
+        with pytest.raises(TaskError) as conflict:
+            accept_notes_task(data_dir, **kwargs)
+        assert conflict.value.code == "idempotency_conflict"
 
 
 def test_notes_output_language_is_pinned_and_part_of_idempotency(tmp_path):

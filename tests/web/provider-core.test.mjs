@@ -12,8 +12,14 @@ const SOON = new Date(T0 + 600_000).toISOString();
 
 const LIST = {
   providers: [
-    { id: "chatgpt", status: "connected", account: { label: "a@example.com" } },
-    { id: "antigravity", status: "connected", account: { label: "g@example.com" } },
+    { id: "chatgpt", status: "connected", account: { label: "a@example.com" }, in_use: false, in_use_reason: null },
+    { id: "antigravity", status: "connected", account: { label: "g@example.com" }, in_use: false, in_use_reason: null },
+  ],
+};
+const LIST_IN_USE = {
+  providers: [
+    { id: "chatgpt", status: "connected", account: { label: "a@example.com" }, in_use: true, in_use_reason: "notes" },
+    { id: "antigravity", status: "connected", account: { label: "g@example.com" }, in_use: false, in_use_reason: null },
   ],
 };
 const LIST_OUT = { providers: [{ id: "chatgpt", status: "disconnected" }, { id: "antigravity", status: "disconnected" }] };
@@ -104,7 +110,9 @@ async function loaded(env, { list = LIST, open = true } = {}) {
   await env.answer(env.is("GET", "/api/notes-preferences"), 200, PREFS);
   await env.answer(env.is("GET", "/api/providers/chatgpt/models"), 200, MODELS.chatgpt);
   await env.answer(env.is("GET", "/api/providers"), 200, list);
-  if (list === LIST) await env.answer(env.is("GET", "/api/providers/antigravity/models"), 200, MODELS.antigravity);
+  if (list.providers.some((item) => item.id === "antigravity" && item.status === "connected")) {
+    await env.answer(env.is("GET", "/api/providers/antigravity/models"), 200, MODELS.antigravity);
+  }
 }
 
 // ---- load ----
@@ -128,6 +136,71 @@ test("opening the dialog loads status, preferences and catalog for both provider
   assert.equal(google.selectedEffort, "medium");
   assert.equal(selectLauncher(ANTIGRAVITY, google).status, "connected");
   assert.equal(chatgpt.loading || google.loading, false);
+});
+
+test("in-use metadata blocks only the pinned provider and keeps the other provider usable", async () => {
+  const env = setup();
+  await loaded(env, { list: LIST_IN_USE });
+  const pinned = own(env, CHATGPT);
+  const before = pinned.selectedModel;
+  dispatch(env, CHATGPT, "choice-edited", { field: "model", value: "m2" });
+  dispatch(env, CHATGPT, "save-requested");
+  dispatch(env, CHATGPT, "verify-requested");
+  dispatch(env, CHATGPT, "disconnect-confirm-toggled", { open: true });
+  assert.equal(pinned.selectedModel, before);
+  assert.equal(pinned.confirming, false);
+  assert.equal(env.pending((call) => call.url.includes("/api/notes-preferences")).length, 0);
+  assert.equal(selectView(CHATGPT, pinned).modelDisabled, true);
+  assert.equal(selectView(CHATGPT, pinned).disconnectDisabled, true);
+  assert.match(selectView(CHATGPT, pinned).mutationReason.text, /đổi model/);
+  assert.equal(selectView(ANTIGRAVITY, own(env, ANTIGRAVITY)).modelDisabled, false);
+  assert.equal(selectView(ANTIGRAVITY, own(env, ANTIGRAVITY)).disconnectDisabled, false);
+});
+
+test("a provider_in_use catalog refusal preserves the known connected provider state", async () => {
+  const env = setup();
+  await loaded(env);
+  env.store.dispatch({ type: "provider/dialog-opened", launcher: "chatgpt" });
+  await env.answer(env.is("GET", "/api/providers"), 200, LIST_IN_USE);
+  await env.answer(env.is("GET", "/api/providers"), 200, LIST_IN_USE);
+  await env.answer(env.is("GET", "/api/notes-preferences"), 200, PREFS);
+  await env.answer(env.is("GET", "/api/providers/chatgpt/models"), 409, { detail: { code: "provider_in_use" } });
+  await env.answer(env.is("GET", "/api/providers/antigravity/models"), 200, MODELS.antigravity);
+  const s = own(env, CHATGPT);
+  assert.equal(s.info.status, "connected");
+  assert.equal(s.info.in_use, true);
+  assert.equal(s.badge.state, "connected");
+  assert.equal(s.info.account.label, "a@example.com");
+  assert.deepEqual(s.models.map((model) => model.id), ["m1", "m2"]);
+  assert.equal(s.error.code, "provider_in_use");
+});
+
+test("dedicated provider copy wins over a generic HTTP status, while transport loss stays distinct", async () => {
+  const unavailable = setup();
+  await loaded(unavailable);
+  dispatch(unavailable, CHATGPT, "choice-edited", { field: "model", value: "m2" });
+  dispatch(unavailable, CHATGPT, "save-requested");
+  await unavailable.answer(unavailable.is("PUT", "/api/notes-preferences"), 503, {
+    detail: { code: "provider_unavailable", message: "The provider is offline." },
+  });
+  assert.match(unavailable.state().chatgpt.error.text.text, /tạm thời không khả dụng/);
+  assert.doesNotMatch(unavailable.state().chatgpt.error.text.text, /không kết nối được Internet/);
+
+  const network = setup();
+  await loaded(network);
+  dispatch(network, CHATGPT, "choice-edited", { field: "model", value: "m2" });
+  dispatch(network, CHATGPT, "save-requested");
+  await network.fail(network.is("PUT", "/api/notes-preferences"));
+  assert.deepEqual(network.state().chatgpt.error.text, { text: "Không kết nối được với máy chủ trên máy này." });
+});
+
+test("ChatGPT sign-in keeps its recovery copy on a 503", async () => {
+  const env = setup();
+  dispatch(env, CHATGPT, "login-requested");
+  await env.answer(env.is("POST", "/api/providers/chatgpt/login-sessions"), 503, {
+    detail: { code: "SIGN_IN_FAILED", message: "The sign-in service failed." },
+  });
+  assert.deepEqual(own(env, CHATGPT).error.text, { text: "Không thể hoàn tất đăng nhập ChatGPT." });
 });
 
 for (const { d, other } of CASES) {
@@ -245,6 +318,7 @@ for (const { d, other, save } of CASES) {
     assert.ok(own(env, d).summary);
     assert.equal(own(env, d).verifyResult.state, "success");
 
+    dispatch(env, d, "disconnect-confirm-toggled", { open: true });
     dispatch(env, d, "disconnect-requested");
     dispatch(env, d, "disconnect-requested");
     assert.equal(env.pending(env.is("DELETE", "/connection")).length, 1);
@@ -381,17 +455,18 @@ test("ChatGPT: disconnect asks first, needs a disconnected answer, and tells not
   assert.deepEqual(env.events, ["provider.choice-changed"]);
 });
 
-test("Google: disconnect reloads the status, then tells notes.js; the busy flag holds until then", async () => {
+test("Google: disconnect confirms locally, then tells notes.js; the busy flag holds until then", async () => {
   const env = setup();
   await loaded(env);
+  dispatch(env, ANTIGRAVITY, "disconnect-confirm-toggled", { open: true });
+  assert.equal(own(env, ANTIGRAVITY).confirming, true);
+  assert.equal(own(env, ANTIGRAVITY).ui, "focus:disconnect-confirm");
   dispatch(env, ANTIGRAVITY, "disconnect-requested");
-  await env.answer(env.is("DELETE", "/api/providers/antigravity/connection"), 200, {});
-  assert.equal(own(env, ANTIGRAVITY).pending.disconnect, true);
-  assert.deepEqual(env.events, []);
-  await env.answer(env.is("GET", "/api/providers"), 200, LIST_OUT);
+  await env.answer(env.is("DELETE", "/api/providers/antigravity/connection"), 200, { status: "disconnected", remote_revocation_confirmed: false });
   const s = own(env, ANTIGRAVITY);
   assert.equal(s.info.status, "disconnected");
   assert.equal(s.pending.disconnect, false);
+  assert.equal(s.ui, "focus:sign-in");
   assert.deepEqual(env.events, ["provider.choice-changed"]);
 });
 
@@ -399,6 +474,7 @@ test("a failed disconnect keeps the connection and frees the button", async () =
   for (const { d } of CASES) {
     const env = setup();
     await loaded(env);
+    dispatch(env, d, "disconnect-confirm-toggled", { open: true });
     dispatch(env, d, "disconnect-requested");
     await env.fail(env.is("DELETE", "/connection"));
     assert.equal(own(env, d).pending.disconnect, false);

@@ -4,6 +4,7 @@ import test from "node:test";
 import { createRunner, createStore } from "../../src/asr_en_vi/web/store.js";
 import {
   hasUnsavedDraft,
+  failureMessage,
   initialState,
   normalizePendingRequest,
   pendingRequestStorageKey,
@@ -107,12 +108,12 @@ function setup() {
 const notesBody = (revisions = [], task = null, locked = false) => ({ revisions, task, source_locked: locked });
 
 // Open the meeting and answer the notes read plus the provider choice, so the run button can work.
-async function opened(env, { revisions = [], task = null } = {}) {
+async function opened(env, { revisions = [], task = null, catalog = CATALOG } = {}) {
   env.context();
   await env.answer(env.is("GET", "/api/meetings/m1/notes"), 200, notesBody(revisions, task));
   await env.answer(env.is("GET", "/api/providers"), 200, PROVIDERS);
   await env.answer(env.is("GET", "/api/notes-preferences"), 200, PREFS);
-  await env.answer(env.is("GET", "/api/providers/chatgpt/models"), 200, CATALOG);
+  await env.answer(env.is("GET", "/api/providers/chatgpt/models"), 200, catalog);
 }
 
 const notes = (env, id = "m1") => env.state().notes[id];
@@ -153,6 +154,17 @@ test("a notes answer for the meeting that was left is dropped", async () => {
   assert.equal(notes(env, "m2").revisions[0].id, "r2");
 });
 
+test("repeated paints of the same meeting context do not add notes reads", () => {
+  const env = setup();
+  const current = meeting();
+  env.context(current);
+  env.context(current);
+  env.context(current);
+  assert.equal(env.waiting(env.is("GET", "/api/meetings/m1/notes")).length, 1);
+  env.context({ ...current }); // a genuinely refreshed server context still reads
+  assert.equal(env.waiting(env.is("GET", "/api/meetings/m1/notes")).length, 2);
+});
+
 test("only the newest read of a meeting counts", async () => {
   const env = setup();
   env.context();
@@ -179,6 +191,18 @@ test("a failed read says so and a poll read tries again in three seconds", async
   await env.answer(env.is("GET", "/api/meetings/m1/notes"), 200, notesBody([], { ...TASK, status: "succeeded" }));
   assert.equal(notes(env).readError, "");
   assert.deepEqual(env.live(), []); // the task ended: no more polling
+});
+
+test("a received meeting change reads authoritative notes without echoing or duplicating the active poll", async () => {
+  const env = setup();
+  await opened(env, { task: TASK });
+  const beforeReads = env.waiting(env.is("GET", "/api/meetings/m1/notes")).length;
+  env.dispatch("meeting-change-received", { meetingId: "m1" });
+  assert.equal(env.waiting(env.is("GET", "/api/meetings/m1/notes")).length, beforeReads + 1);
+  assert.equal(env.live().filter((delay) => delay === 1000).length, 1);
+  await env.answer(env.is("GET", "/api/meetings/m1/notes"), 200, notesBody([revision({ edit_version: 2 })], TASK, true));
+  assert.equal(env.hostCalls.some(([name]) => name === "meeting.change"), false);
+  assert.equal(env.live().filter((delay) => delay === 1000).length, 1);
 });
 
 test("a poll that was due before the meeting changed does nothing", async () => {
@@ -255,6 +279,101 @@ test("a refused run clears the pending request and names the provider's reason; 
   // pressing again resends the same request id
   other.dispatch("start-clicked", { requestId: "req-cccc-0003" });
   assert.equal(other.waiting(other.is("POST", "/notes-runs"))[0].body.request_id, "req-aaaa-0001");
+});
+
+test("a connected provider with a missing saved model opens model configuration, not account connection", async () => {
+  const env = setup();
+  await opened(env, { catalog: { models: [{ id: "m2", display_name: "M2" }] } });
+  const view = selectView(env.state());
+  assert.equal(view.run.action, "configure");
+  assert.equal(view.run.disabled, false);
+  assert.equal(view.run.label.text, "Chọn hoặc đổi model để tạo notes.");
+  assert.equal(view.run.describedBy, "notes-run-plan");
+  env.dispatch("configure-clicked");
+  assert.equal(env.state().choice.open, true);
+  assert.equal(env.state().choice.focus, 1);
+  assert.equal(env.waiting(env.is("POST", "/notes-runs")).length, 0);
+});
+
+test("typed provider busy refusal is definitive even when the server returns 503", async () => {
+  const env = setup();
+  await opened(env);
+  env.dispatch("start-clicked", { requestId: "req-aaaa-0001" });
+  await env.answer(env.is("POST", "/notes-runs"), 503, {
+    detail: { code: "provider_busy", message: "The provider is busy." },
+  });
+  assert.equal(env.state().pending.m1, undefined);
+  assert.equal(notes(env).runErrorUncertain, false);
+  assert.match(text(notes(env).runError), /đang bận với một thao tác/);
+});
+
+test("provider outage copy stays cause-neutral while transport loss keeps the local network copy", async () => {
+  assert.match(text(failureMessage("provider_disconnected", "chatgpt")), /Hãy kết nối trong phần Kết nối/);
+  const unavailable = setup();
+  await opened(unavailable);
+  unavailable.dispatch("start-clicked", { requestId: "req-aaaa-0001" });
+  await unavailable.answer(unavailable.is("POST", "/notes-runs"), 503, {
+    detail: { code: "provider_unavailable", message: "The provider is unavailable." },
+  });
+  assert.match(text(notes(unavailable).runError), /tạm thời không khả dụng/);
+  assert.doesNotMatch(text(notes(unavailable).runError), /không kết nối được Internet/);
+
+  const network = setup();
+  await opened(network);
+  network.dispatch("start-clicked", { requestId: "req-aaaa-0001" });
+  await network.fail(network.is("POST", "/notes-runs"));
+  assert.equal(text(notes(network).runError), "Không kết nối được với máy chủ trên máy này.");
+  assert.equal(notes(network).runErrorUncertain, true);
+});
+
+test("notes provider codes localize start refusals and persisted output-size failures", async () => {
+  const refused = setup();
+  await opened(refused);
+  refused.dispatch("start-clicked", { requestId: "req-aaaa-0001" });
+  await refused.answer(refused.is("POST", "/notes-runs"), 409, {
+    detail: { code: "provider_busy", message: "Another ChatGPT operation is still running. Try again shortly." },
+  });
+  assert.match(text(notes(refused).runError), /ChatGPT đang bận với một thao tác/);
+  assert.doesNotMatch(text(notes(refused).runError), /Another ChatGPT operation/);
+
+  const failed = setup();
+  await opened(failed, {
+    task: {
+      ...TASK,
+      status: "failed",
+      error_code: "provider_output_too_large",
+      error_message: "ChatGPT's response exceeded the allowed output size.",
+    },
+  });
+  const status = text(selectView(failed.state()).task.status);
+  assert.match(status, /Phản hồi của ChatGPT vượt quá kích thước đầu ra cho phép/);
+  assert.doesNotMatch(status, /ChatGPT's response exceeded/);
+
+  const antigravity = setup();
+  await opened(antigravity, {
+    task: {
+      ...TASK,
+      provider: "antigravity",
+      status: "failed",
+      error_code: "provider_output_too_large",
+      error_message: "Google Antigravity's response exceeded the allowed output size.",
+    },
+  });
+  const antigravityStatus = text(selectView(antigravity.state()).task.status);
+  assert.match(antigravityStatus, /Google Antigravity/);
+  assert.doesNotMatch(antigravityStatus, /ChatGPT/);
+});
+
+test("a stale worker heartbeat takes precedence over the running provider message", async () => {
+  const env = setup();
+  await opened(env, { task: {
+    ...TASK, worker_state: "checking-worker", stage: "chunking",
+    progress: { current: 1, total: 3, unit: "chunks" },
+  } });
+  const status = text(selectView(env.state()).task.status);
+  assert.match(status, /Đang kiểm tra worker/);
+  assert.doesNotMatch(status, /đang tạo notes/);
+  assert.equal(selectView(env.state()).task.progress, "");
 });
 
 test("a pending request found in storage on reload is verified, not replaced", async () => {
@@ -1126,6 +1245,7 @@ test("a failed catalog empties that provider and says why", async () => {
   assert.equal(env.state().choice.catalogs.chatgpt, null);
   assert.match(text(env.state().choice.catalogErrors.chatgpt), /Chưa tải được danh sách model/);
   assert.equal(env.state().choice.loading, false);
+  assert.equal(selectView(env.state()).choice.planHidden, false);
 });
 test("a failed saved-text read says why", async () => {
   const env = setup();
@@ -1345,4 +1465,28 @@ test("opening another meeting forgets what the server said about the last one's 
   env.context({ ...meeting("m1"), notes_source_locked: undefined });
   assert.equal(notes(env, "m1").known, false);
   assert.equal(notes(env, "m1").sourceLockKnown, false);
+});
+
+test("workspace authentication failure ends notes polling without dropping drafts or pending work", () => {
+  const state = {
+    ...initialState, view: "meeting", meetingId: "m1", readId: 1,
+    poll: { token: 2, scheduled: false },
+    drafts: { r1: { value: "Unsaved notes" } },
+    pending: { m1: { request_id: "still-owned-by-worker" } },
+  };
+  const action = {
+    type: "notes/request-failed",
+    meta: { op: "read", id: 1, meetingId: "m1", poll: 2 },
+    error: { status: 401, body: { detail: "Authentication required" } },
+  };
+  const expired = reduce(state, action);
+  assert.ok(expired.effects.some(effect => effect.type === "navigate" && effect.url === "/access"));
+  assert.equal(expired.state.poll.scheduled, false);
+  assert.deepEqual(expired.state.drafts, state.drafts);
+  assert.deepEqual(expired.state.pending, state.pending);
+  const provider = reduce(state, {
+    ...action, error: { status: 401, body: { detail: { code: "provider_auth_error" } } },
+  });
+  assert.ok(!provider.effects.some(effect => effect.type === "navigate"));
+  assert.deepEqual(provider.state.choice.status, state.choice.status);
 });
