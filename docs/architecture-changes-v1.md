@@ -918,7 +918,7 @@ Nguồn: issue #83; `tests/test_notes.py`, `tests/test_notes_provider.py`, `test
 #### Đánh đổi và phương án đã loại
 
 - Dùng stage/count thật và để `total` indeterminate cho reduction động: giữ thông tin hữu ích mà không dựng tổng giả.
-- Giảm read inactivity xuống 60 giây nhưng giữ total mỗi lượt gọi 900 giây và toàn tác vụ 3600 giây: mất mạng im lặng được báo sớm, còn lượt reasoning dài vẫn có ngân sách tổng.
+- Giảm read inactivity xuống 60 giây nhưng giữ total mỗi lượt gọi 900 giây và toàn tác vụ 3600 giây: mất mạng im lặng được báo sớm, còn lượt reasoning dài vẫn có ngân sách tổng. Lượt reasoning hợp lệ cũng có thể bị dừng nếu provider không gửi chunk nào trong 60 giây; timeout không tự chứng minh mất mạng.
 - Kiểm tra slot trước provider lock và lặp lại trong transaction: busy refusal nhanh nhưng vẫn giữ tính đúng khi hai request chạy đồng thời; nếu slot bận, đọc lại idempotency để nhận ra request giống hệt vừa được chấp nhận.
 - Giữ `unless-stopped` và recovery trong worker: phân biệt crash process với manual stop theo semantics của Docker; loại watchdog host/container vì vượt phạm vi và dễ che khuất lỗi vận hành.
 
@@ -939,6 +939,56 @@ Kiến trúc | Notes | Hiệu năng
 
 - `docs/release/runtime-v0.1.0.md` — worker heartbeat/recovery.
 - `docs/release/notes-v0.1.0.md` — notes progress/timeout.
+
+### #84 — Giữ provider đang dùng và làm rõ các chuyển trạng thái kết nối
+
+#### Vấn đề
+
+Trong lúc một notes task đang dùng một provider, UI có thể không biết provider nào bị ghim; catalog `409 provider_in_use` bị diễn giải như lỗi unavailable. Antigravity ngắt kết nối ngay không có xác nhận, notes yêu cầu kết nối lại khi model đã lưu chỉ bị thiếu, và copy lỗi busy/disconnected/network không phân biệt đủ.
+
+#### Nguyên nhân đo được
+
+`GET /api/providers` chưa trả metadata active-task; reducer provider chung chưa khóa mutation theo metadata hoặc giữ badge/account khi catalog bị từ chối. Antigravity dùng descriptor không xác nhận disconnect, notes gộp trạng thái connected-missing-model vào nhánh connect, và lỗi HTTP typed 503 bị coi là chưa biết kết quả như mọi lỗi 5xx.
+
+#### Thay đổi thiết kế
+
+- Route thêm `in_use`/`in_use_reason: "notes"` từ cùng active-task guard dùng cho server mutation; chỉ provider được task ghim bị khóa, provider còn lại vẫn list/save/disconnect được.
+- Provider core khóa model, effort, save, verify và disconnect của provider in-use, hiển thị lý do qua status có `aria-describedby`; catalog `provider_in_use` giữ status, account, badge và model đã biết. Dedicated provider copy được ưu tiên trước fallback HTTP nhưng vẫn giữ copy recovery riêng của server khi có.
+- Cả ChatGPT và Antigravity đều có xác nhận disconnect. Antigravity chỉ báo xóa credential local/OMP; phản hồi không được diễn giải thành remote Google revocation. `provider_disconnected` yêu cầu connect, `reconnect_required` mới yêu cầu reconnect; `provider_unavailable` không khẳng định Internet bị ngắt, còn transport loss giữ mã network riêng.
+- Notes tách `configure` khỏi `connect`: provider connected nhưng model saved không có/không usable mở choice hiện có và focus model, không tự chọn model. Typed provider/worker admission refusals là definitive kể cả khi HTTP 503; lỗi transport/timeout mơ hồ vẫn giữ pending để verify.
+
+#### Số đo trước và sau
+
+| | Trước | Sau |
+| --- | --- | --- |
+| Metadata provider đang được notes task dùng | không có trong `/api/providers` | `in_use` + `in_use_reason` theo provider |
+| Antigravity disconnect | click trực tiếp, không xác nhận | xác nhận, focus keep/confirm, local-only result |
+| Connected + saved model không dùng được | action yêu cầu kết nối | action `configure`, mở/focus model choice |
+| Provider unavailable copy | có thể khẳng định nguyên nhân | cause-neutral, khuyên kiểm tra Internet/thử lại |
+
+Kiểm chứng: focused Node reducer tests, backend/provider guard và i18n tests, cùng browser regressions cho confirmation, catalog refusal, recovery copy và model focus; không dùng live provider/inference.
+
+#### Đánh đổi và phương án đã loại
+
+- Metadata là advisory cho UI; server guard vẫn là authority, nên race giữa status read và mutation không mở thêm quyền.
+- Giữ model/account/badge cũ khi catalog bị `provider_in_use` có thể để catalog stale, nhưng bảo toàn trạng thái kết nối và model đã lưu cho tới khi task kết thúc.
+- Dùng một confirmation flow chung với copy local-only cho Antigravity, không mô phỏng remote revocation semantics mà OMP không chứng minh được.
+
+#### Follow-up
+
+- Root session chạy cumulative independent tester/reviewer; không chạy live account/model trong issue này.
+
+#### Liên kết issue/PR
+
+Issue #84.
+
+#### Tag
+
+Kiến trúc
+
+#### Tài liệu đích
+
+- `docs/release/runtime-v0.1.0.md` — provider lifecycle và reducer transition.
 
 ## 6. Mẫu mục mới
 

@@ -682,6 +682,14 @@ async def test_active_notes_task_blocks_only_its_own_provider_connection(
         )
         assert accepted.status_code == 202
 
+        listed = (await api.client.get("/api/providers")).json()["providers"]
+        by_id = {provider["id"]: provider for provider in listed}
+        assert by_id[pinned]["in_use"] is True
+        assert by_id[pinned]["in_use_reason"] == "notes"
+        other = "antigravity" if pinned == "chatgpt" else "chatgpt"
+        assert by_id[other]["in_use"] is False
+        assert by_id[other]["in_use_reason"] is None
+
         blocked_calls = {
             "chatgpt": [
                 ("GET", "/api/providers/chatgpt/models", None),
@@ -704,7 +712,6 @@ async def test_active_notes_task_blocks_only_its_own_provider_connection(
             assert response.status_code == 409, path
             assert response.json()["detail"]["code"] == "provider_in_use", path
 
-        other = "antigravity" if pinned == "chatgpt" else "chatgpt"
         other_models = await api.client.get(f"/api/providers/{other}/models")
         assert other_models.status_code == 200
         # Choosing models stays possible for both providers during a run.

@@ -68,13 +68,13 @@ const PROVIDER_LABELS = { chatgpt: "ChatGPT", antigravity: "Google Antigravity" 
 const NEXT_STEP = t("Hệ thống không tự đổi nhà cung cấp, tài khoản hay model. Bạn có thể chọn nhà cung cấp hoặc model khác rồi bắt đầu một lần chạy mới.");
 // Each entry names the pinned provider; the operator decides what to do next.
 const FAILURE_MESSAGES = {
-  provider_disconnected: (name) => t("{name} chưa được kết nối. Hãy kết nối lại trong phần Kết nối.", { name }),
+  provider_disconnected: (name) => t("{name} chưa được kết nối. Hãy kết nối trong phần Kết nối.", { name }),
   reconnect_required: (name) => t("{name} cần được kết nối lại trước khi tạo notes.", { name }),
   connection_changed: (name) => t("Kết nối {name} đã đổi trong lúc chạy nên tác vụ dừng lại.", { name }),
   provider_quota: (name) => t("{name} đã hết hạn mức sử dụng.", { name }),
   model_unavailable: (name) => t("Model đã chọn không dùng được với {name}; gói hiện tại có thể không bao gồm model này.", { name }),
   thinking_level_unavailable: (name) => t("{name} không áp dụng được mức suy nghĩ đã chọn; tác vụ đã dừng trước khi gửi yêu cầu tiếp theo.", { name }),
-  provider_unavailable: (name) => t("{name} tạm thời không khả dụng.", { name }),
+  provider_unavailable: (name) => t("{name} tạm thời không khả dụng. Hãy kiểm tra kết nối Internet rồi thử lại.", { name }),
   provider_invalid_response: (name) => t("{name} dừng mà không trả về kết quả dùng được nên không có notes mới nào được lưu.", { name }),
   provider_timeout: (name) => t("{name} không phản hồi kịp thời gian.", { name }),
   provider_output_too_large: (name) => t("Phản hồi của {name} vượt quá kích thước đầu ra cho phép.", { name }),
@@ -90,7 +90,7 @@ const FAILURE_MESSAGES = {
   notes_failed: (name) => t("Tạo notes bằng {name} thất bại. Kiểm tra log của worker rồi thử lại.", { name }),
   notes_publication_failed: (name) => t("Không thể lưu notes của {name} hoàn chỉnh. Kiểm tra bộ nhớ lưu trữ rồi thử lại.", { name }),
   notes_invalid_output: (name) => t("{name} trả về notes không hợp lệ, kể cả sau một lần sửa tự động.", { name }),
-  provider_in_use: (name) => t("{name} đang được một tác vụ notes khác sử dụng.", { name }),
+  provider_in_use: (name) => t("{name} đang được một tác vụ notes khác sử dụng. Hãy đợi tác vụ hoàn tất trước khi đổi model, kiểm tra hoặc ngắt kết nối.", { name }),
   notes_model_unselected: (name) => t("Chưa chọn model cho {name}.", { name }),
   notes_preference_changed: () => t("Lựa chọn nhà cung cấp hoặc model đã đổi ở nơi khác nên yêu cầu chưa được gửi. Hãy xác nhận lại nhà cung cấp và model đang hiển thị rồi bấm tạo notes lần nữa."),
   login_in_progress: (name) => t("Phiên đăng nhập {name} đang chờ. Hãy hoàn tất hoặc hủy đăng nhập trước khi tạo notes; hệ thống chưa đổi gì.", { name }),
@@ -107,7 +107,7 @@ function providerLabel(provider) {
 
 // Returns "" when the code has no dedicated copy; callers then use a safe local fallback.
 export function failureMessage(code, provider) {
-  const build = FAILURE_MESSAGES[code];
+  const build = Object.hasOwn(FAILURE_MESSAGES, code) ? FAILURE_MESSAGES[code] : null;
   if (build) return [build(providerLabel(provider)), " ", NEXT_STEP];
   const shared = errorMessageForCode(code, undefined, provider);
   return shared ? [shared, " ", NEXT_STEP] : "";
@@ -150,7 +150,21 @@ function apiError(error, provider) {
   return { code: responseCode(status, payload), message: responseMessage(status, payload, provider), status, payload };
 }
 
-const isDefinitive = (error) => error.status >= 400 && error.status < 500;
+const DEFINITIVE_ADMISSION_CODES = new Set([
+  "meeting_task_active",
+  "notes_source_locked",
+  "provider_busy",
+  "provider_disconnected",
+  "provider_in_use",
+  "reconnect_required",
+  "worker_unavailable",
+  "processing_unavailable",
+  "system_busy",
+  "notes_model_unselected",
+  "notes_preference_changed",
+  "login_in_progress",
+]);
+const isDefinitive = (error) => (error.status >= 400 && error.status < 500) || DEFINITIVE_ADMISSION_CODES.has(error.code);
 
 function unwrappedNotesPayload(payload) {
   return payload && payload.notes && typeof payload.notes === "object" ? payload.notes : payload;
@@ -585,6 +599,7 @@ export const initialState = {
     saveId: 0,
     message: "",
     open: false, // "Đổi…" is showing the selects and the description of what is sent
+    focus: 0, // one-shot focus request for the model select
   },
   notes: {}, // meeting id -> EMPTY_NOTES shape
   drafts: {}, // revision id -> { value, baselineMarkdown, expectedEditVersion, conflict }
@@ -746,7 +761,19 @@ function needsConnection(state, data, provider, readiness, pending) {
     && !pending
     && !activeTask(data)
     && !(data && data.starting)
-    && (choice.status[provider] !== "connected" || !readiness.ready || !readiness.model);
+    && choice.status[provider] !== "connected";
+}
+
+function needsModelChoice(state, data, provider, readiness, pending) {
+  const choice = state.choice;
+  const models = catalogModels(state, provider);
+  return choice.loaded
+    && !pending
+    && !activeTask(data)
+    && !(data && data.starting)
+    && choice.status[provider] === "connected"
+    && models !== null
+    && (!readiness.ready || !readiness.model);
 }
 
 function selectedRevision(state) {
@@ -1559,6 +1586,10 @@ function transition(state, action) {
       return cancelNotes(state);
     case "notes/change-toggled":
       return out(patchChoice(state, { open: !state.choice.open }));
+    case "notes/configure-clicked":
+      return out(patchChoice(state, { open: true, focus: state.choice.focus + 1 }));
+    case "notes/choice-focus-handled":
+      return out(patchChoice(state, { focus: 0 }));
     case "notes/choice-reload-clicked":
     case "notes/provider-choice-changed":
       return state.meetingId ? loadChoice(state, state.meetingId) : out(state);
@@ -1793,7 +1824,12 @@ function choiceView(state, data, pending) {
     });
   }
   // The plan line belongs to the open choice, except when the action cannot simply run and it says why.
-  const stuck = needsConnection(state, data, provider, readiness, pending) || (!choice.loaded && !choice.loading && !pending);
+  const configure = needsModelChoice(state, data, provider, readiness, pending);
+  const catalogBlocked = Boolean(choice.catalogErrors[provider]);
+  const stuck = needsConnection(state, data, provider, readiness, pending)
+    || configure
+    || catalogBlocked
+    || (!choice.loaded && !choice.loading && !pending);
   return {
     provider,
     readiness,
@@ -1807,6 +1843,8 @@ function choiceView(state, data, pending) {
     reloadHidden: choice.loaded || !state.meetingId,
     reloadDisabled: choice.loading,
     message: choice.message,
+    configure,
+    focus: choice.focus,
     policy: t("Ngày họp, lời thoại, mốc thời gian và tên người nói được gửi tới {name} bằng model đã chọn. Với nguồn dài, các bản tóm tắt trung gian cũng được gửi để tổng hợp notes. File audio/video, tên cuộc họp và thông tin tài khoản không được gửi.", { name }),
     hidden: !choice.open,
     expanded: choice.open,
@@ -1912,9 +1950,11 @@ export function selectView(state) {
   const choice = choiceView(state, data, pending);
   const { provider, readiness } = choice;
   const connect = needsConnection(state, data, provider, readiness, pending);
+  const configure = choice.configure;
   const revisions = data ? data.revisions : [];
   let runLabel;
   if (connect) runLabel = t("Kết nối {provider} để tạo notes", { provider: providerLabel(provider) });
+  else if (configure) runLabel = t("Chọn hoặc đổi model để tạo notes.");
   else if (data && data.starting) runLabel = t("Đang gửi yêu cầu…");
   else if (pending) runLabel = t("Xác minh yêu cầu notes");
   else {
@@ -1951,10 +1991,10 @@ export function selectView(state) {
     languageDisabled: Boolean(wait || (data && data.starting) || activeTask(data) || pending),
     choice,
     run: {
-      action: connect ? "connect" : "start",
-      describedBy: connect ? "notes-run-plan" : "notes-status",
-      disabled: !connect && !canStartNotes(state),
-      title: !connect && wait ? waitMessage : "",
+      action: connect ? "connect" : configure ? "configure" : "start",
+      describedBy: connect || configure ? "notes-run-plan" : "notes-status",
+      disabled: !connect && !configure && !canStartNotes(state),
+      title: !connect && !configure && wait ? waitMessage : "",
       label: runLabel,
       inToolbar: Boolean(selectedRevision(state)),
     },

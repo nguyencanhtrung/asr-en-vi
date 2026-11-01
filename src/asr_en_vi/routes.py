@@ -21,6 +21,7 @@ from asr_en_vi.chatgpt import ChatGPTError, ChatGPTProvider
 from asr_en_vi.config import Settings
 from asr_en_vi.media import ALLOWED_EXTENSIONS, OUTPUT_BITRATE, OUTPUT_CODEC
 from asr_en_vi.meeting_deletion import MeetingDeletionError, delete_meeting
+from asr_en_vi.notes import has_active_notes_task
 from asr_en_vi.notes_routes import install_notes_routes
 from asr_en_vi.recordings import (
     RecordingError,
@@ -377,7 +378,12 @@ def install_routes(
     async def list_providers() -> dict[str, Any]:
         def load_providers() -> dict[str, Any]:
             chatgpt = chatgpt_provider.get_providers()
-            return {"providers": [*chatgpt["providers"], antigravity_provider.provider_view()]}
+            providers = [*chatgpt["providers"], antigravity_provider.provider_view()]
+            for provider in providers:
+                in_use = has_active_notes_task(settings.data_dir, provider=provider["id"])
+                provider["in_use"] = in_use
+                provider["in_use_reason"] = "notes" if in_use else None
+            return {"providers": providers}
 
         return await provider_json(load_providers)
 

@@ -319,9 +319,7 @@ def test_an_unconnected_provider_replaces_the_action_with_connecting(
     expect(start).to_be_focused()  # back on the button that opened it
 
 
-def test_a_missing_model_also_asks_to_connect_and_nothing_picks_one_for_the_operator(
-    live, signed_in
-):
+def test_a_missing_model_opens_choice_and_nothing_picks_one_for_the_operator(live, signed_in):
     _context, page = signed_in()
     meeting_id, *_ = seed_completed_transcript(live.settings.data_dir)
     save_preference(page, live, "antigravity", "model-that-was-removed")
@@ -330,12 +328,14 @@ def test_a_missing_model_also_asks_to_connect_and_nothing_picks_one_for_the_oper
     open_notes(page, live, meeting_id)
 
     start = page.locator("#notes-start")
-    expect(start).to_have_text("Kết nối Google Antigravity để tạo notes")
+    expect(start).to_have_text("Chọn hoặc đổi model để tạo notes.")
     expect(page.locator("#notes-run-plan")).to_be_visible()
     expect(page.locator("#notes-run-plan")).to_contain_text("không tự chọn thay")
     expect(page.locator("#notes-model")).to_have_value("")
-    # Picking a model under "Đổi…" is the other way out, and brings the action back.
-    page.locator("#notes-change").click()
+    # The action opened "Đổi…" and focused the model; picking it brings the action back.
+    start.click()
+    expect(page.locator("#notes-choice")).to_be_visible()
+    expect(page.locator("#notes-model")).to_be_focused()
     page.locator("#notes-model").select_option(ANTIGRAVITY_MODEL)
     expect(start).to_have_text("Tạo notes · English · Google Antigravity Gemini 3 Pro High")
     assert runs == []

@@ -82,9 +82,11 @@ function defaultError(code, status, provider) {
 // A server string is kept only when it is Vietnamese; our own t() result is kept as it is.
 function localizedError(code, message, status, provider) {
   const shared = errorMessageForCode(code, status, provider);
-  if (shared) return shared;
+  if (shared && ["provider_busy", "provider_in_use", "provider_unavailable"].includes(code)) return shared;
+  if (Object.hasOwn(REQUEST_ERRORS, code) && provider !== "antigravity") return REQUEST_ERRORS[code];
   if (typeof message === "string" && VIETNAMESE.test(message)) return message;
   if (message && typeof message === "object") return message;
+  if (shared) return shared;
   return defaultError(code, status, provider);
 }
 
@@ -232,7 +234,7 @@ export const ANTIGRAVITY = {
   loadFailure: "badge-error",
   exclusive: true, // one operation at a time: save, verify, disconnect
   verifyWithEffort: false,
-  confirmDisconnect: false,
+  confirmDisconnect: true,
   clearMessages: false,
   effort: { kind: "fixed", initial: "high" },
   effortLabels: { medium: "Medium", high: "High" },
@@ -252,7 +254,7 @@ export const ANTIGRAVITY = {
     provider_quota: t("Tài khoản hoặc model Antigravity đã chạm giới hạn hiện tại."),
     model_unavailable: t("Model này không còn khả dụng với tài khoản Antigravity."),
     provider_timeout: t("OMP hoặc Google Antigravity không phản hồi trong thời gian cho phép."),
-    provider_busy: t("Một thao tác Antigravity khác đang chạy."),
+    DISCONNECT_NOT_CONFIRMED: t("Máy chủ chưa xác nhận đã ngắt kết nối Antigravity."),
   },
   copy: {
     status: {
@@ -285,6 +287,8 @@ export const ANTIGRAVITY = {
     verifying: t("Đang gửi một yêu cầu tổng hợp qua model đã chọn…"),
     verified: t("Đã xác minh {model} lúc {time}."),
     verifyFailed: t("Kiểm tra thất bại; yêu cầu không được tự động gửi lại."),
+    disconnecting: t("Đang ngắt kết nối…"),
+    disconnect: t("Ngắt kết nối"),
     disconnectedLocal: t("Đã ngắt kết nối Antigravity và vô hiệu hóa credential OMP đã lưu."),
   },
 };
@@ -370,6 +374,10 @@ const persist = (d, login) =>
 function errorText(d, error) {
   const code = (error && error.code) || "CONNECTION_ERROR";
   if (d.errorStyle === "chatgpt") return localizedError(code, error && error.message, error && error.status, d.id);
+  if (["provider_busy", "provider_in_use", "provider_unavailable"].includes(code)) {
+    const shared = errorMessageForCode(code, error && error.status, d.id);
+    if (shared) return shared;
+  }
   const known = Object.hasOwn(d.errors, error?.code) ? d.errors[error.code] : null;
   if (known) return known;
   if (code === "NETWORK_ERROR") return REQUEST_ERRORS.NETWORK_ERROR;
@@ -562,6 +570,9 @@ function setPending(s, op, value) {
 
 function resume(d, s, error, after) {
   if (after === "load") {
+    if (error?.code === "provider_in_use" && s.info?.status === "connected") {
+      return settle(d, showError(d, s, error));
+    }
     let next = s;
     if (d.loadFailure === "keep-last") {
       if (s.info) next = applyProvider(d, s, s.info);
@@ -781,8 +792,10 @@ function restore(d, s, raw, now) {
 // ---- model choice, save, verify, disconnect ----
 
 const busy = (d, s, op) => (d.exclusive ? Object.values(s.pending).some(Boolean) : s.pending[op]);
+const providerInUse = (s) => Boolean(s.info && s.info.in_use === true);
 
 function editChoice(d, s, field, value) {
+  if (providerInUse(s)) return done(s);
   if (d.catalog === "preferences") {
     if (field === "model") {
       const effort = value === s.savedModel ? s.savedEffort : "default";
@@ -798,6 +811,7 @@ function editChoice(d, s, field, value) {
 }
 
 function saveChoice(d, s) {
+  if (providerInUse(s)) return done(s);
   const model = s.selectedModel;
   const effort = effortValue(d, s, model, s.selectedEffort);
   if (d.catalog === "preferences" ? !modelAvailable(s, model) || busy(d, s, "save") : !model || busy(d, s, "save")) return done(s);
@@ -831,6 +845,7 @@ function saveOk(d, s, meta, body) {
 }
 
 function verifyConnection(d, s) {
+  if (providerInUse(s)) return done(s);
   const model = s.selectedModel;
   const effort = effortValue(d, s, model, s.selectedEffort);
   if (d.verifyWithEffort ? !modelAvailable(s, model) || busy(d, s, "verify") : !model || busy(d, s, "verify")) return done(s);
@@ -857,7 +872,7 @@ function verifyOk(d, s, meta, result) {
 }
 
 function disconnect(d, s) {
-  if (busy(d, s, "disconnect")) return done(s);
+  if (providerInUse(s) || (d.confirmDisconnect && !s.confirming) || busy(d, s, "disconnect")) return done(s);
   const next = setPending({ ...s, ...(d.confirmDisconnect ? { error: null } : {}) }, "disconnect", true);
   return done(next, [call(d, "disconnect", "disconnect", d.endpoints.connection, { method: "DELETE" })]);
 }
@@ -881,7 +896,9 @@ function disconnectOk(d, s, result) {
       verifyResult: { state: "", text: null },
       confirming: false,
       ui: "focus:sign-in",
-      message: result.remote_revocation_confirmed === true ? d.copy.disconnectedRemote : d.copy.disconnectedLocal,
+      message: d.id === "antigravity"
+        ? d.copy.disconnectedLocal
+        : result.remote_revocation_confirmed === true ? d.copy.disconnectedRemote : d.copy.disconnectedLocal,
     },
     info,
   );
@@ -950,6 +967,7 @@ function reduceProvider(d, state, action) {
     case "provider/verify-requested":
       return verifyConnection(d, state);
     case "provider/disconnect-confirm-toggled":
+      if (providerInUse(state)) return done(state);
       return done({ ...state, confirming: action.open, ui: action.open ? "focus:disconnect-confirm" : "focus:disconnect-trigger" });
     case "provider/disconnect-requested":
       return disconnect(d, state);
@@ -1043,6 +1061,8 @@ export function selectLauncher(d, s) {
 
 export function selectView(d, s) {
   const connected = s.info?.status === "connected";
+  const inUse = providerInUse(s);
+  const mutationReason = inUse ? errorMessageForCode("provider_in_use", 409, d.id) : null;
   const model = s.selectedModel;
   const available = modelAvailable(s, model);
   const efforts = d.effort.kind === "per-model" ? [{ value: "default", label: DEFAULT_EFFORT_LABEL }, ...supportedEfforts(s, model).map((value) => ({ value, label: EFFORT_LABELS[value] }))] : null;
@@ -1056,28 +1076,33 @@ export function selectView(d, s) {
   };
   if (d.exclusive) {
     const anyBusy = busy(d, s, "save");
+    const mutationBlocked = inUse || anyBusy;
     return {
       ...view,
-      modelDisabled: !connected || anyBusy,
-      effortDisabled: !connected || anyBusy,
-      saveDisabled: !available || anyBusy || (model === s.savedModel && effort === s.savedEffort),
-      verifyDisabled: !available || anyBusy,
+      mutationReason,
+      modelDisabled: !connected || mutationBlocked,
+      effortDisabled: !connected || mutationBlocked,
+      saveDisabled: !available || mutationBlocked || (model === s.savedModel && effort === s.savedEffort),
+      verifyDisabled: !available || mutationBlocked,
       loginHidden: !s.login,
       disconnectHidden: !connected,
+      disconnectDisabled: inUse || s.pending.disconnect,
+      disconnectLabel: s.pending.disconnect ? d.copy.disconnecting : d.copy.disconnect,
     };
   }
   const canUse = connected && available;
   const preferenceActive = typeof s.preferences.models[d.id] === "string" && s.preferences.models[d.id] !== "";
   return {
     ...view,
-    modelDisabled: !connected || s.pending.save || s.models.length === 0,
-    effortDisabled: !canUse || s.pending.save || efforts.length < 2,
-    saveDisabled: !canUse || s.pending.save || (model === s.savedModel && effort === s.savedEffort && preferenceActive),
-    verifyDisabled: !canUse || s.pending.verify,
+    mutationReason,
+    modelDisabled: !connected || inUse || s.pending.save || s.models.length === 0,
+    effortDisabled: !canUse || inUse || s.pending.save || efforts.length < 2,
+    saveDisabled: !canUse || inUse || s.pending.save || (model === s.savedModel && effort === s.savedEffort && preferenceActive),
+    verifyDisabled: !canUse || inUse || s.pending.verify,
     pendingHidden: !s.login,
     cancelDisabled: !s.login || s.cancelling,
     disconnectHidden: !s.info || s.info.status === "disconnected",
-    disconnectDisabled: s.pending.disconnect,
+    disconnectDisabled: inUse || s.pending.disconnect,
     disconnectLabel: s.pending.disconnect ? d.copy.disconnecting : d.copy.disconnect,
   };
 }

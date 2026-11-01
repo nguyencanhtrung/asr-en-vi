@@ -671,6 +671,7 @@
             </dl>
 
             <p class="connection-message" id="connection-message" role="status" aria-live="polite"></p>
+            <p class="connection-mutation-status" id="connection-mutation-reason" role="status" aria-live="polite" hidden></p>
             <div class="connection-error" id="connection-error" role="alert" hidden>
               <span id="connection-error-message"></span>
               <button class="text-button" id="connection-retry-poll" type="button" hidden>Kiểm tra trạng thái lại</button>
@@ -748,6 +749,7 @@
               </div>
             </dl>
             <p class="connection-message" id="antigravity-message" role="status" aria-live="polite"></p>
+            <p class="connection-mutation-status" id="antigravity-mutation-reason" role="status" aria-live="polite" hidden></p>
             <div class="connection-error" id="antigravity-error" role="alert" hidden>
               <span id="antigravity-error-message"></span>
             </div>
@@ -764,21 +766,30 @@
               </form>
               <button class="text-button" id="antigravity-cancel" type="button">Hủy đăng nhập</button>
             </div>
-            <button class="text-button connection-disconnect-trigger" id="antigravity-disconnect" type="button" hidden>Ngắt kết nối Antigravity</button>
+            <div class="connection-disconnect" id="antigravity-disconnect-wrap" hidden>
+              <button class="text-button connection-disconnect-trigger" id="antigravity-disconnect" type="button">Ngắt kết nối Antigravity</button>
+              <div class="connection-disconnect-confirm" id="antigravity-disconnect-confirm" hidden>
+                <p>Thao tác này xóa credential Antigravity đã lưu trong workspace. Quyền Google từ xa không bị thu hồi.</p>
+                <div class="connection-disconnect-actions">
+                  <button class="secondary-button" id="antigravity-disconnect-keep" type="button">Giữ kết nối</button>
+                  <button class="primary-button" id="antigravity-disconnect-confirm-button" type="button">Ngắt kết nối</button>
+                </div>
+              </div>
+            </div>
           </section>
 
           <section class="connection-section connection-model-section" id="antigravity-model-section" aria-labelledby="antigravity-model-title" hidden>
             <div class="connection-section-heading"><h3 id="antigravity-model-title">Mô hình Antigravity</h3></div>
             <form id="antigravity-model-form">
               <label for="antigravity-model">Mô hình dùng cho ghi chú cuộc họp</label>
-              <select id="antigravity-model" disabled><option value="">Đang tải mô hình khả dụng</option></select>
+              <select id="antigravity-model" aria-describedby="antigravity-model-help" disabled><option value="">Đang tải mô hình khả dụng</option></select>
               <label for="antigravity-effort">Mức suy nghĩ</label>
-              <select id="antigravity-effort" disabled>
+              <select id="antigravity-effort" aria-describedby="antigravity-effort-help" disabled>
                 <option value="high">High</option>
                 <option value="medium">Medium</option>
               </select>
-              <p class="connection-help">High đầy đủ hơn nhưng chậm hơn (khoảng 7–10 phút cho cuộc họp 1 giờ). Medium nhanh hơn nhưng có thể bỏ sót việc cần làm.</p>
-              <p class="connection-help">Catalog chỉ cho biết model xuất hiện với tài khoản. Hãy chạy kiểm tra tổng hợp để xác nhận model thực sự tạo được đầu ra.</p>
+              <p class="connection-help" id="antigravity-effort-help">High đầy đủ hơn nhưng chậm hơn (khoảng 7–10 phút cho cuộc họp 1 giờ). Medium nhanh hơn nhưng có thể bỏ sót việc cần làm.</p>
+              <p class="connection-help" id="antigravity-model-help">Catalog chỉ cho biết model xuất hiện với tài khoản. Hãy chạy kiểm tra tổng hợp để xác nhận model thực sự tạo được đầu ra.</p>
               <p class="connection-model-status" id="antigravity-model-status" role="status" aria-live="polite"></p>
               <button class="primary-button" id="antigravity-model-save" type="submit" disabled>Lưu mô hình Antigravity</button>
             </form>

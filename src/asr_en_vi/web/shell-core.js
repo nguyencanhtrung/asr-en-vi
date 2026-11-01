@@ -66,11 +66,12 @@ const SERVER_ERROR_MESSAGES = {
   notes_failed: t("Tạo notes thất bại. Kiểm tra log của worker rồi thử lại."),
   notes_source_locked: t("Nguồn đang được dùng để tạo notes. Chỉnh sửa transcript, người nói và ngày họp tạm thời bị khóa."),
   provider_busy: (provider) => provider
-    ? t("{provider} đang bận với một thao tác khác. Hãy đợi một chút rồi thử lại.", { provider: providerName(provider) })
+    ? t("{name} đang bận với một thao tác kết nối hoặc đăng nhập. Hãy hoàn tất hoặc hủy đăng nhập rồi thử lại; hệ thống chưa đổi gì.", { name: providerName(provider) })
     : t("Một thao tác của nhà cung cấp đang chạy. Hãy đợi một chút rồi thử lại."),
-  provider_disconnected: (provider) => t("{provider} chưa được kết nối. Hãy kết nối lại trước khi tạo notes.", { provider: providerName(provider) }),
+  provider_disconnected: (provider) => t("{name} chưa được kết nối. Hãy kết nối trước khi tạo notes.", { name: providerName(provider) }),
+  provider_in_use: (provider) => t("{name} đang được một tác vụ notes khác sử dụng. Hãy đợi tác vụ hoàn tất trước khi đổi model, kiểm tra hoặc ngắt kết nối.", { name: providerName(provider) }),
   reconnect_required: (provider) => t("{provider} cần được kết nối lại trước khi tạo notes.", { provider: providerName(provider) }),
-  provider_unavailable: (provider) => t("{provider} tạm thời không khả dụng.", { provider: providerName(provider) }),
+  provider_unavailable: (provider) => t("{name} tạm thời không khả dụng. Hãy kiểm tra kết nối Internet rồi thử lại.", { name: providerName(provider) }),
   provider_quota: (provider) => t("{provider} đã hết hạn mức sử dụng. Hãy kiểm tra mức sử dụng gói.", { provider: providerName(provider) }),
   provider_output_too_large: (provider) => t("Phản hồi của {provider} vượt quá kích thước đầu ra cho phép.", { provider: providerName(provider) }),
   provider_stream_too_large: (provider) => t("Phản hồi của {provider} vượt quá kích thước truyền cho phép.", { provider: providerName(provider) }),

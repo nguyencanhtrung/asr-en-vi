@@ -57,6 +57,8 @@ async def test_provider_routes_obey_auth_contract_and_never_expose_credentials(p
                 "account": None,
                 "connection_version": 0,
                 "verification": None,
+                "in_use": False,
+                "in_use_reason": None,
             },
             {
                 "id": "antigravity",
@@ -65,6 +67,8 @@ async def test_provider_routes_obey_auth_contract_and_never_expose_credentials(p
                 "connection_version": 0,
                 "verification": None,
                 "reasoning_effort": "high",
+                "in_use": False,
+                "in_use_reason": None,
             },
         ]
     }

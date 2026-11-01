@@ -13,6 +13,7 @@ const els = {
   message: document.querySelector("#antigravity-message"),
   error: document.querySelector("#antigravity-error"),
   errorMessage: document.querySelector("#antigravity-error-message"),
+  mutationReason: document.querySelector("#antigravity-mutation-reason"),
   signIn: document.querySelector("#antigravity-sign-in"),
   login: document.querySelector("#antigravity-login"),
   loginCopy: document.querySelector("#antigravity-login-copy"),
@@ -21,7 +22,11 @@ const els = {
   inputLabel: document.querySelector("#antigravity-input-label"),
   input: document.querySelector("#antigravity-input"),
   cancel: document.querySelector("#antigravity-cancel"),
-  disconnect: document.querySelector("#antigravity-disconnect"),
+  disconnect: document.querySelector("#antigravity-disconnect-wrap"),
+  disconnectTrigger: document.querySelector("#antigravity-disconnect"),
+  disconnectConfirm: document.querySelector("#antigravity-disconnect-confirm"),
+  disconnectKeep: document.querySelector("#antigravity-disconnect-keep"),
+  disconnectConfirmButton: document.querySelector("#antigravity-disconnect-confirm-button"),
   modelSection: document.querySelector("#antigravity-model-section"),
   modelForm: document.querySelector("#antigravity-model-form"),
   modelSelect: document.querySelector("#antigravity-model"),
@@ -44,6 +49,12 @@ function render(state) {
   setProp(els.inputForm, "hidden", !s.inputOpen);
   if (s.inputPrompt) setProp(els.inputLabel, "textContent", s.inputPrompt);
   if (s.ui) {
+    const focus = {
+      "focus:sign-in": els.signIn,
+      "focus:disconnect-confirm": els.disconnectConfirmButton,
+      "focus:disconnect-trigger": els.disconnectTrigger,
+    }[s.ui];
+    if (focus) focus.focus();
     if (s.ui === "clear-input") els.input.value = "";
     dispatch({ type: "provider/ui-handled", provider: ANTIGRAVITY.id });
   }
@@ -64,6 +75,8 @@ els.modelForm.addEventListener("submit", (event) => {
   antigravity({ type: "provider/save-requested" });
 });
 els.verify.addEventListener("click", () => antigravity({ type: "provider/verify-requested" }));
-els.disconnect.addEventListener("click", () => antigravity({ type: "provider/disconnect-requested" }));
+els.disconnectTrigger.addEventListener("click", () => antigravity({ type: "provider/disconnect-confirm-toggled", open: true }));
+els.disconnectKeep.addEventListener("click", () => antigravity({ type: "provider/disconnect-confirm-toggled", open: false }));
+els.disconnectConfirmButton.addEventListener("click", () => antigravity({ type: "provider/disconnect-requested" }));
 
 antigravity({ type: "provider/boot-restored", raw: readStored(ANTIGRAVITY.storageKey), now: Date.now() });

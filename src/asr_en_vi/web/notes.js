@@ -219,6 +219,10 @@ function renderChoice(view) {
   setProp(els.plan, "hidden", choice.planHidden);
   setProp(els.choice, "hidden", choice.hidden);
   setAttr(els.change, "aria-expanded", String(choice.expanded));
+  if (choice.focus > 0 && !choice.hidden && !choice.modelDisabled) {
+    els.model.focus({ preventScroll: true });
+    dispatch({ type: "notes/choice-focus-handled" });
+  }
 }
 
 function renderTask(view) {
@@ -427,6 +431,7 @@ function newRequestId() {
 els.start.addEventListener("click", (event) => {
   // The header launcher already opens Connections at its own provider's section.
   if (event.currentTarget.dataset.action === "connect") $(`#launcher-${selectedProvider(store.getState(), null)}`).click();
+  else if (event.currentTarget.dataset.action === "configure") dispatch({ type: "notes/configure-clicked" });
   else dispatch({ type: "notes/start-clicked", requestId: newRequestId() });
 });
 els.change.addEventListener("click", () => dispatch({ type: "notes/change-toggled" }));

@@ -4,6 +4,7 @@ import test from "node:test";
 import { createRunner, createStore } from "../../src/asr_en_vi/web/store.js";
 import {
   hasUnsavedDraft,
+  failureMessage,
   initialState,
   normalizePendingRequest,
   pendingRequestStorageKey,
@@ -107,12 +108,12 @@ function setup() {
 const notesBody = (revisions = [], task = null, locked = false) => ({ revisions, task, source_locked: locked });
 
 // Open the meeting and answer the notes read plus the provider choice, so the run button can work.
-async function opened(env, { revisions = [], task = null } = {}) {
+async function opened(env, { revisions = [], task = null, catalog = CATALOG } = {}) {
   env.context();
   await env.answer(env.is("GET", "/api/meetings/m1/notes"), 200, notesBody(revisions, task));
   await env.answer(env.is("GET", "/api/providers"), 200, PROVIDERS);
   await env.answer(env.is("GET", "/api/notes-preferences"), 200, PREFS);
-  await env.answer(env.is("GET", "/api/providers/chatgpt/models"), 200, CATALOG);
+  await env.answer(env.is("GET", "/api/providers/chatgpt/models"), 200, catalog);
 }
 
 const notes = (env, id = "m1") => env.state().notes[id];
@@ -255,6 +256,51 @@ test("a refused run clears the pending request and names the provider's reason; 
   // pressing again resends the same request id
   other.dispatch("start-clicked", { requestId: "req-cccc-0003" });
   assert.equal(other.waiting(other.is("POST", "/notes-runs"))[0].body.request_id, "req-aaaa-0001");
+});
+
+test("a connected provider with a missing saved model opens model configuration, not account connection", async () => {
+  const env = setup();
+  await opened(env, { catalog: { models: [{ id: "m2", display_name: "M2" }] } });
+  const view = selectView(env.state());
+  assert.equal(view.run.action, "configure");
+  assert.equal(view.run.disabled, false);
+  assert.equal(view.run.label.text, "Chọn hoặc đổi model để tạo notes.");
+  assert.equal(view.run.describedBy, "notes-run-plan");
+  env.dispatch("configure-clicked");
+  assert.equal(env.state().choice.open, true);
+  assert.equal(env.state().choice.focus, 1);
+  assert.equal(env.waiting(env.is("POST", "/notes-runs")).length, 0);
+});
+
+test("typed provider busy refusal is definitive even when the server returns 503", async () => {
+  const env = setup();
+  await opened(env);
+  env.dispatch("start-clicked", { requestId: "req-aaaa-0001" });
+  await env.answer(env.is("POST", "/notes-runs"), 503, {
+    detail: { code: "provider_busy", message: "The provider is busy." },
+  });
+  assert.equal(env.state().pending.m1, undefined);
+  assert.equal(notes(env).runErrorUncertain, false);
+  assert.match(text(notes(env).runError), /đang bận với một thao tác/);
+});
+
+test("provider outage copy stays cause-neutral while transport loss keeps the local network copy", async () => {
+  assert.match(text(failureMessage("provider_disconnected", "chatgpt")), /Hãy kết nối trong phần Kết nối/);
+  const unavailable = setup();
+  await opened(unavailable);
+  unavailable.dispatch("start-clicked", { requestId: "req-aaaa-0001" });
+  await unavailable.answer(unavailable.is("POST", "/notes-runs"), 503, {
+    detail: { code: "provider_unavailable", message: "The provider is unavailable." },
+  });
+  assert.match(text(notes(unavailable).runError), /tạm thời không khả dụng/);
+  assert.doesNotMatch(text(notes(unavailable).runError), /không kết nối được Internet/);
+
+  const network = setup();
+  await opened(network);
+  network.dispatch("start-clicked", { requestId: "req-aaaa-0001" });
+  await network.fail(network.is("POST", "/notes-runs"));
+  assert.equal(text(notes(network).runError), "Không kết nối được với máy chủ trên máy này.");
+  assert.equal(notes(network).runErrorUncertain, true);
 });
 
 test("notes provider codes localize start refusals and persisted output-size failures", async () => {
@@ -1176,6 +1222,7 @@ test("a failed catalog empties that provider and says why", async () => {
   assert.equal(env.state().choice.catalogs.chatgpt, null);
   assert.match(text(env.state().choice.catalogErrors.chatgpt), /Chưa tải được danh sách model/);
   assert.equal(env.state().choice.loading, false);
+  assert.equal(selectView(env.state()).choice.planHidden, false);
 });
 test("a failed saved-text read says why", async () => {
   const env = setup();

@@ -410,9 +410,11 @@ Thay đổi nhỏ so với bản trước pha 1: đóng dialog gửi DELETE uplo
 
 Core `provider-core.js` (`reduce`, `initialState`, `selectView`, `selectLauncher`), view `connections.js` (header, hộp thoại, ChatGPT; tạo store chung) và `antigravity.js` (mục Google). Văn bản trong core là `{text, params}`; thời gian định dạng là marker `timestamp(value)`, view dịch bằng `t()` và `Intl`.
 
-**Mô tả provider** (`CHATGPT`, `ANTIGRAVITY`, dữ liệu thuần): `endpoints`, `catalog` (`preferences`: lựa chọn lưu ở `/api/notes-preferences`; `self`: catalog mang model và effort đã lưu), `storageKey` (sessionStorage), `login` (`kind`: `popup` hoặc `code`; `firstPoll`, `poll`, `pollError`; `clientExpiry`; `restoreExpired`; `pollErrors`; `cancelStrict`), `strictStatus`, `loadFailure`, `exclusive` (một thao tác một lúc), `confirmDisconnect`, `effort` (`per-model` hoặc `fixed`), `reconnect` (mã lỗi cần đăng nhập lại), `errors`, `copy`. Luồng viết một lần; khác biệt là nhánh nhỏ theo trường này.
+**Mô tả provider** (`CHATGPT`, `ANTIGRAVITY`, dữ liệu thuần): `endpoints`, `catalog` (`preferences`: lựa chọn lưu ở `/api/notes-preferences`; `self`: catalog mang model và effort đã lưu), `storageKey` (sessionStorage), `login` (`kind`: `popup` hoặc `code`; `firstPoll`, `poll`, `pollError`; `clientExpiry`; `restoreExpired`; `pollErrors`; `cancelStrict`), `strictStatus`, `loadFailure`, `exclusive` (một thao tác một lúc), `confirmDisconnect` (cả hai provider đều hỏi xác nhận; Antigravity chỉ xóa credential local, không tuyên bố thu hồi quyền Google từ xa), `effort` (`per-model` hoặc `fixed`), `reconnect` (mã lỗi cần đăng nhập lại), `errors`, `copy`. Luồng viết một lần; khác biệt là nhánh nhỏ theo trường này.
 
 Store: `combine({ chatgpt, antigravity, launcher })`; mọi reducer thấy mọi action. Action `provider/<sự kiện>` mang `provider` (hoặc `meta.provider`); reducer của provider khác bỏ qua. Kết quả mọi `fetch` là `provider/response` hoặc `provider/request-failed` với `meta.op`.
+
+`GET /api/providers` thêm `in_use` và `in_use_reason` cho từng provider. Chỉ provider được ghim bởi notes task đang ở trạng thái active có `in_use = true` và `in_use_reason = "notes"`; provider còn lại vẫn thao tác được. `selectView` dùng cùng metadata để khóa model, effort, lưu, kiểm tra và ngắt kết nối của provider bị ghim, đồng thời gắn lý do vào `aria-describedby` của các control. Lỗi catalog `provider_in_use` giữ status, account, badge và model đã biết; không biến provider connected thành unavailable.
 
 **Id chống response cũ** (trong state mỗi provider): `loadId` (một lượt tải: trạng thái, preferences, catalog; mọi bước mang id), `loginGen` (một lượt đăng nhập/poll/hủy; tăng khi ChatGPT bắt đầu, khi hủy và khi kết thúc; Google không tăng lúc bắt đầu), `headerGen` (giá trị `loadId` lúc đọc trạng thái khi tải trang). Action mang id khác bị bỏ. Key effect: `<provider>/load`, `/poll`, `/poll-wait` (schedule), `/login-start`, `/login-cancel`, `/login-input`, `/login-window`, `/save`, `/verify`, `/disconnect`, `/refresh-load|save|verify`; `provider/header`.
 
@@ -425,6 +427,7 @@ Store: `combine({ chatgpt, antigravity, launcher })`; mọi reducer thấy mọi
 | `loading` | `providers` thiếu hoặc trạng thái lạ (ChatGPT) | lỗi `INVALID_PROVIDER_STATUS` | xem dòng lỗi |
 | `loading` | `preferences` (ChatGPT) | lưu preferences | `fetch models` nếu `connected`, không thì placeholder "kết nối để tải" và xong |
 | `loading` | `models` | danh sách model, lựa chọn đã lưu, effort; model đã lưu không còn thì hiện mục vô hiệu và báo | xong |
+| `loading` | catalog trả `provider_in_use` | giữ status/account/badge và model đã biết; hiện lý do chờ notes task, không đổi provider thành unavailable | xong |
 | `loading` | lỗi mạng/HTTP, body không phải object | lỗi hiện ra; ChatGPT giữ trạng thái cuối nếu có, không thì badge `error`; Google badge `error` trừ khi cần đăng nhập lại | xong |
 | bất kỳ | kết quả với `loadId` cũ | không đổi | |
 | trang vừa tải | `header-requested` rồi kết quả | ChatGPT: đặt trạng thái chỉ khi `headerGen = loadId` (chưa có lượt tải mới hơn), sai thì nút `error`; Google: đặt nút chỉ khi chưa có trạng thái | `fetch provider/header` |
@@ -452,13 +455,13 @@ Cuộn tới mục Google (`launcher.scroll`): đặt khi mở từ nút Google;
 | `connected` | `verify-requested` | bận kiểm tra, "Đang chạy…" | `fetch verify` (POST) |
 | bận kiểm tra | `verify` ok | kết quả `success`, cập nhật `verification` của provider | |
 | bận kiểm tra | `verify` lỗi | kết quả `error`; hết bận | refresh nếu cần đăng nhập lại |
-| ChatGPT `connected` | `disconnect-confirm-toggled` | mở hoặc đóng câu hỏi xác nhận; yêu cầu focus | |
 | ChatGPT | `disconnect-requested` | bận ngắt | `fetch disconnect` (DELETE) |
 | ChatGPT bận ngắt | trả lời `disconnected` | `disconnected`, xóa model, đóng xác nhận, thông báo thu hồi từ xa, focus nút đăng nhập | `call provider.choice-changed` |
 | ChatGPT bận ngắt | trả lời khác hoặc lỗi | `DISCONNECT_NOT_CONFIRMED` hoặc lỗi; giữ kết nối; xác nhận vẫn mở | |
-| Google | `disconnect-requested` | bận ngắt | `fetch disconnect` |
-| Google bận ngắt | trả lời ok | thông báo; vẫn bận | `fetch providers` (tải lại), `afterLoad` |
-| Google chờ tải lại | tải xong (thành công hay lỗi) | hết bận | `call provider.choice-changed` |
+| ChatGPT hoặc Google | `disconnect-confirm-toggled` | mở hoặc đóng câu hỏi xác nhận; yêu cầu focus | |
+| Google | `disconnect-requested` sau xác nhận | bận ngắt | `fetch disconnect` |
+| Google bận ngắt | trả lời `disconnected` | `disconnected`, xóa model, thông báo local-only, focus nút kết nối | `call provider.choice-changed` |
+| Google bận ngắt | trả lời khác hoặc lỗi | lỗi xác nhận provider-specific hoặc lỗi provider; giữ kết nối, không tuyên bố remote revoke | |
 | bất kỳ | `choice-edited` | model/effort chọn đổi; ChatGPT đổi model thì effort về mặc định hoặc đã lưu; báo "chưa được lưu" nếu khác đã lưu | |
 
 **Đăng nhập**:
@@ -523,7 +526,7 @@ Core `notes-core.js` (`initialState`, `reduce`, `selectView`, `hasUnsavedDraft` 
 
 **Tiến độ và lỗi (#82–#83)**: task giữ `progress {current, total, unit}` từ API. Các stage `chunking`, `merging`, `repairing`, `rendering` cùng thuộc bước tạo nội dung; `preparing_source` là chuẩn bị. Số chunk và lượt merge tăng sau kết quả hợp lệ; recovery với tổng chưa biết đếm lượt bắt đầu, nên không gọi là đã hoàn tất. Khi `worker_state = checking-worker`, dòng trạng thái ưu tiên kiểm tra worker và ẩn dòng giai đoạn còn lưu để không khẳng định inference vẫn đang chạy. Lỗi request và lỗi task đã lưu được giải bằng mã và provider; mã lạ dùng câu dự phòng đã dịch, không hiển thị nguyên văn thông báo lỗi của server.
 
-**Chọn provider/model** (`choice`): `loadId + 1`, `loading`, `loaded = false`, rồi `providers` và `preferences` song song; cả hai ok thì áp (trạng thái, preferences, `loaded`, `loadedFor`) và tải catalog của provider `connected` (provider khác: `catalogs = null` kèm lý do); catalog xong hết thì `loading = false`. Một trong hai lỗi: `loaded = false`, `loading = false`, `message` (chặn tạo notes tới khi tải lại); catalog lỗi: `provider_in_use` hoặc lỗi chung, model đã lưu vẫn giữ. Mọi kết quả `loadId` cũ bị bỏ. Chọn provider có model đã lưu hoặc chọn model: `saving`, `PUT /api/notes-preferences` (`saveId`); ok: `preferences`, `message` (nói rõ task đang chạy giữ provider cũ), `saving = false`; lỗi: `message`, lựa chọn đã lưu giữ. Chọn provider chưa có model: `localProvider` tới khi chọn model. Ngôn ngữ đầu ra: ghi local+session; bị bỏ khi có `pending`.
+**Chọn provider/model** (`choice`): `loadId + 1`, `loading`, `loaded = false`, rồi `providers` và `preferences` song song; cả hai ok thì áp (trạng thái, preferences, `loaded`, `loadedFor`) và tải catalog của provider `connected` (provider khác: `catalogs = null` kèm lý do); catalog xong hết thì `loading = false`. Một trong hai lỗi: `loaded = false`, `loading = false`, `message` (chặn tạo notes tới khi tải lại); catalog lỗi: `provider_in_use` hoặc lỗi chung, model đã lưu vẫn giữ. Mọi kết quả `loadId` cũ bị bỏ. Khi provider connected nhưng model đã lưu không có trong catalog, nút chính là `Chọn hoặc đổi model để tạo notes.` (`action = configure`), mở chính ô chọn hiện có và focus `#notes-model`; không mở luồng kết nối và không tự chọn model. Chọn provider có model đã lưu hoặc chọn model: `saving`, `PUT /api/notes-preferences` (`saveId`); ok: `preferences`, `message` (nói rõ task đang chạy giữ provider cũ), `saving = false`; lỗi: `message`, lựa chọn đã lưu giữ. Chọn provider chưa có model: `localProvider` tới khi chọn model. Ngôn ngữ đầu ra: ghi local+session; bị bỏ khi có `pending`.
 
 **Chạy, hủy**:
 
@@ -534,7 +537,8 @@ Core `notes-core.js` (`initialState`, `reduce`, `selectView`, `hasUnsavedDraft` 
 | `starting` | `start` ok, task hợp lệ | `task`, khóa nguồn theo trạng thái task, xóa `pending`, thông báo | xóa storage; `call setNotesSourceLock`; task chạy: poll; không: đọc notes |
 | `starting` | `start` ok, task sai hình dạng | `runError` không chắc chắn (giữ `pending`) | |
 | `starting` | `start` lỗi 4xx | xóa `pending`; `runError` theo `error.code` của provider; có mã: tải lại lựa chọn; 409: đọc notes, làm mới meeting | |
-| `starting` | `start` lỗi mạng/5xx | giữ `pending`, `runErrorUncertain`; nút thành "Xác minh yêu cầu notes" gửi lại cùng request id | |
+| `starting` | `start` trả mã provider/worker từ chối trước admission (kể cả một số 503 typed) | xóa `pending`, `runError` theo mã và cho phép xử lý lại; không gọi đó là mất mạng | |
+| `starting` | `start` lỗi mạng/5xx chưa rõ kết quả | giữ `pending`, `runErrorUncertain`; nút thành "Xác minh yêu cầu notes" gửi lại cùng request id | |
 | task đang chạy, không `canceling` | `cancel-clicked` | `canceling = true` | `fetch POST` hủy |
 | `canceling` | `cancel` ok | `task` mới, xóa `runError`; còn chạy: poll; không: đọc notes | |
 | `canceling` | `cancel` lỗi | `runError`, `canceling = false` | |
